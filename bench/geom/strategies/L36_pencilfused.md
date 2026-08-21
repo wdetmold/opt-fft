@@ -280,3 +280,176 @@ In priority order, with why I expect each to pay:
    number of open streams in both pass 1 and the y-pass. Free at TW=4; breaks the lane
    alignment at TW=8 (see #8), so it needs pass 1 to switch to `(y, z-group)` grouping
    there and pay the 11%.
+
+---
+
+## Round panel_r2
+
+### Where round 1 landed, and the diagnosis
+
+Node (Gold 5218, panel_r1): **194.2 µs at B=1** against **L36_mixedradix's 118.4** —
+1.64× behind, on the same PFA-4×9 arithmetic. Reading their strategy record against my
+own pass breakdown, the gap decomposes into exactly the things their design does and
+mine did not:
+
+1. **Split-complex was the wrong layout for a batch-of-one 36-cube.** My PFA stage
+   boundary was 72 live vectors (36 re + 36 im); theirs is 36 interleaved-complex
+   vectors. On 32 registers mine spilled ~40 vectors per line-group (201 stack `vmov`s
+   per body in the old disassembly), theirs barely spills. Their counted argument —
+   which I verified independently — is that interleaved complex costs the *same*
+   FMA-port pressure at every module (DFT4 2 ops/complex-lane, DFT3 1.5, CMUL 0.5,
+   using swap+sign-constant FMAs for the ±i and cmul), and its extra shuffles sit on
+   port 5, which the FP work leaves ~80% idle. Their 248 FMA-port ops per PW lines vs
+   my 544 source ops per TW lanes is *fewer ops at equal width* once you count the
+   de/re-interleave I also had to pay at the buffer boundaries and they don't.
+2. **The separate 746 KB split-complex scratch was pure loss.** Resident set was
+   in + A + out = 2.2 MB against their in + out = 1.46 MB; on the 1 MiB-L2 node that
+   is an extra full-volume round trip through L3 (+RFO) per transform.
+3. **36/8 lane waste**: my TW=8 path wasted 11% on two of three axes. Interleaved
+   lanes hold complex *pairs*, and 36 is divisible by both PW=2 and PW=4, so the
+   waste vanishes identically.
+
+### Technique (rewrite, borrowed core acknowledged)
+
+**Adopted from L36_mixedradix round 1** (this is the round's headline borrow, stated
+plainly): interleaved-complex end to end, a vector lane = one 128-bit re/im pair = one
+*line* of the pass; the ±i and constant-cmul realized as CSWAP (in-lane `vpermilpd`)
+plus sign-alternating constant FMAs; 248 FMA-port ops + 49 port-5 shuffles per PW
+lines; and the in-place discipline that keeps the resident set at in + out. Also
+adopted: their **interleaved-rounds autotune protocol** (see below) and their
+observation that pass-1-style access patterns (36 concurrent read streams of stride
+20 736 B) exceed the L2 streamer's tracking, making a one-line-ahead software prefetch
+worth offering to the tuner (their measured best distance; my round-1 prefetch
+experiments had only tried 2–8 *groups*, i.e. 128–512 B, and wrongly concluded
+prefetch never helps).
+
+**Kept from my round 1** (what makes this file not a copy):
+
+* The **pencil-fused two-pass order**: pass 1 = x-transform streaming in→mid with the
+  contiguous flat (y,z) index in the lanes — with interleaved complex this pass now has
+  **zero shuffles of any kind** (their phase 1 carries the z-axis lane transposes; mine
+  puts the transpose-carrying axis inside the L1-resident plane pass). Pass 2 fuses y
+  and z per kx-plane (20.25 KiB): y-transform shuffle-free with lanes = z, PW×PW
+  complex-lane register transposes into a plane buffer P[z][ky], z-transform with
+  lanes = ky reading P contiguously, transposed back on the store to out. Both
+  unavoidable transposes (the round-1 proof still applies) act on L1-resident data.
+* The **{width} × {store mode} self-tuning plan** with the correctness interlock
+  (every candidate must reproduce the PW=2 INPLACE reference to 1e-11 before it is
+  eligible), extended this round to a third axis (prefetch) and a smarter protocol.
+* The **SCRATCH+NT large-batch mode**, which mixedradix does not have: pass 1 writes a
+  one-volume scratch `mid` that is *reused across the batch* (so it stays cache-resident
+  for the whole call), and pass 2b's final store is non-temporal. DRAM traffic per
+  volume ≈ read-in + NT-write-out ≈ 1.5 MB, against INPLACE's ~2.9 MB with the RFO.
+  Round-1 measurement (NT 276 vs cached 421 µs at B=32 on the dev box) predicted this;
+  it is the reason for the B≥32 numbers below.
+
+Modes: **INPLACE** (mid = out; pass 2 rewrites each plane of out in place — safe because
+2a fully drains a plane into P before 2b overwrites it) for batches whose in+out
+footprint can live in cache, **SCRATCH+NT** for streaming batches.
+
+### Operation count
+
+Per 36-point line over PW lanes: 9 DFT4 × (8 FMA-port + 1 swap) + 24 DFT3 × (6 + 1)
++ 16 CMUL × (2 + 1) = **248 FMA-port ops + 49 port-5 shuffles**, identical to
+mixedradix's count (verified in my disassembly: exactly 744 FP instructions across the
+three loop bodies, model exact). Per volume at PW=4: 241k FMA-port instructions vs
+round 1's 528k at TW=4 — **2.2× fewer**. Register transposes add 8 shuffles per PW
+vectors = 18/line at PW=4, port 5. Stack traffic collapsed from 201 `vmov (rsp)` per
+body to ~52.
+
+Floor: 62 cycles/line on one 512-bit FMA pipe (PW=4) or two 256-bit pipes (PW=2) —
+identical on the Gold 5218 by construction, which is why both widths are still built
+and measured rather than assumed (the corpus's AVX-512 licence-downclocking question,
+still unanswered for our sizes; the node's pick this round will answer it).
+
+### The tuner lesson this round (measured, worth keeping)
+
+The round-1 tuner timed each candidate in one contiguous block. On a shared machine
+that is a trap: three consecutive tryout runs picked configs whose steady-state times
+were 63.5 / 78.6 / 112.9 µs — each run internally stable to <0.4%, i.e. the tuner
+locked a bad config in and the whole scored run paid for it. Two fixes, both verified:
+
+1. **Interleaved rounds** (adopted from L36_mixedradix): round-robin all candidates
+   (12 rounds × 6 execs at B≤2, fewer at larger tb) and keep each candidate's minimum,
+   so a load spike hits every candidate equally instead of assassinating whichever one
+   it landed on. Caveat in fairness: some of the "mispick" evidence above is
+   contaminated by the placement effect described under measurement caveats, so the
+   size of this fix's benefit on wallaby is not cleanly separable; it is kept because
+   it is strictly more robust for the same setup cost (~20–80 ms, unscored).
+2. **A physics gate on NT**: the 110-µs outliers were NT+scratch being selected at
+   B=1, where its forced 746 KB DRAM write per call costs ~50 µs and it can never win.
+   NT candidates are now admitted only when batch × 1.46 MB > 16 MB (in+out beyond
+   ~L3), i.e. B≥12; below that the tuner cannot be noise-tricked into it. Round-1 data
+   says the gate loses nothing (NT was neutral at B≤4).
+
+### What was measured (wallaby, Xeon Gold 6448Y Sapphire Rapids, shared and noisy
+today — sd up to 30% between runs; numbers are min-of-many-runs, µs per transform)
+
+| B | round 1 code | this round | L36_mixedradix (same day) | MKL (same day) |
+|---|---|---|---|---|
+| 1 | 103.7 | **55.4** | 50.5 | 76.4 |
+| 4 | — | **70.0** | — | — |
+| 32 | — | **69.5** | 84.0 | 100.9 |
+| 256 | 127.7 (pre-tuner-fix) | **83.0** | — | 198.4 |
+
+Correctness: `rel_l2 = 3.83e-16` at B = 1, 4, 32, 256 (tolerance 1e-12); repeatability
+(bit-identical re-run) verified by tryout on every run above. Both widths validated on
+wallaby natively (it has AVX-512), and the interlock re-validates every candidate at
+plan time on the node.
+
+B=1 is 1.87× faster than round 1 on the same machine; B=32 beats mixedradix by 17%
+on wallaby thanks to the NT mode. At B=1 mixedradix's best min (50.5) is still ~9%
+ahead of mine (55.4) on this noisy box; on the quiet node the ordering is genuinely
+open — their node/wallaby ratio in round 1 was 2.34, mine 1.87.
+
+Measurement caveats learned the hard way, both of which produce a *rock-stable wrong
+number* rather than visible noise:
+
+* **Never run two tryouts concurrently on wallaby.** A B=256 run streams ~373 MB and
+  thrashes the shared L3; B=1 runs launched alongside it sat at a stable 113 µs
+  (sd 0.07%) — exactly 2× the true number.
+* **Wallaby has a bimodal ~2× state even for sequential runs** (roughly 1 process in 5
+  today): stable ~112 µs at sd 0.3%. It hits every implementation the same way
+  (mixedradix's same-day medians show it too), so it is process placement on a busy
+  core/hyperthread sibling, not a plan-time mispick. Take min over ≥4 tryout
+  invocations, not over samples within one, and distrust any single wallaby run —
+  however stable — that is ~2× another.
+
+### What was tried and did NOT work — with the number that killed it
+
+1. **8 candidates timed in contiguous blocks** (the round-1 tuner protocol, just with
+   more configs): 3 runs picked 63.5 / 78.6 / 112.9 µs steady states — up to 2× left
+   on the table from one bad pick. Fixed by interleaved rounds + the NT gate; see above.
+   Rule: *every candidate you add to a self-tuner is a new way for timing noise to hurt
+   you; either interleave the measurement or gate candidates on physics.*
+2. **A cheaper 9-point module (round-1 "next" item 1) — investigated and dropped.**
+   In interleaved-vector currency my DFT-9 is 44 FMA-port ops (6 DFT3 + 4 cmul).
+   A Winograd-style 9-point trades multiplies for additions: ~44 vector adds + 10 muls
+   plus the swap overhead ≈ 54 ops — *worse* in the only currency that binds. This
+   confirms L36_mixedradix's counted rejection (their round-1 item 5) from the other
+   direction; the 6% "n1_9 gap" from my round-1 record was an artifact of split-complex
+   accounting and does not survive the layout change. Do not revisit.
+3. **Split-complex itself** — the entire round-1 design — is this round's headline
+   documented dead end for L=36: identical FMA-port floor, +100% stage-boundary
+   register pressure, +11% lane waste at 512-bit, plus two boundary permute passes.
+   At L=8 (batch-major, 8|width) the split layout wins per L8_batchsimd's record;
+   at L=36 with a batch of 1 it loses. The layout decision is geometry-specific.
+
+### Next
+
+1. **Read the node's tuner verdict** (width and prefetch choice at each batch) off the
+   leaderboard timings if possible; PW=2-EVEX vs PW=4 on a one-FMA-unit Cascade Lake
+   with the licence clock penalty is still the corpus's open gap 6, and this file now
+   generates a clean A/B for it.
+2. **Software-pipeline two zg-groups in pass 2a at PW=2** (32 EVEX ymm, ~18 live →
+   headroom for 2 groups): the u[36] stage barrier serializes each group; two
+   independent groups in flight should cover the DFT3 latency chain. Expected worth:
+   the difference between my 55.4 and mixedradix's 50.5 on wallaby, if it is real.
+3. **B=4 regime**: INPLACE is forced by the NT gate there (footprint 5.8 MB < L3);
+   if the node's B=4 number looks bandwidth-shaped anyway, try SCRATCH+cached-stores
+   as a third mode candidate — mid stays L2-resident across volumes and out is written
+   once, which is one fewer volume crossing than INPLACE when out no longer fits L2.
+4. **If mixedradix stays ahead at B=1 on the node**, the remaining structural
+   difference is their per-x-plane fusion of the z-transposes with the streaming read
+   of `in` (latency hiding) vs my dedicated shuffle-free streaming pass; port the
+   winner's shape onto the loser's tuner.

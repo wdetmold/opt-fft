@@ -423,3 +423,127 @@ In priority order, with why:
 5. Only after 1-4: reorder the last pass to emit a single contiguous output stream so NT
    stores become usable, which is worth something only at B ≥ 256 (39.3 vs 30.2 µs today,
    so ~9 µs of DRAM exposure of which NT stores could recover perhaps a third).
+
+---
+
+## Round panel_r2 (2026-08-21)
+
+### What changed
+
+**The 17-point module was replaced; everything else survived.** The two-FFT16
+Rader kernel (368 emitted FP instructions) was swapped for the symmetrised
+cyclic/negacyclic module **adopted from `L17_winograd` (round 1)** — their
+derivation, their constants, verbatim: fold `u_j = x_j + x_{17-j}`,
+`v_j = x_j − x_{17-j}`, index by the order-8 quotient group of `(Z/17)*` by
+`{±1}`; the `u` half is a cyclic-8 correlation with the real kernel
+`cos(2π·3^r/17)`, split once more with sign-only reductions into a cyclic-4
+(x₀-seeded, so DC is free) plus a negacyclic-4; the `v` half is a dense
+negacyclic-8 with kernel `sin(2π·3^r/17)`. **296 FP instructions (192 FMA +
+104 add/sub, 488 flops) per 17-point transform against 368 — −19.6%.**
+Verified in the emitted assembly: 1184 FP instructions / 4 instantiations.
+
+The plane-fused layout, split re/im, lane blocking, in-place z pass,
+direct-into-A y store, and interleaving x-pass store are unchanged from
+round 1 — the merge is exactly what round 1's "Next" item 4 predicted: their
+kernel is also all-real-constant, lane-invariant, cross-lane-free, so it
+dropped into `wino17()` behind the same `ST` store modes with no layout work.
+Rel L2 vs numpy: **3.114e-16** (B=1), 3.151e-16 (B=8), bitwise repeatable,
+`-Wall -Wextra` clean, AVX2 (Haswell) path runs correctly.
+
+### Operation count per volume (VW=4)
+
+243 kernel blocks × 296 = **71.9k vector FP instructions** (was 89.4k).
+FP floor on a 2-per-cycle 256-bit machine: 36.0k cycles (was 44.7k).
+
+### Measurement methodology on wallaby — read this before comparing numbers
+
+wallaby's per-core clock is **bimodal under other users' load** (~3.9 vs
+~3.0 GHz; the same binary gives 11.0 or 14.1 µs in different runs with tiny
+in-run sd). `tryout.sh` numbers taken solo are therefore ±30% air. All
+comparisons below are **min over ≥4 alternating pinned runs**
+(`taskset -c 17`, 20 samples each), i.e. fast-mode min against fast-mode min.
+This is the same lesson as L17_matrixsimd's round-1 item 12 (block your
+measurements), arriving via frequency instead of licence transitions.
+
+### Measured, wallaby (Sapphire Rapids Gold 6448Y), gcc 11.4, panel flags
+
+| case | round-1 kernel | this round | delta |
+|---|---|---|---|
+| B=1, VW=4 | 11.95–12.02 µs | **11.01 µs** | −8% |
+| B=8, VW=4 (µs/transform) | ~14.2 (no fast-mode run caught) | **10.97** | — |
+| B=256, VW=4 (µs/transform) | 16.37 | **15.66** (one full-turbo run: 12.29) | −4.3% |
+| B=1, VW=8 (`L17R_FORCE_VW=8`) | — | **10.00 µs** | −9% vs VW=4 |
+
+VW=8 winning on wallaby is expected (SPR has **two** 512-bit FMA units) and
+does **not** transfer to the node (one unit) — see "Next".
+
+Static counts for `fft3d_execute` (native build on wallaby): old 4493 instr /
+1472 FP / 72 stack / 448 rip-const; new **4466 / 1184 / 237 / 368**. Note the
+totals are nearly equal — the FP saving is partly re-spent on spills and
+constant loads, which is why the wall-clock gain (8%) is less than the FP gain
+(19.6%). On the node, which was FP-bound at 21.23 µs (floor 19.4), more of the
+19.6% should convert; projected **~17.5 µs at B=1**, vs L17_matrixsimd's 16.99
+and L17_winograd's 18.26.
+
+### What was tried and did NOT work — with the numbers that killed it
+
+1. **Pinning the broadcast constants in registers via an empty asm barrier**
+   (`KREG`, kept in the file under `-DL17R_PIN_CONST`). Motivation: gcc folds
+   every constant into an FMA memory operand (~148 constant-load µops per
+   kernel instantiation) and, worse, **canonicalises `a -= b*c` with constant
+   `c` into `a += b*(-c)` and materialises a separate negated .LC copy** —
+   the emitted code had *zero* `vfnmadd` until the pinning forced it (then
+   256). Measured, wallaby fast-mode B=1: unpinned **11.02**, S̃-stage-only
+   pinned 11.60, all pinned 11.53; stack moves 237 → 279 → 361. The spills
+   the pinning induces cost more than the loads it removes on a 3-load-port
+   core. A 2-load-port Cascade Lake might disagree — one A/B for the monitor.
+2. **The plane-pair slab (round 1's "Next" item 3) LOSES, in every variant.**
+   Two x-planes share T2/U2 buffers (row stride 36) so the z and y passes get
+   a 34-wide lane space: 77+77 blocks instead of 85+85, −6.6% kernel FP.
+   Measured, wallaby fast-mode B=1 against 11.01 pre-slab:
+   * z+y slab, straddling y-block stored with 136 scalar extracts: **11.53**;
+     first attempt also instantiated the kernel 8× and blew `fft3d_execute`
+     to 9.6k instructions ≈ 38 KB, past L1i — table-driven loops (one z site,
+     one y site, one straddle site) brought it back to 5.2k and it *still*
+     lost.
+   * same with the straddle store as one AVX-512VL masked store
+     (`_mm256_mask_storeu_pd(p−1, 0xE, v)`, faults suppressed on the
+     masked-off lane — the trick works and is worth keeping): **11.34**.
+   * **z-slab only**, no straddle, y per plane: **11.37**.
+   So the pair *plumbing itself* costs ~0.4 µs — the 2.9× larger plane
+   buffers (19.6 KB vs 10.9 KB across T/U × re/im) and offset transposes eat
+   more than the 2368-cycle FP saving, and the node's 32 KB L1d would make
+   the footprint worse, not better. **Do not retry the slab without first
+   explaining the plumbing cost.** The 12% lane tax stands at ~6.6%
+   recoverable and unrecovered.
+3. **`a -= b*c` as a source-level fnma spelling** (sign-token macros): gcc 11
+   canonicalises it right back to a negated constant. Harmless (kept — the
+   file reads better) but it changes nothing without `L17R_PIN_CONST`.
+
+### Borrowed / read this round
+
+* **The whole 17-point module from `L17_winograd`** (their round 1, §1(b)-(e)),
+  constants verbatim from `impl/L17_winograd.c`. Attribution in the file
+  header too. Their negative results (WFTA-17, every negacyclic-8 split,
+  batch-in-lanes) were treated as settled and not retried.
+* From `L17_matrixsimd`: the measure-in-blocks discipline (their item 12) —
+  adapted here as alternating pinned runs; their NT-store-loses-on-the-node
+  measurement (item: 34.4 vs 28.0 at 384 volumes) — my round-1 item 7
+  rejection of NT stores stands and was not revisited.
+
+### Next (for the monitor / next round, in order)
+
+1. **Node A/B: VW=4 vs VW=8 (`L17R_FORCE_VW=8`), all batch sizes.** Round 1
+   measured VW=4 ahead 3.4-6.4% with FP floors 44.7k vs 51.2k cycles; the new
+   kernel narrows the floor gap to 36.0k vs 41.1k while VW=8's non-FP savings
+   (which recovered 2.1 of 2.8 µs last time) are unchanged — **the widths are
+   now within ~0.1 µs of each other on paper and the round-1 answer may
+   flip.** Wallaby's 10.00 vs 11.01 says nothing (two FMA units there).
+2. **Node A/B: `-DL17R_PIN_CONST`** (one build flag). Loses 5% on a
+   3-load-port SPR; a 2-load-port CLX bound elsewhere might take the ~140
+   removed load µops per block.
+3. If matrixsimd is still ahead at B=1 after this lands: the remaining gap is
+   pure non-FP overhead (transposes ~2.4 µs + 237 stack moves), not
+   arithmetic — 296 instr/17-pt is now below their 168×5-chunks-per-17
+   equivalent. Attack the spills (the vv/cc arrays) before touching the
+   transposes; round 1's item 2 already killed transpose fusion.

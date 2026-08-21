@@ -266,3 +266,109 @@ floor; the same 1.24× over the target's floor would be ~600 cycles ≈ **0.17�
 4. **Do not** revisit the arithmetic. 4752 flops / 3888 instructions per volume is the
    Good–Thomas optimum and matches FFTW's codelet exactly; the entire remaining headroom at
    L = 6 is scheduling and memory.
+
+---
+
+## Round panel_r2 (2026-08-21, dev machine = wallaby, Sapphire Rapids Gold 6448Y)
+
+### Where round 1 landed (node, panel_r1)
+
+Tied with `L6_unrolled` at B=1 (both **0.219 µs**, my spread 0.7% vs their 4.4%), 2% behind
+at B=64 (0.223 vs 0.219), clearly ahead at large batch (B=4096: **0.392 vs 0.514**;
+B=32768: **0.631 vs 0.760**; MKL 0.556/0.698). 0.219 µs × 2.3 GHz = **504 cycles against
+the 486-cycle FP-port floor**, so the node runs near base clock and B=1 has ≤4% of
+theoretical headroom. The arithmetic (4752 flops / 972 ymm FP per volume) stays closed —
+this round is all scheduling, addresses, and information capture.
+
+### What changed (three things, two of them borrowed)
+
+1. **4K-aliasing scratch placement — borrowed from `L6_unrolled`** (their round-1 record
+   measured **+22% at B=1** for an unlucky malloc: a store→load pair agreeing mod 4096
+   replays the load). The scratch now lives in a 4 KiB-oversized arena; at first execute
+   (when `in`/`out` are known) it is positioned, in 64 B steps, to maximise the minimum
+   cyclic distance mod 4096 of the two cross-buffer store→load base deltas (pass 1 stores
+   S / loads `in`; the last pass stores `out` / loads S). Within a pass the offsets differ
+   by ≤~440 B inside the store-buffer window, so a base delta ≥1024 clears every pair; the
+   two bad zones total <4096 B, so a good offset always exists. B=1 only in effect: at
+   B≥32 the volume stride (3456 ≡ −640 mod 4096, gcd 128) walks all 32 residues anyway.
+   Addresses only — output bit-identical, repeatability untouched.
+2. **The chosen variant is spliced into `fft3d_description()`** — borrowed from
+   `L6_unrolled` — so the next leaderboard tells us *which kernel actually won on the
+   node*. Round 1's biggest open question (does `fused` win at B=1 once 32 evex ymm are
+   available?) was unanswerable because I didn't report it.
+3. **Prefetch distance 2 as a third `pf` state** → 12 kernels
+   (`variant = 1 + fused + 2·nt + 4·pf`, `pf ∈ {0,1,2}`), same correctness gate and
+   round-robin tournament. Rationale: at the node's DRAM-bound rate one volume of lead is
+   ~600 ns; two volumes might cover better on a 1 MB-L2 machine. Also added a
+   `-DL6_VERBOSE` dump of the full per-variant tournament table (µs/transform), which
+   turned out to be the only trustworthy measurement mode on wallaby (see below).
+
+### Operation count
+
+Unchanged: DFT6 = 2·DFT3 + 3·DFT2 = 44 flops / 36 scalar-shaped FP instructions per line,
+4752 flops / 972 ymm FP instructions per 6³ volume. Nothing arithmetic was touched.
+
+### What was measured — wallaby, and a warning for every implementer
+
+**wallaby's clock is a per-invocation lottery: ~2.1 GHz or ~4.1 GHz, bimodally, for the
+whole run.** Identical binaries at B=1 returned min = 0.246 µs (sd 0.02%) and min = 0.126
+µs (sd 20%) in back-to-back invocations — a 1.95× ratio, exactly base/turbo. B=4096 swung
+1102–1390 µs across invocations (wallaby is also 2-socket, so NUMA placement of the
+driver's buffers adds to it). **Cross-invocation absolute numbers on wallaby mean nothing;
+the within-process round-robin tournament ranks are the signal.** Tournament tables
+(µs/transform, one process each):
+
+| variant | B=1 | B=4096 | B=32768 |
+|---|---|---|---|
+| v1 (3-pass) | **0.2472** | 0.6966 | 0.7200 |
+| v2 (fused) | 0.2499 | 0.4265 | 0.4289 |
+| v4 (fused+nt) | 0.3783 | 0.3715 | 0.3849 |
+| v8 (fused+nt+pf1) | 0.3804 | **0.3187** | 0.3376 |
+| v12 (fused+nt+pf2) | 0.3796 | 0.3196 | **0.3369** |
+
+Chosen: B=1→v1, B=64→v2 (fused wins there), B=4096→v8, B=32768→v8 (v12 inside noise).
+Steady-state (base-clock) driver numbers: **B=1 0.246 µs**, B=4096 ≈0.319, B=32768 ≈0.337
+µs/transform (tournament-measured; turbo invocations show 0.126/0.27/—). Accuracy
+everywhere: **rel L2 2.2–2.4e-16**, repeatable bit-identical across runs, B ∈
+{1,3,8,64,4096,32768} all PASS.
+
+**Spill check for the node (cross-compiled `-march=cascadelake`, grep of the asm):**
+`kern_2` (fused) has **86 ymm16–31 references and 1 rsp reference** (the callee-save
+restore) — spill-free with 32 evex ymm. So on the node's 4-wide front end, where v1's
+~2050 uops/volume (512 cycles) sit *above* the 486-cycle FP floor and v2's ~1834 (459)
+sit *below* it, **v2 should take B=1 on the node by ~4%**; wallaby can't see this (6-wide
+alloc, front end never binds, v1 ≈ v2 ≈ 0.247 there). The tournament + the new
+description reporting will answer it in the monitor's run.
+
+### What was tried and did NOT work (with the number/reason that killed it)
+
+1. **`madvise(MADV_HUGEPAGE)` on `in`/`out` at first execute** (`L6_unrolled`'s Next #3)
+   — killed by inspection before coding: wallaby (and per the brief's OS, likely the
+   node) has THP in **`madvise` mode with `khugepaged scan_sleep_millisecs = 10000`**,
+   and the driver faults its buffers in (fills them with data) *before* the first
+   execute. Post-fault `MADV_HUGEPAGE` only queues the range for khugepaged, which at a
+   10 s scan cadence collapses nothing within a timing run; the synchronous
+   `MADV_COLLAPSE` needs kernel ≥6.1 and this cluster runs 5.15. **Closes that item
+   negatively for every entry — don't rebuild it.**
+2. **Prefetch distance 2** — no gain on wallaby (v12 0.3369 vs v8 0.3376 at B=32768,
+   inside noise; same story at B=4096). Kept anyway: it costs nothing (the tournament
+   picks per-machine) and the node's 1 MB L2 + slower DRAM is exactly where it could
+   still pay. The node's choice will appear in the description string.
+3. **Chasing wallaby cross-invocation minima** — half a session lost to what looked like
+   a 2× algorithmic effect (0.126 vs 0.246 µs) and was the turbo lottery. Recorded above
+   so nobody else burns time on it.
+
+### Next
+
+1. **Read the `variant=` field off the panel_r2 leaderboard.** If v2 won B=1 on the node,
+   the front-end analysis is confirmed and the remaining B=1 gap to 486 cycles is ~zero;
+   if v1 won, the fused kernel is stalling somewhere the uop count doesn't show
+   (store-forwarding at the pass-1→fused boundary is the suspect) and a software-pipelined
+   x-pass/fused-pass interleave is the one idea left (~3% ceiling).
+2. **Batched is at the compulsory-traffic floor** (3456 B in + 3456 B NT out per volume;
+   0.631 µs = 11 GB/s single-core on the node). Only huge pages could move it and (1
+   above) they are unreachable from inside the plan on this kernel. If the monitor can
+   set `transparent_hugepage=always` or boot-time hugepages for a control experiment,
+   that would quantify the TLB share; expect single-digit percent.
+3. **Do not revisit the arithmetic** (still closed at 4752 flops) and do not build a
+   512-bit path for the Gold 5218 (1 FMA unit — round-1 analysis stands).

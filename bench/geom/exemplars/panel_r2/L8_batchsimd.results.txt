@@ -1,0 +1,5 @@
+   L8_batchsimd                   0.598 us     0.598 us    38.53       0.8%    0.033s  ok 2.0e-16       1.04x
+   L8_batchsimd                   0.636 us    40.724 us    36.21       2.8%    0.046s  ok 1.9e-16       1.00x
+   L8_batchsimd                   1.205 us  2468.771 us    19.11       1.4%    0.136s  ok 1.9e-16       1.00x
+   L8_batchsimd                   1.557 us 25514.526 us    14.79       0.3%    0.128s  ok 1.9e-16       1.00x
+   L8_batchsimd             split-complex radix-8 (DFT8 (x) I_8), non-destructive vshuff64x2 8x8 repack, lane-per-x default, NT stores at large batch

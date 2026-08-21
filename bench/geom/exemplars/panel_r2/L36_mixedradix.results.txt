@@ -1,0 +1,5 @@
+   L36_mixedradix               120.322 us   120.322 us    30.07       1.3%    0.071s  ok 4.0e-16       1.01x
+   L36_mixedradix               129.745 us   518.980 us    27.89       2.2%    0.108s  ok 4.0e-16       1.01x
+   L36_mixedradix               231.373 us  7403.943 us    15.64       0.8%    0.116s  ok 4.0e-16       1.14x
+   L36_mixedradix               261.463 us 66934.423 us    13.84       0.6%    0.109s  ok 4.0e-16       1.09x
+   L36_mixedradix           row-column PFA 4x9 line codelet, batch-vectorised over lines, L1-blocked planes, 2 passes over the volume, AVX2/AVX-512 autotuned

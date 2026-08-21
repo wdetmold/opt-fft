@@ -1,0 +1,5 @@
+   L6_unrolled                    0.218 us     0.218 us    38.35       4.1%    0.289s  ok 2.5e-16       1.00x
+   L6_unrolled                    0.214 us    13.677 us    39.19       3.6%    0.311s  ok 2.4e-16       1.00x
+   L6_unrolled                    0.384 us  1574.027 us    21.79       0.7%    0.237s  ok 2.4e-16       1.00x
+   L6_unrolled                    0.572 us 18734.050 us    14.65       0.4%    1.129s  ok 2.4e-16       1.00x
+   L6_unrolled              L=6: unrolled straight-line PFA 2x3 six-point codelet (48 flops/36 instr, no twiddles) on all three axes, AVX2/FMA 2-complex lanes, in-register z-pencil transposes; variant=fused_pf

@@ -250,3 +250,136 @@ the batched case is likely to become genuinely bandwidth-bound.
    be tested by measuring a hugepage-backed copy in a harness first.
 4. **Do not** revisit the codelet arithmetic. 56 flops is proven optimal three ways, the
    instruction form is 54, and the kernel has no twiddle table to load.
+
+---
+
+## Round panel_r2
+
+### Where round 1 landed (node, panel_r1)
+
+B=1 **0.576 µs** — a three-way tie with L8_fusedaxes (0.570) and L8_batchsimd (0.573),
+all ahead of MKL (0.651).  Batched is where I lost: B=2048 **1.526 µs** vs batchsimd
+1.432 and MKL 1.338; B=16384 **2.018 µs** vs batchsimd 1.782 and MKL 1.772.  The node
+picked the AVX-512 backend (0.576 µs ≈ 1325 cycles at 2.3 GHz against my 1296-cycle p0
+bound), which settles round 1's open question: AVX-512 is worth its licence at L=8 on the
+Gold 5218.  B=1 was already at ~98% of my port-0 bound, so this round attacks the bound
+itself and the batched regime.
+
+### What changed (three edits, all borrowed — this is the cumulative round working as intended)
+
+1. **Codelet: 54 → 52 instructions** (borrowed from **L8_batchsimd** round 1).  My round-1
+   w8^{1,3} twiddle+butterfly was `p = C·c5r; d = fma/fms(C, c5i, ±p)` then 4 add/sub
+   = 7 instructions per twiddle pair.  batchsimd's formulation is
+   `s = c5r+c5i; t = c5i−c5r; Y1,Y5 = fma/fnma(C, s|t, c1)` = 6.  Two pairs per codelet
+   ⇒ 52 = 44 add/sub + 8 FMA/FNMA.  Per volume: 24 × 52 = **1248 FP instructions**, the
+   same p0 floor batchsimd quotes.  On a 1-FMA-unit node that is −48 p0 cycles/volume
+   = −3.7% at B=1.  Verified the algebra term-by-term against the round-1 expressions
+   before editing (d = C(1−i)c5 ⇒ dr = C(c5r+c5i), di = C(c5i−c5r); e = −C(1+i)c7 ⇒
+   er = C(c7i−c7r), ei = −C(c7r+c7i)).  KMUL/KFMS primitives are gone; KFNMA added.
+
+2. **AVX-512 transposes: copy-free, index-vector-free** (borrowed from **L8_fusedaxes**
+   round 1, which measured the mechanism, via **L8_batchsimd**'s round-1 write-up of the
+   same network).  My round-1 8×8 transpose used 8 `vpermt2pd` in its middle level;
+   `vpermt2pd` is destructive and each source is used twice, so gcc emitted 4
+   `vmovapd zmm,zmm` per transpose = **128 copies/volume**, plus 2 live index registers.
+   The replacement network is `vshuff64x2 0x44/0xEE` (reg bit 2 ↔ lane bit 2), then
+   `vshuff64x2 0x88/0xDD` (the 3-cycle r1→l2→l1→r1 — the trick, since a straight r1↔l1
+   has no non-destructive encoding), then `vunpcklo/hi` (reg bit 0 ↔ lane bit 0):
+   24 immediate-controlled non-destructive shuffles giving `o[k][l] = in[SW(l)][k]`,
+   SW = (0,1,4,5,2,3,6,7), an involution.  I re-verified this against emulated intrinsic
+   semantics before use (same discipline as round 1).
+   **How the SW residue is absorbed in MY pass structure** (differs from both rivals):
+   the first transpose (de-interleave) already yields natural register order, and the
+   lane residue on y is invisible through the elementwise z-codelet; the second transpose
+   writes network output k into slot SW(k) — a free renaming — so registers are natural
+   again and the lanes carry k2 = SW(l) through the scratch into pass 2; the final
+   interleave index vectors compose SW⁻¹ = SW: il = {0,8,1,9,4,12,5,13},
+   ih = {2,10,3,11,6,14,7,15}.
+   **A wrinkle worth recording:** I also killed the interleave's own copy.  Both output
+   permutes read {re, im}, so whichever runs first must preserve the other's source — one
+   copy per KILV (64/volume) — *unless* the two permutes destroy different sources:
+   `permutex2var(re, il, im)` for the low line and `permutex2var(im, ih', re)` for the
+   high line, with ih' rewritten for the swapped operand order ({10,2,11,3,14,6,15,7}).
+   Assembly audit of the emitted cascadelake code: **0 `vmovapd zmm,zmm`, 0 stack
+   spills/reloads, 0 `vpermt2pd` outside the 16 interleaves** — 192 copies/volume in
+   round 1, 0 now.
+
+3. **Next-volume software prefetch in the streaming regime** (borrowed from
+   **L8_batchsimd** round 1).  The L2 streamer stops at 4 KiB page boundaries; an 8 KiB
+   volume spans two pages, so at large B the read stream restarts twice per volume.
+   Pass 1 of volume b now issues `prefetcht0` for the 128 lines of volume b+1 (16 per
+   x-plane iteration), only when the tuner chose an NT-store kernel (`plan->nt`) — at
+   cache-resident batch sizes the prefetches are pure overhead.  The create-time tuner
+   times the NT candidates *with* the prefetch so the decision reflects what will run.
+   Kernel signature gained a `pf` pointer (NULL = off; also NULL for the last volume).
+
+### Operation count per volume (updated)
+
+24 codelets × 52 = **1248 vector FP instructions** (p0), 896 shuffles (768 transpose +
+128 interleave, p5), 512 loads/stores, **0 register copies, 0 spills** — down from
+1296 FP + 896 shuffles + 192 copies in round 1.  Classic flop accounting unchanged
+(10752 = 192 lines × 56).  New p0 bound: 1248 cycles ≈ **0.543 µs at 2.3 GHz**.
+
+### What was measured (wallaby, Sapphire Rapids Gold 6448Y, gcc 11.4, tryout.sh)
+
+| case | round 1 | this round | delta |
+|---|---|---|---|
+| B=1 | 0.341 µs | **0.323 µs** | −5.3% (beats MKL's 0.330 on wallaby) |
+| B=512 | 0.502 µs/vol | **0.469 µs/vol** | −6.6% |
+| B=4096 | 0.507 µs/vol | **0.453 µs/vol** | −10.8% |
+| B=64 | — | 0.347 µs/vol | |
+| B=2048 | — | 0.885 µs/vol (sd 3.3%, straddles wallaby's L3) | |
+| B=16384 | — | 0.623 µs/vol | |
+
+Correctness: PASS at B = 1, 3, 8, 64, 512, 2048, 4096, 16384, rel_l2 = 1.31e-16 …
+1.34e-16 (round 1: 1.38e-16 — the FNMA form is marginally *better* conditioned),
+rel_max ≤ 2.9e-16, bit-identical re-runs everywhere.  The AVX2 path (wallaby,
+`-mno-avx512f`: 0.616 µs/vol at B=8) and the portable path (`-mno-avx512f -mno-avx2`:
+3.81 µs/vol) both PASS — the shared kernel body means the AVX-512 algorithm text is
+exercised by every backend; only the ~10 z_* primitives are AVX-512-specific, and those
+were re-verified by emulation.  Builds warning-free under `-Wall -Wextra` at
+cascadelake / haswell / x86-64.
+
+Caveat for the monitor's numbers: wallaby runs 512-bit code at full clock and has 2 MB
+L2 / huge L3, so (a) the copy-removal win shows up smaller there than the model predicts
+for a 1-FMA Cascade Lake (copies are rename-eliminated on real SPR hardware; on the node
+they still cost front-end slots and, per llvm-mca, p0/p5 slots), and (b) the B=2048
+number does not transfer at all (32 MiB vs different L3).  The prefetch win should be
+*larger* on the node, whose DRAM latency is not hidden by a 2 MB L2.
+
+### What was tried and did NOT work
+
+* **Making the final interleave unpck-only** (2 `vunpck` instead of 2 `vpermt2pd` per
+  row) by choosing the lane residue: needs lanes in perfect-shuffle order
+  (0,4,1,5,2,6,3,7), but the reachable lane permutations of a 3-stage non-destructive
+  network are only identity and SW = swap(l1,l2) (L8_fusedaxes round 1 proved this; I
+  re-checked by enumeration while deriving the index vectors).  The perfect shuffle is
+  unreachable, so 2 two-source permutes per output row is already minimal.  Not built;
+  killed by the enumeration.
+* **Nothing else was newly attempted this round** — the round-1 failure list (interleaved
+  complex, pass reorderings, lane-axis DFT, batch-in-lanes, vector radix) still stands
+  and none of the other entries' records contradict it.
+
+### Attribution summary
+
+52-instruction codelet: **L8_batchsimd**.  Non-destructive transpose network:
+**L8_fusedaxes** (discovered), **L8_batchsimd** (also adopted it; my SW-absorption and
+the copy-free interleave-source swap are new here).  Next-volume prefetch:
+**L8_batchsimd**.
+
+### Next
+
+1. **Node numbers first.**  Predicted B=1 ≈ 0.545–0.555 µs (1248-cycle p0 bound + loads
+   at the boundary).  If the node still shows ≥ 1300 cycles, the residue is front-end or
+   load-port pressure — profile with llvm-mca markers per loop rather than guessing.
+2. **B=16384 is the test of the prefetch.**  If it does not close most of the gap to
+   batchsimd's 1.782 µs, the difference is their block structure (8 volumes in flight
+   giving longer independent load streams), and the next move is a 2-volume software
+   pipeline (pass 2 of volume b overlapped with pass 1 of volume b+1, double-buffered
+   16 KiB scratch).
+3. **B=2048 (1.5× L3)**: if MKL stays ahead there and only there, try a create-time
+   *third* store variant that uses regular stores for the first ~⅓ of the batch and NT
+   for the rest (the L3 can absorb part of the output); cheap to add to the tuner.
+4. Still do not revisit the codelet arithmetic: 52 instructions issues the proven-minimal
+   56-flop module with every ±i free; the only way below 1248 p0 instructions is a
+   different factorization, and every candidate in the corpus adds shuffles.

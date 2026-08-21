@@ -1,0 +1,5 @@
+   L8_fusedaxes                   0.573 us     0.573 us    40.22       1.2%    0.000s  ok 2.3e-16       1.00x
+   L8_fusedaxes                   0.638 us    40.826 us    36.12       5.8%    0.000s  ok 2.3e-16       1.00x
+   L8_fusedaxes                   1.503 us  3078.524 us    15.33       0.2%    0.000s  ok 2.3e-16       1.25x
+   L8_fusedaxes                   1.614 us 26442.034 us    14.28       0.4%    0.000s  ok 2.3e-16       1.04x
+   L8_fusedaxes             8^3 fused x/y/z in L1, split-complex, spatial axis in the SIMD lanes
