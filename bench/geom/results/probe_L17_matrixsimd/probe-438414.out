@@ -1,0 +1,20 @@
+host: p55n3
+Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
+isa: avx2 avx512_vnni avx512bw avx512cd avx512dq avx512f avx512vl fma 
+L2: 32 MiB (32 instances)   L3: 44 MiB (2 instances)
+== building on this node with -march=native (AVX-512 available) ==
+-- L=17 B=2048 --
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, fused transpose              20.49 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, split transpose              23.94 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, k-blocked                    19.92 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, k-blocked+L1 butterfly       19.63 us/transform  <== kept
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, fused transpose              22.24 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, split transpose              26.32 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, k-blocked                    23.76 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, k-blocked+L1 butterfly       23.57 us/transform
+[L17_matrixsimd tune] nv=384  plain 27.99 us/transform   NT-store 34.39 us/transform  -> plain
+L17_matrixsimd           L=17  B=2048  inner=1        min= 60230.790 us  median= 60371.993 us  sd=  0.20%     10.24 GF/s  setup=0.169 s
+      PASS rel_l2=3.224e-16 rel_max=4.213e-16 (tol 1e-12) L=17 B=2048
+mkl_dfti                 L=17  B=2048  inner=1        min=212677.619 us  median=222361.839 us  sd= 17.73%      2.90 GF/s  setup=0.055 s
+      PASS rel_l2=3.123e-16 rel_max=4.238e-16 (tol 1e-12) L=17 B=2048
+== probe of L17_matrixsimd complete ==

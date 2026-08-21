@@ -82,57 +82,65 @@ repeated 3 times independently; the leaderboard reports the minimum across proce
 with the spread beside it. **Non-batched (`B=1`) and batched are scored separately** —
 being fast only in one regime is a partial result, so state which you optimized for.
 
-## Develop with a fast local loop — you are expected to iterate
+## Where to develop: wallaby
 
-Do not write the whole thing and hope. Build, run and check after every change, on the
-login node, as often as you like. One command does it:
+**Develop and measure on `wallaby`**, not on the login node you land on and not on the
+benchmark node. It shares this filesystem, so there is nothing to copy:
 
 ```bash
 cd /home/lqcd/wdetmold/fft/bench/geom
-./tryout.sh L17_rader              # infers L from the name, uses B=8
-./tryout.sh L17_rader 17 256       # explicit L and batch
-./tryout.sh L8_radix8 8 512 -fno-tree-vectorize    # extra gcc flags pass through
+./tryout.sh --on wallaby L17_rader            # infers L from the name, B=8
+./tryout.sh --on wallaby L17_rader 17 256     # explicit L and batch
+./tryout.sh --on wallaby L8_radix8 8 512 -fno-tree-vectorize   # gcc flags pass through
 ```
 
-`tryout.sh` compiles only your file into a private scratch directory (never the shared
+`tryout.sh` builds only your file into a private scratch directory (never the shared
 build tree, so it cannot race with the other implementers), generates data, times it,
-verifies against numpy, **re-runs and checks the output is identical** (the repeatability
-clause — the timing loop calls your execute thousands of times), and prints the best
-library on the same case for reference. Run it constantly.
+verifies against numpy, **re-runs and checks the output is bit-identical** (the
+repeatability clause — the timing loop calls your execute thousands of times), and prints
+the best library on the same case. Run it after every change.
 
-**What local timing can and cannot tell you.** The login node is a shared 48-thread
-Haswell with other people's jobs on it. Treat its numbers as *relative only* — good for
-"did this change help", useless as a reported result. Three specific traps:
+| | `wombat` (default login) | **`wallaby` (use this)** | benchmark node (monitor only) |
+|---|---|---|---|
+| CPU | Xeon E5-2680 v3, Haswell | **Xeon Gold 6448Y, Sapphire Rapids** | Xeon Gold 5218, Cascade Lake |
+| cores | 24c / 48t, shared and busy | **64c / 128t, near-idle** | 32c / 64t, exclusive |
+| AVX-512 | **none** | **full, incl. fp16/bf16/vbmi2** | full (f/dq/bw/vl/cd/vnni) |
+| L1d / L2 per core | 32 KB / 256 KB | 48 KB / **2 MB** | 32 KB / **1 MB** |
+| run-to-run spread | ~0.4% and up | **~0.04%** | ~0.3% (exclusive) |
 
-* **No AVX-512.** An `#ifdef __AVX512F__` path does not even compile here without an
-  explicit `-mavx512f`, and cannot execute at all. Your AVX-512 code is unverified until
-  it runs on the benchmark node.
-* **Different cache hierarchy.** Haswell has **256 KB of L2 per core**; the benchmark node
-  has **1 MB**. Any blocking or tile size you tune locally is tuned against the wrong
-  cache — this matters most at L=36 (746 KB per volume: 2.9× the local L2 but under the
-  node's) and for the L=8 batched cases.
-* **Shared and noisy.** Run-to-run spread of tens of percent is normal here. Small
-  differences measured locally are not real.
+wallaby is the right development machine on every count: it is idle, so its numbers are
+stable enough to see a small change; and it has AVX-512, so your `#ifdef __AVX512F__`
+path can actually be **run and verified**, not merely compiled.
 
-**Taking your own measurement on the real machine.** When a decision actually depends on
-the target hardware — "is my AVX-512 kernel faster than my AVX2 one", "which tile size
-wins at L=36" — measure it there yourself:
+**But wallaby is not the scoring machine, and two differences matter.**
 
-```bash
-./probe_node.sh L36_pfa                      # sensible batch points for that L
-./probe_node.sh L8_batchsimd --batches "1 64 2048"
-```
+* **L2 is 2 MB per core on wallaby against 1 MB on the benchmark node.** A tile or
+  blocking parameter tuned on wallaby can be twice too large for the machine you are
+  scored on. This bites hardest at L=36 (746 KB per volume) and in the L=8 batched cases.
+  Where a blocking size matters, make it a compile-time constant that is easy to change,
+  say why you chose it in your strategy record, and expect the monitor's numbers to
+  revise it.
+* **AVX-512 frequency behaviour is completely different.** Sapphire Rapids runs 512-bit
+  code at essentially full clock; Cascade Lake applies severe licence-based downclocking
+  (the corpus documents a Gold 5120 going 2.7 GHz scalar → 2.3 AVX2 → **1.6 AVX-512**).
+  So a 512-bit kernel that wins on wallaby can lose to a 256-bit one on the scoring node.
+  If you write an AVX-512 path, keep the AVX2 path working and competitive, and say in
+  your record which you expect to win where. Nobody has measured this for our sizes.
 
-That submits a short `--exclusive` job which builds only your file (plus an MKL baseline)
-on the benchmark node, times both on identical data, and verifies correctness. Results
-land in `results/probe_<name>/probe-<jobid>.out`.
+For calibration: at L=8, B=64 MKL runs at 50.1 GF/s on wallaby and 17.3 GF/s on wombat —
+a 2.9× spread on identical code. Never compare a number from one machine to a number from
+another.
 
-**Queue etiquette, please respect it:** the `devel` partition has two nodes and other
-people share this cluster. One probe at a time, keep it short, never resubmit in a loop
-while one is pending. Iterate with `tryout.sh`; use `probe_node.sh` to settle a decision,
-not to explore. Put whatever the node tells you into your strategy record — there is no
-AVX-512 measurement anywhere in the literature corpus, so those numbers are new
-information.
+## The benchmark node is the monitor's
+
+Do **not** submit slurm jobs. The exclusive benchmark node is reserved for the monitor
+agent's cross-checks, so that every scored number is taken on an uncontended machine, by
+one party, with one method — which is the only way the leaderboard means anything. The
+partition is also shared with other people's production work.
+
+`probe_node.sh` exists but refuses to run without `FFT_MONITOR=1`. If you believe you
+need a measurement only the benchmark node can give, say so in your return value and in
+your strategy record, and the monitor will take it for you in the next round.
 
 ## What you are up against (isolated node, round `sota_r1`, per transform)
 

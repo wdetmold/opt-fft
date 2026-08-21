@@ -3,16 +3,33 @@
 # Safe to run repeatedly and concurrently with other implementers -- everything lands in
 # a per-implementation scratch directory and nothing touches the shared bin/ or driver.o.
 #
-# usage: ./tryout.sh <impl-name> [L] [batch] [extra gcc flags...]
-#   e.g. ./tryout.sh L17_rader              # uses the L declared by the file's name
+# usage: ./tryout.sh [--on HOST] <impl-name> [L] [batch] [extra gcc flags...]
+#   e.g. ./tryout.sh --on wallaby L17_rader          # RECOMMENDED: wallaby is idle and
+#                                                    # has full AVX-512
 #        ./tryout.sh L17_rader 17 64
 #        ./tryout.sh L8_batchsimd 8 512 -funroll-all-loops
 #
-# NOTE local timings are RELATIVE ONLY: this is a shared 48-thread Haswell login node
-# with other people's jobs on it, no AVX-512, and a different cache hierarchy from the
-# benchmark node.  Use it to see whether a change helped, never as your reported number.
+# Prefer --on wallaby.  It is a newer, near-idle login node (Xeon Gold 6448Y, Sapphire
+# Rapids, 64 cores, full AVX-512 including fp16/bf16), it shares this filesystem, and its
+# run-to-run spread is ~0.04% against ~0.4% on wombat -- so you can actually see small
+# changes, and you can RUN your AVX-512 path rather than only compile it.
+#
+# Either way, these are DEVELOPMENT timings, relative only.  The scored numbers come from
+# the monitor on the exclusive benchmark node (Cascade Lake), whose cache and AVX-512
+# frequency behaviour differ from both login nodes -- see PANEL_BRIEF.md.
 set -u
 cd "$(dirname "$0")"
+
+# --on HOST: rerun this same script over there (shared filesystem, per-host build dirs).
+if [ "${1:-}" = "--on" ]; then
+  TARGET=${2:-}
+  [ -n "$TARGET" ] || { echo "usage: $0 --on HOST <impl-name> [...]" >&2; exit 2; }
+  shift 2
+  if [ "$TARGET" != "$(hostname -s)" ]; then
+    exec ssh -o BatchMode=yes "$TARGET" "cd $(pwd) && ./tryout.sh $*"
+  fi
+fi
+
 source /home/lqcd/wdetmold/fft/env.sh >/dev/null 2>&1
 
 NAME=${1:-}
@@ -29,7 +46,8 @@ B=${3:-8}
 WORK=${TMPDIR:-/tmp}/fft_tryout_$NAME
 mkdir -p "$WORK"
 
-echo "== building $SRC (local: Haswell, AVX2, no AVX-512) =="
+ISA=$(lscpu | grep -oE "avx512f" | head -1)
+echo "== building $SRC on $(hostname -s) (${ISA:-no avx512}) =="
 if ! gcc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops \
         -I. -o "$WORK/bin" "$SRC" driver.c -lm "$@" 2>"$WORK/build.err"; then
   echo "BUILD FAILED:"; sed 's/^/  /' "$WORK/build.err" | head -30; exit 1

@@ -44,16 +44,23 @@ your assignment rather than all of them.
   directory with an explicit gcc command (the brief shows it).
 * All precomputation goes in fft3d_create(); it is excluded from your timing. Be as
   extravagant there as you like.
-* ITERATE. You are expected to build, run and check continuously as you go, not once at
-  the end. \`./tryout.sh <your-name> [L] [batch]\` does build + run + verify + repeatability
-  + a library reference line in one command, into a private scratch dir that cannot race
-  with the other implementers. Local timings are RELATIVE ONLY (shared Haswell, no
-  AVX-512, 256 KB L2 versus the benchmark node's 1 MB) -- see PANEL_BRIEF.md
-  "Develop with a fast local loop" for what they can and cannot tell you.
-* When a decision genuinely depends on the target hardware (AVX-512 versus AVX2, tile
-  sizes at L=36), take your OWN measurement there: \`./probe_node.sh <your-name>\` submits a
-  short exclusive job that builds and times just your file on the benchmark node against
-  an MKL baseline. One at a time, short, no resubmit loops -- the partition is shared.
+* ITERATE, and do it ON WALLABY. \`./tryout.sh --on wallaby <your-name> [L] [batch]\` does
+  build + run + verify + repeatability + a library reference line in one command, into a
+  private scratch dir that cannot race with the other implementers. wallaby is a
+  near-idle login node (Xeon Gold 6448Y, Sapphire Rapids, 64 cores, FULL AVX-512
+  including fp16/bf16) that shares this filesystem, and its run-to-run spread is ~0.04%
+  against ~0.4% on the default login node -- so you can see small changes, and you can
+  RUN your AVX-512 path rather than only compile it.
+* DO NOT submit slurm jobs. The exclusive benchmark node belongs to the monitor, so that
+  every scored number is taken on an uncontended machine by one party with one method.
+  \`probe_node.sh\` refuses to run for you. If you need a measurement only that node can
+  give, say so in your return value and your strategy record and the monitor will take it.
+* wallaby is NOT the scoring machine and two differences matter: its L2 is 2 MB per core
+  against the benchmark node's 1 MB (so a tile size tuned there can be twice too large),
+  and Sapphire Rapids runs 512-bit code at full clock while Cascade Lake downclocks it
+  hard (2.7 -> 2.3 AVX2 -> 1.6 GHz AVX-512 on a comparable part). So keep the AVX2 path
+  competitive, make blocking constants easy to change, and read PANEL_BRIEF.md
+  "Where to develop: wallaby" before you tune anything.
 * Correctness is a gate, not a tradeoff: relative L2 vs numpy must be < 1e-12, and a
   correct implementation lands near 1e-16. Verify with check.py at B=1 AND at a large
   batch, and verify that calling fft3d_execute twice on one plan still gives the right
@@ -269,6 +276,15 @@ Your job: benchmark them all on an ISOLATED node, on freshly generated random da
 report a leaderboard. Be adversarial about correctness — a fast wrong answer must be
 caught and named.
 
+The exclusive benchmark node is YOURS: implementers are instructed not to submit slurm
+jobs and develop on wallaby instead, precisely so that every scored number comes from one
+uncontended machine measured one way. That makes you the only source of comparable
+numbers, so take the measurement carefully. You may also use
+\`FFT_MONITOR=1 ./probe_node.sh <impl>\` to take a targeted per-implementation measurement
+that an implementer asked for in their return value (several may ask about AVX-512 versus
+AVX2, since Sapphire Rapids development machines do not show Cascade Lake's AVX-512
+downclocking).
+
 Steps:
 
 1. \`cd ${GEOM} && source /home/lqcd/wdetmold/fft/env.sh\`
@@ -291,9 +307,15 @@ Steps:
    what happened. Try the \`prod\` partition only if \`devel\` is unavailable for a long time.
 7. Read results/${ROUND}/leaderboard.txt, results/${ROUND}/environment.txt,
    results/${ROUND}/failures.txt (if present) and results/${ROUND}/build_errors.txt.
-8. Cross-check the implementers' self-reported local timings against what you measured.
-   Flag any entry that is more than ~2x off its own claim, and any entry whose
-   correctness check failed or was never produced.
+8. Cross-check the implementers' self-reported timings against what you measured. Note
+   that they develop on wallaby (Sapphire Rapids, full-clock AVX-512, 2 MB L2/core) while
+   you score on Cascade Lake (downclocked AVX-512, 1 MB L2/core), so an honest entry can
+   legitimately be well off its own number -- MKL alone spans 2.9x between those machines.
+   Flag discrepancies as information about the microarchitecture gap, not as dishonesty,
+   unless an entry claims to beat a library it does not beat anywhere.
+9. Report, per implementation, whether its AVX-512 path or its AVX2 path was the one
+   built on your node, if the source makes that visible -- the corpus has no AVX-512
+   measurement at all for these sizes, so this is new information worth recording.
 
 Return the leaderboard in structured form, per geometry, with the library baselines
 included so the comparison is visible, plus a short verdict per implementation.`,

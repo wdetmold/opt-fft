@@ -1,0 +1,21 @@
+host: p55n3
+Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
+isa: avx2 avx512_vnni avx512bw avx512cd avx512dq avx512f avx512vl fma 
+L2: 32 MiB (32 instances)   L3: 44 MiB (2 instances)
+== building on this node with -march=native (AVX-512 available) ==
+-- L=17 B=1 --
+L17_matrixsimd           L=17  B=1     inner=1190     min=    17.163 us  median=    17.170 us  sd=  2.67%     17.55 GF/s  setup=0.017 s
+      PASS rel_l2=3.192e-16 rel_max=2.983e-16 (tol 1e-12) L=17 B=1
+mkl_dfti                 L=17  B=1     inner=260      min=   105.568 us  median=   105.750 us  sd=  0.14%      2.85 GF/s  setup=0.064 s
+      PASS rel_l2=3.156e-16 rel_max=3.510e-16 (tol 1e-12) L=17 B=1
+-- L=17 B=8 --
+L17_matrixsimd           L=17  B=8     inner=112      min=   176.213 us  median=   177.830 us  sd=  1.25%     13.68 GF/s  setup=0.013 s
+      PASS rel_l2=3.238e-16 rel_max=3.686e-16 (tol 1e-12) L=17 B=8
+mkl_dfti                 L=17  B=8     inner=48       min=   799.121 us  median=   799.899 us  sd=  0.10%      3.02 GF/s  setup=0.061 s
+      PASS rel_l2=3.103e-16 rel_max=3.521e-16 (tol 1e-12) L=17 B=8
+-- L=17 B=256 --
+L17_matrixsimd           L=17  B=256   inner=4        min=  7306.237 us  median=  7357.392 us  sd=  0.47%     10.55 GF/s  setup=0.108 s
+      PASS rel_l2=3.224e-16 rel_max=4.467e-16 (tol 1e-12) L=17 B=256
+mkl_dfti                 L=17  B=256   inner=1        min= 26505.696 us  median= 26552.143 us  sd=  0.16%      2.91 GF/s  setup=0.057 s
+      PASS rel_l2=3.126e-16 rel_max=3.741e-16 (tol 1e-12) L=17 B=256
+== probe of L17_matrixsimd complete ==

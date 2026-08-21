@@ -1,0 +1,46 @@
+host: p55n3
+Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
+isa: avx2 avx512_vnni avx512bw avx512cd avx512dq avx512f avx512vl fma 
+L2: 32 MiB (32 instances)   L3: 44 MiB (2 instances)
+== building on this node with -march=native (AVX-512 available) ==
+-- L=17 B=1 --
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, fused transpose              29.07 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, split transpose              30.27 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, k-blocked                    24.32 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, k-blocked+L1 butterfly       23.52 us/transform  <== kept
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, fused transpose              27.15 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, split transpose              32.94 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, k-blocked                    28.67 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, k-blocked+L1 butterfly       29.93 us/transform
+L17_matrixsimd           L=17  B=1     inner=1678     min=    17.091 us  median=    17.223 us  sd=  0.84%     17.62 GF/s  setup=0.013 s
+      PASS rel_l2=3.192e-16 rel_max=2.983e-16 (tol 1e-12) L=17 B=1
+mkl_dfti                 L=17  B=1     inner=276      min=    98.804 us  median=    98.866 us  sd=  0.20%      3.05 GF/s  setup=0.056 s
+      PASS rel_l2=3.156e-16 rel_max=3.510e-16 (tol 1e-12) L=17 B=1
+-- L=17 B=8 --
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, fused transpose              22.26 us/transform  <== kept
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, split transpose              28.07 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, k-blocked                    26.18 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, k-blocked+L1 butterfly       25.82 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, fused transpose              29.37 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, split transpose              35.28 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, k-blocked                    32.47 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, k-blocked+L1 butterfly       23.20 us/transform
+L17_matrixsimd           L=17  B=8     inner=184      min=   158.334 us  median=   159.366 us  sd=  0.72%     15.22 GF/s  setup=0.014 s
+      PASS rel_l2=3.238e-16 rel_max=3.686e-16 (tol 1e-12) L=17 B=8
+mkl_dfti                 L=17  B=8     inner=24       min=   799.410 us  median=   800.026 us  sd=  0.25%      3.01 GF/s  setup=0.056 s
+      PASS rel_l2=3.103e-16 rel_max=3.521e-16 (tol 1e-12) L=17 B=8
+-- L=17 B=256 --
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, fused transpose              21.32 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, split transpose              23.82 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, k-blocked                    19.86 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 512-bit, k-blocked+L1 butterfly       19.80 us/transform  <== kept
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, fused transpose              22.02 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, split transpose              26.12 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, k-blocked                    23.74 us/transform
+[L17_matrixsimd tune] dense 17x17 matrix/axis, conj-folded, 256-bit, k-blocked+L1 butterfly       23.74 us/transform
+[L17_matrixsimd tune] nv=256  plain 28.35 us/transform   NT-store 32.59 us/transform  -> plain
+L17_matrixsimd           L=17  B=256   inner=4        min=  7072.106 us  median=  7137.696 us  sd=  0.55%     10.90 GF/s  setup=0.106 s
+      PASS rel_l2=3.224e-16 rel_max=4.467e-16 (tol 1e-12) L=17 B=256
+mkl_dfti                 L=17  B=256   inner=1        min= 25959.463 us  median= 25978.424 us  sd=  0.19%      2.97 GF/s  setup=0.056 s
+      PASS rel_l2=3.126e-16 rel_max=3.741e-16 (tol 1e-12) L=17 B=256
+== probe of L17_matrixsimd complete ==

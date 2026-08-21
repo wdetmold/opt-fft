@@ -1,0 +1,21 @@
+host: p55n3
+Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
+isa: avx2 avx512_vnni avx512bw avx512cd avx512dq avx512f avx512vl fma 
+L2: 32 MiB (32 instances)   L3: 44 MiB (2 instances)
+== building on this node with -march=native (AVX-512 available) ==
+-- L=17 B=1 --
+L17_rader                L=17  B=1     inner=1308     min=    21.943 us  median=    21.953 us  sd=  1.75%     13.73 GF/s  setup=0.000 s
+      PASS rel_l2=4.085e-16 rel_max=4.353e-16 (tol 1e-12) L=17 B=1
+mkl_dfti                 L=17  B=1     inner=276      min=    96.994 us  median=    98.973 us  sd=  0.95%      3.11 GF/s  setup=0.056 s
+      PASS rel_l2=3.156e-16 rel_max=3.510e-16 (tol 1e-12) L=17 B=1
+-- L=17 B=8 --
+L17_rader                L=17  B=8     inner=73       min=   186.487 us  median=   186.818 us  sd=  3.27%     12.92 GF/s  setup=0.000 s
+      PASS rel_l2=4.083e-16 rel_max=5.213e-16 (tol 1e-12) L=17 B=8
+mkl_dfti                 L=17  B=8     inner=24       min=   853.773 us  median=   855.254 us  sd=  1.02%      2.82 GF/s  setup=0.035 s
+      PASS rel_l2=3.103e-16 rel_max=3.521e-16 (tol 1e-12) L=17 B=8
+-- L=17 B=256 --
+L17_rader                L=17  B=256   inner=4        min=  7156.533 us  median=  7175.905 us  sd=  0.18%     10.78 GF/s  setup=0.000 s
+      PASS rel_l2=4.074e-16 rel_max=4.563e-16 (tol 1e-12) L=17 B=256
+mkl_dfti                 L=17  B=256   inner=1        min= 25927.935 us  median= 25947.131 us  sd=  0.10%      2.97 GF/s  setup=0.057 s
+      PASS rel_l2=3.126e-16 rel_max=3.741e-16 (tol 1e-12) L=17 B=256
+== probe of L17_rader complete ==

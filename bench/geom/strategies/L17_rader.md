@@ -1,0 +1,425 @@
+# L17_rader — strategy record
+
+Geometry: **L = 17**, cube 17³ = 4913 complex doubles per volume, forward, unnormalised,
+out-of-place, batched, single-threaded.
+Implementation: `impl/L17_rader.c`. `fft3d_name()` → `L17_rader`.
+
+---
+
+## Round 1 (2026-08-21)
+
+### Technique
+
+Row-column over the three axes; every 1D line transform is **Rader-17** with the
+length-16 cyclic convolution done as **two forward radix-4 FFT16 codelets plus 16
+pointwise complex multiplies by a constant table**. The vector lanes hold *independent*
+17-point transforms (`DFT₁₇ ⊗ I_ν`), split real/imaginary, so the kernel contains no
+cross-lane operation at all.
+
+#### The Rader construction, exactly as implemented
+
+`g = 3` is a primitive root mod 17; `perm[u] = 3^u mod 17 =
+{1,3,9,10,13,5,15,11,16,14,8,7,4,12,2,6}`.
+
+```
+a[u]        = x[perm[u]]                                u = 0..15
+A           = FFT16(a)
+X[0]        = x[0] + A[0]                               A[0] = sum_{n!=0} x[n]
+P[s]        = A[s] * Bhat[s]                            Bhat = FFT16(b')/16
+                                                        b'[q] = W17^(3^-q mod 17)
+P[0]       += x[0]                                      DC fold
+X[perm[w]]  = FFT16(P)[w]                               w = 0..15
+```
+
+Three points worth keeping:
+
+1. **The same permutation table serves the gather and the scatter.** The unnormalised
+   inverse DFT16 is the forward DFT16 with the output index negated,
+   `IDFT(P)[v] = (1/16)·DFT(P)[-v mod 16]`; and negating the exponent of `g` turns
+   `g^{-v}` back into `g^{w}`. So the output map is `X[g^w] = FFT16(P)[w]`, i.e. the
+   *same* `perm[]` used for `a[u] = x[perm[u]]`. No second table, no reversal loop.
+2. **`Bhat = DFT16(b')/16` is a compile-time constant**, so only **two** length-16
+   transforms run per 17-point DFT, not three (this is what FFTW's `dft/rader.c` does
+   with its separate `cld_omega` plan).
+3. **DC fold.** Adding `x[0]` to `P[0]` adds it to all 16 outputs of the final transform,
+   which removes 16 complex additions (32 real adds).
+
+Two entries of the constant table are *exact* and are written as closed forms rather than
+taken from the numeric table:
+
+* `Bhat[0] = -1/16` — the 16 nontrivial 17th roots of unity sum to −1, so `DFT16(b')[0] = -1`.
+* `Bhat[8] = sqrt(17)/16` — `DFT16(b')[8] = Σ_{QR} W^r − Σ_{non-QR} W^r` is the quadratic
+  Gauss sum for p ≡ 1 (mod 4), hence **real** and equal to `√17`. Verified numerically:
+  `0.25769410160110378436 × 16 = 4.123105625617661 = √17`.
+  This turns two of the sixteen pointwise complex multiplies into cheap real ones.
+
+The remaining table entries obey `Bhat[16−s] = (−1)^s conj(Bhat[s])` (a consequence of
+`b'[q+8] = conj(b'[q])`, see "what did not work" item 3). That symmetry buys nothing here,
+because `A[s]` and `A[16−s]` are independent; it is recorded because it is the hook a
+real-input variant would use.
+
+#### FFT16, radix-4, `n = 4p+q`, `k = 4r+s`
+
+```
+X[4r+s] = Σ_q ( w16^{qs} · DFT4_p( x[4p+q] )[s] ) · (−i)^{qr}
+```
+
+Both stages are the same 4-point butterfly with `W4 = −i` (16 real adds, no multiplies).
+The twiddle exponents `qs mod 16` for q,s ∈ [0,4) are
+`0,0,0,0 / 0,1,2,3 / 0,2,4,6 / 0,3,6,9`, so the nontrivial multiplies are:
+
+| twiddle | value | count | cost |
+|---|---|---|---|
+| `w^1`, `w^3`, `w^3`, `w^9 = −w^1` | full | 4 | 2 mul + 2 fma = 4 instr, 6 flops |
+| `w^2 = (1−i)/√2`, ×2, `w^6 = (−1−i)/√2`, ×2 | ±(1∓i)/√2 | 4 | 2 add + 2 mul = 4 instr, 4 flops |
+| `w^4 = −i` | ±i | 1 | free (register rename + sign folded into the next add) |
+
+So there are exactly **five** distinct real constants in the whole 17-point module:
+`cos π/8`, `sin π/8`, `cos 3π/8`, `sin 3π/8`, `1/√2`, plus the 30 nonzero entries of `Bhat`.
+Total twiddle data under 300 bytes, all `static const`, all broadcast from memory.
+
+### Operation count per 17-point transform
+
+Real FP instructions counting an FMA as one instruction and two flops:
+
+| term | instr | flops |
+|---|---|---|
+| 8 × DFT4 (two FFT16, four butterflies each) | 256 | 256 |
+| 8 × full twiddle (4 per FFT16) | 32 | 48 |
+| 8 × √2 twiddle (4 per FFT16) | 32 | 32 |
+| 2 × `×(−i)` twiddle | 0 | 0 |
+| pointwise `s=0` (Bhat[0] = −1/16 with the DC fold) | 2 | 4 |
+| pointwise `s=8` (Bhat[8] real) | 2 | 2 |
+| pointwise, 14 full complex multiplies | 56 | 84 |
+| `X[0] = x[0] + A[0]` | 2 | 2 |
+| **total** | **382** | **428** |
+
+= **22.5 instr / 25.2 flops per point**. gcc actually emits **368** FP instructions per
+kernel instantiation (it folds a few multiplies into the following adds), so the hand
+count is a slight over-estimate.
+
+Comparison with the corpus (`docs/literature/02` §2.4, §2.7):
+
+| 17-point kernel | flops | FP instr |
+|---|---|---|
+| this file (Rader, radix-4 FFT16, DC fold, exact `Bhat[0]`/`Bhat[8]`) | **428** | **382** (368 emitted) |
+| FFTW's Rader-17 accounting | 468 | 388 |
+| FFTW's dense conjugate-symmetric `dft-generic-17` (what its planner picks) | 592 | 336 |
+| Bluestein-17 | 1932 | 1524 |
+
+Per 17³ volume: 3 × 289 = 867 transforms = **331 k instructions / 371 k flops =
+75.6 flops/point**, against FFTW's measured 104.5 flops/point for the same volume
+(`3 · 17² · 592`). So the arithmetic is 28% below FFTW's, and the instruction count is
+14% *above* it — the metric trap of §02 §2.7, exactly as advertised. The 2.7× measured
+speedup below therefore comes almost entirely from vectorisation and layout, not
+arithmetic, which is what §02 §1 predicted.
+
+### Layout and SIMD decisions
+
+**Vector width is 256 bits (4 doubles) on purpose, even on AVX-512 hardware.** The
+argument, since it is counter-intuitive and is the one thing a later round should re-test
+on the node:
+
+* The scored node is a **Xeon Gold 5218**, and the Gold 5200 series carries **one**
+  512-bit FMA unit, not two. A 512-bit FMA then retires at 1/cycle while two 256-bit FMAs
+  retire at 2/cycle on ports 0 and 1: *identical* flop throughput, zero arithmetic gain
+  for zmm. (Verify on the node; if the SKU turns out to have two FMA units, zmm wins by
+  roughly 1.7× and this decision is the single biggest thing to change.)
+* Widening makes lane utilisation **worse** here, because the two plane passes have only
+  17 independent transforms in the lane direction: 17 of 24 lanes (71%) at 512 bits
+  against 17 of 20 (85%) at 256. Counting whole volumes, zmm issues **1112** lane-slots
+  of arithmetic where ymm issues **972** — 14% more work at the same per-cycle throughput.
+* 512-bit arithmetic drops the core into the lower AVX-512 frequency licence; 256-bit
+  code stays in the AVX2 licence. The corpus (§04 §8.1-8.2) documents 2.3 → 1.6 GHz on a
+  sibling SKU.
+* **The register-file argument for zmm does not apply.** With `AVX512VL` gcc allocates
+  `ymm16-31` for 256-bit vectors. Measured on the generated code of `fft3d_execute`, at
+  unchanged width 4: **357** stack moves with `-march=haswell`, **72** with
+  `-march=skylake-avx512`, and 1662 uses of the high registers. So the 256-bit build gets
+  the whole 32-register file on the node — the best of both. **This is new information;
+  the corpus contains no AVX-512 measurement of any kind.**
+
+`L17R_FORCE_VW=8` builds the 512-bit variant. It is verified *correct* (gcc emulates
+64-byte vectors with ymm pairs on an AVX2 host, which is how the wide path was tested
+here — 4.2e-14 on a single line, 4.1e-16 on a full volume) but has never been *timed* on
+real AVX-512 silicon.
+
+**Kernel shape.** The two FFT16s are chained rather than run back to back: group `q` of
+the second FFT16's decimation stage consumes exactly the `s = q` output set of the first
+FFT16's second stage, so the code runs four independent `D4 → pointwise → D4` chains and
+then four final butterflies, each of which stores its four results immediately. Peak
+liveness is ~40 vectors instead of ~66 for the naive "compute all 17 outputs into an
+array, then store" form. On AVX2 that took spill traffic from 227 to 89 stack moves per
+kernel instantiation and the whole transform from 51.2 µs to 33.5 µs.
+
+**Volume layout.** Each pass wants its transformed axis to be the *outermost* index
+(stride = padded plane pitch) so the other two axes form one contiguous 289-long lane
+space. Two of three axes can be had that way in any one layout; the third needs a
+transpose. Rather than transpose the volume, the y and z passes are fused per x-plane
+where a 17×17 plane (4.6 KiB split) is L1-resident:
+
+```
+for each x plane:
+    in[x][y][z]  --deinterleave + 17x17 transpose-->  T[z][y]        (row stride TR=20)
+    z pass on T   (axis stride TR, lanes = y)      ->  T[kz][y]
+    17x17 transpose                                ->  U[y][kz]
+    y pass on U   (axis stride TR, lanes = kz), storing straight into
+                  A[x][ky][kz]                     ->  A             (plane pitch PS=292)
+x pass on A (axis stride PS, 289 contiguous lanes), interleaving store -> out[kx][ky][kz]
+```
+
+The volume therefore crosses the L1 boundary **exactly four times**: read `in`, write A,
+read A, write `out` — about 320 KiB of traffic per volume.
+
+Details that matter:
+
+* The y pass writes **directly** into `A[x][ky][kz]` (outputs at stride 17, lanes
+  contiguous), which removes what used to be a separate digit-permutation pass. Its lane
+  blocks must not overrun lane 16, so they are `{0,4,8,12,13}` (VW=4) / `{0,8,9}` (VW=8) —
+  the last block *overlaps* the previous one and recomputes 3 transforms, which is free
+  because `ceil(17/VW)` blocks are needed either way.
+* The z pass is in place, so it can use aligned padded blocks `0,VW,…,TR−VW` and let the
+  pad lanes compute zeros.
+* Pad lanes (columns 17..TR−1 of the plane buffers, lanes 289..PS−1 of A) are zeroed once
+  in `fft3d_create` and every pass maps zeros to zeros, so they stay zero for the life of
+  the plan. Nothing is re-zeroed per call, and `fft3d_execute` is bitwise repeatable
+  (checked).
+* The x pass's store interleaves re/im with one shuffle pair per output
+  (`vunpcklpd`/`vperm2f128` on AVX2, `vpermi2pd` on AVX-512) straight into `out`, so there
+  is no separate interleave pass.
+* **No cache padding anywhere.** 17 is odd, so every stride (17, 20, 292 doubles) is an
+  odd number of 8-byte words and all L1/L2 sets get used — §04 §7.3's observation that
+  L=17 is the one size where cache geometry is free, confirmed by the absence of any
+  padding-related cliff in the sweep from B=1 to B=2048.
+* Both 17×17 transposes are 4×4 ymm blocks (8 shuffles per 16 elements) plus a scalar
+  17-element row and 16-element column. The *deinterleaving* one transposes the **complex**
+  values first at 128-bit granularity and splits re/im afterwards: 8 + 8 = 16 shuffles per
+  4×4 complex tile instead of 8 deinterleaves + 16 real transposes = 24. That single
+  reordering took the 17-plane deinterleave pass from **5.31 µs to 3.34 µs**.
+
+### What was measured
+
+#### On the scored node — `probe_node.sh`, isolated Xeon Gold 5218 @ 2.30 GHz, 1 MiB L2/core, 44 MiB L3, gcc `-O3 -march=native -mtune=native -fno-math-errno -funroll-loops`
+
+| B | **this file, µs/transform** | MKL 2022 sequential, µs/transform | speedup |
+|---|---|---|---|
+| 1 | **21.230** (14.19 GF/s) | 98.762 | **4.65×** |
+| 8 | **22.211** (13.56 GF/s) | 100.118 | **4.51×** |
+| 256 | **26.273** (11.47 GF/s) | 105.538 | **4.02×** |
+
+rel L2 vs numpy on the node: 4.074-4.085e-16 at every B. Against the `sota_r1` leaderboard
+figure for L=17 B=1 (FFTW patient, **81.68 µs**) this is **3.85× faster**; against the
+"conservative target" of §02 §6.2 (~8-9 ns/point ≈ 42 µs/volume, "≈2.4× faster than FFTW
+and MKL") it is **2.0× past** it. Per point: **4.32 ns**, against FFTW's measured 20.98 and
+MKL's 20.86 — and against FFTW's **3.93 ns/point at 16³**, i.e. this makes 17³ cost
+**1.10× per point what the libraries' best power-of-two size costs them**, where the
+libraries pay 5.3×. The L=17 penalty the corpus was built around is essentially gone.
+
+#### AVX-512 vs AVX2 on the node — the measurement the corpus does not have
+
+§04 gap 6 records that no AVX-512 measurement exists anywhere in the corpus. Both widths
+were built from this same source (`L17R_FORCE_VW`) and timed on the node, µs per transform:
+
+| width | B=1 | B=8 | B=256 |
+|---|---|---|---|
+| **256-bit (ymm), default** | **21.230** | **22.211** | **26.273** |
+| 512-bit (zmm) | 21.943 | 23.311 | 27.955 |
+| 256-bit advantage | 3.4% | 5.0% | 6.4% |
+
+**256-bit wins at every batch size on the graded hardware, and the margin grows with the
+working set.** Output is bit-identical between the two. The four reasons are in the file
+header; the short version is that the Gold 5200 series has one 512-bit FMA unit, so zmm
+buys no flop throughput, while the 17-lane plane passes make zmm's lane utilisation *worse*
+(71% against 85%) and 512-bit arithmetic costs frequency licence. Note the margin is much
+smaller than those arguments predict (they add up to ~25%), so zmm's halved instruction and
+load/store counts are recovering most of the lane waste — on a two-FMA-unit SKU (Gold 6xxx,
+Platinum 8xxx) the balance would very likely flip, and any port of this file to such a
+machine should re-run the comparison rather than inherit the default.
+
+#### Local development machine
+
+Machine: **Xeon E5-2680 v3 (Haswell, 2.50 GHz, AVX2, no AVX-512), 32 KiB L1d, 256 KiB L2,
+30 MiB L3**, gcc 11.4.0 `-O3 -march=native -mtune=native -std=gnu11`, single thread, shared
+(other agents active — numbers are best-of-3 processes × 20 samples). The node is 1.42×
+faster at B=1 despite a *lower* base clock, which is the 32-register file removing the
+spill traffic (357 → 72 stack moves) plus single-core turbo.
+
+| B | µs per execute | **µs per transform** | rel L2 vs numpy |
+|---|---|---|---|
+| 1 | 30.2 - 30.8 | **30.2 - 30.8** | 4.080e-16 |
+| 8 | 254.9 - 255.2 | **31.86 - 31.90** | 4.099e-16 |
+| 256 | 9690 - 10061 | **37.85 - 39.30** | 4.072e-16 |
+| 2048 | 81552 - 81760 | **39.82 - 39.92** | 4.074e-16 |
+
+(range = two independent best-of-3 measurement sessions; the host was shared with other
+agents throughout, so treat the low end as the honest figure and expect the monitor's
+isolated-node numbers to be cleaner as well as faster.)
+
+`setup` (`fft3d_create`) is 3 µs: one `posix_memalign` + `memset` of 90 KiB. Nothing is
+computed at run time; every constant is a literal.
+
+Reference points: the round-`sota_r1` best library at L=17 B=1 is **FFTW patient, 81.68 µs**
+on the *isolated Cascade Lake node*, and the corpus measured FFTW at 20.98 ns/point
+(103 µs/volume) and MKL at 20.86 ns/point on *this* Haswell. So on like-for-like hardware
+this is **3.4× faster than FFTW and MKL at B=1**, and about 2.7× faster than the node
+figure a Cascade Lake will be scored against — before the node's extra 16 vector
+registers and higher single-core turbo, which the static counts above say are worth
+another 15-25%.
+
+Phase breakdown per volume, from an in-tree micro-benchmark (AVX2, warm caches, so the
+parts sum to slightly more than the whole):
+
+| phase | blocks | µs |
+|---|---|---|
+| deinterleave + transpose, ×17 planes | — | 3.34 |
+| z pass | 85 | 9.84 |
+| 17×17 transposes, ×34 | — | 2.42 |
+| y pass (storing into A) | 85 | 12.37 |
+| x pass + interleaving store | 73 | 12.32 |
+| whole `fft3d_execute` | 243 | 34.9 (30.2 best-of) |
+
+Static instruction counts for `fft3d_execute` (all four kernel instantiations + both
+transposes inlined), from `objdump`:
+
+| build | total | FP | stack moves |
+|---|---|---|---|
+| `-march=native` (Haswell), VW=4 | 3420 | 1472 | **342** |
+| `-march=skylake-avx512`, VW=4 | 3108 | 1472 | **72** |
+| `-march=skylake-avx512`, VW=8 | 3104 | 1472 | 72 |
+
+1472 FP / 4 instantiations = 368 per 17-point kernel — the op count above, confirmed.
+
+Correctness gates, all passed:
+
+* `check.py` at B = 1, 3, 8, 64, 256, 2048: rel L2 = 4.07-4.10e-16 (tolerance 1e-12).
+* Both vector widths give **bit-identical** output (VW=8 built via gcc's emulated 64-byte
+  vectors).
+* `in` is bitwise unmodified; two, three and four successive `fft3d_execute` calls on one
+  plan give **bitwise identical** output.
+* `-fsanitize=undefined`: clean.
+* Guard-page tests: `in` and `out` each placed so the buffer *ends* on an inaccessible
+  page — no overrun; and the plan's 90 KiB scratch likewise ended on a guard page — no
+  overrun. (ASan itself cannot run on this host: `ulimit -v` blocks its shadow map.)
+* `-Wall -Wextra`: silent at both widths.
+
+### What was tried and did NOT work
+
+1. **Separate full-volume transpose and digit-permutation passes.** The first working
+   version kept the volume in one buffer and ran `deinterleave → z pass → full-volume
+   17×289 transpose → y pass → full-volume digit swap → x pass`: twelve crossings of the
+   L1 boundary, ~960 KiB of traffic per volume. **64.4 µs**, against 37 µs for the
+   plane-fused arrangement — and the three movement passes measured 8.79 + 8.15 + 8.07 µs,
+   i.e. 25 µs of the 64. All three were running at ~29 GB/s, which is L2 bandwidth with
+   RFO, not an instruction-count limit. *Reducing the number of times the volume crosses
+   L1 was worth more than everything else in this file put together.*
+2. **`fft16` and `rader17` as ordinary (non-`always_inline`) static functions taking
+   `vd *` arrays.** gcc then materialises the 16-element vector arrays in memory across
+   the call boundary: 205 `vmov` of which 114 stack, per `rader17`, plus 2 × 299
+   instructions for the two `fft16` calls — 887 instructions for a kernel whose
+   arithmetic is 368. **64 µs → 51 µs** simply from adding `__attribute__((always_inline))`,
+   before any restructuring. Do not let the kernel be a real function.
+3. **Splitting the length-16 cyclic convolution into two length-8 convolutions** using
+   `b'[q+8] = conj(b'[q])` (which does hold — verified to 3.5e-16). Write
+   `b'[q] = β[q mod 8] + i·s(q)·γ[q mod 8]` with `s = +1` on `[0,8)` and `−1` on `[8,16)`;
+   then `a ⊛ b' = (A⁺ ⊛₈ β) + i·(A⁻ ⊛₈ γ)` with `A± [j] = a[j] ± a[j+8]`. The first term
+   really is an 8-point **cyclic** convolution. The second is **negacyclic**, not cyclic —
+   I implemented the cyclic version in numpy first and it was wrong by O(10) on random
+   input, which is how the error was caught. Making it cyclic costs a pre-twiddle
+   `A⁻[j]·ω16^j` and a post-twiddle `ω16^{−v}`, 24 instructions each, and the honest total
+   becomes **394 instructions against 382** — *worse*. The decomposition is just FFT16
+   rewritten, with the DIF twiddle stage exposed. This is §02 §8.6's prediction ("would
+   not beat two length-16 FFTs by more than ~10% on flops and will lose on regularity")
+   coming out on the losing side of zero. **Do not retry this.**
+4. **§01's "alternate convolution" (symmetric/antisymmetric split, `alternate_convolution
+   = 17` in genfft's `magic.ml`).** Chased and abandoned: it makes the sub-transforms
+   *real-input* and therefore half cost, which is a real-data-FFT optimisation. Our input
+   is complex; there is no real-input sub-transform to exploit. §01 §8's flop targets of
+   356-384 for a 17-point module are consequently not reachable by that route for complex
+   data.
+5. **A 512-bit kernel.** Rejected **by measurement on the scored node**: 21.943 / 23.311 /
+   27.955 µs per transform at B = 1 / 8 / 256 against 21.230 / 22.211 / 26.273 for the
+   256-bit build — 3.4% to 6.4% slower, worsening with the working set. The predicted
+   reasons (one 512-bit FMA unit so equal flop throughput; 71% against 85% lane
+   utilisation; the AVX-512 frequency licence; and no register-file advantage because
+   256-bit code already gets ymm16-31 under AVX512VL) add up to roughly 25%, so most of
+   that is being recovered by zmm's halved instruction and memory-op counts. Both builds
+   produce bit-identical output, so this was a clean A/B.
+6. **A first digit-permutation that copied a 17-double run with two overlapping vector
+   stores** (`[0,VW)` and `[17−VW,17)`). Correct at VW=8, silently wrong at VW=4, where
+   two 4-vectors cover 8 of 17 doubles: rel L2 = 7.5e-01, and the *symptom* was that
+   output bins `kz ≥ 4` were wrong while `kz < 4` were right. Worth remembering that
+   `17 ≤ 2·VW` only holds for the wide build — a whole class of "one vector plus an
+   overlapping tail" idioms is width-dependent here.
+7. **Non-temporal stores for `out`** (§05 §8.2 sanctions them for exactly this case: a
+   final write-out never re-read). Rejected on analysis, not measured. The x pass writes
+   `out + 2·(k·289 + m0)`, i.e. byte offset `16·(k·289 + m0)`; since 289 is odd this is
+   64-byte aligned only when `k ≡ 0 (mod 4)`, so 12 of the 17 output streams could not use
+   an aligned NT store. Worse, the pass has **17 concurrent output streams**, more than the
+   core has fill buffers, so write-combining buffers would be evicted partially filled —
+   which costs more than the RFO traffic it saves. Getting NT stores would mean restructuring
+   the last pass to emit one contiguous stream, which means a transposing final store.
+8. **Grouping G x-planes into one plane buffer to fix the 17-lane utilisation.** Analysed,
+   not built. The z pass would benefit (it stores in place, so lane blocks may straddle a
+   plane boundary: at G=2, VW=8 that is 5 blocks per two planes instead of 6). The y pass
+   would not, because its store into `A[x][ky][kz]` must be lane-contiguous and therefore
+   its blocks may not straddle x. Net saving ≈ 8 of 244 blocks, ~3%, for a materially more
+   complicated buffer and a plane buffer that stops fitting L1 above G=2. Not worth it.
+9. **A newer compiler.** gcc 13.2.0 and gcc 16.1.0 were measured against gcc 11.4.0 on the
+   final source: 30.7 / — / 38.6 µs against 30.2 / — / 39.3 µs, i.e. within noise. (On an
+   *earlier*, spill-heavy version gcc 13 was 19% faster at B=1, which is a hint that the
+   remaining gap on AVX2 is register pressure the newer allocator handles better; once the
+   kernel was restructured the difference vanished.) **No compiler request needed.**
+   clang cannot build this file as written — `__builtin_shuffle` is a gcc spelling — so a
+   `__builtin_shufflevector` path is included, untested beyond compiling.
+
+### Where the time actually goes, and what is left
+
+At B=1 on AVX2, of ~75 000 cycles per volume:
+
+* ~46 000 cycles are the FP throughput floor: 972 lane-slots × 368 ymm FP ops ÷ 2 per cycle.
+* ~8 700 ymm shuffles in the two transposes and the interleaving store, all on port 5.
+* the balance is spill traffic (342 stack moves in the AVX2 build; 72 on the node) plus
+  the 34 loads + 34 stores per kernel block.
+
+So on the node the kernel should sit close to its arithmetic floor, and the two remaining
+levers are (a) the 12% lane waste in the plane passes and (b) the port-5 shuffle load.
+
+### Next
+
+In priority order, with why:
+
+1. ~~Measure `L17R_FORCE_VW=8` on the node.~~ **Done this round** — see the table above.
+   256-bit wins by 3.4-6.4%; the default is correct and this question is closed for the
+   Gold 5218. It is *not* closed for a two-FMA-unit SKU.
+2. **Do NOT fuse the second 17×17 transpose into the z pass's store** — I costed this
+   after writing the first draft of this list and it is a net loss, recorded here so
+   nobody repeats it. Removing `transpose17` saves the measured 2.42 µs, but a VW×17
+   in-register transposing store costs, per kernel block and per array, 4 ymm 4×4
+   transposes (32 shuffles) + 4 scalar extracts for output 16 + 5 stores per lane instead
+   of 17: ≈86 extra ops × 85 blocks ≈ 7.3 k ops ≈ 2.9 µs. Net −0.5 µs. The blocked 4×4
+   transpose through L1 is simply cheaper per element (0.5 shuffles) than an in-register
+   17-tall transpose (1.9 shuffles per element, because 17 is not a multiple of 4).
+3. **Reduce the plane passes' 17-lane waste properly.** The ceiling is exact and small:
+   972 lane-slots are issued for 867 transforms, so perfect lanes are worth 10.8% of the
+   kernel, ~2.6 µs of 30, 8.6% of the whole. The cheap half of it — a G=2 slab used by
+   the **z pass only**, which is risk-free because that pass stores in place and so tolerates lane blocks straddling a
+   plane boundary — is worth 8 of 244 blocks, ~3%, and was skipped only because it did not
+   justify re-running the whole verification matrix late in the session. The full version
+   gives the y pass a slab too (`[ky][x_g][kz]`, lane-contiguous; at G=3 with VW=4 that is
+   13 blocks per 3 planes against 15, and 51 of 52 lanes used) and handles the 2 straddling
+   blocks per slab with scalar stores (~136 each, ≈0.6 µs total). Net ≈ 2.3 µs, ~7.6%, and
+   it is the only idea left that is worth more than 5%. Watch L1: T and U at G=3 are
+   4 × 7.1 KiB = 28 KiB, which is most of a 32 KiB L1 and would start competing with the
+   kernel's own spill slots.
+4. **Try the dense conjugate-symmetric kernel as the competitor it is.** §02 §2.5 puts
+   `dft-generic-17` at 336 FP instructions against this file's 368 emitted — 9% *fewer*,
+   with 256 of them FMAs and no permutation and no buffers, and it is what FFTW's measuring
+   planner actually selects. Batch-vectorised in *this* layout it might simply win. Two
+   other entries in this same round (`impl/L17_matrixsimd.c`, `impl/L17_winograd.c`) attack
+   L=17 from those directions, so read their records first: if either beats this file, the
+   productive merge is almost certainly their 17-point kernel dropped into the plane-fused
+   layout and the lane-block scheme above, since those are what the 2.7x here came from
+   and they are kernel-agnostic.
+5. Only after 1-4: reorder the last pass to emit a single contiguous output stream so NT
+   stores become usable, which is worth something only at B ≥ 256 (39.3 vs 30.2 µs today,
+   so ~9 µs of DRAM exposure of which NT stores could recover perhaps a third).

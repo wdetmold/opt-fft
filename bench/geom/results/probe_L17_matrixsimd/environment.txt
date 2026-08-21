@@ -1,0 +1,4 @@
+host: p55n3
+Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
+isa: avx2 avx512_vnni avx512bw avx512cd avx512dq avx512f avx512vl fma 
+L2: 32 MiB (32 instances)   L3: 44 MiB (2 instances)

@@ -48,6 +48,14 @@ Rules for our own implementations: **no FFT library calls inside the transform**
 single-threaded, all precomputation in the plan step. Full brief in
 `bench/geom/PANEL_BRIEF.md`.
 
+**Where work happens.** Development and iteration go on `wallaby` (Xeon Gold 6448Y,
+Sapphire Rapids, 64 cores, near-idle, full AVX-512, shares this filesystem):
+`./tryout.sh --on wallaby <impl>` builds, runs, verifies and times one implementation in
+one command. The exclusive benchmark node is reserved for the monitor's cross-checks, so
+every scored number comes from one uncontended machine measured one way; `probe_node.sh`
+refuses to run without `FFT_MONITOR=1`. Build products live in `build/<hostname>/`, since
+this tree is shared between machines with different ISAs.
+
 ## Panel rounds
 
 `bench/geom/panel_round.js` runs one round: implementer agents each write one

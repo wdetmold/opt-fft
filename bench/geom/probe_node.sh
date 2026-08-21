@@ -8,12 +8,30 @@
 #
 # usage: ./probe_node.sh <impl-name> [--L N] [--batches "1 64 2048"] [--partition devel]
 #
-# QUEUE ETIQUETTE, please respect it: the devel partition has two nodes and other people
-# use this cluster. Run ONE probe at a time, keep it short, and do not resubmit in a loop
-# while one is pending. Use tryout.sh for iteration and this only to confirm a decision
-# (e.g. "is my AVX-512 path actually faster than the AVX2 one on the real part?").
+# MONITOR ONLY.  The exclusive benchmark node is reserved for the monitor agent's
+# cross-checks, so that the scored numbers are taken on an uncontended machine by one
+# party using one method.  Implementers develop on wallaby (see tryout.sh --on wallaby):
+# it is near-idle, shares this filesystem, and has full AVX-512, so an AVX-512 path can
+# be run and measured there -- just not scored there.
+#
+# Set FFT_MONITOR=1 to confirm you are the monitor.
 set -eu
 cd "$(dirname "$0")"
+
+if [ "${FFT_MONITOR:-0}" != "1" ]; then
+  cat >&2 <<'DENY'
+probe_node.sh is reserved for the monitor agent.
+
+The exclusive benchmark node stays uncontended so that every scored number is taken the
+same way by one party.  For your own iteration use wallaby, which is idle, shares this
+filesystem and has full AVX-512:
+
+    ./tryout.sh --on wallaby <impl-name> [L] [batch]
+
+If you really are the monitor, re-run with FFT_MONITOR=1.
+DENY
+  exit 3
+fi
 
 NAME=${1:-}
 [ -n "$NAME" ] || { echo "usage: $0 <impl-name> [--L N] [--batches \"...\"] [--partition P]" >&2; exit 2; }
