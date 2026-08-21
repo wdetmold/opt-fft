@@ -1,0 +1,6 @@
+# round sota_r1
+host: p55n3   date: 2026-08-21T14:22:21-04:00   slurm_job: 438354
+cpu: Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
+isa: avx2 avx512_vnni avx512bw avx512cd avx512dq avx512f avx512vl fma 
+cores: 64   governor: powersave
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0

@@ -1,0 +1,47 @@
+# --- third-party code: rebuilt, never vendored --------------------------------
+# ext/build_fftw.sh, build_heffte.sh and build_venv.sh reconstruct all of this,
+# and ext/requirements.txt pins the Python side.  Together ~2 GB, so it stays out.
+/ext/src/
+/ext/install/
+/venv/
+
+# --- build products -----------------------------------------------------------
+bench/geom/bin/
+bench/smoke/fftw_mpi_check
+*.o
+*.so
+*.a
+__pycache__/
+*.pyc
+
+# --- benchmark payloads -------------------------------------------------------
+# Input and output volumes are regenerated from a seed every round; keeping them
+# would add hundreds of MB and tell us nothing the leaderboard does not.
+*.bin
+
+# --- panel working area -------------------------------------------------------
+# impl/ is scratch: twelve implementers rewrite it every round.  Only the harness
+# floor is tracked here; the entries worth keeping are promoted into
+# bench/geom/exemplars/ (see docs/CURATION.md).  Strategy records in
+# bench/geom/strategies/ are tracked in full -- they are the panel's memory.
+bench/geom/impl/*
+!bench/geom/impl/baseline_matrix.c
+
+# --- per-round results --------------------------------------------------------
+# Kept per round: leaderboard.txt, environment.txt (which machine), failures.txt,
+# build_errors.txt.  Not kept: the several hundred raw per-run JSONs the leaderboard
+# is computed from, and the verbose logs -- they are intermediate data, and a round
+# is re-runnable from its seed.
+bench/geom/results/**/t_*.json
+bench/geom/results/**/c_*.json
+bench/geom/results/**/*.log
+bench/geom/results/**/*.err
+bench/geom/results/**/slurm-*.out
+# Login-node smoke runs are pipeline tests, not measurements: the login node is shared
+# and its timings are meaningless.
+bench/geom/results/local_smoke/
+# ad-hoc runs dropped straight into results/ during development
+bench/geom/results/*.json
+
+# build logs: output of ext/build_*.sh, not inputs
+ext/*.log
