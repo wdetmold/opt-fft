@@ -53,7 +53,8 @@ else
          17:1 17:8 17:256 17:2048 36:1 36:4 36:32 36:256"
 fi
 
-BACKENDS=$(cd bin && ls)
+BINDIR=build/$(hostname -s)/bin
+BACKENDS=$(cd "$BINDIR" && ls)
 echo "== backends: $BACKENDS =="
 
 for case in $CASES; do
@@ -63,7 +64,7 @@ for case in $CASES; do
   for backend in $BACKENDS; do
     for run in $(seq 1 "$RUNS"); do
       # A panel entry that hangs or crashes must not take the round down with it.
-      timeout 600 ./bin/"$backend" --L "$L" --batch "$B" --in "$IN" \
+      timeout 600 "$BINDIR/$backend" --L "$L" --batch "$B" --in "$IN" \
         --out "$OUT/out_${backend}_L${L}_B${B}.bin" \
         --json "$OUT/t_${backend}_L${L}_B${B}_r${run}.json" \
         --samples "$SAMPLES" --warmup 5 --min-sample-ms 20 --run-index "$run" \

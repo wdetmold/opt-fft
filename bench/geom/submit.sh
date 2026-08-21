@@ -22,4 +22,4 @@ mkdir -p results/$ROUND
 sbatch --job-name="fft-$ROUND" --partition="$PARTITION" --exclusive --nodes=1 \
        --cpu-freq=Performance \
        --time="$TIME" --output="results/$ROUND/slurm-%j.out" \
-       --wrap="$(pwd)/sweep.sh --round $ROUND --seed $SEED $EXTRA"
+       --wrap="$JOBSCRIPT --round $ROUND --seed $SEED $EXTRA"

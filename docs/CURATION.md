@@ -32,8 +32,11 @@ and **anything that took judgement to produce is**.
   from source against the CUDA-aware OpenMPI — both handled in `build_venv.sh`.
 * `bench/geom/impl/*` (except the floor) — scratch. Twelve agents rewrite it per round.
 * `*.bin` — input and output volumes, regenerated from `--seed` every round.
-* `bench/geom/bin/`, object files — rebuilt on the benchmark node with `-march=native`,
-  which is the whole point of building there rather than shipping binaries.
+* `bench/geom/build/<hostname>/` — binaries and objects, per build host. This directory
+  is on a shared filesystem and is built from two machines with `-march=native` (the
+  Haswell login node and the Cascade Lake benchmark node), so the artifacts must not
+  share a path: a node-built object linked into a login-node binary SIGILLs, which
+  silently invalidated an MKL baseline once before the layout was split per host.
 * Per-round raw data: the several hundred `t_*.json` / `c_*.json` files each round
   writes, and the verbose logs (`*.log`, `*.err`, `slurm-*.out`). The leaderboard is
   computed from them and a round is re-runnable from its seed, so only the leaderboard

@@ -44,6 +44,16 @@ your assignment rather than all of them.
   directory with an explicit gcc command (the brief shows it).
 * All precomputation goes in fft3d_create(); it is excluded from your timing. Be as
   extravagant there as you like.
+* ITERATE. You are expected to build, run and check continuously as you go, not once at
+  the end. \`./tryout.sh <your-name> [L] [batch]\` does build + run + verify + repeatability
+  + a library reference line in one command, into a private scratch dir that cannot race
+  with the other implementers. Local timings are RELATIVE ONLY (shared Haswell, no
+  AVX-512, 256 KB L2 versus the benchmark node's 1 MB) -- see PANEL_BRIEF.md
+  "Develop with a fast local loop" for what they can and cannot tell you.
+* When a decision genuinely depends on the target hardware (AVX-512 versus AVX2, tile
+  sizes at L=36), take your OWN measurement there: \`./probe_node.sh <your-name>\` submits a
+  short exclusive job that builds and times just your file on the benchmark node against
+  an MKL baseline. One at a time, short, no resubmit loops -- the partition is shared.
 * Correctness is a gate, not a tradeoff: relative L2 vs numpy must be < 1e-12, and a
   correct implementation lands near 1e-16. Verify with check.py at B=1 AND at a large
   batch, and verify that calling fft3d_execute twice on one plan still gives the right

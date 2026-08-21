@@ -82,26 +82,57 @@ repeated 3 times independently; the leaderboard reports the minimum across proce
 with the spread beside it. **Non-batched (`B=1`) and batched are scored separately** —
 being fast only in one regime is a partial result, so state which you optimized for.
 
-## Verify locally before you return
+## Develop with a fast local loop — you are expected to iterate
+
+Do not write the whole thing and hope. Build, run and check after every change, on the
+login node, as often as you like. One command does it:
 
 ```bash
 cd /home/lqcd/wdetmold/fft/bench/geom
-source /home/lqcd/wdetmold/fft/env.sh
-
-# build YOUR file only, into your own scratch (do NOT run `make` -- it shares
-# driver.o and bin/ with every other implementer and will race)
-gcc -O3 -march=native -std=gnu11 -I. -o /tmp/<your-scratch>/mine \
-    impl/L<L>_<tag>.c driver.c -lm
-
-python3 gen_input.py --L <L> --batch 8 --seed 42 --out /tmp/<your-scratch>/in.bin
-/tmp/<your-scratch>/mine --L <L> --batch 8 --in /tmp/<your-scratch>/in.bin \
-    --out /tmp/<your-scratch>/out.bin --samples 10
-python3 check.py --input /tmp/<your-scratch>/in.bin --output /tmp/<your-scratch>/out.bin \
-    --L <L> --batch 8
+./tryout.sh L17_rader              # infers L from the name, uses B=8
+./tryout.sh L17_rader 17 256       # explicit L and batch
+./tryout.sh L8_radix8 8 512 -fno-tree-vectorize    # extra gcc flags pass through
 ```
 
-Check `B=1` and a large `B` (hundreds for L=6/8, tens for L=36), and check that a
-second `fft3d_execute()` on the same plan still gives the right answer.
+`tryout.sh` compiles only your file into a private scratch directory (never the shared
+build tree, so it cannot race with the other implementers), generates data, times it,
+verifies against numpy, **re-runs and checks the output is identical** (the repeatability
+clause — the timing loop calls your execute thousands of times), and prints the best
+library on the same case for reference. Run it constantly.
+
+**What local timing can and cannot tell you.** The login node is a shared 48-thread
+Haswell with other people's jobs on it. Treat its numbers as *relative only* — good for
+"did this change help", useless as a reported result. Three specific traps:
+
+* **No AVX-512.** An `#ifdef __AVX512F__` path does not even compile here without an
+  explicit `-mavx512f`, and cannot execute at all. Your AVX-512 code is unverified until
+  it runs on the benchmark node.
+* **Different cache hierarchy.** Haswell has **256 KB of L2 per core**; the benchmark node
+  has **1 MB**. Any blocking or tile size you tune locally is tuned against the wrong
+  cache — this matters most at L=36 (746 KB per volume: 2.9× the local L2 but under the
+  node's) and for the L=8 batched cases.
+* **Shared and noisy.** Run-to-run spread of tens of percent is normal here. Small
+  differences measured locally are not real.
+
+**Taking your own measurement on the real machine.** When a decision actually depends on
+the target hardware — "is my AVX-512 kernel faster than my AVX2 one", "which tile size
+wins at L=36" — measure it there yourself:
+
+```bash
+./probe_node.sh L36_pfa                      # sensible batch points for that L
+./probe_node.sh L8_batchsimd --batches "1 64 2048"
+```
+
+That submits a short `--exclusive` job which builds only your file (plus an MKL baseline)
+on the benchmark node, times both on identical data, and verifies correctness. Results
+land in `results/probe_<name>/probe-<jobid>.out`.
+
+**Queue etiquette, please respect it:** the `devel` partition has two nodes and other
+people share this cluster. One probe at a time, keep it short, never resubmit in a loop
+while one is pending. Iterate with `tryout.sh`; use `probe_node.sh` to settle a decision,
+not to explore. Put whatever the node tells you into your strategy record — there is no
+AVX-512 measurement anywhere in the literature corpus, so those numbers are new
+information.
 
 ## What you are up against (isolated node, round `sota_r1`, per transform)
 

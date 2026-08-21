@@ -6,7 +6,7 @@
 /venv/
 
 # --- build products -----------------------------------------------------------
-bench/geom/bin/
+bench/geom/build/
 bench/smoke/fftw_mpi_check
 *.o
 *.so
