@@ -55,3 +55,7 @@ bench/geom/results/**/agents/
 bench/geom/results/**/monitor.log
 bench/geom/results/**/monitor_prompt.txt
 bench/geom/results/**/context.md
+
+# per-round snapshots of the sweep/probe scripts handed to slurm
+bench/geom/.sweep_snapshot_*.sh
+bench/geom/.probe_snapshot_*.sh

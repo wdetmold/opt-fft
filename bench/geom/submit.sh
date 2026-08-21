@@ -21,7 +21,11 @@ mkdir -p results/$ROUND
 # Submit a COPY of sweep.sh: bash reads a script incrementally, so editing sweep.sh while
 # a job is executing it corrupts that job mid-run -- that is what invalidated round
 # sota_r2.  The copy is what the job runs, so later edits are harmless.
-JOBSCRIPT=$(mktemp "${TMPDIR:-/tmp}/fft_sweep_XXXXXX.sh")
+#
+# The copy must live on the SHARED filesystem and in THIS directory: /tmp is local to each
+# node (a /tmp copy gives the job "not found", exit 127), and sweep.sh locates its own
+# working directory with dirname "$0", so it has to sit beside the real one.
+JOBSCRIPT=$(pwd)/.sweep_snapshot_$ROUND.sh
 cp sweep.sh "$JOBSCRIPT"
 chmod +x "$JOBSCRIPT"
 

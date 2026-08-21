@@ -67,7 +67,9 @@ mkdir -p "$OUT"
 # The job runs a COPY of this logic, so that editing these scripts while a job is in
 # flight cannot corrupt a running job (bash reads scripts incrementally -- this has
 # already bitten us once).
-JOB=$(mktemp "${TMPDIR:-/tmp}/fft_probe_XXXXXX.sh")
+# On the shared filesystem, not /tmp: /tmp is node-local, so a job handed a /tmp path
+# fails with "not found" (exit 127).
+JOB=$(pwd)/.probe_snapshot_$NAME.sh
 cat > "$JOB" <<INNER
 #!/bin/bash
 set -u

@@ -19,7 +19,21 @@
 # machine or the process dies. Both use flock, so a second copy can never run.
 set -u
 
-cd "$(dirname "$(readlink -f "$0")")"
+# Re-exec from a private copy. A round takes hours, and bash reads a script incrementally,
+# so editing this file while it runs makes the running process execute shifted content --
+# which has already bitten this project twice. Working from a snapshot means edits only
+# take effect at the next cron tick, which is exactly the desired semantics.
+if [ "${FFT_ROUNDS_REEXEC:-0}" != "1" ]; then
+  SELF=$(readlink -f "$0")
+  FFT_ROUNDS_HOME=$(dirname "$SELF")
+  COPY=$(mktemp "${TMPDIR:-/tmp}/fft_rounds_XXXXXX.sh") || exit 2
+  cp "$SELF" "$COPY" && chmod +x "$COPY" || exit 2
+  export FFT_ROUNDS_REEXEC=1 FFT_ROUNDS_HOME FFT_ROUNDS_COPY="$COPY"
+  exec "$COPY" "$@"
+fi
+[ -n "${FFT_ROUNDS_COPY:-}" ] && trap 'rm -f "$FFT_ROUNDS_COPY"' EXIT
+
+cd "${FFT_ROUNDS_HOME:-$(dirname "$(readlink -f "$0")")}"
 GEOM=$(pwd)
 ROOT=$(readlink -f ../..)
 
@@ -374,7 +388,9 @@ while [ "$NEXT" -le "$LAST" ]; do
   # its implementers may still be writing into impl/, and starting ours now would mean two
   # agents editing the same file.
   PREV="panel_r$((NEXT - 1))"
-  if [ -d "$GEOM/results/$PREV" ] && [ ! -f "$GEOM/results/$PREV/leaderboard.txt" ]; then
+  if [ "$DRYRUN" = 1 ] && [ ! -f "$GEOM/results/$PREV/leaderboard.txt" ]; then
+    log "  [dry-run] would wait for $PREV to finish"
+  elif [ -d "$GEOM/results/$PREV" ] && [ ! -f "$GEOM/results/$PREV/leaderboard.txt" ]; then
     log "$PREV has no leaderboard yet -- waiting (will proceed if the panel goes quiet)"
     waited=0
     while [ ! -f "$GEOM/results/$PREV/leaderboard.txt" ]; do
@@ -402,7 +418,11 @@ while [ "$NEXT" -le "$LAST" ]; do
     [ -f "$GEOM/results/$PREV/leaderboard.txt" ] && log "$PREV completed after ${waited}s"
   fi
 
-  wait_for_quiet || break
+  if [ "$DRYRUN" = 1 ]; then
+    round_in_flight && log "  [dry-run] would wait for the in-flight benchmark job"
+  else
+    wait_for_quiet || break
+  fi
   mkdir -p "$GEOM/results/$ROUND"
 
   build_context "$ROUND" "$GEOM/results/$ROUND/context.md"
