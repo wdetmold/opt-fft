@@ -375,31 +375,18 @@ while [ "$NEXT" -le "$LAST" ]; do
   # agents editing the same file.
   PREV="panel_r$((NEXT - 1))"
   if [ -d "$GEOM/results/$PREV" ] && [ ! -f "$GEOM/results/$PREV/leaderboard.txt" ]; then
-    log "$PREV has no leaderboard yet -- waiting (will proceed if the panel goes quiet)"
+    log "$PREV has no leaderboard yet -- waiting for it to finish before starting $ROUND"
     waited=0
     while [ ! -f "$GEOM/results/$PREV/leaderboard.txt" ]; do
       stop_requested && break 2
-
-      # Liveness rather than a bare timeout: if nothing has written to impl/ for 45 minutes
-      # and no benchmark job is in flight, the previous round is stuck, not working -- one
-      # hung agent must not stall the whole series.
-      newest=$(stat -c %Y "$GEOM"/impl/*.c 2>/dev/null | sort -n | tail -1)
-      if [ -n "$newest" ]; then
-        quiet_for=$(( $(date +%s) - newest ))
-        if [ "$quiet_for" -gt 2700 ] && ! round_in_flight; then
-          log "$PREV looks stalled (impl/ untouched for ${quiet_for}s, no job in flight) -- starting $ROUND anyway"
-          break
-        fi
-      fi
-
       sleep 60
       waited=$((waited + 60))
-      if [ "$waited" -ge 7200 ]; then
-        log "$PREV still incomplete after ${waited}s -- starting $ROUND anyway"
-        break
+      if [ "$waited" -ge 10800 ]; then
+        log "$PREV still incomplete after ${waited}s -- leaving it to the next cron tick"
+        exit 0
       fi
     done
-    [ -f "$GEOM/results/$PREV/leaderboard.txt" ] && log "$PREV completed after ${waited}s"
+    log "$PREV completed after ${waited}s"
   fi
 
   wait_for_quiet || break
