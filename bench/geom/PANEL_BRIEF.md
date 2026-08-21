@@ -158,6 +158,32 @@ than the best library, so beating *it* means nothing. The bar is the library col
 `L=17` is the standing opportunity: at 3.7 GF/s the libraries are running ~6× below
 what they achieve at L=8, because 17 is prime and their generic path handles it badly.
 
+## Learn from previous generations (from round 2 onwards)
+
+After the first round this stops being an independent competition and becomes a cumulative
+one. You are **expected** to read what everyone else has already done and to take whatever
+helps:
+
+* `strategies/*.md` — every implementation's own account of what it tried, what it
+  measured, and what failed. Read the records for **other geometries too**, not just your
+  own: a layout or SIMD trick that won at L=8 often transfers to L=6 or L=36, and the
+  L=17 entries have the most unusual structure of the four.
+* `exemplars/<round>/` — the code that was judged worth keeping from earlier rounds, with
+  its strategy record and its measured numbers alongside.
+* `results/<round>/leaderboard.txt` and `VERDICT.md` — where you actually stand, and the
+  monitor's reading of what moved.
+* `results/<round>/context.md` — an index of all of the above, assembled for you.
+
+Two obligations come with that access. **Attribute what you borrow**: if you adopt an idea
+from another entry, name the entry in your strategy record. And **do not rediscover a
+documented dead end**: if a record already shows an approach failing, with the number that
+killed it, spend your round on something else. The whole point of the records is that the
+panel gets smarter each round instead of re-running the same experiments.
+
+Your rivals on your own geometry are fair game too. If another entry for your `L` is
+beating you, read its code, understand why, and either adopt its idea or find the thing it
+cannot do.
+
 ## Keep a strategy record (required)
 
 Maintain `strategies/<your-filename>.md` — e.g. `strategies/L17_rader.md`. This is not

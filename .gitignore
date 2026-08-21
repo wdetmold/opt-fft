@@ -45,3 +45,13 @@ bench/geom/results/*.json
 
 # build logs: output of ext/build_*.sh, not inputs
 ext/*.log
+
+# unattended round loop: stop-flag, logs, per-round agent scratch
+bench/geom/STOP
+bench/geom/logs/
+bench/geom/results/.rounds_state
+bench/geom/results/**/prompts/
+bench/geom/results/**/agents/
+bench/geom/results/**/monitor.log
+bench/geom/results/**/monitor_prompt.txt
+bench/geom/results/**/context.md
