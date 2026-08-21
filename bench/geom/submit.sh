@@ -17,6 +17,14 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$ROUND" ] || { echo "submit.sh: --round is required" >&2; exit 2; }
 mkdir -p results/$ROUND
+
+# Submit a COPY of sweep.sh: bash reads a script incrementally, so editing sweep.sh while
+# a job is executing it corrupts that job mid-run -- that is what invalidated round
+# sota_r2.  The copy is what the job runs, so later edits are harmless.
+JOBSCRIPT=$(mktemp "${TMPDIR:-/tmp}/fft_sweep_XXXXXX.sh")
+cp sweep.sh "$JOBSCRIPT"
+chmod +x "$JOBSCRIPT"
+
 # --cpu-freq=Performance where the site allows it: the devel nodes default to the
 # powersave governor, which adds run-to-run spread to short measurements.
 sbatch --job-name="fft-$ROUND" --partition="$PARTITION" --exclusive --nodes=1 \
