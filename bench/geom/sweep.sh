@@ -8,7 +8,7 @@ set -u
 cd "$(dirname "$0")"
 source /home/lqcd/wdetmold/fft/env.sh >/dev/null 2>&1
 
-ROUND=""; SEED=0; RUNS=3; SAMPLES=20; QUICK=0
+ROUND=""; SEED=0; RUNS=3; SAMPLES=20; QUICK=0; CASEFILE=cases.txt
 while [ $# -gt 0 ]; do
   case "$1" in
     --round) ROUND=$2; shift 2 ;;
@@ -16,6 +16,7 @@ while [ $# -gt 0 ]; do
     --runs) RUNS=$2; shift 2 ;;
     --samples) SAMPLES=$2; shift 2 ;;
     --quick) QUICK=1; shift ;;
+    --cases) CASEFILE=$2; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -46,10 +47,10 @@ make list
 # The batched points are chosen per L to sit (a) inside L2 and (b) well past L3, since
 # small-transform performance is decided by where the working set lives.
 #   bytes per volume = 16 * L^3
-if [ -f cases.txt ]; then
+if [ -f "$CASEFILE" ]; then
   # A geometry wave can extend the sweep by dropping a cases.txt here, rather than by
   # editing this script (which a running job may be executing).
-  CASES=$(grep -vE '^\s*(#|$)' cases.txt | tr '\n' ' ')
+  CASES=$(grep -vE '^\s*(#|$)' "$CASEFILE" | tr '\n' ' ')
 elif [ "$QUICK" = 1 ]; then
   CASES="6:1 6:512 8:1 8:512 17:1 17:64 36:1 36:8"
 else
@@ -62,7 +63,11 @@ BACKENDS=$(cd "$BINDIR" && ls)
 echo "== backends: $BACKENDS =="
 
 for case in $CASES; do
-  L=${case%%:*}; B=${case##*:}
+  L=${case%%:*}
+  rest=${case#*:}
+  B=${rest%%:*}
+  # optional third field: chain length m (the graded call); absent means 1
+  M=1; case "$rest" in *:*) M=${rest##*:} ;; esac
   IN=$OUT/in_L${L}_B${B}.bin
   python3 gen_input.py --L "$L" --batch "$B" --seed $((SEED + L * 1000 + B)) --out "$IN" >/dev/null
   for backend in $BACKENDS; do
@@ -76,7 +81,9 @@ for case in $CASES; do
     fi
     for run in $(seq 1 "$RUNS"); do
       # A panel entry that hangs or crashes must not take the round down with it.
-      timeout 600 "$BINDIR/$backend" --L "$L" --batch "$B" --in "$IN" \
+      CHAINARGS=""
+      [ "$M" -gt 1 ] && CHAINARGS="--chain $M --unitary"
+      timeout 600 "$BINDIR/$backend" --L "$L" --batch "$B" $CHAINARGS --in "$IN" \
         --out "$OUT/out_${backend}_L${L}_B${B}.bin" \
         --json "$OUT/t_${backend}_L${L}_B${B}_r${run}.json" \
         --samples "$SAMPLES" --warmup 5 --min-sample-ms 20 --run-index "$run" \
@@ -88,10 +95,12 @@ for case in $CASES; do
     done
     # correctness on the output of the last run, against numpy
     if [ -f "$OUT/out_${backend}_L${L}_B${B}.bin" ]; then
+      CHKARGS=""
+      [ "$M" -gt 1 ] && CHKARGS="--chain-check $M"
       python3 check.py --input "$IN" --output "$OUT/out_${backend}_L${L}_B${B}.bin" \
-        --L "$L" --batch "$B" --json "$OUT/c_${backend}_L${L}_B${B}.json" \
+        --L "$L" --batch "$B" $CHKARGS --json "$OUT/c_${backend}_L${L}_B${B}.json" \
         >>"$OUT/check.log" 2>&1
-      rm -f "$OUT/out_${backend}_L${L}_B${B}.bin"   # outputs are large; keep the verdicts
+      rm -f "$OUT/out_${backend}_L${L}_B${B}.bin" "$OUT/out_${backend}_L${L}_B${B}.bin.chain"   # outputs are large; keep the verdicts
     fi
   done
   rm -f "$IN"

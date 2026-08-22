@@ -1,10 +1,45 @@
-/* Carried over from the SINGLE-THREAD competition, where this file finished as
- * written below. Your job in the multicore phase is to parallelise it across
- * 32 cores without losing its single-core efficiency -- read
- * ../PANEL_BRIEF.md, and read ../../geom/strategies/L36_mixedradix.md for the full
- * history of how this kernel got here.
- */
 /* L36_mixedradix -- forward complex-double 3D DFT of a fixed 36^3 cube.
+ * MULTICORE (round mt_r1).  The phase-1 single-thread kernel below is kept
+ * intact as the per-thread body; this round adds the 32-core layer:
+ *
+ *   * BATCHED (B >= 2): VOLUME-PARALLEL.  Volumes are independent, so each
+ *     thread runs the tuned serial body on a contiguous block of volumes with
+ *     its own scratch -- zero synchronisation inside a call, and the serial
+ *     body's L2 blocking (one 746 KiB volume live at a time per thread) is
+ *     exactly the right unit: DRAM traffic per volume stays at the serial
+ *     floor of read(in) + RFO(out) + writeback(out) ~ 2.2 MB.  Contiguous
+ *     blocks match OMP_PROC_BIND=close.  NOTE: the driver first-touches both
+ *     caller buffers on its main thread, so on the two-socket node ALL caller
+ *     pages live on socket 0 and the streaming cells are capped by one
+ *     socket's DRAM bandwidth whatever the decomposition; the T=16
+ *     (one-socket) team-size candidates in the pool exist to measure whether
+ *     the remote 16 cores still pay for themselves through UPI.
+ *
+ *   * B = 1: WITHIN-VOLUME SPLIT.  Phase 1 parallelises over the 36
+ *     independent x-planes (each thread does the z+y subloops of its planes
+ *     on its own plane scratch; schedule(static,1), one implicit barrier);
+ *     phase 2 parallelises over output rows/tiles with nowait.  One barrier
+ *     per volume plus the region fork/join is the entire sync cost.  Units
+ *     are whole planes (20736 B) and whole rows (576 B x 36) -- every unit
+ *     boundary is 64-byte aligned, so no false sharing.  T=18 divides both
+ *     36-unit phases exactly (2+2 units per thread) and T=16 keeps the team
+ *     on one socket; both are pool candidates alongside T=32.
+ *
+ *   * Scratch is NT_MAX per-thread chunks, page-multiple apart, each
+ *     first-touched by its own pinned thread in fft3d_create() (NUMA-local;
+ *     pool spin-up happens there too, outside the timed region).
+ *
+ *   * The plan-time tournament (all setup) now ranges over
+ *     {serial, split(T), vol(T)} x {V0,V1} x {pf mechanisms}, with the
+ *     streaming arena sized against the COMBINED 32-thread cache (two L3s +
+ *     32 L2s), not one socket's L3, so streaming candidates actually stream
+ *     while being tuned.  Env for monitor A/Bs: FFT36_MT_T=<n> restricts
+ *     team size, FFT36_MT_MODE=ser|split|vol restricts strategy;
+ *     FFT36_PFIN/PFW/PIND/ZY keep their phase-1 meanings.
+ *
+ * Everything below this block is the phase-1 kernel unchanged -- see
+ * ../../geom/strategies/L36_mixedradix.md for its full history.
+ *
  *
  * TECHNIQUE
  *   Row-column (three 1-D passes) with a Good-Thomas / prime-factor 4x9 line
@@ -149,6 +184,7 @@
 #include <complex.h>
 #include <immintrin.h>
 #include <math.h>
+#include <omp.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -218,11 +254,22 @@ typedef void (*exec_fn)(const double *, double *, long, double *);
  * clear of the pind slide region [plane, plane + 4096 + 20736). */
 #define ZY_OFF_D 3328
 
+/* ---- multicore layer ----
+ * Per-thread scratch: NT_MAX chunks of SCR_STRIDE doubles.  SCR_STRIDE is a
+ * page multiple (6144 * 8 = 48 KiB = 12 pages; the body needs ZY_OFF_D +
+ * NPLANE*2 = 5920), so no two threads ever share a page, and each chunk is
+ * first-touched by its own pinned thread in fft3d_create() (NUMA-local). */
+#define NT_MAX 32
+#define SCR_STRIDE 6144
+
+typedef void (*mt_fn)(const double *, double *, long, const fft3d_plan *);
+
 struct fft3d_plan {
     long batch;
-    exec_fn fn;
-    double *plane;     /* 36*36 complex L1 scratch for the fused z+y phase,
-                        * plus the zy bodies' second plane at +ZY_OFF_D */
+    mt_fn run;         /* installed top-level strategy                     */
+    exec_fn bfn;       /* per-slab serial body, used by mt_vol_run         */
+    int T;             /* team size for the installed strategy             */
+    double *scratch;   /* NT_MAX * SCR_STRIDE doubles, per-thread chunks   */
     void *raw;
 };
 
@@ -249,6 +296,57 @@ static void exec_1_3(const double *, double *, long, double *);
 static void exec_1_4(const double *, double *, long, double *);
 static void exec_1_5(const double *, double *, long, double *);
 static void exec_1_6(const double *, double *, long, double *);
+
+/* within-volume split bodies (B=1 / small batch); _p0/_p1 = phase-2 x-stream
+ * prefetch off / 1 line ahead */
+static void split_0_p0(const double *, double *, long, const fft3d_plan *);
+static void split_0_p1(const double *, double *, long, const fft3d_plan *);
+static void split_1_p0(const double *, double *, long, const fft3d_plan *);
+static void split_1_p1(const double *, double *, long, const fft3d_plan *);
+
+/* volume-parallel: a contiguous block of volumes per thread (contiguity
+ * matches OMP_PROC_BIND=close), each thread running the tuned serial body on
+ * its own slab with its own scratch.  No synchronisation inside the call. */
+static void mt_vol_run(const double *in, double *out, long batch, const fft3d_plan *p)
+{
+    const int T = p->T;
+    if (T <= 1 || batch < 2) {
+        p->bfn(in, out, batch, p->scratch);
+        return;
+    }
+#pragma omp parallel num_threads(T)
+    {
+        int t = omp_get_thread_num();
+        long v0 = batch * (long)t / T, v1 = batch * (long)(t + 1) / T;
+        if (v1 > v0)
+            p->bfn(in + v0 * (long)NVOL * 2, out + v0 * (long)NVOL * 2,
+                   v1 - v0, p->scratch + (long)t * SCR_STRIDE);
+    }
+}
+
+/* volume-parallel, work-stealing: on the scoring node every caller page is
+ * on socket 0 (the driver first-touches serially), so socket-1 threads run
+ * each volume slower through UPI and a static split leaves socket-0 threads
+ * idle at the join.  dynamic,1 rebalances that speed asymmetry; only offered
+ * at streaming batch, where there is no cross-call cache reuse for static
+ * ownership to protect.  Costs pfin/pfw their cross-volume cursor continuity
+ * (each volume is a fresh body call), which the tournament prices. */
+static void mt_vol_dyn_run(const double *in, double *out, long batch,
+                           const fft3d_plan *p)
+{
+    const int T = p->T;
+    if (T <= 1 || batch < 2) {
+        p->bfn(in, out, batch, p->scratch);
+        return;
+    }
+#pragma omp parallel num_threads(T)
+    {
+        double *pl = p->scratch + (long)omp_get_thread_num() * SCR_STRIDE;
+#pragma omp for schedule(dynamic, 1) nowait
+        for (long b = 0; b < batch; ++b)
+            p->bfn(in + b * (long)NVOL * 2, out + b * (long)NVOL * 2, 1, pl);
+    }
+}
 
 /* instantiate the kernel once per (ISA, vector width) variant */
 #define VAR 0
@@ -289,26 +387,35 @@ fft3d_plan *fft3d_create(int L, int batch)
     fft3d_plan *p = (fft3d_plan *)calloc(1, sizeof *p);
     if (!p) return NULL;
     p->batch = batch;
-    /* 4 KB of slack + page alignment so execute can pin (pout - pl) mod 4096
-     * to g_pind while keeping every access 64-byte aligned; the zy bodies'
-     * second plane lives at +ZY_OFF_D doubles, past the slide region. */
-    void *pl = NULL;
-    if (posix_memalign(&pl, 4096,
-                       (size_t)(ZY_OFF_D + NPLANE * 2) * sizeof(double)) != 0 || !pl) {
+    void *sc = NULL;
+    if (posix_memalign(&sc, 4096,
+                       (size_t)NT_MAX * SCR_STRIDE * sizeof(double)) != 0 || !sc) {
         free(p);
         return NULL;
     }
-    p->plane = (double *)pl;
-    p->raw = pl;
-    p->fn = exec_0_0;
+    p->scratch = (double *)sc;
+    p->raw = sc;
+    p->run = mt_vol_run;
+    p->bfn = exec_0_0;
+    p->T = 1;
+
+    int m = omp_get_max_threads();
+    if (m > NT_MAX) m = NT_MAX;
+    if (m < 1) m = 1;
+
+    /* Team spin-up and NUMA placement are setup: instantiate the pool ONCE
+     * here, and let each pinned thread first-touch its own scratch chunk so
+     * those pages are local to the socket that will use them
+     * (OMP_PROC_BIND=close pins thread t to the same core in every region). */
+#pragma omp parallel num_threads(m)
+    {
+        memset(p->scratch + (long)omp_get_thread_num() * SCR_STRIDE, 0,
+               (size_t)SCR_STRIDE * sizeof(double));
+    }
 
     /* anti-alias pin target, read ONCE at plan time so execution stays
-     * repeatable: FFT36_PIND=<bytes> (rounded down to a line), -1 = pinning
-     * off (pl = plane always).  Unset = OFF everywhere since r9: the r8 node
-     * run priced always-on cached-regime pinning at 0 to -1.2% at B=1, and
-     * the allocator-lottery rationale is dead (L17_matrixsimd r8: glibc's
-     * mmap'd buffers give fixed relative offsets across processes).  An
-     * explicit env value is absolute so the monitor can A/B any cell. */
+     * repeatable: FFT36_PIND=<bytes>, -1/unset = off (see phase-1 history:
+     * the r8 node run priced always-on pinning at 0 to -1.2% at B=1). */
     {
         const char *pe = getenv("FFT36_PIND");
         if (pe && *pe) {
@@ -317,14 +424,10 @@ fft3d_plan *fft3d_create(int L, int batch)
         }
     }
 
-    /* ---- regime: does the batch stream through this machine's LLC?  This
-     * decides only which candidates are IN PLAY (pfw is offered only where
-     * `out` is genuinely cold -- L36_pfa and L6_unrolled both measured
-     * prefetchw at +11..17% on cache-resident volumes), and how the tuning
-     * arena is sized.  Store policy itself is no longer a question: the node
-     * rejected NT stores in every tournament for four consecutive rounds, and
-     * my own r5 node picks were cached at both streaming cells with the full
-     * NT candidate set in the pool.  The NT/xv machinery is retired. */
+    /* ---- regime: does the batch stream through ONE socket's LLC?  Decides
+     * which serial-body mechanisms are in play (pfw only where `out` is
+     * genuinely cold; NT stores stay retired -- node-rejected four rounds
+     * running in phase 1). */
     long l3 = -1;
     {
 #ifdef _SC_LEVEL3_CACHE_SIZE
@@ -335,28 +438,57 @@ fft3d_plan *fft3d_create(int L, int batch)
     double foot = (double)batch * (double)NVOL * 16.0 * 2.0;
     int streaming = foot > 1.25 * (double)l3;
 
-    /* ---- self-tuning.  All of this is setup, hence excluded from the score.
-     * Every candidate except the reference must match exec_0_0's output to
-     * 1e-13 relative before it is eligible.
-     *
-     * Arena size: in the streaming regime the arena must actually STREAM on
-     * the machine doing the tuning, or the ranking is systematically wrong
-     * for the real run (L36_pfa's round-2 lesson, reproduced here in r3).
-     * So the arena is sized off THIS machine's L3: in+out = 2.5x L3 per
-     * call, clamped to [32, 128] volumes and to the batch. */
-    exec_fn cand[32];
-    const char *cnm[32];
-    int cinst[32];
-    int ncand = 0;
+    /* diagnostic overrides for monitor A/Bs, read once at plan time:
+     * FFT36_PFIN/PFW=0|1 gate the paced-prefetch mechanisms as in phase 1;
+     * FFT36_ZY=1 re-admits the zy interleave bodies (default out this round:
+     * they were a single-core port-5 bet, unpriced by the node before the
+     * phase boundary); FFT36_MT_T=<n> restricts parallel candidates to one
+     * team size; FFT36_MT_MODE=ser|split|vol restricts the strategy pool. */
+    int pfinmode = -1, pfwmode = -1, zymode = -1;
+    long mtT = 0;
+    int mtmode = 0;
+    {
+        const char *po = getenv("FFT36_PFIN");
+        if (po && (*po == '0' || *po == '1')) pfinmode = *po - '0';
+        const char *wo = getenv("FFT36_PFW");
+        if (wo && (*wo == '0' || *wo == '1')) pfwmode = *wo - '0';
+        const char *zo = getenv("FFT36_ZY");
+        if (zo && (*zo == '0' || *zo == '1')) zymode = *zo - '0';
+        const char *te = getenv("FFT36_MT_T");
+        if (te && *te) {
+            mtT = strtol(te, NULL, 0);
+            if (mtT < 0) mtT = 0;
+            if (mtT > m) mtT = m;
+        }
+        const char *mo = getenv("FFT36_MT_MODE");
+        if (mo && *mo) {
+            if (!strcmp(mo, "ser")) mtmode = 1;
+            else if (!strcmp(mo, "split")) mtmode = 2;
+            else if (!strcmp(mo, "vol")) mtmode = 3;
+        }
+    }
+    int in_plain = (pfinmode != 1) && (pfwmode != 1);
+    int in_pfin  = (pfinmode != 0) && (pfwmode != 1);
+    int in_pfw   = (pfinmode != 0) && (pfwmode != 0);
 
+    /* ---- self-tuning.  All of this is setup, hence excluded from the score.
+     * Every candidate must match exec_0_0's output to 1e-13 relative (the
+     * parallel bodies run the same codelets on the same data in a different
+     * order, so they are in fact bit-identical; the gate is a safety net).
+     *
+     * Arena: with a 32-thread team the arena must stream against the
+     * COMBINED cache -- two sockets' L3 plus every core's L2 -- or streaming
+     * candidates are ranked on a cached arena (L36_pfa's round-2 lesson,
+     * upgraded for phase 2). */
     long nt;
     if (streaming) {
-        long arena = (long)(2.5 * (double)l3 / ((double)NVOL * 32.0)) + 1;
-        if (arena < 32)  arena = 32;
+        long arena = (long)(2.5 * (2.0 * (double)l3 + (double)m * (1l << 20)) /
+                            ((double)NVOL * 32.0)) + 1;
+        if (arena < 48)  arena = 48;
         if (arena > 128) arena = 128;
         nt = batch < arena ? batch : arena;
     } else {
-        nt = batch < 4 ? batch : 4;
+        nt = batch < NT_MAX ? batch : NT_MAX;
     }
     size_t nd = (size_t)NVOL * 2 * (size_t)nt;
     double *ti = NULL, *o0 = NULL, *ox = NULL;
@@ -364,181 +496,164 @@ fft3d_plan *fft3d_create(int L, int batch)
         posix_memalign((void **)&o0, 4096, nd * sizeof(double)) == 0 &&
         posix_memalign((void **)&ox, 4096, nd * sizeof(double)) == 0) {
 
+        /* serial fill, like the driver's fread: every arena page lands on
+         * the create-caller's socket, which is exactly what the parallel
+         * candidates will face on the caller's buffers */
         uint64_t s = 0x9E3779B97F4A7C15ull;
         for (size_t i = 0; i < nd; ++i) {
             s ^= s << 13; s ^= s >> 7; s ^= s << 17;
             ti[i] = (double)(int64_t)(s >> 11) * (1.0 / 9007199254740992.0);
         }
         memset(o0, 0, nd * sizeof(double));
-        exec_0_0(ti, o0, nt, p->plane);
+        exec_0_0(ti, o0, nt, p->scratch);
 
         int have_512 = 0;
 #if defined(__x86_64__)
         __builtin_cpu_init();
         have_512 = __builtin_cpu_supports("avx512f");
 #endif
-        /* diagnostic overrides for A/B runs, read once at plan time so
-         * execution stays repeatable: FFT36_PFIN=0 drops the paced-input-
-         * prefetch candidates (including pfw, which builds on it), =1 admits
-         * only them; FFT36_PFW=0|1 likewise for the write-intent-prefetch
-         * candidates; FFT36_ZY=0|1 drops/forces the cross-plane-interleave
-         * bodies.  (FFT36_NT/FFT36_XV died with the NT path in r6;
-         * FFT36_SP2/FFT36_NTA died with sp2/nta in r8; FFT36_ROLL died with
-         * roll in r10; FFT36_CT9 with the ct9 probe twins in r11 -- all
-         * node-closed.) */
-        int pfinmode = -1, pfwmode = -1, zymode = -1;
-        {
-            const char *po = getenv("FFT36_PFIN");
-            if (po && (*po == '0' || *po == '1')) pfinmode = *po - '0';
-            const char *wo = getenv("FFT36_PFW");
-            if (wo && (*wo == '0' || *wo == '1')) pfwmode = *wo - '0';
-            const char *zo = getenv("FFT36_ZY");
-            if (zo && (*zo == '0' || *zo == '1')) zymode = *zo - '0';
-        }
-        int in_plain = (pfinmode != 1) && (pfwmode != 1) && (zymode != 1);
-        int in_pfin  = (pfinmode != 0) && (pfwmode != 1) && (zymode != 1);
-        int in_pfw   = (pfinmode != 0) && (pfwmode != 0) && (zymode != 1);
-        int in_zy    = (zymode != 0) && (pfinmode != 1) && (pfwmode != 1);
 
-        /* inst = installable.  The zy bodies run the same calls in a
-         * different loop order over independent data, so their output is
-         * BIT-IDENTICAL to the plain body (one bit class, unlike r10's ct9
-         * twins) and they are ordinary installable candidates behind the 3%
-         * hysteresis bar. */
-        exec_fn probe[32];
-        const char *pnm[32];
-        int pin_[32];
-        int nprobe = 0;
-#define PROBE(fn, nm, inst) do { probe[nprobe] = (fn); pnm[nprobe] = (nm); \
-                                 pin_[nprobe] = (inst); ++nprobe; } while (0)
-        /* Candidate order = hysteresis order: within a kernel, simplest
-         * mechanism first (a speculative mechanism must beat the incumbent by
-         * > 3% to be installed); across kernels, V1 FIRST -- it has won every
-         * node cell in every round since r1, so V0/V2 must now clear the 3%
-         * bar to displace it.  (A noisy-window wallaby plan mis-picked
-         * v2-cached-pf4 at +40% this round with V0-first ordering; V1-first
-         * makes that class of mis-pick need a 3% fake win instead of a tie.) */
-        if (streaming) {
-            /* streaming pool: pfw is offered only here and at batch >= 2 --
-             * L36_pfa and L6_unrolled both measured prefetchw at +11..17% on
-             * cache-resident volumes.  zy joins ONLY under an explicit
-             * FFT36_ZY=1 force (the batched cells are frozen at their
-             * traffic floors per the r8 VERDICT; a memory-bound cell has
-             * nothing for a port-scheduling fix to buy). */
-            if (have_512) {
-                if (in_plain) PROBE(exec_1_1, "v1-cached-pf1", 1);
-                if (in_pfin)  PROBE(exec_1_3, "v1-cached-pf1-pfin", 1);
-                if (in_pfw)   PROBE(exec_1_4, "v1-cached-pf1-pfin-pfw", 1);
-                if (zymode == 1) PROBE(exec_1_6, "v1-zy-pf1", 1);
+        /* ---- candidate pool.  Order = hysteresis order: serial first (the
+         * shape phase 1 certified, and the denominator of the parallel-
+         * efficiency number), then V1 before V0 (V1 won every node cell in
+         * every phase-1 round), then simplest strategy first within a
+         * kernel.  A later candidate must beat the incumbent by > 3%. */
+        typedef struct { mt_fn run; exec_fn bfn; int T; const char *nm; } mtcand;
+        static char nmb[64][40];
+        mtcand cd[64];
+        int nc = 0;
+#define CAND(RUNF, BFN, TT, ...) do { if (nc < 64) {                         \
+            snprintf(nmb[nc], sizeof nmb[nc], __VA_ARGS__);                  \
+            cd[nc].run = (RUNF); cd[nc].bfn = (BFN); cd[nc].T = (TT);        \
+            cd[nc].nm = nmb[nc]; ++nc; } } while (0)
+        int vs[2], nv = 0;
+        if (have_512) vs[nv++] = 1;
+        vs[nv++] = 0;
+        for (int vi = 0; vi < nv; ++vi) {
+            const int v = vs[vi];
+            exec_fn e0 = v ? exec_1_0 : exec_0_0;   /* pf0          */
+            exec_fn e1 = v ? exec_1_1 : exec_0_1;   /* pf1          */
+            exec_fn e2 = v ? exec_1_2 : exec_0_2;   /* pf4          */
+            exec_fn e3 = v ? exec_1_3 : exec_0_3;   /* pf1-pfin     */
+            exec_fn e4 = v ? exec_1_4 : exec_0_4;   /* pf1-pfin-pfw */
+            exec_fn e5 = v ? exec_1_5 : exec_0_5;   /* zy-pf0       */
+            exec_fn e6 = v ? exec_1_6 : exec_0_6;   /* zy-pf1       */
+            mt_fn sp0 = v ? split_1_p0 : split_0_p0;
+            mt_fn sp1 = v ? split_1_p1 : split_0_p1;
+
+            if (mtmode <= 1 && (mtT == 0 || mtT == 1)) {
+                CAND(mt_vol_run, e0, 1, "v%d-ser-pf0", v);
+                if (batch >= 2)
+                    CAND(mt_vol_run, streaming ? e1 : e2, 1,
+                         "v%d-ser-%s", v, streaming ? "pf1" : "pf4");
+                if (zymode == 1) CAND(mt_vol_run, e5, 1, "v%d-ser-zy0", v);
             }
-            if (in_plain) PROBE(exec_0_1, "v0-cached-pf1", 1);
-            if (in_pfin)  PROBE(exec_0_3, "v0-cached-pf1-pfin", 1);
-            if (in_pfw)   PROBE(exec_0_4, "v0-cached-pf1-pfin-pfw", 1);
-            if (zymode == 1 && !have_512) PROBE(exec_0_6, "v0-zy-pf1", 1);
-        } else {
-            /* cached pool.  pfw joins it at batch >= 2 (L36_pfa r6: pf=2 beat
-             * pf=0 by 8% at B=4 in a quiet window -- at B>=2 `out` volumes
-             * cycle through L2/L3 so the store stream's RFO is exposed even
-             * though the batch does not stream; at B=1 out is steady-state
-             * resident and prefetchw is pure tax, +11..17% measured). */
-            if (have_512) {
-                if (in_plain) {
-                    PROBE(exec_1_0, "v1-cached-pf0", 1);
-                    PROBE(exec_1_1, "v1-cached-pf1", 1);
-                    PROBE(exec_1_2, "v1-cached-pf4", 1);
+            if (mtmode == 1) continue;
+
+            if (batch >= 2 && (mtmode == 0 || mtmode == 3)) {
+                /* volume-parallel team sizes: full width; one socket of the
+                 * scoring node; and, below full width, one volume/thread */
+                int Tv[3] = { m, 16, (int)(batch < (long)m ? batch : 0) };
+                for (int i = 0; i < 3; ++i) {
+                    int T = Tv[i];
+                    if (T < 2 || T > m) continue;
+                    if (i > 0 && T >= m) continue;      /* dedupe vs Tv[0] */
+                    if (i == 2 && T == 16) continue;    /* dedupe vs Tv[1] */
+                    if (mtT && T != mtT) continue;
+                    if (in_plain && !streaming)
+                        CAND(mt_vol_run, e0, T, "v%d-vol%d-pf0", v, T);
+                    if (in_plain)
+                        CAND(mt_vol_run, e1, T, "v%d-vol%d-pf1", v, T);
+                    if (in_plain && !streaming)
+                        CAND(mt_vol_run, e2, T, "v%d-vol%d-pf4", v, T);
+                    if (in_pfin)
+                        CAND(mt_vol_run, e3, T, "v%d-vol%d-pfin", v, T);
+                    if (in_pfw)
+                        CAND(mt_vol_run, e4, T, "v%d-vol%d-pfw", v, T);
+                    if (streaming && batch > (long)T) {
+                        if (in_plain)
+                            CAND(mt_vol_dyn_run, e1, T, "v%d-dyn%d-pf1", v, T);
+                        if (in_pfw)
+                            CAND(mt_vol_dyn_run, e4, T, "v%d-dyn%d-pfw", v, T);
+                    }
+                    if (zymode == 1)
+                        CAND(mt_vol_run, e6, T, "v%d-vol%d-zy1", v, T);
                 }
-                if (in_pfin) PROBE(exec_1_3, "v1-cached-pf1-pfin", 1);
-                if (in_pfw && batch >= 2) PROBE(exec_1_4, "v1-cached-pf1-pfin-pfw", 1);
-                if (in_zy) {
-                    PROBE(exec_1_5, "v1-zy-pf0", 1);
-                    PROBE(exec_1_6, "v1-zy-pf1", 1);
+            }
+            if (batch < (long)m && (mtmode == 0 || mtmode == 2)) {
+                /* within-volume split; T=18 divides both 36-unit phases
+                 * exactly, T=16 is one full socket on the scoring node */
+                int Ts[4] = { m, 18, 16, 8 };
+                for (int i = 0; i < 4; ++i) {
+                    int T = Ts[i];
+                    if (T < 2 || T > m) continue;
+                    if (i > 0 && T >= m) continue;
+                    if (mtT && T != mtT) continue;
+                    CAND(sp0, e0, T, "v%d-split%d-pf0", v, T);
+                    CAND(sp1, e0, T, "v%d-split%d-pf1", v, T);
                 }
-            }
-            if (in_plain) {
-                PROBE(exec_0_0, "v0-cached-pf0", 1);
-                PROBE(exec_0_1, "v0-cached-pf1", 1);
-                PROBE(exec_0_2, "v0-cached-pf4", 1);
-            }
-            if (in_pfin) PROBE(exec_0_3, "v0-cached-pf1-pfin", 1);
-            if (in_pfw && batch >= 2) PROBE(exec_0_4, "v0-cached-pf1-pfin-pfw", 1);
-            if (in_zy) {
-                PROBE(exec_0_5, "v0-zy-pf0", 1);
-                PROBE(exec_0_6, "v0-zy-pf1", 1);
             }
         }
-#undef PROBE
-        for (int k = 0; k < nprobe; ++k) {
+#undef CAND
+
+        int keep[64], ns = 0;
+        for (int k = 0; k < nc; ++k) {
             memset(ox, 0, nd * sizeof(double));
-            probe[k](ti, ox, nt, p->plane);
+            p->bfn = cd[k].bfn; p->T = cd[k].T;
+            cd[k].run(ti, ox, nt, p);
             double num = 0.0, den = 0.0;
             for (size_t i = 0; i < nd; ++i) {
                 double d = ox[i] - o0[i];
                 num += d * d;
                 den += o0[i] * o0[i];
             }
-            if (den > 0.0 && sqrt(num / den) < 1e-13) {
-                cand[ncand] = probe[k];
-                cnm[ncand] = pnm[k];
-                cinst[ncand] = pin_[k];
-                ++ncand;
-            }
+            if (den > 0.0 && sqrt(num / den) < 1e-13) keep[ns++] = k;
         }
-        if (ncand == 0) {           /* nothing survived admission: fall back */
-            cand[ncand] = exec_0_0; cnm[ncand] = "v0-cached-pf0-fallback";
-            cinst[ncand] = 1; ++ncand;
-            cand[ncand] = exec_0_1; cnm[ncand] = "v0-cached-pf1-fallback";
-            cinst[ncand] = 1; ++ncand;
+        if (ns == 0) {              /* nothing survived admission: fall back */
+            cd[0].run = mt_vol_run; cd[0].bfn = exec_0_0; cd[0].T = 1;
+            cd[0].nm = "v0-ser-pf0-fallback";
+            keep[ns++] = 0;
         }
 
-        /* time every surviving candidate, several interleaved rounds, keep the
-         * per-candidate minimum.  Small arenas get more reps and rounds (the
-         * panel_r3 verdict measured this tuner flipping picks across runs at
-         * B=1 -- an under-sampling artifact, fixed in r4). */
-        double best[32];
-        for (int k = 0; k < ncand; ++k) best[k] = 1e300;
+        /* time every survivor, several interleaved rounds, keep the
+         * per-candidate minimum (phase-1 r4's under-sampling fix kept) */
+        double best[64];
+        for (int k = 0; k < ns; ++k) best[k] = 1e300;
         int reps = nt >= 16 ? 1 : (nt >= 4 ? 4 : 16);
         int rounds = nt >= 16 ? 4 : (nt >= 4 ? 6 : 10);
         for (int round = 0; round < rounds; ++round) {
-            for (int k = 0; k < ncand; ++k) {
-                cand[k](ti, ox, nt, p->plane);        /* warm */
+            for (int k = 0; k < ns; ++k) {
+                const mtcand *c = &cd[keep[k]];
+                p->bfn = c->bfn; p->T = c->T;
+                c->run(ti, ox, nt, p);              /* warm */
                 double t0 = now_s();
                 for (int r = 0; r < reps; ++r)
-                    cand[k](ti, ox, nt, p->plane);
+                    c->run(ti, ox, nt, p);
                 double dt = now_s() - t0;
                 if (dt < best[k]) best[k] = dt;
             }
         }
-        /* hysteresis pick: candidates are listed simplest-first per kernel,
-         * so a later (more speculative) candidate must beat the incumbent by
-         * more than 3% to be installed.  Near-ties go to the simpler code
-         * (L36_pfa measured the coin-flip zone at 2.4%; every genuine win on
-         * this board is >= 6%). */
-        int bk = -1;
-        for (int k = 0; k < ncand; ++k) {
-            if (!cinst[k]) continue;               /* probe-only: timed, never installed */
-            if (bk < 0 || best[k] < 0.97 * best[bk]) bk = k;
-        }
-        if (bk < 0) bk = 0;
-        p->fn = cand[bk];
-        /* structure probe: publish the tuner's own steady-state times for
-         * the plain and zy pf0 twins (identical arithmetic and bits, plain
-         * z,z,..,y,y vs interleaved z,y,z,y call order), so the node's
-         * phase-1-scheduling verdict rides the leaderboard whatever the
-         * pick (L36_pfa r8's probe-through-description pattern). */
-        double t_p = -1.0, t_z = -1.0;
-        for (int k = 0; k < ncand; ++k) {
-            const char *s = strchr(cnm[k], '-');
-            if (!s) continue;
-            if (strcmp(s, "-cached-pf0") == 0) t_p = best[k] / reps / nt * 1e6;
-            if (strcmp(s, "-zy-pf0") == 0)     t_z = best[k] / reps / nt * 1e6;
-        }
-        int n = snprintf(g_desc, sizeof g_desc,
-                 "PFA 4x9 2-sweep, lanes=lines, n1_9 DFT9; pick=%s (B=%d, "
-                 "arena=%ld vol, stream=%d, %d cand, pinD=%ld)",
-                 cnm[bk], batch, nt, streaming, ncand, g_pind);
-        if (t_p > 0.0 && t_z > 0.0 && n > 0 && (size_t)n < sizeof g_desc)
-            snprintf(g_desc + n, sizeof g_desc - (size_t)n,
-                     " probe us/vol pf0=%.1f zy=%.1f", t_p, t_z);
+        int bk = 0;
+        for (int k = 1; k < ns; ++k)
+            if (best[k] < 0.97 * best[bk]) bk = k;
+        const mtcand *w = &cd[keep[bk]];
+        p->run = w->run; p->bfn = w->bfn; p->T = w->T;
+
+        /* publish the serial-vs-pick pair so parallel efficiency rides the
+         * leaderboard (the brief asks for it; L36_pfa r8's probe-through-
+         * description pattern) */
+        double t_ser = -1.0;
+        for (int k = 0; k < ns; ++k)
+            if (cd[keep[k]].T == 1 && (t_ser < 0.0 || best[k] < t_ser))
+                t_ser = best[k];
+        double us_win = best[bk] / reps / nt * 1e6;
+        double us_ser = t_ser > 0.0 ? t_ser / reps / nt * 1e6 : -1.0;
+        double eff = (us_ser > 0.0 && w->T > 1) ? us_ser / ((double)w->T * us_win)
+                                                : 1.0;
+        snprintf(g_desc, sizeof g_desc,
+                 "MT PFA 4x9 n1_9; pick=%s (B=%d m=%d arena=%ld stream=%d %dc) "
+                 "us/vol ser=%.1f pick=%.1f eff=%.2f",
+                 w->nm, batch, m, nt, streaming, ns, us_ser, us_win, eff);
     }
     free(ti); free(o0); free(ox);
     return p;
@@ -546,7 +661,7 @@ fft3d_plan *fft3d_create(int L, int batch)
 
 void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex *out)
 {
-    plan->fn((const double *)in, (double *)out, plan->batch, plan->plane);
+    plan->run((const double *)in, (double *)out, plan->batch, plan);
 }
 
 void fft3d_destroy(fft3d_plan *plan)
@@ -968,6 +1083,73 @@ void FN(body_zy)(const double *in, double *out, long batch, double *plane,
             }
         }
     }
+}
+
+/* -------- multicore within-volume split (B=1 / small batch) --------------
+ * Called INSIDE a parallel region.  Phase 1: the 36 x-planes are independent
+ * given per-thread plane scratch; schedule(static,1) round-robins them (a
+ * plane is 20736 B, so no two threads share a cache line) and its implicit
+ * barrier is the one phase1->phase2 sync the data flow requires.  Phase 2:
+ * units are whole (y,zb) tiles at PW=4 (64-B stores) or whole y-rows at PW=2
+ * (32-B stores would false-share across a tile boundary; a row is 576 B per
+ * x-line), nowait so a finished thread runs ahead into the next volume's
+ * phase 1 (which touches only volume b+1, disjoint from phase 2 of b). */
+static inline __attribute__((always_inline))
+void FN(split_body)(const double *in, double *out, long batch,
+                    const fft3d_plan *p, const int pf)
+{
+    double *pl = p->scratch + (long)omp_get_thread_num() * SCR_STRIDE;
+    for (long b = 0; b < batch; ++b) {
+        const double *vin  = in  + b * (long)NVOL * 2;
+        double       *vout = out + b * (long)NVOL * 2;
+#pragma omp for schedule(static, 1)
+        for (long x = 0; x < LSIDE; ++x) {
+            const double *pin  = vin  + x * (long)NPLANE * 2;
+            double       *pout = vout + x * (long)NPLANE * 2;
+            for (long yb = 0; yb < LSIDE / PW; ++yb)
+                FN(zblock)(pin, pl, yb);
+            for (long zb = 0; zb < LSIDE / PW; ++zb)
+                FN(dft36_y)(pl + zb * PW * 2, pout + zb * PW * 2);
+        }
+#if PW == 4
+#pragma omp for schedule(static) nowait
+        for (long u = 0; u < LSIDE * (LSIDE / PW); ++u) {
+            long y = u / (LSIDE / PW), zb = u % (LSIDE / PW);
+            double *base = vout + (y * 36 + zb * PW) * 2;
+            if (pf)
+                for (int i = 0; i < 36; ++i)
+                    _mm_prefetch((const char *)(base + i * (NPLANE * 2) + pf * 8),
+                                 _MM_HINT_T0);
+            FN(dft36_x)(base);
+        }
+#else
+#pragma omp for schedule(static, 1) nowait
+        for (long y = 0; y < LSIDE; ++y) {
+            for (long zb = 0; zb < LSIDE / PW; ++zb) {
+                double *base = vout + (y * 36 + zb * PW) * 2;
+                if (pf)
+                    for (int i = 0; i < 36; ++i)
+                        _mm_prefetch((const char *)(base + i * (NPLANE * 2) + pf * 8),
+                                     _MM_HINT_T0);
+                FN(dft36_x)(base);
+            }
+        }
+#endif
+    }
+}
+
+static void XCAT(XCAT(split_, VAR), _p0)(const double *in, double *out,
+                                         long batch, const fft3d_plan *p)
+{
+#pragma omp parallel num_threads(p->T)
+    FN(split_body)(in, out, batch, p, 0);
+}
+
+static void XCAT(XCAT(split_, VAR), _p1)(const double *in, double *out,
+                                         long batch, const fft3d_plan *p)
+{
+#pragma omp parallel num_threads(p->T)
+    FN(split_body)(in, out, batch, p, 1);
 }
 
 static void FN(exec)(const double *in, double *out, long batch, double *plane)

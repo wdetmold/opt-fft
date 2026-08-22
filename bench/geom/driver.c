@@ -61,14 +61,22 @@ static void usage(const char *argv0)
             "  --min-sample-ms X  auto-calibrate inner reps to exceed this (default 20)\n"
             "  --out FILE         write the transformed batch here (for the checker)\n"
             "  --json FILE        write timing results here\n"
-            "  --run-index N      label for this process, when the runner repeats it\n",
+            "  --run-index N      label for this process, when the runner repeats it\n"
+            "  --chain M          time a CHAIN of M transforms, feeding each output into the\n"
+            "                     next input (ping-pong buffers), as the graded call does.\n"
+            "                     Default 1 = repeated transforms of one input.\n"
+            "  --unitary          scale by 1/sqrt(V) after every chain step (driver-side,\n"
+            "                     identical for all backends). Without it a forward chain\n"
+            "                     overflows to inf within ~120-270 steps at every graded\n"
+            "                     size; with it the end state has a closed form the checker\n"
+            "                     verifies (FFT^2 = V * index-reversal).\n",
             argv0);
     exit(2);
 }
 
 int main(int argc, char **argv)
 {
-    int L = 0, batch = 0, samples = 30, warmup = 5, run_index = 0;
+    int L = 0, batch = 0, samples = 30, warmup = 5, run_index = 0, chain = 1, unitary = 0;
     double min_sample_ms = 20.0;
     const char *in_path = NULL, *out_path = NULL, *json_path = NULL;
 
@@ -82,6 +90,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--out") && i + 1 < argc) out_path = argv[++i];
         else if (!strcmp(argv[i], "--json") && i + 1 < argc) json_path = argv[++i];
         else if (!strcmp(argv[i], "--run-index") && i + 1 < argc) run_index = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--chain") && i + 1 < argc) chain = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--unitary")) unitary = 1;
         else usage(argv[0]);
     }
     if (L <= 0 || batch <= 0 || !in_path) usage(argv[0]);
@@ -107,6 +117,10 @@ int main(int argc, char **argv)
     double _Complex *in = aligned_or_die(bytes);
     double _Complex *out = aligned_or_die(bytes);
     memset(out, 0, bytes);
+    /* A chain alternates between two destinations so each step consumes the previous
+       step's output. Only allocated when a chain is actually asked for. */
+    double _Complex *pong = (chain > 1) ? aligned_or_die(bytes) : NULL;
+    if (pong) memset(pong, 0, bytes);
 
     FILE *f = fopen(in_path, "rb");
     if (!f) { perror(in_path); return 2; }
@@ -127,14 +141,36 @@ int main(int argc, char **argv)
         return 3;
     }
 
+    /* One timed unit: a chain of `chain` transforms. With chain == 1 this is exactly the
+       previous behaviour (one transform of `in`). */
+    const double inv_sqrt_v = 1.0 / sqrt((double)volume);
+    #define RUN_UNIT()                                                                    \
+        do {                                                                              \
+            if (chain <= 1) {                                                             \
+                fft3d_execute(plan, in, out);                                             \
+            } else {                                                                      \
+                const double _Complex *src = in;                                          \
+                double _Complex *dst = out;                                               \
+                for (int _s = 0; _s < chain; ++_s) {                                       \
+                    fft3d_execute(plan, src, dst);                                        \
+                    if (unitary) {                                                        \
+                        double *v_ = (double *)dst;                                       \
+                        for (size_t _j = 0; _j < 2 * count; ++_j) v_[_j] *= inv_sqrt_v;   \
+                    }                                                                     \
+                    src = dst;                                                            \
+                    dst = (dst == out) ? pong : out;                                      \
+                }                                                                         \
+            }                                                                             \
+        } while (0)
+
     /* ---- warmup: discarded ---- */
-    for (int i = 0; i < warmup; ++i) fft3d_execute(plan, in, out);
+    for (int i = 0; i < warmup; ++i) RUN_UNIT();
 
     /* ---- calibrate the inner repeat count ---- */
     long inner = 1;
     for (;;) {
         double t = now_seconds();
-        for (long i = 0; i < inner; ++i) fft3d_execute(plan, in, out);
+        for (long i = 0; i < inner; ++i) RUN_UNIT();
         double elapsed = now_seconds() - t;
         if (elapsed * 1e3 >= min_sample_ms || inner >= (1L << 30)) break;
         /* Grow to roughly hit the target, with a floor of 2x so it always advances. */
@@ -148,11 +184,26 @@ int main(int argc, char **argv)
     if (!per_execute) { fprintf(stderr, "driver: out of memory\n"); return 2; }
     for (int s = 0; s < samples; ++s) {
         double t = now_seconds();
-        for (long i = 0; i < inner; ++i) fft3d_execute(plan, in, out);
+        for (long i = 0; i < inner; ++i) RUN_UNIT();
         per_execute[s] = (now_seconds() - t) / (double)inner;
     }
 
-    /* ---- the output that gets checked is produced by the same code path ---- */
+    /* ---- end-of-chain state, for the closed-form chain check ---- */
+    if (chain > 1 && out_path) {
+        RUN_UNIT();
+        const double _Complex *final_buf = (chain % 2 == 1) ? out : pong;
+        char chain_path[4096];
+        snprintf(chain_path, sizeof chain_path, "%s.chain", out_path);
+        FILE *g = fopen(chain_path, "wb");
+        if (g) {
+            fwrite(final_buf, sizeof(double _Complex), count, g);
+            fclose(g);
+        }
+    }
+
+    /* ---- the checked output is ONE transform ----
+     * A chain of m transforms is not m-times-a-DFT in any form numpy can check, so
+     * correctness is always verified on a single application of the same code path. */
     memset(out, 0, bytes);
     fft3d_execute(plan, in, out);
     if (out_path) {
@@ -205,7 +256,9 @@ int main(int argc, char **argv)
     /* Nominal 5 N log2 N per volume: the yardstick every FFT library quotes.  It is
      * not this implementation's real operation count -- it is the same model for
      * every backend, so the ratios are what carry meaning. */
-    double nominal_flops = 5.0 * (double)volume * log2((double)volume) * (double)batch;
+    /* One timed unit is `chain` transforms of `batch` volumes each. */
+    const double transforms_per_unit = (double)batch * (double)(chain > 1 ? chain : 1);
+    double nominal_flops = 5.0 * (double)volume * log2((double)volume) * transforms_per_unit;
 
     if (json_path) {
         FILE *g = fopen(json_path, "w");
@@ -217,19 +270,20 @@ int main(int argc, char **argv)
                 "\"setup_seconds\":%.9g,"
                 "\"per_execute_seconds\":{\"min\":%.9g,\"median\":%.9g,\"mean\":%.9g,"
                 "\"sd\":%.9g,\"max\":%.9g},"
-                "\"per_transform_seconds_min\":%.9g,"
+                "\"chain\":%d,\"per_transform_seconds_min\":%.9g,"
                 "\"gflops_from_min\":%.6f,\"gflops_from_median\":%.6f}\n",
                 fft3d_name(), fft3d_description(), L, batch, volume, run_index,
                 samples, inner, warmup, setup_seconds,
                 best, median, mean, sd, worst,
-                best / (double)batch,
+                chain, best / transforms_per_unit,
                 nominal_flops / best / 1e9, nominal_flops / median / 1e9);
         fclose(g);
     }
 
-    printf("%-24s L=%-3d B=%-5d inner=%-8ld min=%10.3f us  median=%10.3f us  "
+    printf("%-24s L=%-3d B=%-5d m=%-5d inner=%-6ld min=%10.3f us/xform  median=%10.3f  "
            "sd=%6.2f%%  %8.2f GF/s  setup=%.3f s\n",
-           fft3d_name(), L, batch, inner, best * 1e6, median * 1e6,
+           fft3d_name(), L, batch, chain, inner,
+           best / transforms_per_unit * 1e6, median / transforms_per_unit * 1e6,
            mean > 0 ? 100.0 * sd / mean : 0.0, nominal_flops / best / 1e9, setup_seconds);
 
     free(per_execute);

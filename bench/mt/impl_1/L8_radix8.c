@@ -1,10 +1,39 @@
-/* Carried over from the SINGLE-THREAD competition, where this file finished as
- * written below. Your job in the multicore phase is to parallelise it across
- * 32 cores without losing its single-core efficiency -- read
- * ../PANEL_BRIEF.md, and read ../../geom/strategies/L8_radix8.md for the full
- * history of how this kernel got here.
- */
 /* L8_radix8 -- forward complex-double 3D DFT of the 8x8x8 cube, batched.
+ *
+ * MULTICORE (mt_r1)
+ *   The batch is the parallel axis and nothing else is: one 8^3 volume is
+ *   8 KiB / ~0.6 us of work, and the GOMP fork alone is 3-5 us
+ *   (L13_direct mt_r1 measured it, with monotone losses from intra-volume
+ *   splits at a 4x larger size), so B=1 ships SERIAL, bit-identical to
+ *   phase 1, with no parallel region at all.  For B>1, thread t of a
+ *   min(32, batch)-thread team owns the contiguous volume block
+ *   [nb*t/T, nb*(t+1)/T) and runs the UNTOUCHED serial per-chunk run
+ *   function on it -- zero synchronisation inside the region, one
+ *   fork+join per execute, ranges computed from the team actually
+ *   delivered.  Per-thread scratch lives in page-aligned 12-KiB slots
+ *   (3 whole pages: no false sharing, NUMA-local), allocated and
+ *   FIRST-TOUCHED BY THE OWNING THREAD inside fft3d_create(), which also
+ *   spins up the OpenMP pool so the first timed execute creates no thread
+ *   (decomposition and first-touch pattern from L13_direct/L64_blocked
+ *   mt_r1).  Chunk boundaries are whole 8-KiB volumes, so threads never
+ *   share an output cache line.  The caller's buffers are first-touched
+ *   single-threaded by the driver (one socket owns in/out); contiguous
+ *   chunks are the best we can do about that.
+ *
+ *   NT stores RETURN to the candidate pool for B>1.  The phase-1
+ *   retirement ("hide the RFO with prefetchw, do not avoid it", panel_r5
+ *   VERDICT 4.5) was a single-core result: one core is fill-buffer-bound,
+ *   not DRAM-bound.  32 cores ARE aggregate-bandwidth-bound, and NT cuts
+ *   mandatory traffic from 24 KB/volume (in + RFO + out) to 16
+ *   (L64_blocked mt_r1: NT beat cached stores by ~25 % at every engine at
+ *   the memory wall).  Every B>1 candidate -- threaded or serial, NT or
+ *   cached, any team size -- is the 3p shape, and threading/NT change no
+ *   arithmetic, so the whole pool is ONE BIT CLASS (cmp-identical output)
+ *   and the r11 invariant survives the phase by construction.  Each
+ *   thread issues its own sfence before the join barrier.
+ *
+ * Everything below the multicore layer is the phase-1 file, unchanged;
+ * ../../geom/strategies/L8_radix8.md has the full history.
  *
  * TECHNIQUE
  *   One fully unrolled radix-8 codelet (52 instructions = 44 add/sub + 8 FMA, no
@@ -947,10 +976,86 @@ DEFRUN(run_3p_nt_pfs_avx512, kernel3s_nt_avx512, 1)
 #endif /* AVX512F */
 
 /* ================================================================== *
- *  Plan, self-tuning, and the API.
+ *  Multicore layer (new in mt_r1): batch-parallel over contiguous
+ *  volume chunks, each chunk run by the untouched serial run function
+ *  with that thread's own page-aligned scratch slot.
  * ================================================================== */
 typedef void (*rfn_t)(const double *restrict, double *restrict, double *restrict,
                       int);
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
+/* Per-thread scratch slot stride in doubles: 12 KiB = 3 whole 4-KiB pages,
+ * so slots never share a page (no false sharing; each slot NUMA-local to
+ * the core that first touches it).  Must cover the largest per-volume
+ * scratch any kernel shape uses. */
+#define SLOTD 1536
+typedef char l8r_slot_big_enough[(SLOTD >= 8 * SCRX &&
+                                  SLOTD >= L8R_SIOFF + 512) ? 1 : -1];
+
+/* Threads the harness granted us (OMP_NUM_THREADS=32 on the node), read
+ * once in fft3d_create().  Never raised -- the brief forbids it. */
+static int g_team = 1;
+
+static void mt_run(rfn_t chunk, int team, int ntf,
+                   const double *restrict in, double *restrict out,
+                   double *restrict scr, int nb)
+{
+#ifdef _OPENMP
+    int T = team < nb ? team : nb;
+    if (T > 1) {
+#pragma omp parallel num_threads(T)
+        {
+            /* ranges from the team ACTUALLY delivered, so a squeezed team
+             * still computes the whole batch (L13_direct mt_r1) */
+            int U  = omp_get_num_threads();
+            int t  = omp_get_thread_num();
+            int lo = (int)((long long)nb * t / U);
+            int hi = (int)((long long)nb * (t + 1) / U);
+            if (hi > lo)
+                chunk(in + (size_t)lo * NDBL, out + (size_t)lo * NDBL,
+                      scr + (size_t)t * SLOTD, hi - lo);
+#if defined(__SSE2__)
+            /* NT stores are weakly ordered and a fence only orders the
+             * ISSUING core's stores: each thread fences its own chunk
+             * BEFORE the join barrier. */
+            if (ntf) _mm_sfence();
+#endif
+        }
+        return;
+    }
+#endif
+    (void)team; (void)ntf;
+    chunk(in, out, scr, nb);
+}
+
+#define DEFMT(rname, chunkfn, teamexpr, ntf)                                   \
+    static KFN_MAYBE_UNUSED void rname(const double *restrict in,              \
+                                       double *restrict out,                   \
+                                       double *restrict scr, int nb)           \
+    { mt_run(chunkfn, (teamexpr), (ntf), in, out, scr, nb); }
+
+#if defined(__AVX512F__)
+DEFMT(run_mt_3p_avx512,          run_3p_avx512,        g_team,           0)
+DEFMT(run_mt_3p_pfs_avx512,      run_3p_pfs_avx512,    g_team,           0)
+DEFMT(run_mt_3p_pfsw_avx512,     run_3p_pfsw_avx512,   g_team,           0)
+DEFMT(run_mt_3p_nt_avx512,       run_3p_nt_avx512,     g_team,           1)
+DEFMT(run_mt_3p_nt_pfs_avx512,   run_3p_nt_pfs_avx512, g_team,           1)
+/* Half-team twins: the two-socket question.  The driver first-touches all
+ * caller pages on ONE socket, so on the node the far half of a close-bound
+ * 32-thread team pays UPI for every line; a half team may be all-local.
+ * Wallaby (one 32-core socket) cannot price this -- the node tuner does. */
+DEFMT(run_mth_3p_nt_pfs_avx512,  run_3p_nt_pfs_avx512, (g_team + 1) / 2, 1)
+DEFMT(run_mth_3p_pfs_avx512,     run_3p_pfs_avx512,    (g_team + 1) / 2, 0)
+#elif defined(__AVX2__) && defined(__FMA__)
+DEFMT(run_mt_3p_avx2,            run_3p_avx2,          g_team,           0)
+DEFMT(run_mt_3p_pfs_avx2,        run_3p_pfs_avx2,      g_team,           0)
+DEFMT(run_mt_3p_nt_pfs_avx2,     run_3p_nt_pfs_avx2,   g_team,           1)
+#else
+DEFMT(run_mt_3p_gen,             run_3p_gen,           g_team,           0)
+#endif
 
 struct fft3d_plan {
     int    batch;
@@ -973,9 +1078,10 @@ const char *fft3d_name(void) { return "L8_radix8"; }
 
 /* Filled in by fft3d_create() with the tuner's pick, as the panel_r2 verdict
  * asked; the default text covers a call before any plan exists. */
-static char g_desc[224] =
-    "radix-8 split-complex, 52-instr codelet, copy-free AVX-512 transposes; "
-    "2p/fused-1f/3p shapes x spread-t0 x prefetchw, tuned at create";
+static char g_desc[384] =
+    "radix-8 split-complex 52-instr codelet, copy-free AVX-512 transposes; "
+    "B=1 serial 2p, B>1 batch-parallel 3p chunks (per-thread NUMA slots), "
+    "NT/pfs/pfw x team tuned at create";
 
 const char *fft3d_description(void) { return g_desc; }
 
@@ -990,17 +1096,39 @@ fft3d_plan *fft3d_create(int L, int batch)
     fft3d_plan *p = (fft3d_plan *)calloc(1, sizeof(*p));
     if (!p) return NULL;
     p->batch = batch;
-    /* 8*SCRX doubles for the 2p/3p plane scratch; the de-aliased 1f520 needs
-     * L8R_SIOFF+512 (1032 at the default 520), which only binds if SCRX is
-     * A/B'd down to 128. */
-    size_t scrd = (size_t)8 * SCRX;
-    if (scrd < (size_t)L8R_SIOFF + 512) scrd = (size_t)L8R_SIOFF + 512;
-    if (posix_memalign(&p->scr_raw, 64, scrd * sizeof(double)) != 0 || !p->scr_raw) {
+
+    /* Threads the harness granted (never raised).  Read once, kept for the
+     * plan's lifetime in g_team, which the mt run wrappers use. */
+    int team = 1;
+#ifdef _OPENMP
+    team = omp_get_max_threads();
+    if (team > 32) team = 32;
+    if (team < 1)  team = 1;
+#endif
+    g_team = team;
+
+    /* One page-aligned SLOTD-double scratch slot per thread; slot 0 doubles
+     * as the serial paths' scratch (SLOTD covers 8*SCRX and the 1f520
+     * layout, compile-checked above).  Each slot is FIRST-TOUCHED BY ITS
+     * OWNING THREAD so it is NUMA-local on the two-socket node; the same
+     * parallel region spins up the OpenMP pool, so the first timed execute
+     * creates no thread. */
+    size_t scrd = (size_t)team * SLOTD;
+    if (posix_memalign(&p->scr_raw, 4096, scrd * sizeof(double)) != 0 || !p->scr_raw) {
         free(p);
         return NULL;
     }
     p->scr = (double *)p->scr_raw;
+#ifdef _OPENMP
+#pragma omp parallel num_threads(team)
+    {
+        int t = omp_get_thread_num();
+        if (t < team)
+            memset(p->scr + (size_t)t * SLOTD, 0, SLOTD * sizeof(double));
+    }
+#else
     memset(p->scr, 0, scrd * sizeof(double));
+#endif
 
     /* ---- regime gate.  Prefetch/NT candidates are offered only when the batch's
      * in+out footprint exceeds ~0.9x the last-level cache: at cache-resident sizes
@@ -1060,69 +1188,56 @@ fft3d_plan *fft3d_create(int L, int batch)
         ADDC(run_1f_avx512,     run_1f_avx512,     "avx512-1f",     0, 0);
         ADDC(run_3p_avx512,     run_3p_avx512,     "avx512-3p",     0, 0);
         notune = 1;
-    } else if (!big) {
-        /* Mid regime (the node's B=64 cell).  panel_r11: the pool of
-         * INSTALLABLE candidates is ONE BIT CLASS (the 1f family, axis
-         * order y,x,z, rel_l2 fingerprint 2.27e-16), so a pick flip across
-         * processes can never put an unchecked bit class behind the
-         * leaderboard minimum -- the r10 VERDICT s3(a) exposure, fixed by
-         * L36_mixedradix's rule: a tuner pool must be one bit class;
-         * cross-class candidates ride the description string, never the
-         * pick.  Default reverts 1f520-pfs -> 1f-pfs: the node's own r10
-         * arena read 1f-pfs FASTER in 2 of 3 runs (0.605/0.606 vs
-         * 0.614/0.613) and even in the third -- the in-scratch de-alias is
-         * null-to-adverse in this file (r10 fork, null branch).  1f520-pfs
-         * stays installable (same bit class, address-only change); 3p-pfs
-         * and 2p are timed-and-published probes ('*' in the arena string).
-         * pfw is NOT offered here: prefetchw on cache-resident output lines
-         * is a documented loser (L36_pfa +13%/+11%; L8_fusedaxes +3%). */
-        ADDC(run_1f_pfs_avx512,    run_1f_pfs_avx512,    "avx512-1f-pfs",    0, 1);
-        ADDC(run_1f520_pfs_avx512, run_1f520_pfs_avx512, "avx512-1f520-pfs", 0, 1);
-        ADDC(run_3p_pfs_avx512,    run_3p_pfs_avx512,    "avx512-3p-pfs",    0, 0);
-        ADDC(run_2p_avx512,        run_2p_avx512,        "avx512-2p",        0, 0);
     } else {
-        /* Streaming regime.  panel_r11: single-bit-class pool (3p family,
-         * axis order z,x,y, fingerprint 1.92e-16) with 3p-pfs-pfw as the
-         * default.  Two reasons, both from the node's own r10 data: (1) the
-         * r10 B=2048 minimum (0.9838) was produced by a 3p-pfs-pfw pick in
-         * a run whose bits were never checked, because the pool spanned the
-         * 1f and 3p classes and the picks flipped -- the VERDICT s3(a)
-         * finding against this file; (2) the node arena ranked 3p-pfs-pfw
-         * ahead of 1f-pfs-pfw in ALL THREE B=2048 runs (0.900-0.907 vs
-         * 0.913-0.926, ~2 %) and dead even at B=16384 (1.121-1.145 both),
-         * and the two r10 driver runs that shipped 3p-pfs-pfw read
-         * 0.984/0.993 against 1.012 for the 1f run.  So the class the pool
-         * keeps is also the faster one.  1f-pfs-pfw stays as a published
-         * probe so the twin comparison remains on the leaderboard.  NT
-         * candidates stay retired (lost 4 rounds running; VERDICT r5 4.5:
-         * hide the RFO with prefetchw, do not avoid it with NT). */
-        ADDC(run_3p_pfsw_avx512, run_3p_pfsw_avx512, "avx512-3p-pfs-pfw", 0, 1);
-        ADDC(run_1f_pfsw_avx512, run_1f_pfsw_avx512, "avx512-1f-pfs-pfw", 0, 0);
-        ADDC(run_3p_pfs_avx512,  run_3p_pfs_avx512,  "avx512-3p-pfs",     0, 1);
-        ADDC(run_3p_pf_avx512,   run_3p_pf_avx512,   "avx512-3p-pf",      0, 1);
+        /* MULTICORE pool (mt_r1), every batch > 1.  All candidates are the
+         * 3p shape -- threaded full team, threaded half team, or serial --
+         * and threading, team size, NT stores and prefetch variants change
+         * NO arithmetic, so the whole pool is ONE BIT CLASS (cmp-identical
+         * output) and the r11 single-class invariant holds by
+         * construction.  Default mt-3p-nt-pfs: 32 cores are
+         * aggregate-DRAM-bound where one core was fill-buffer-bound, so
+         * the phase-1 NT retirement inverts -- NT cuts mandatory traffic
+         * from 24 KB/volume (in + RFO + out) to 16, and L64_blocked mt_r1
+         * measured NT beating cached stores ~25 % at every engine at the
+         * memory wall.  The cached pfs-pfw phase-1 streaming winner stays
+         * installable so the node can veto the inversion; the half-team
+         * twins price the two-socket UPI question (caller pages all live
+         * on one socket); the serial candidate covers small batches, where
+         * the 3-5 us GOMP fork can exceed the whole batch's work
+         * (L13_direct mt_r1) -- it is offered only when the batch is small
+         * enough for that to be conceivable.  NT variants fall back to
+         * their cached twin when the buffers are ever unaligned. */
+        ADDC(run_mt_3p_nt_pfs_avx512,  run_mt_3p_pfs_avx512,  "mt-3p-nt-pfs",   1, 1);
+        ADDC(run_mt_3p_pfsw_avx512,    run_mt_3p_pfsw_avx512, "mt-3p-pfs-pfw",  0, 1);
+        ADDC(run_mt_3p_pfs_avx512,     run_mt_3p_pfs_avx512,  "mt-3p-pfs",      0, 1);
+        ADDC(run_mt_3p_nt_avx512,      run_mt_3p_avx512,      "mt-3p-nt",       1, 1);
+        ADDC(run_mth_3p_nt_pfs_avx512, run_mth_3p_pfs_avx512, "mth-3p-nt-pfs",  1, 1);
+        ADDC(run_mth_3p_pfs_avx512,    run_mth_3p_pfs_avx512, "mth-3p-pfs",     0, 1);
+        if (batch <= 4 * team)
+            ADDC(run_3p_pfs_avx512, run_3p_pfs_avx512, "st-3p-pfs", 0, 1);
+        (void)big;
     }
 #elif defined(__AVX2__) && defined(__FMA__)
     if (batch == 1) {
         ADDC(run_2p_avx2, run_2p_avx2, "avx2-2p", 0, 1);
         ADDC(run_3p_avx2, run_3p_avx2, "avx2-3p", 0, 0);
-    } else if (!big) {
-        ADDC(run_3p_avx2, run_3p_avx2, "avx2-3p", 0, 1);
-        ADDC(run_2p_avx2, run_2p_avx2, "avx2-2p", 0, 0);
     } else {
-        /* all 3p bit class (NT/pf variants store identical values) */
-        ADDC(run_3p_pf_avx2,     run_3p_pf_avx2,  "avx2-3p-pf",     0, 1);
-        ADDC(run_3p_pfs_avx2,    run_3p_pfs_avx2, "avx2-3p-pfs",    0, 1);
-        ADDC(run_3p_nt_pfs_avx2, run_3p_pfs_avx2, "avx2-3p-nt-pfs", 1, 1);
-        ADDC(run_3p_nt_avx2,     run_3p_avx2,     "avx2-3p-nt",     1, 1);
-        ADDC(run_3p_avx2,        run_3p_avx2,     "avx2-3p",        0, 1);
+        /* all 3p bit class, threaded over volume chunks */
+        ADDC(run_mt_3p_nt_pfs_avx2, run_mt_3p_pfs_avx2, "mt-3p-nt-pfs", 1, 1);
+        ADDC(run_mt_3p_pfs_avx2,    run_mt_3p_pfs_avx2, "mt-3p-pfs",    0, 1);
+        ADDC(run_mt_3p_avx2,        run_mt_3p_avx2,     "mt-3p",        0, 1);
+        if (batch <= 4 * team)
+            ADDC(run_3p_pfs_avx2, run_3p_pfs_avx2, "st-3p-pfs", 0, 1);
+        (void)big;
     }
 #else
     if (batch == 1) {
         ADDC(run_2p_gen, run_2p_gen, "gen-2p", 0, 1);
         ADDC(run_3p_gen, run_3p_gen, "gen-3p", 0, 0);
     } else {
-        ADDC(run_3p_gen, run_3p_gen, "gen-3p", 0, 1);
-        ADDC(run_2p_gen, run_2p_gen, "gen-2p", 0, 0);
+        ADDC(run_mt_3p_gen, run_mt_3p_gen, "mt-3p", 0, 1);
+        ADDC(run_3p_gen,    run_3p_gen,    "st-3p", 0, 1);
+        (void)big;
     }
 #endif
 #undef ADDC
@@ -1134,7 +1249,7 @@ fft3d_plan *fft3d_create(int L, int batch)
      * the way the driver's own measurement does (L8_batchsimd r8 documented
      * the arena-vs-driver inversion; L36_pfa's create-side-measurement
      * pattern, endorsed panel-wide by the r8 VERDICT). */
-    char arena[104] = "";
+    char arena[176] = "";
 
     if (nc > 1) {
         /* Self-timing at the real batch size, capped machine-relatively at
@@ -1153,13 +1268,16 @@ fft3d_plan *fft3d_create(int L, int batch)
                 ti[i] = 0.5 + 1e-3 * (double)(i % 37);
             memset(to, 0, (size_t)nb * vol);
 
-            /* aim for ~1.5 ms of work per round per candidate */
-            long reps = (long)(1500.0 / (0.7 * (double)nb));
+            /* aim for ~1.5 ms of work per round per candidate; the us/vol
+             * estimate drops to the threaded rate when the pool is threaded,
+             * so trials stay well clear of timer resolution */
+            double est = (batch > 1 && team > 1) ? 0.08 : 0.7;
+            long reps = (long)(1500.0 / (est * (double)nb));
             if (reps < 1) reps = 1;
             if (reps > 4000) reps = 4000;
 
             /* warm-up: settle the frequency licence before anything is believed */
-            long nw = (long)(1000.0 / (0.7 * (double)nb));
+            long nw = (long)(1000.0 / (est * (double)nb));
             if (nw < 2) nw = 2;
             if (nw > 3000) nw = 3000;
 
@@ -1198,14 +1316,15 @@ fft3d_plan *fft3d_create(int L, int batch)
             }
 
             /* compact arena table for the description: candidate short names
-             * (strip the "avx512-" prefix, '*' marks a non-installable probe)
-             * with us-per-volume, first 4 cands */
+             * (strip only an ISA prefix -- "mt"/"mth"/"st" are load-bearing;
+             * '*' marks a non-installable probe) with us-per-volume */
             {
                 size_t off = 0;
-                for (int v = 0; v < nc && v < 4; ++v) {
+                for (int v = 0; v < nc && v < 7; ++v) {
                     const char *nm = cname[v];
-                    const char *dash = strchr(nm, '-');
-                    if (dash) nm = dash + 1;
+                    if (strncmp(nm, "avx512-", 7) == 0)     nm += 7;
+                    else if (strncmp(nm, "avx2-", 5) == 0)  nm += 5;
+                    else if (strncmp(nm, "gen-", 4) == 0)   nm += 4;
                     int w = snprintf(arena + off, sizeof(arena) - off,
                                      "%s%s%s=%.3f", off ? " " : "", nm,
                                      cinst[v] ? "" : "*",
@@ -1241,11 +1360,10 @@ fft3d_plan *fft3d_create(int L, int batch)
     p->nt       = cnt[pick];
 
     snprintf(g_desc, sizeof(g_desc),
-             "radix-8 52-instr codelet; 2p/1f/3p shapes; pick[B=%d]=%s (%s) "
-             "arena{%s} scr@0x%03x",
-             batch, p->chosen,
-             notune ? "fixed" : (tuned ? "tuned" : "default"), arena,
-             (unsigned)((uintptr_t)p->scr & 4095u));
+             "radix-8 52-instr codelet; B=1 serial, B>1 batch-parallel 3p; "
+             "pick[B=%d,T=%d]=%s (%s) arena{%s}",
+             batch, team, p->chosen,
+             notune ? "fixed" : (tuned ? "tuned" : "default"), arena);
     return p;
 }
 

@@ -338,6 +338,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <sched.h>
+#include <stdint.h>
 #include <immintrin.h>
 
 #ifdef _OPENMP
@@ -728,6 +729,8 @@ struct fft3d_plan {
     int nt;                        /* team size for modes 1 and 2 */
     int ntmax;                     /* omp_get_max_threads() clamped to 32 */
     int boff;                      /* shadow plans: this chunk's first volume */
+    double tsec;                   /* shadow plans: last chunk wall time, for
+                                    * the measured weighted partition */
     struct fft3d_plan *sh[L17R_MAXT]; /* per-thread shadow plans; scratch
                                     * first-touched by the owning thread in
                                     * fft3d_create (NUMA) */
@@ -808,7 +811,7 @@ typedef void (*l17r_fn)(fft3d_plan *, const double _Complex *,
  * elsewhere the plain widths compete (the emulated 512-bit build on an AVX2
  * host measures slow and eliminates itself).  "t" = mixed ymm tail. */
 #if defined(__AVX512VL__)
-#  define L17R_NCA 17
+#  define L17R_NCA 21
 #  define L17R_NCB 4
 #else
 #  define L17R_NCA 3
@@ -822,6 +825,8 @@ static const l17r_fn l17r_cand_a[L17R_NCA] = {
     exec_npmdy_w8, exec_spmdy_w8,          /* panel_r9: ymm-deint twins */
     exec_stm_w8, exec_stmdy_w8,            /* panel_r10: staged dense out */
     exec_stpm_w8, exec_stpmdy_w8,          /* panel_r10: + pipelined flush */
+    exec_stntm_w8, exec_stntmdy_w8,        /* mt_r1: NT flush twins */
+    exec_stpntm_w8, exec_stpntmdy_w8,
 #endif
 };
 static const char *const l17r_tag_a[L17R_NCA] = {
@@ -832,6 +837,8 @@ static const char *const l17r_tag_a[L17R_NCA] = {
     "xl 512t dy", "xl 512t sp dy",
     "xl 512t st", "xl 512t st dy",
     "xl 512t stp", "xl 512t stp dy",
+    "xl 512t stnt", "xl 512t stnt dy",
+    "xl 512t stpnt", "xl 512t stpnt dy",
 #endif
 };
 static const l17r_fn l17r_cand_b[L17R_NCB] = {
@@ -1263,6 +1270,12 @@ static void *l17r_worker(void *argp)
         if (atomic_load_explicit(&pl->quit, memory_order_relaxed))
             return NULL;
         seen = atomic_load_explicit(&pl->go, memory_order_acquire);
+        /* EVERY worker acks, team member or not: main waits for all nw
+         * acks, which guarantees every worker is past its job-field reads
+         * before the next dispatch overwrites the descriptor.  (A team-only
+         * ack looks cheaper but lets a slow non-team worker read the NEXT
+         * job with a stale sequence number and run it twice, corrupting the
+         * completion count -- do not "optimize" this.) */
         if (slot + 1 < pl->job.nt && pl->job.fn)
             pl->job.fn(pl->job.p, slot + 1, pl->job.nt,
                        pl->job.in, pl->job.out);
@@ -1387,9 +1400,29 @@ static void l17r_work_batch(fft3d_plan *p, int t, int nt,
 {
     (void)nt;
     fft3d_plan *const q = p->sh[t];
-    if (q && q->batch > 0)
+    if (q && q->batch > 0) {
+        double t0 = l17r_now();     /* ~50 ns against a >= 1 us chunk; feeds
+                                     * the plan-time weighted partition */
         q->exec(q, in + (size_t)NVOL*q->boff,
                 out + (size_t)NVOL*q->boff);
+        double dt = l17r_now() - t0;
+        if (dt < q->tsec) q->tsec = dt;   /* min across reps: noise guard */
+    }
+}
+
+/* re-cut the mode-1 partition of nv volumes by cumulative fractions wfr
+ * (wfr[0] = 0 .. wfr[nt] = 1); exec/pf/pfw are left as set_mode1 set them */
+static void l17r_apply_frac(fft3d_plan *p, int nv, int nt, const double *wfr)
+{
+    int prev = 0;
+    for (int t = 0; t < nt; ++t) {
+        int hi = (t == nt - 1) ? nv : (int)(wfr[t + 1] * nv + 0.5);
+        if (hi < prev) hi = prev;
+        if (hi > nv) hi = nv;
+        p->sh[t]->boff  = prev;
+        p->sh[t]->batch = hi - prev;
+        prev = hi;
+    }
 }
 
 /* configure mode 1 for nv volumes over nt threads, variant f, knobs pf/pfw */
@@ -1405,6 +1438,7 @@ static void l17r_set_mode1(fft3d_plan *p, int nv, int nt, l17r_fn f,
         q->pf    = pf;
         q->pfw   = pfw;
         q->exec  = f;
+        q->tsec  = 1e30;           /* reset the weighted-partition timer */
     }
 }
 
@@ -1817,10 +1851,11 @@ fft3d_plan *fft3d_create(int L, int batch)
         int nv2 = batch < 1024 ? batch : 1024;
         int nt1 = ntm < batch ? ntm : batch;
         if (l17r_tune_alloc(p, nv2)) {
-            static const int cva[6] = {2, 11, 13, 14, 15, 16};
-            /* xl 512t / dy / st / st dy / stp / stp dy */
-            const int ncv = 6;
-            double us[6];
+            static const int cva[10] = {2, 11, 13, 14, 15, 16, 17, 18, 19, 20};
+            /* xl 512t / dy / st / st dy / stp / stp dy / stnt / stnt dy /
+             * stpnt / stpnt dy */
+            const int ncv = 10;
+            double us[10];
             for (int v = 0; v < ncv; ++v) us[v] = 1e30;
             l17r_pool_hold(p->pool, 0);
 
@@ -1846,11 +1881,11 @@ fft3d_plan *fft3d_create(int L, int batch)
             for (int v = 1; v < ncv; ++v)
                 if (us[v] < us[w]) w = v;
             /* partner: best of the OTHER store-shape group (unstaged 0-1,
-             * staged 2-5), so the grid spans both shapes */
+             * staged 2-9), so the grid spans both shapes */
             int part;
             if (w <= 1) {
                 part = 2;
-                for (int v = 3; v < 6; ++v)
+                for (int v = 3; v < ncv; ++v)
                     if (us[v] < us[part]) part = v;
             } else {
                 part = us[0] <= us[1] ? 0 : 1;
@@ -1906,8 +1941,67 @@ fft3d_plan *fft3d_create(int L, int batch)
                             nto[0], nto[1], nto[2], tn[0], tn[1], tn[2], ntf);
             }
 
+            /* measured weighted partition (mt_r1): the driver freads `in`
+             * single-threaded, so ALL input pages are on the plan-calling
+             * socket; on a 2-socket node half the team streams input over
+             * the interconnect and lags, and with equal chunks every
+             * execute is as slow as the slowest thread.  Each thread times
+             * its own chunk (work_batch's tsec); if the spread exceeds
+             * 10%, the partition is re-cut proportional to measured rate
+             * (clamped to [0.5, 2]x the mean) and adopted only if the
+             * re-measurement beats equal chunks by >3%.  Volumes are
+             * identical, so who computes what cannot change the bits. */
+            double wfr[L17R_MAXT + 1];
+            int weighted = 0;
+            for (int t = 0; t <= ntf; ++t)
+                wfr[t] = (double)t / ntf;
+            if (ntf > 1) {
+                l17r_set_mode1(p, nv2, ntf, l17r_cand_a[cva[fv]], fpf, fpfw);
+                double ueq = l17r_time_cfg(p, nv2, 3);
+                double tmin = 1e30, tmax = 0.0, rate[L17R_MAXT];
+                for (int t = 0; t < ntf; ++t) {
+                    int nb = p->sh[t]->batch;
+                    double ts = p->sh[t]->tsec;
+                    rate[t] = (nb > 0 && ts > 0.0) ? (double)nb / ts : 0.0;
+                    if (ts < tmin) tmin = ts;
+                    if (ts > tmax) tmax = ts;
+                }
+                if (tmax > 1.10 * tmin) {
+                    double rsum = 0.0;
+                    for (int t = 0; t < ntf; ++t) rsum += rate[t];
+                    double mean = rsum / ntf;
+                    rsum = 0.0;
+                    for (int t = 0; t < ntf; ++t) {
+                        if (rate[t] < 0.5 * mean) rate[t] = 0.5 * mean;
+                        if (rate[t] > 2.0 * mean) rate[t] = 2.0 * mean;
+                        rsum += rate[t];
+                    }
+                    double acc = 0.0;
+                    for (int t = 0; t < ntf; ++t) {
+                        acc += rate[t] / rsum;
+                        wfr[t + 1] = acc;
+                    }
+                    wfr[ntf] = 1.0;
+                    l17r_apply_frac(p, nv2, ntf, wfr);
+                    double uw = l17r_time_cfg(p, nv2, 3);
+                    if (l17r_verbose())
+                        fprintf(stderr, "[L17_rader mt] weighted cut: eq %.3f"
+                                " -> wt %.3f us/t (spread %.2fx)\n",
+                                ueq, uw, tmax / tmin);
+                    if (uw < 0.97 * ueq) {
+                        weighted = 1;
+                        if (uw < mt_us) mt_us = uw;
+                    } else {
+                        for (int t = 0; t <= ntf; ++t)
+                            wfr[t] = (double)t / ntf;
+                    }
+                }
+            }
+
             /* final mode-1 config on the plan's real batch */
             l17r_set_mode1(p, batch, ntf, l17r_cand_a[cva[fv]], fpf, fpfw);
+            if (weighted)
+                l17r_apply_frac(p, batch, ntf, wfr);
             p->pf = fpf;
             p->pfw = fpfw;
             bestv = cva[fv];
@@ -2406,21 +2500,23 @@ static __attribute__((noinline, noclone)) void SFX(xblk_run)(
  * nts (mt_r1): flush with NON-TEMPORAL stores.  Single-threaded the node
  * rejected NT four rounds running (prefetchw hid the RFO more cheaply), but
  * with 32 cores sharing DRAM the batched cases are bandwidth-bound and the
- * out RFO is a third of the traffic; NT deletes it.  `out` is 64-B aligned
- * (driver posix_memalign) and q steps by full lines, so every NT store is
- * an aligned full-line store; the 2-double remainder goes through normal
- * stores.  Same values to the same places: bit-identical.  sfence before
- * returning so the worker's completion store publishes finished data. */
+ * out RFO is a third of the traffic; NT deletes it.  A volume's out base is
+ * only 16-B aligned (2*NVOL doubles = 78608 B is not a line multiple), so a
+ * short normal-store head aligns the stream and a normal tail finishes it;
+ * vmovntpd demands the alignment.  Same values to the same places:
+ * bit-identical.  sfence before returning so the worker's completion store
+ * publishes finished data. */
 static inline __attribute__((always_inline)) void SFX(vo_flush)(
         const double *vo, double *dst, const int pfw, const int nts)
 {
     long q = 0;
 #if defined(__AVX512F__) && VW == 8
     if (nts) {
+        long h = (long)(((64 - ((uintptr_t)dst & 63)) & 63) / 8);
+        for (; q < h; ++q) dst[q] = vo[q];
         for (; q + 8 <= 2L*NVOL; q += 8)
             _mm512_stream_pd(dst + q, _mm512_loadu_pd(vo + q));
-        dst[q]     = vo[q];
-        dst[q + 1] = vo[q + 1];
+        for (; q < 2L*NVOL; ++q) dst[q] = vo[q];
         _mm_sfence();
         return;
     }
@@ -2454,9 +2550,12 @@ static inline __attribute__((always_inline)) void SFX(vo_flush_chunk)(
     const long qe = (x == 16) ? 2L*NVOL : q + 576;
 #if defined(__AVX512F__) && VW == 8
     if (nts) {
+        long h = (long)(((64 - ((uintptr_t)(dst + q) & 63)) & 63) / 8);
+        if (q + h > qe) h = qe - q;
+        for (long e = q + h; q < e; ++q) dst[q] = vo[q];
         for (; q + 8 <= qe; q += 8)
             _mm512_stream_pd(dst + q, _mm512_loadu_pd(vo + q));
-        if (x == 16) { dst[q] = vo[q]; dst[q + 1] = vo[q + 1]; }
+        for (; q < qe; ++q) dst[q] = vo[q];
         _mm_sfence();
         return;
     }

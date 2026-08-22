@@ -1,8 +1,52 @@
 /* Carried over from the SINGLE-THREAD competition, where this file finished as
- * written below. Your job in the multicore phase is to parallelise it across
- * 32 cores without losing its single-core efficiency -- read
- * ../PANEL_BRIEF.md, and read ../../geom/strategies/L6_unrolled.md for the full
- * history of how this kernel got here.
+ * written below (phase-1 history: ../../geom/strategies/L6_unrolled.md).
+ *
+ * MULTICORE (mt_r1)
+ * -----------------
+ * The per-volume kernels below are untouched -- same arithmetic, same
+ * operation count, output bit-identical to the serial execute at every team
+ * size (each volume's DAG is unchanged; only which thread runs it changes).
+ * What was added:
+ *
+ *  1. Batch-parallel decomposition: thread t owns the CONTIGUOUS volume block
+ *     [B*t/T, B*(t+1)/T) and runs the chosen kernel over it with its OWN
+ *     scratch (t1/t2 in a per-thread arena, allocated and FIRST-TOUCHED by
+ *     the owning thread inside a full-width parallel region in
+ *     fft3d_create(), which also spins up the OpenMP pool -- execute() never
+ *     creates a thread).  No synchronisation inside the region at all; the
+ *     only barrier is the implicit join.  Volumes are 3456 B = 54 whole
+ *     cache lines, so chunk boundaries can never false-share the caller's
+ *     buffers; the per-thread arenas are separate allocations.
+ *  2. B=1 ships SERIAL (nthr=1: execute() has no parallel region at all, so
+ *     the phase-1 single-core path and its node-tuned pick machinery are
+ *     preserved exactly).  One 6^3 volume is 3.4 KB and ~0.21 us of work;
+ *     L13_direct's mt_r1 record measured a GOMP fork + one barrier at +71%
+ *     on a volume with 10x more work, so intra-volume splitting was not
+ *     rebuilt here (see strategies/L6_unrolled.md).
+ *  3. NT-store fused kernels join the race (fused_nt, fused_nt_pf,
+ *     fused_zp_nt_pf, fused_nt_pfnta).  Phase 1 rejected NT stores at every
+ *     batch size SINGLE-core (0-for-4 rounds: one core is concurrency-bound,
+ *     not bandwidth-bound).  32 threads at B=65536 are DRAM-bound, where the
+ *     write-allocate RFO is a third of all traffic -- exactly the regime NT
+ *     exists for.  The threaded race decides per batch size (at B=4096 the
+ *     two sockets' combined 44 MiB L3 holds the 27 MiB working set and NT
+ *     should lose; at B=65536, 432 MiB, it should win).
+ *  4. The plan-time tournament runs THREADED when batch > 1 (the winner at
+ *     32 threads is not the winner at 1: that is the whole NT question),
+ *     followed by a team-size race over {1,2,4,8,16,24,32} with the chosen
+ *     kernel; T=16 = one socket under OMP_PROC_BIND=close is the NUMA
+ *     question (the driver first-touches in/out single-threaded, so one
+ *     socket owns them and the far 16 threads pay UPI).  The team curve is
+ *     published as tm=... in the description on every leaderboard line.
+ *     L6_FORCE still forces the kernel; L6_FORCE_T=<n> forces the team size
+ *     (both for node A/Bs, reported with a trailing !).
+ *  5. PRUNED: the r11 abL DRAM codelet A/B and its probe-only VD63/fused3
+ *     kernel (its question was answered on the node: abL f524.0,f3529.6 --
+ *     VD6 wins the DRAM regime; the r9 f3d numbers killed it in cache) and
+ *     the B=1-only ab1/kclk probes now run only on the serial (batch==1)
+ *     path.  Dead code is not free in this file (r5: +3.5% B=1 from unused
+ *     zmm bodies), and 250 ms + 113 MiB of setup probe whose question is
+ *     closed is dead weight.
  */
 /* L6_unrolled -- forward complex-double 3D DFT of a 6x6x6 cube, batched.
  *
@@ -189,9 +233,14 @@
 #define L6_HAVE_AVX2 1
 #endif
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #define L6_L    6
 #define L6_VOL  216            /* complex per volume */
 #define L6_VD   432            /* doubles  per volume */
+#define L6_MAXT 32             /* the harness gives 32 cores; never take more */
 /* Takeover margins are per-candidate since panel_r10 (see the cand[] table):
  * 2.5% for genuinely different shapes (raised from 1.5% in panel_r4 after an
  * L3-marginal mis-pick at B=4096), 1.0% for the fused_zp twins, whose output
@@ -293,41 +342,12 @@ static void l6_run_scalar(double *restrict t1, double *restrict t2,
 #define VSET __m256d vhalf = _mm256_set1_pd(0.5);                        \
              __m256d vk    = _mm256_setr_pd(L6_S3,-L6_S3,L6_S3,-L6_S3)
 
-/* panel_r10 prune: the VD63 (DFT3-first) codelet twin was DELETED.  The r9
- * node data answered the question it existed for: f3d = +3.3..+6.2% in all
- * six readings, ab1 f < f3 in every process -- the radix-2-first VD6 above
- * is the winning association on Cascade Lake and both L=6 entries now run
- * it.  Derivation and numbers live in strategies/L6_unrolled.md (r9).
- *
- * panel_r11: VD63 RETURNS, probe-only, for the r10 VERDICT's single L=6
- * item -- the DRAM-regime codelet A/B (see the file header and l6_abL).
- * Same PFA 2x3 six-point DFT factored the other way round: two DFT3s
- * first (on {x0,x2,x4} and {x3,x5,x1}), three DFT2 combines last, so the
- * final outputs come from add/sub instead of FMAs.  Identical count: 18
- * arithmetic instructions + 2 shuffles, 48 real flops.  NOT bit-identical
- * to VD6 (different association, ~1e-16), which is exactly why the kernel
- * built from it can never be picked.
- *   u = DFT3(i0,i2,i4), v = DFT3(i3,i5,i1);  X[(3k1+4k2)%6] = u[k2] +/- v[k2]
- *   => o0=u0+v0 o3=u0-v0 o4=up+vp o1=up-vp o2=um+vm o5=um-vm            */
-#define VD63(i0,i1,i2,i3,i4,i5, o0,o1,o2,o3,o4,o5)                       \
-    do {                                                                \
-        __m256d _pa = _mm256_add_pd(i2,i4), _wa = _mm256_sub_pd(i2,i4); \
-        __m256d _pb = _mm256_add_pd(i5,i1), _wb = _mm256_sub_pd(i5,i1); \
-        __m256d _u0 = _mm256_add_pd(i0,_pa);                            \
-        __m256d _v0 = _mm256_add_pd(i3,_pb);                            \
-        __m256d _ma = _mm256_fnmadd_pd(vhalf,_pa,i0);                   \
-        __m256d _mb = _mm256_fnmadd_pd(vhalf,_pb,i3);                   \
-        __m256d _ws = _mm256_permute_pd(_wa,0x5);                       \
-        __m256d _wt = _mm256_permute_pd(_wb,0x5);                       \
-        __m256d _up = _mm256_fmadd_pd (vk,_ws,_ma);                     \
-        __m256d _um = _mm256_fnmadd_pd(vk,_ws,_ma);                     \
-        __m256d _vp = _mm256_fmadd_pd (vk,_wt,_mb);                     \
-        __m256d _vm = _mm256_fnmadd_pd(vk,_wt,_mb);                     \
-        __m256d _t0 = _mm256_add_pd(_u0,_v0), _t3 = _mm256_sub_pd(_u0,_v0); \
-        __m256d _t4 = _mm256_add_pd(_up,_vp), _t1 = _mm256_sub_pd(_up,_vp); \
-        __m256d _t2 = _mm256_add_pd(_um,_vm), _t5 = _mm256_sub_pd(_um,_vm); \
-        o0=_t0; o1=_t1; o2=_t2; o3=_t3; o4=_t4; o5=_t5;                 \
-    } while (0)
+/* panel_r10 prune: the VD63 (DFT3-first) codelet twin was DELETED (r9 node
+ * data: f3d = +3.3..+6.2%, VD6 wins in cache).  panel_r11 brought it back
+ * probe-only for the DRAM codelet A/B, which the node then also answered
+ * (abL = f524.0,f3529.6 ns: VD6 wins the DRAM regime too), so mt_r1 deletes
+ * VD63, the fused3_pfw probe kernel and the l6_abL machinery for good.
+ * Derivations and numbers live in strategies/L6_unrolled.md (geom r9/r11). */
 
 /* Software prefetch hooks for the x-pass loop (adopted from L6_pfa's v8,
  * which won the large-batch cases in panel_r1 with exactly this: touch the
@@ -366,6 +386,11 @@ static void l6_run_scalar(double *restrict t1, double *restrict t2,
 #define L6_PF_T0_1(SRC,OUT,g)  L6_PF_AT(SRC,g,1,_MM_HINT_T0)
 #define L6_PF_T0W_1(SRC,OUT,g)                                          \
     do { L6_PF_AT(SRC,g,1,_MM_HINT_T0); L6_PF_W_AT(OUT,g,1); } while (0)
+/* mt_r1: NTA input prefetch, for the NT-store kernels only -- at B=65536
+ * the input is read once and never revisited, so 32 threads streaming it
+ * through a shared L3 with T0 hints evict each other; NTA fetches into L1
+ * bypassing/minimising L3 fill on CLX.  Raced, never assumed. */
+#define L6_PF_NTA_1(SRC,OUT,g) L6_PF_AT(SRC,g,1,_MM_HINT_NTA)
 /* pruned in panel_r6 (never picked on the node in 4 rounds of stable pick
  * reporting): distance-2 hooks, T1 hooks, W-only.  See strategies/ r6. */
 
@@ -572,13 +597,16 @@ L6_DEF_FUSED_PX(l6_run_fused_zp_pfw, L6_PASS_X_ZP, _mm256_store_pd, L6_PF_T0W_1,
  * r4/r5, SPR-only mechanism.  panel_r9 prune: the fused3/VD63 twins are
  * deleted (question answered on the node, f3d = +3.3..+6.2%). */
 
-/* panel_r11: PROBE-ONLY kernel for the DRAM codelet A/B (l6_abL).  The
- * exact mirror of l6_run_fused_pfw with VD63 substituted in all three
- * passes -- the controlled DRAM-regime test of association order.  It is
- * NOT in cand[], can never be raced or picked (different bit class), and
- * exists solely to be timed at nvol >> L3 in fft3d_create(). */
-L6_DEF_FUSED(l6_run_fused3_pfw,   _mm256_store_pd,  L6_PF_T0W_1, VD63)
-
+/* mt_r1: NT-store fused kernels.  Same VD6 graph, same passes, stream_pd
+ * in the z-pass stores (24 consecutive doubles per ZPAIR = 3 whole cache
+ * lines, so the WC buffers always close cleanly).  fence=1 in cand[]: the
+ * caller sfences on every thread that ran them.  pfw is deliberately NOT
+ * combined with NT (a write-intent prefetch pulls the line into cache,
+ * which defeats the streaming store's no-RFO purpose). */
+L6_DEF_FUSED(l6_run_fused_nt,        _mm256_stream_pd, L6_PF_NONE,  VD6)
+L6_DEF_FUSED(l6_run_fused_nt_pf,     _mm256_stream_pd, L6_PF_T0_1,  VD6)
+L6_DEF_FUSED(l6_run_fused_nt_pfnta,  _mm256_stream_pd, L6_PF_NTA_1, VD6)
+L6_DEF_FUSED_PX(l6_run_fused_zp_nt_pf, L6_PASS_X_ZP, _mm256_stream_pd, L6_PF_T0_1, VD6)
 
 #endif /* L6_HAVE_AVX2 */
 
@@ -598,7 +626,15 @@ struct fft3d_plan {
     int       fence;          /* nonzero if the chosen kernel uses NT stores */
     int       placed;         /* scratch already positioned for these buffers */
     int       forced;         /* kernel forced via L6_FORCE, not raced */
+    int       tforced;        /* team size forced via L6_FORCE_T, not raced */
+    int       nthr;           /* execute() team size; 1 = serial, no region */
+    int       npool;          /* threads with a valid per-thread arena */
     const char *chosen;
+    /* mt_r1: per-thread scratch, allocated and first-touched by the owning
+     * thread in fft3d_create() (NUMA-local by construction).  Each arena has
+     * the same 4 KiB placement slack as the serial one. */
+    double   *tarena[L6_MAXT];
+    double   *tt1[L6_MAXT], *tt2[L6_MAXT];
 };
 
 /* 4K-aliasing defence.  A store to S followed by a load from L with
@@ -614,7 +650,7 @@ static long l6_cyc(long d)
     return d < 4096 - d ? d : 4096 - d;
 }
 
-static void l6_place(fft3d_plan *p, const void *in, const void *out)
+static long l6_place_r(const void *in, const void *out)
 {
     long D = (long)(((uintptr_t)out - (uintptr_t)in) & 4095u);
     long bestr = 0, bestscore = -1;
@@ -626,11 +662,73 @@ static void l6_place(fft3d_plan *p, const void *in, const void *out)
         if (s3 < sc) sc = s3;
         if (sc > bestscore) { bestscore = sc; bestr = r; }
     }
+    return bestr;
+}
+
+static void l6_place(fft3d_plan *p, const void *in, const void *out)
+{
+    long bestr = l6_place_r(in, out);
     long off = (long)((((uintptr_t)in + (uintptr_t)bestr
                         - (uintptr_t)p->arena) & 4095u) / sizeof(double));
     p->t1 = p->arena + off;
     p->t2 = p->t1 + L6_VD;
     p->placed = 1;
+}
+
+/* Per-thread scratch placement for a T-way contiguous split of nvol volumes:
+ * thread t's chunk base is its own "in"/"out" for the 4K-aliasing search.
+ * Pointer arithmetic only (no touching, so NUMA residence is untouched);
+ * serial and cheap (T*64 trivial iterations), run once per (in,out,T). */
+static void l6_place_mt(fft3d_plan *p, const double *in, double *out,
+                        long nvol, int T)
+{
+    for (int t = 0; t < T && t < p->npool; ++t) {
+        long b0 = nvol * t / T;
+        const double *ci = in + b0 * (long)L6_VD;
+        double       *co = out + b0 * (long)L6_VD;
+        long r = l6_place_r(ci, co);
+        long off = (long)((((uintptr_t)ci + (uintptr_t)r
+                            - (uintptr_t)p->tarena[t]) & 4095u)
+                          / sizeof(double));
+        p->tt1[t] = p->tarena[t] + off;
+        p->tt2[t] = p->tt1[t] + L6_VD;
+    }
+}
+
+/* mt_r1 threaded call: T-way contiguous batch split, one kernel call per
+ * thread on its own scratch, per-thread sfence for NT kernels (the join
+ * barrier's release must not overtake WC-buffered stores), no other
+ * synchronisation.  Ranges are computed from the ACTUAL team OpenMP
+ * delivers, so a squeezed team still computes the whole batch (a squeezed
+ * team only mis-places the 4K offsets, which is a perf matter, not a
+ * correctness one). */
+static void l6_mt_call(const fft3d_plan *p, l6_kernel run, int fence, int T,
+                       const double *in, double *out, long nvol)
+{
+#ifdef _OPENMP
+    if (T > 1) {
+#pragma omp parallel num_threads(T)
+        {
+            int aT = omp_get_num_threads();
+            int t  = omp_get_thread_num();
+            long b0 = nvol * (long)t / aT;
+            long b1 = nvol * (long)(t + 1) / aT;
+            if (b1 > b0 && t < p->npool) {
+                run(p->tt1[t], p->tt2[t],
+                    in + b0 * (long)L6_VD, out + b0 * (long)L6_VD, b1 - b0);
+#ifdef L6_HAVE_AVX2
+                if (fence) _mm_sfence();
+#endif
+            }
+        }
+        return;
+    }
+#endif
+    run(p->tt1[0] ? p->tt1[0] : p->t1, p->tt2[0] ? p->tt2[0] : p->t2,
+        in, out, nvol);
+#ifdef L6_HAVE_AVX2
+    if (fence) _mm_sfence();
+#endif
 }
 
 const char *fft3d_name(void) { return "L6_unrolled"; }
@@ -789,83 +887,8 @@ static double l6_ab1(l6_kernel run, int fence, double *t1, double *t2,
     return best * 1e9;   /* ns per volume */
 }
 
-/* ------------------------------------------------------------------ *
- * In-plan DRAM codelet A/B (panel_r11) -- the r10 VERDICT's single L=6
- * item: "one in-plan A/B at nvol >> L3 settles whether [L6_pfa's -3.3%
- * at B=32768 from the d2 codelet flip] is the codelet or the allocation
- * draw."  Times fused_pfw (VD6, radix-2-first: final outputs from FMAs
- * feeding stores) against the probe-only fused3_pfw (VD63, DFT3-first:
- * final outputs from add/sub) over nvol = 16384 volumes = 113 MiB in+out,
- * unambiguous DRAM on both wallaby (60 MiB L3) and the node (22 MiB) --
- * the same size the race cap uses, for the same reason.  Alternating
- * rounds, per-kernel minimum, round 0 untimed (page/TLB/clock warm for
- * both).  Both kernels are ymm-only, so the licence state is identical
- * by construction.  The probe kernel is validated against the scalar
- * reference before it is timed (one-bit-class rule: it can never be
- * picked, but it must be RIGHT before its time means anything).
- * ~250 ms and 113 MiB of setup, unscored, freed on exit.
- * Results in ns/volume via *rf (VD6) and *r3 (VD63); 0.0 = unavailable.
- * ------------------------------------------------------------------ */
-static void l6_abL(fft3d_plan *p, double *rf, double *r3)
-{
-    /* volatile kernel pointers: both kernels must be timed as indirect
-     * out-of-line calls (the driver's own call shape, and the only way
-     * both bodies keep their 64B-pinned standalone identity -- without
-     * this gcc inlines the single-caller fused3_pfw into this function
-     * and the A/B compares an inlined body against a called one). */
-    l6_kernel volatile kf = l6_run_fused_pfw;
-    l6_kernel volatile k3 = l6_run_fused3_pfw;
-    *rf = 0.0; *r3 = 0.0;
-    const long NL = 16384;
-    double *din  = (double *)l6_alloc((size_t)NL * L6_VD * sizeof(double));
-    double *dout = (double *)l6_alloc((size_t)NL * L6_VD * sizeof(double));
-    double *vref = (double *)l6_alloc(4 * L6_VD * sizeof(double));
-    if (!din || !dout || !vref) {
-        free(din); free(dout); free(vref);
-        return;
-    }
-    uint64_t st = 0xC2B2AE3D27D4EB4Full;
-    for (long i = 0; i < NL * L6_VD; ++i) {
-        st ^= st << 13; st ^= st >> 7; st ^= st << 17;
-        din[i] = (double)(int64_t)(st >> 11) * (1.0 / 9007199254740992.0);
-    }
-    memset(dout, 0, (size_t)NL * L6_VD * sizeof(double));
-    l6_place(p, din, dout);
-
-    /* validate the probe-only VD63 kernel on the first 4 volumes */
-    l6_run_scalar(p->t1, p->t2, din, vref, 4);
-    k3(p->t1, p->t2, din, dout, 4);
-    {
-        double e = 0.0, nrm = 0.0;
-        for (long i = 0; i < 4 * L6_VD; ++i) {
-            double d = dout[i] - vref[i];
-            e += d * d; nrm += vref[i] * vref[i];
-        }
-        if (!(sqrt(e) / (sqrt(nrm) + 1e-300) < 1e-11)) {
-            p->t1 = p->arena; p->t2 = p->arena + L6_VD; p->placed = 0;
-            free(din); free(dout); free(vref);
-            return;                     /* abL reports 0,0: gate failed */
-        }
-    }
-    free(vref);
-
-    double tf = 1e300, t3 = 1e300;
-    for (int r = 0; r < 6; ++r) {       /* round 0 = untimed warm pass */
-        double t0 = l6_now();
-        kf(p->t1, p->t2, din, dout, NL);
-        double d1 = l6_now() - t0;
-        t0 = l6_now();
-        k3(p->t1, p->t2, din, dout, NL);
-        double d2 = l6_now() - t0;
-        if (r == 0) continue;
-        if (d1 < tf) tf = d1;
-        if (d2 < t3) t3 = d2;
-    }
-    p->t1 = p->arena; p->t2 = p->arena + L6_VD; p->placed = 0;
-    free(din); free(dout);
-    *rf = tf / (double)NL * 1e9;
-    *r3 = t3 / (double)NL * 1e9;
-}
+/* (mt_r1: the panel_r11 l6_abL DRAM codelet A/B was deleted -- its question
+ * was answered on the node: abL=f524.0,f3529.6, VD6 wins the DRAM regime.) */
 #endif
 
 fft3d_plan *fft3d_create(int L, int batch)
@@ -883,14 +906,57 @@ fft3d_plan *fft3d_create(int L, int batch)
     p->t2 = p->arena + L6_VD;
     p->run = l6_run_scalar;
     p->fence = 0;
+    p->nthr = 1;
+    p->npool = 0;
     p->chosen = "scalar";
 
-    /* panel_r10 in-plan discriminator results (see l6_ab1), the
-     * fused_zp-vs-fused race delta at the plan's own batch size, and the
-     * panel_r11 DRAM codelet A/B (see l6_abL). */
+    /* ---- mt_r1: spin up the OpenMP pool at full width and give every pool
+     * thread its own scratch arena, allocated and FIRST-TOUCHED by the
+     * owning thread (NUMA-local; PANEL_BRIEF: we control our scratch's
+     * first touch, never the caller's buffers).  This is also what creates
+     * the pool threads, so execute() never pays thread creation.  Arena
+     * size = the serial arena's: 4 KiB of placement slack + t1 + t2. ---- */
+    {
+        int pool = 1;
+#ifdef _OPENMP
+        pool = omp_get_max_threads();       /* the harness's 32; never more */
+        if (pool > L6_MAXT) pool = L6_MAXT;
+        if (pool < 1) pool = 1;
+        size_t tbytes = 4096 + 2 * L6_VD * sizeof(double) + 64;
+#pragma omp parallel num_threads(pool)
+        {
+            int t = omp_get_thread_num();
+            if (t < L6_MAXT) {
+                double *a = (double *)l6_alloc(tbytes);
+                if (a) {
+                    memset(a, 0, tbytes);           /* first touch by owner */
+                    p->tarena[t] = a;
+                    p->tt1[t] = a;
+                    p->tt2[t] = a + L6_VD;
+                }
+            }
+        }
+        p->npool = pool;
+        for (int t = 0; t < pool; ++t)
+            if (!p->tarena[t]) { p->npool = t; break; }
+#endif
+        (void)pool;
+    }
+    /* the widest team execute() may use: pool threads with scratch, and
+     * never more threads than volumes */
+    int tmax = p->npool < 1 ? 1 : p->npool;
+    if (tmax > batch) tmax = batch;
+
+    /* panel_r10 in-plan discriminator results (see l6_ab1) and the
+     * fused_zp-vs-fused race delta at the plan's own batch size. */
     double ab_f = 0.0, ab_fx = 0.0, xod = 0.0;
-    double abL_f = 0.0, abL_f3 = 0.0;
     int have_xod = 0;
+    /* mt_r1 team-size race curve, ns/volume, for the description (0 = not
+     * raced); index into l6_tset below. */
+    static const int l6_tset[] = { 1, 2, 4, 8, 16, 24, 32 };
+    enum { L6_NTSET = (int)(sizeof(l6_tset) / sizeof(l6_tset[0])) };
+    double tcurve[L6_NTSET];
+    for (int i = 0; i < L6_NTSET; ++i) tcurve[i] = 0.0;
 
 #ifdef L6_HAVE_AVX2
     {
@@ -927,6 +993,14 @@ fft3d_plan *fft3d_create(int L, int batch)
             { l6_run_fused_zp_pfw,  0, 0.025, "fused_zp_pfw"  },
             { l6_run_fused_pfw,     0, 0.010, "fused_pfw"     },
             { l6_run_3pass_nt_pf,   1, 0.025, "3pass_nt_pf"   },
+            /* mt_r1: NT-store fused shapes, trailing challengers at the
+             * full 2.5% margin.  Single-core they lose (phase 1: NT
+             * 0-for-4 rounds on the node); the race is threaded at
+             * batch > 1 now, which is the regime they exist for. */
+            { l6_run_fused_nt,        1, 0.025, "fused_nt"        },
+            { l6_run_fused_nt_pf,     1, 0.025, "fused_nt_pf"     },
+            { l6_run_fused_zp_nt_pf,  1, 0.025, "fused_zp_nt_pf"  },
+            { l6_run_fused_nt_pfnta,  1, 0.025, "fused_nt_pfnta"  },
         };
         const int ncand = (int)(sizeof(cand)/sizeof(cand[0]));
 
@@ -982,10 +1056,27 @@ fft3d_plan *fft3d_create(int L, int batch)
 
         /* ---- race the survivors at (a truncation of) the real batch size ----
          * The cap must keep the raced working set out of L3 when the real one
-         * is: 4096 volumes = 27 MiB barely exceeds the node's 22 MiB L3, and on
-         * wallaby (60 MiB L3) it is cache-resident, which mis-picks a normal-
-         * store kernel for a DRAM-bound batch.  16384 volumes = 113 MiB is
-         * unambiguous on both machines. */
+         * is: 16384 volumes = 113 MiB is unambiguous DRAM even against the
+         * node's two-socket combined 44 MiB L3.  batch=4096 races at its
+         * REAL size (27 MiB), which on 32 threads can be aggregate-L3
+         * resident -- a genuinely different regime from B=65536, and the
+         * reason the cap must never round 4096 up.
+         *
+         * mt_r1: when batch > 1 and a thread pool exists, the race runs
+         * THREADED at full width (use_mt), through the exact l6_mt_call
+         * path execute() will use -- fork/join and all -- because the
+         * 32-thread winner is not the 1-thread winner (NT stores lose
+         * single-core, win DRAM-bound threaded). */
+        int use_mt = (batch > 1 && tmax > 1);
+        int tforce = 0;
+        {
+            const char *tv = getenv("L6_FORCE_T");
+            if (tv && tv[0]) {
+                int v = atoi(tv);
+                if (v >= 1) tforce = v > p->npool ? p->npool : v;
+            }
+        }
+        if (use_mt) p->nthr = tmax;      /* default; the team race refines */
         long nt = batch;
         if (nt > 16384) nt = 16384;
         double *ain = NULL, *aout = NULL;
@@ -994,23 +1085,49 @@ fft3d_plan *fft3d_create(int L, int batch)
             ain  = (double *)l6_alloc((size_t)nt * L6_VD * sizeof(double));
             aout = (double *)l6_alloc((size_t)nt * L6_VD * sizeof(double));
         }
+#define L6_RACE_CALL(c)                                                   \
+        do {                                                              \
+            if (use_mt)                                                   \
+                l6_mt_call(p, cand[c].k, cand[c].fence, tmax,             \
+                           ain, aout, nt);                                \
+            else {                                                        \
+                cand[c].k(p->t1, p->t2, ain, aout, nt);                   \
+                if (cand[c].fence) _mm_sfence();                          \
+            }                                                             \
+        } while (0)
         if (best < 0 && ain && aout) {
             uint64_t st = 0xD1B54A32D192ED03ull;
+            /* serial init, like the driver's fread: one thread first-touches
+             * the whole buffer, so the race sees the driver's NUMA layout */
             for (long i = 0; i < nt * L6_VD; ++i) {
                 st ^= st << 13; st ^= st >> 7; st ^= st << 17;
                 ain[i] = (double)(int64_t)(st >> 11) * (1.0 / 9007199254740992.0);
             }
             memset(aout, 0, (size_t)nt * L6_VD * sizeof(double));
-            l6_place(p, ain, aout);
+            if (use_mt) l6_place_mt(p, ain, aout, nt, tmax);
+            else        l6_place(p, ain, aout);
             /* settle spin (L17_rader's r5 finding: on a ramping clock a
              * fixed-order table mis-ranked bit-identical work by 76%);
              * 100 ms of 256-bit work brings the core to its steady licence
              * clock before round 0 is timed.  Unscored. */
             l6_spin256(0.1);
-            /* how many repeats to make one trial last ~2 ms */
-            long reps = (long)(2e-3 / (nt * 2.5e-7));
-            if (reps < 1) reps = 1;
-            if (reps > 20000) reps = 20000;
+            /* how many repeats make one trial ~1.5 ms: MEASURED (a
+             * 32-thread call is ~10x faster per volume than the serial
+             * model the phase-1 constant assumed) */
+            long reps = 1;
+            {
+                int c0 = -1;
+                for (int c = 0; c < ncand; ++c) if (ok[c]) { c0 = c; break; }
+                if (c0 >= 0) {
+                    L6_RACE_CALL(c0);                        /* page/pool warm */
+                    double t0 = l6_now();
+                    L6_RACE_CALL(c0);
+                    double dt = l6_now() - t0;
+                    if (dt > 1e-9) reps = (long)(1.5e-3 / dt);
+                    if (reps < 1) reps = 1;
+                    if (reps > 20000) reps = 20000;
+                }
+            }
             /* Round-robin tournament (adopted from L6_pfa's record, which
              * documents a sequential per-candidate race mis-picking by 21%
              * when background load drifts between candidates): every round
@@ -1020,8 +1137,7 @@ fft3d_plan *fft3d_create(int L, int batch)
             for (int c = 0; c < ncand; ++c) {
                 tmin[c] = 1e300;
                 if (!ok[c]) continue;
-                cand[c].k(p->t1, p->t2, ain, aout, nt);      /* warm */
-                if (cand[c].fence) _mm_sfence();
+                L6_RACE_CALL(c);                             /* warm */
             }
             for (int round = 0; round < 7; ++round) {
                 for (int c = 0; c < ncand; ++c) {
@@ -1034,13 +1150,11 @@ fft3d_plan *fft3d_create(int L, int batch)
                      * -- comparable to a whole 2 ms trial). */
                     double wu = l6_now() + 7e-4;
                     do {
-                        cand[c].k(p->t1, p->t2, ain, aout, nt);
+                        L6_RACE_CALL(c);
                     } while (l6_now() < wu);
-                    if (cand[c].fence) _mm_sfence();
                     double t0 = l6_now();
                     for (long r = 0; r < reps; ++r)
-                        cand[c].k(p->t1, p->t2, ain, aout, nt);
-                    if (cand[c].fence) _mm_sfence();
+                        L6_RACE_CALL(c);
                     double dt = (l6_now() - t0) / (double)reps;
                     if (dt < tmin[c]) tmin[c] = dt;
                 }
@@ -1082,10 +1196,81 @@ fft3d_plan *fft3d_create(int L, int batch)
                     have_xod = 1;
                 }
             }
+
+            /* ---- mt_r1 team-size race: the chosen kernel at T in
+             * {1,2,4,8,16,24,32} over the same buffers, round-robin,
+             * per-T minimum.  T=1 here is a DIRECT call (no parallel
+             * region), exactly like the shipped serial path.  T=16 under
+             * OMP_PROC_BIND=close is one socket on the node = every
+             * thread local to the driver-touched in/out; T=32 adds the
+             * far socket's fill buffers but pays UPI -- that is the NUMA
+             * question, and the whole curve is published as tm=... so
+             * the node answers it on every leaderboard line.  The
+             * smallest T within 2% of the best wins (fewer threads, same
+             * time = less contention and a cheaper join). ---- */
+            if (use_mt && best >= 0 && !tforce) {
+                l6_kernel kk = cand[best].k;
+                int kf = cand[best].fence;
+                double tval[L6_NTSET];
+                for (int i = 0; i < L6_NTSET; ++i) tval[i] = 1e300;
+                for (int round = 0; round < 5; ++round) {
+                    for (int i = 0; i < L6_NTSET; ++i) {
+                        int T = l6_tset[i];
+                        if (T > tmax) continue;
+                        l6_place_mt(p, ain, aout, nt, T);
+                        double wu = l6_now() + 7e-4;
+                        do {
+                            l6_mt_call(p, kk, kf, T, ain, aout, nt);
+                        } while (l6_now() < wu);
+                        double t0 = l6_now(), dt;
+                        long r = 0;
+                        do {
+                            l6_mt_call(p, kk, kf, T, ain, aout, nt);
+                            ++r;
+                        } while ((dt = l6_now() - t0) < 1.2e-3);
+                        dt /= (double)r;
+                        if (dt < tval[i]) tval[i] = dt;
+                    }
+                }
+                double tb = 1e300;
+                for (int i = 0; i < L6_NTSET; ++i)
+                    if (l6_tset[i] <= tmax && tval[i] < tb) tb = tval[i];
+                int bestT = tmax;
+                for (int i = 0; i < L6_NTSET; ++i)
+                    if (l6_tset[i] <= tmax && tval[i] <= tb * 1.02) {
+                        bestT = l6_tset[i];
+                        break;
+                    }
+                for (int i = 0; i < L6_NTSET; ++i)
+                    if (l6_tset[i] <= tmax)
+                        tcurve[i] = tval[i] / (double)nt * 1e9;
+                p->nthr = bestT;
+                if (getenv("L6_VERBOSE"))
+                    for (int i = 0; i < L6_NTSET; ++i)
+                        if (l6_tset[i] <= tmax)
+                            fprintf(stderr, "L6_unrolled team: T=%-2d "
+                                    "%10.4f ns/vol%s\n", l6_tset[i],
+                                    tcurve[i],
+                                    l6_tset[i] == bestT ? "   <-- chosen" : "");
+            }
+
+            /* hand the driver the chosen configuration's steady state
+             * (pool hot, every participating core in the chosen kernel's
+             * licence/clock state) -- the mt analogue of l6_dwell_chosen */
+            if (use_mt && best >= 0) {
+                int Td = tforce ? tforce : p->nthr;
+                l6_place_mt(p, ain, aout, nt, Td);
+                double until = l6_now() + 3e-3;
+                do {
+                    l6_mt_call(p, cand[best].k, cand[best].fence, Td,
+                               ain, aout, nt);
+                } while (l6_now() < until);
+            }
         }
         if (best < 0)
             for (int c = 0; c < ncand; ++c)
                 if (ok[c]) { best = c; break; }
+#undef L6_RACE_CALL
         free(ain); free(aout);
         p->t1 = p->arena; p->t2 = p->arena + L6_VD; p->placed = 0;
 
@@ -1095,12 +1280,21 @@ fft3d_plan *fft3d_create(int L, int batch)
             p->chosen = cand[best].nm;
             p->forced = (best == forced);
         }
+        /* L6_FORCE_T overrides the team size unconditionally (node A/B
+         * switch; reported with a trailing ! on nthr).  It may exceed
+         * batch on purpose -- forcing T=2 at B=1 measures the pure
+         * fork/join cost on an otherwise-serial transform. */
+        if (tforce >= 1) {
+            p->nthr = tforce;
+            p->tforced = 1;
+        }
+        if (p->nthr < 1) p->nthr = 1;
 
         /* ---- in-plan B=1 discriminator (panel_r10, see l6_ab1's comment):
-         * fused (ascending x-pass) vs fused_zp (zp-outer).  Runs at every
-         * batch size (it is ~17 ms and the question is B=1-specific either
-         * way). ---- */
-        {
+         * fused (ascending x-pass) vs fused_zp (zp-outer).  mt_r1: runs
+         * only when batch==1 (its question is the serial B=1 pick; at
+         * batch>1 the 17 ms buys nothing the team race does not). ---- */
+        if (batch == 1) {
             double *bin  = (double *)l6_alloc(L6_VD * sizeof(double));
             double *bout = (double *)l6_alloc(L6_VD * sizeof(double));
             if (bin && bout) {
@@ -1125,51 +1319,57 @@ fft3d_plan *fft3d_create(int L, int batch)
             }
             free(bin); free(bout);
         }
-
-        /* ---- in-plan DRAM codelet A/B (panel_r11, see l6_abL's comment):
-         * fused_pfw (VD6) vs the probe-only fused3_pfw (VD63) at
-         * nvol=16384.  Runs at every batch size so all twelve node JSONs
-         * carry the number the r10 VERDICT asks for. ---- */
-        l6_abL(p, &abL_f, &abL_f3);
+        /* (mt_r1: the panel_r11 abL DRAM codelet A/B is gone -- question
+         * answered on the node, see the header.) */
     }
 #endif
-    {   /* report the raced winner, the kernel-context clock (kclk, the one
-         * clock number still worth a line: the panel consensus is settled
-         * at 3.89 non-AVX / 2.89 licence and kclk is the regression check),
-         * and the ab1/xod x-order A/B.  A trailing ! marks an L6_FORCE
-         * pick (not a tournament one). */
+    if (p->nthr > 1) {
+        /* mt description: the pick, the team size, and the team-size race
+         * curve tm=T:ns,... (ns per volume at the raced batch size; the
+         * T=16-vs-32 entry is the node's one-socket-vs-UPI NUMA answer,
+         * published on every leaderboard line).  A trailing ! marks an
+         * L6_FORCE / L6_FORCE_T pick (not a raced one). */
+        int n = snprintf(l6_desc, sizeof(l6_desc),
+                 "L=6: unrolled PFA 2x3 codelet ymm, batch-parallel "
+                 "contiguous chunks, per-thread NUMA-local scratch; "
+                 "variant=%s%s nthr=%d%s",
+                 p->chosen, p->forced ? "!" : "",
+                 p->nthr, p->tforced ? "!" : "");
+        if (n > 0 && (size_t)n < sizeof(l6_desc) && tcurve[0] > 0.0) {
+            n += snprintf(l6_desc + n, sizeof(l6_desc) - (size_t)n, " tm=");
+            for (int i = 0; i < L6_NTSET; ++i) {
+                if (tcurve[i] <= 0.0) continue;
+                if (n <= 0 || (size_t)n >= sizeof(l6_desc)) break;
+                n += snprintf(l6_desc + n, sizeof(l6_desc) - (size_t)n,
+                              "%s%d:%.0f", l6_tset[i] == 1 ? "" : ",",
+                              l6_tset[i], tcurve[i]);
+            }
+            if (n > 0 && (size_t)n < sizeof(l6_desc))
+                snprintf(l6_desc + n, sizeof(l6_desc) - (size_t)n, "ns");
+        }
+    } else {
+        /* serial path (batch==1, or no OpenMP): the phase-1 report, minus
+         * the deleted abL.  kclk is the one clock number still worth a
+         * line; the dwell hands the driver the chosen kernel's own
+         * licence/clock steady state (r8). */
         double gk = 0.0;
 #ifdef L6_HAVE_AVX2
         gk = l6_kclk(p->run, p->fence, p->t1, p->t2);
-        /* belt-and-braces spin (nothing 512-bit exists in this file any
-         * more, so there is no licence to clear -- kept because it is
-         * free and it re-establishes the heavy-256 clock after kclk's
-         * sparse read chain)... */
         l6_spin256(0.02);
-        /* ...then hand the driver the CHOSEN kernel's own steady state
-         * (r8, from L6_pfa's r7 refinement of my r6 licence-tail fix),
-         * so the driver never times a transition that create() caused. */
         l6_dwell_chosen(p->run, p->fence, p->t1, p->t2);
 #endif
         if (gk > 0.0) {
             /* ab1 = in-plan B=1 discriminator, min ns/volume at nvol=1,
-             * licence-fair (each kernel self-warmed): f = fused
-             * (ascending x-pass), fx = fused_zp (zp-outer x-pass,
-             * L6_pfa's group order; 0.0 = not available/not gated).
-             * abL = in-plan DRAM codelet A/B, min ns/volume at nvol=16384
-             * (113 MiB): f = fused_pfw (VD6, radix-2-first), f3 = the
-             * probe-only fused3_pfw (VD63, DFT3-first); 0.0 = probe
-             * unavailable.  f3/f > 1 on the node = association order is
-             * real in the bandwidth-bound regime; f3 = f = it was the
-             * allocation draw (the r10 VERDICT's L=6 question).
+             * licence-fair: f = fused (ascending x-pass), fx = fused_zp
+             * (zp-outer, L6_pfa's group order); 0.0 = not gated.
              * xod = fused_zp vs fused family-best race delta at the
              * plan's batch size, positive = zp-outer slower. */
             int n = snprintf(l6_desc, sizeof(l6_desc),
                      "L=6: unrolled PFA 2x3 codelet (48 flop/36 instr, no "
                      "twiddles), radix-2-first VD6, ymm; variant=%s%s "
-                     "kclk=%.2fGHz ab1=f%.1f,fx%.1fns abL=f%.1f,f3%.1fns",
+                     "nthr=1 kclk=%.2fGHz ab1=f%.1f,fx%.1fns",
                      p->chosen, p->forced ? "!" : "",
-                     gk, ab_f, ab_fx, abL_f, abL_f3);
+                     gk, ab_f, ab_fx);
             if (have_xod && n > 0 && (size_t)n < sizeof(l6_desc))
                 snprintf(l6_desc + n, sizeof(l6_desc) - (size_t)n,
                          " xod=%+.1f%%", xod);
@@ -1183,6 +1383,21 @@ fft3d_plan *fft3d_create(int L, int batch)
 
 void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex *out)
 {
+    if (plan->nthr > 1) {
+        /* threaded path: contiguous chunk per thread, per-thread scratch,
+         * per-thread sfence for NT kernels, no other synchronisation.
+         * First call re-places every thread's 4K offsets for the caller's
+         * actual buffers (pointer arithmetic only, once). */
+        if (!plan->placed) {
+            l6_place_mt(plan, (const double *)in, (double *)out,
+                        (long)plan->batch, plan->nthr);
+            plan->placed = 1;
+        }
+        l6_mt_call(plan, plan->run, plan->fence, plan->nthr,
+                   (const double *)in, (double *)out, (long)plan->batch);
+        return;
+    }
+    /* serial path: no parallel region at all (B=1 ships here) */
     if (!plan->placed) l6_place(plan, in, out);
     plan->run(plan->t1, plan->t2,
               (const double *)in, (double *)out, (long)plan->batch);
@@ -1194,6 +1409,7 @@ void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex 
 void fft3d_destroy(fft3d_plan *plan)
 {
     if (!plan) return;
+    for (int t = 0; t < L6_MAXT; ++t) free(plan->tarena[t]);
     free(plan->arena);
     free(plan);
 }

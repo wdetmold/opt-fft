@@ -90,13 +90,15 @@ static void reference_transform(const double _Complex *in, double _Complex *out,
 int main(void)
 {
     printf("fft3d_best -- checking every geometry against the definition\n\n");
-    printf("  %-4s %-18s %10s %12s   %s\n", "L", "kernel", "rel L2", "us/transform", "verdict");
+    printf("  %-4s %-5s %-18s %10s %12s   %s\n", "L", "batch", "kernel selected",
+           "rel L2", "us/transform", "verdict");
 
     int failures = 0;
+    /* Both regimes, because the kernel selected can differ between them. */
+    for (int pass = 0; pass < 2; ++pass)
     for (int g = 0; g < NGEOM; ++g) {
         const int L = GEOMETRIES[g];
-        /* One volume is enough for correctness; the harness measures throughput at scale. */
-        const int batch = (L <= 17) ? 3 : 1;
+        const int batch = pass == 0 ? 1 : ((L <= 17) ? 8 : 2);
         const size_t count = (size_t)L * L * L * batch;
         const size_t bytes = count * sizeof(double _Complex);
 
@@ -141,14 +143,15 @@ int main(void)
         int ok = rel < 1e-12 && isfinite(rel);
         if (!ok) failures++;
 
-        printf("  %-4d %-18s %10.2e %12.3f   %s\n", L, fft3d_best_kernel_name(L),
-               rel, per_transform * 1e6, ok ? "ok" : "FAIL");
+        printf("  %-4d %-5d %-18s %10.2e %12.3f   %s\n", L, batch,
+               fft3d_best_selected_name(plan), rel, per_transform * 1e6,
+               ok ? "ok" : "FAIL");
 
         fft3d_best_destroy(plan);
         free(in); free(got); free(want); free(scratch);
     }
 
-    printf("\n%d of %d geometries correct\n", NGEOM - failures, NGEOM);
+    printf("\n%d of %d (geometry, batch) cases correct\n", 2 * NGEOM - failures, 2 * NGEOM);
     if (failures == 0) {
         printf("\nkernels:\n");
         for (int g = 0; g < NGEOM; ++g)

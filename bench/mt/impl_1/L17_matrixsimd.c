@@ -1421,12 +1421,19 @@ struct fft3d_plan {
     int mode;
     int nthr;               /* team size for modes 1 and 2 */
     int dynb;               /* mode 1: >0 = dynamic blocks of dynb volumes */
+    int nxr;                /* mode 2: X-phase team size (<= nthr; the plane
+                             * phase scales to ~17 threads, the X phase
+                             * saturates near 4 -- measured, see strategies) */
+    int xpf;                /* mode 2: prefetch chunk h+2's rows in the X phase */
     int nkids;
     struct fft3d_plan **kids; /* per-thread plans: own tables + scratch,
                                * first-touched by their own thread (NUMA) */
     double *t1g;            /* mode 2: batch padded t1 volumes (17*640 dbl each) */
     void *t1g_raw;
     void *poolv;            /* persistent spin pool (l17mt_pool), created once */
+    int mtskip;             /* dev-only (L17MT_SKIP): bit0 skip planes, bit1
+                             * skip xrange, bit2 skip barrier -- OUTPUT IS
+                             * WRONG, timing decomposition only */
     unsigned char astab[2][256]; /* per-volume t1 base shifts (round panel_r8):
                                   * astab[mode][((t1 - ref) & 4095) >> 4] is the
                                   * 64-byte-step shift minimizing X-pass 4K
@@ -2301,10 +2308,15 @@ l17mt_planes(const fft3d_plan *restrict p, const double *restrict inb,
     }
 }
 
-/* one thread's share of the X pass: global slot index h = 73*b + i */
+/* one thread's share of the X pass: global slot index h = 73*b + i.
+ * After the barrier most source lines are dirty in OTHER cores' caches (the
+ * plane phase wrote them), so chunk h prefetches chunk h+2's 17 rows -- the
+ * X chunk's dependent FMA chains cannot hide a cross-core dirty-line
+ * latency by themselves.  Prefetch only, changes no bits (r9 pt mechanism,
+ * repointed at coherence misses instead of L2->L1 fills). */
 static __attribute__((noinline)) void
 l17mt_xrange(const fft3d_plan *restrict p, const double *restrict t1g,
-             double *restrict outb, int h0, int h1)
+             double *restrict outb, int h0, int h1, int pf)
 {
     L17_MIX_DECLS;
     (void)nb;
@@ -2312,6 +2324,13 @@ l17mt_xrange(const fft3d_plan *restrict p, const double *restrict t1g,
         int b = h / 73, i = h % 73;
         const double *t1v = t1g + (size_t)b * L17MT_T1VOL;
         double *vout = outb + (size_t)b * 9826;
+        if (pf && h + 2 < h1) {
+            int b2 = (h + 2) / 73, i2 = (h + 2) % 73;
+            const double *pfv = t1g + (size_t)b2 * L17MT_T1VOL +
+                                2 * (i2 < 72 ? 4L * i2 : 287L);
+            for (int r = 0; r < 17; ++r)
+                __builtin_prefetch(pfv + (long)r * L17_T1SP, 0, 3);
+        }
         if (i < 72) {
             long f0 = 4L * i;
             chunk17n_w4(t1v + 2 * f0, L17_T1SP, vout + 2 * f0, 2, 578,
@@ -2350,7 +2369,7 @@ typedef struct l17mt_pool {
     fft3d_plan *plan;                   /* job spec: written before release */
     const double _Complex *in;
     double _Complex *out;
-    int mode, nthr, dynb;
+    int mode, nthr, dynb, nxr;
     int gen;                            /* master generation (main thread only) */
     volatile int quit;
     volatile int next;                  /* mode-1 dynamic block counter */
@@ -2399,13 +2418,17 @@ static void l17mt_work(l17mt_pool *pl, int t)
     double _Complex *out = pl->out;
     if (pl->mode == 2) {
         const int NPL = 17 * nb, NCH = 73 * nb;
-        l17mt_planes(k, (const double *)in, p->t1g,
-                     (int)(((long)NPL * t) / nt),
-                     (int)(((long)NPL * (t + 1)) / nt));
-        l17mt_barrier(pl, nt);
-        l17mt_xrange(k, p->t1g, (double *)out,
-                     (int)(((long)NCH * t) / nt),
-                     (int)(((long)NCH * (t + 1)) / nt));
+        const int nx = pl->nxr < nt ? pl->nxr : nt;
+        if (!(p->mtskip & 1))
+            l17mt_planes(k, (const double *)in, p->t1g,
+                         (int)(((long)NPL * t) / nt),
+                         (int)(((long)NPL * (t + 1)) / nt));
+        if (!(p->mtskip & 4))
+            l17mt_barrier(pl, nt);
+        if (!(p->mtskip & 2) && t < nx)
+            l17mt_xrange(k, p->t1g, (double *)out,
+                         (int)(((long)NCH * t) / nx),
+                         (int)(((long)NCH * (t + 1)) / nx), p->xpf);
     } else if (pl->dynb > 0) {
         const int db = pl->dynb, nblk = (nb + db - 1) / db;
         int blk;
@@ -2476,6 +2499,7 @@ static void l17mt_pool_run(fft3d_plan *p, const double _Complex *in,
     pl->mode = p->mode;
     pl->nthr = p->nthr > pl->nwork ? pl->nwork : p->nthr;
     pl->dynb = p->dynb;
+    pl->nxr = p->nxr > 0 ? p->nxr : pl->nthr;
     pl->next = 0;
     const int g = ++pl->gen, nt = pl->nthr;
     for (int t = 1; t < nt; ++t)
@@ -3347,6 +3371,11 @@ fft3d_plan *fft3d_create(int L, int batch)
         if (l17mt_on) {
             int maxt = omp_get_max_threads();
             if (maxt > L17MT_MAXT) maxt = L17MT_MAXT;
+            {   /* dev-only timing decomposition -- read before the races so
+                 * the verbose race table reflects it (output goes wrong) */
+                const char *es = getenv("L17MT_SKIP");
+                if (es && *es) p->mtskip = atoi(es);
+            }
             p->nkids = maxt;
             p->kids = calloc((size_t)maxt, sizeof *p->kids);
             cpu_set_t *masks = calloc((size_t)maxt, sizeof *masks);
@@ -3511,9 +3540,11 @@ fft3d_plan *fft3d_create(int L, int batch)
                     if (tt < bt) { bt = tt; bmode = 1; bnt = nt; }
                 }
                 if (p->t1g) {
-                    static const int ntl[5] = {2, 4, 8, 16, 32};
+                    static const int ntl[9] = {1, 2, 4, 8, 12, 16, 17, 24, 32};
                     p->mode = 2;
-                    for (int a = 0; a < 5 && ntl[a] <= maxt; ++a) {
+                    p->nxr = 0; /* = nthr */
+                    p->xpf = 0;
+                    for (int a = 0; a < 9 && ntl[a] <= maxt; ++a) {
                         p->nthr = ntl[a];
                         double tt = l17mt_time_cfg(p, batch);
                         if (l17_verbose())
@@ -3522,14 +3553,39 @@ fft3d_plan *fft3d_create(int L, int batch)
                         if (tt < bt) { bt = tt; bmode = 2; bnt = ntl[a]; }
                     }
                 }
+                int bnx = 0, bxpf = 0;
+                if (bmode == 2) {
+                    /* the two phases saturate at different team sizes (the
+                     * plane phase scales to ~17 threads, the X phase stops
+                     * near 4 -- see strategies), so race the X-phase team
+                     * and its cross-core prefetch on the winning nthr */
+                    static const int nxl[5] = {2, 4, 8, 12, 0};
+                    p->mode = 2;
+                    p->nthr = bnt;
+                    for (int a = 0; a < 5; ++a) {
+                        int nx = nxl[a] ? nxl[a] : bnt;
+                        if (nx > bnt || (nx == bnt && nxl[a])) continue;
+                        for (int fx = 0; fx <= 1; ++fx) {
+                            p->nxr = nx;
+                            p->xpf = fx;
+                            double tt = l17mt_time_cfg(p, batch);
+                            if (l17_verbose())
+                                fprintf(stderr, "[L17_matrixsimd mt] intra nt=%d nxr=%-3d xpf=%d %8.3f us/t\n",
+                                        bnt, nx, fx, tt * 1e6);
+                            if (tt < bt) { bt = tt; bnx = nx; bxpf = fx; }
+                        }
+                    }
+                }
                 p->mode = bmode;
                 p->nthr = bnt;
+                p->nxr = bnx;
+                p->xpf = bxpf;
                 p->dynb = 0;
                 static char g_desc_mts[380];
-                snprintf(g_desc_mts, sizeof g_desc_mts, "%s, mt[%s nt=%d]",
+                snprintf(g_desc_mts, sizeof g_desc_mts, "%s, mt[%s nt=%d nxr=%d xpf=%d]",
                          g_desc,
                          bmode == 0 ? "single" : bmode == 1 ? "vol" : "intra",
-                         bnt);
+                         bnt, bnx ? bnx : bnt, bxpf);
                 g_desc = g_desc_mts;
             }
 
@@ -3538,8 +3594,12 @@ fft3d_plan *fft3d_create(int L, int batch)
             {
                 const char *em = getenv("L17MT_MODE");
                 const char *en = getenv("L17MT_NT");
+                const char *es = getenv("L17MT_SKIP");
+                const char *ex = getenv("L17MT_NXR");
                 if (em && *em) p->mode = atoi(em);
                 if (en && *en) p->nthr = atoi(en);
+                if (es && *es) p->mtskip = atoi(es);
+                if (ex && *ex) p->nxr = atoi(ex);
                 if (p->mode != 0 && p->nthr < 1) p->nthr = 1;
                 if (p->mode == 2 && !p->t1g) p->mode = 0;
                 if (p->mode != 0 && (!okk || !p->kids || !p->poolv)) p->mode = 0;
@@ -3577,7 +3637,7 @@ fft3d_plan *fft3d_create(int L, int batch)
                 }
                 us[m] = bestp * 1e6 / nvp;
             }
-            static char g_desc_sbw[340];
+            static char g_desc_sbw[420];
             snprintf(g_desc_sbw, sizeof g_desc_sbw,
                      "%s, sbw[rd/wr/cp/s17]=%.2f/%.2f/%.2f/%.2f",
                      g_desc, us[0], us[1], us[2], us[3]);
@@ -3621,7 +3681,7 @@ fft3d_plan *fft3d_create(int L, int batch)
                 }
                 us[m] = bestp * 1e6 / inner;
             }
-            static char g_desc_b1[280];
+            static char g_desc_b1[460];
             snprintf(g_desc_b1, sizeof g_desc_b1,
                      "%s, b1dec[yz/kyz/x/kx]=%.2f/%.2f/%.2f/%.2f",
                      g_desc, us[0], us[1], us[2], us[3]);
@@ -3635,7 +3695,7 @@ fft3d_plan *fft3d_create(int L, int batch)
        * the r5 VERDICT's clk256 question: sparse-256 3.89 vs dense-256 2.89
        * in one string would confirm density as the licence discriminator. */
         double c512 = l17_clk512(), c256 = l17_clk256(), c256d = l17_clk256d();
-        static char g_desc_clk[400];
+        static char g_desc_clk[520];
         snprintf(g_desc_clk, sizeof g_desc_clk,
                  "%s, clk512/256=%.2f/%.2f GHz, d256=%.2f",
                  g_desc, c512 * 1e-9, c256 * 1e-9, c256d * 1e-9);

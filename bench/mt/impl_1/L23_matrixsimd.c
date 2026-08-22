@@ -392,8 +392,19 @@ static inline void SUF(xslot)(const double *restrict vin, double *restrict t1v,
 static inline void SUF(plane)(const double *restrict t1x, double *restrict outp,
                               double *restrict pb, const double *restrict cd,
                               const double *restrict sd, int pw, int nt,
-                              double *restrict ps)
+                              double *restrict ps, int pt)
 {
+    if (pt) {
+        /* fused mode only: this t1 plane was just written by up to 32
+         * OTHER cores' X chunks (transposing all-to-all), so its lines sit
+         * dirty in remote L2s; a sequential prefetch burst starts those
+         * transfers with full memory-level parallelism instead of letting
+         * the Y pass's 368-B-strided loads discover them one miss window
+         * at a time.  Changes no bits. */
+        const char *tb = (const char *)t1x;
+        for (int q = 0; q < 133; ++q)
+            __builtin_prefetch(tb + (long)q * 64, 0, 3);
+    }
     if (pw) {
         const char *ob = (const char *)outp;
         for (int q = 0; q < 66; ++q) __builtin_prefetch(ob + (long)q * 64, 1, 3);
@@ -423,7 +434,7 @@ static void SUF(vol)(const double *restrict vin, double *restrict vout,
     for (int i = 0; i < NX23; ++i) SUF(xslot)(vin, t1v, i, pf2, cd, sd);
     for (int x = 0; x < 23; ++x)
         SUF(plane)(t1v + (size_t)x * L23_T1P,
-                   vout + (size_t)x * 1058, pb, cd, sd, pw, nt, ps);
+                   vout + (size_t)x * 1058, pb, cd, sd, pw, nt, ps, 0);
 }
 
 /* -----------------------------------------------------------------------
@@ -482,6 +493,7 @@ static void SUF(work_fused)(const fft3d_plan *restrict p, int tid)
     }
     l23_bar_mid(pl, tid, T);
     {
+        const int pt = p->pt;
         double *restrict pb = p->ctx[tid].pb;
         long g0 = npl * tid / T, g1 = npl * (tid + 1) / T;
         for (long g = g0; g < g1; ++g) {
@@ -489,7 +501,7 @@ static void SUF(work_fused)(const fft3d_plan *restrict p, int tid)
             int x = (int)(g % 23);
             SUF(plane)(t1f + (size_t)b * L23_T1V + (size_t)x * L23_T1P,
                        (double *)(out + (size_t)b * 12167) + (size_t)x * 1058,
-                       pb, cd, sd, 0, 0, NULL);
+                       pb, cd, sd, 0, 0, NULL, pt);
         }
     }
     l23_bar_join(pl, tid, T);
@@ -647,6 +659,7 @@ typedef struct l23_pool {
 struct fft3d_plan {
     int L, batch;
     int pf, pw, nt; /* volume-mode knobs */
+    int pt;         /* fused-mode plane-phase t1 prefetch */
     void (*exec)(const struct fft3d_plan *, const double _Complex *,
                  double _Complex *);
     double *cdist8; /* the 11 DISTINCT cosines cos(2pi m/23), splatted 8x */
@@ -1197,6 +1210,7 @@ fft3d_plan *fft3d_create(int L, int batch)
     { const char *e = getenv("L23_T");    if (e && *e) { int t = atoi(e);
         if (t >= 1 && t <= maxt) p->pl->tw = t; } }
     { const char *e = getenv("L23_NT");   if (e && *e) p->nt = atoi(e); }
+    { const char *e = getenv("L23_PT");   if (e && *e) p->pt = atoi(e); }
     { const char *e = getenv("L23_PF");   if (e && *e) p->pf = atoi(e); }
     { const char *e = getenv("L23_PW");   if (e && *e) p->pw = atoi(e); }
     { const char *e = getenv("L23_MODE"); if (e && *e) {

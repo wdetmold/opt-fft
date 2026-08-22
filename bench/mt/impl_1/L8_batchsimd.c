@@ -1,8 +1,44 @@
-/* Carried over from the SINGLE-THREAD competition, where this file finished as
- * written below. Your job in the multicore phase is to parallelise it across
- * 32 cores without losing its single-core efficiency -- read
- * ../PANEL_BRIEF.md, and read ../../geom/strategies/L8_batchsimd.md for the full
- * history of how this kernel got here.
+/* Multicore phase.  Phase-1 (single-thread) history: ../../geom/strategies/
+ * L8_batchsimd.md; this phase's record: ../strategies/L8_batchsimd.md.
+ *
+ * TECHNIQUE (round mt_r1: volume-parallel over a persistent pinned spin pool;
+ *   B=1 stays serial, with the measurement that says why)
+ *   The serial kernel below is byte-for-byte the phase-1 result.  On top:
+ *   * fft3d_create() builds a PERSISTENT pthread pool (execute creates no
+ *     threads).  Design borrowed from L17_matrixsimd mt_r1, who measured gcc's
+ *     execute-time "#pragma omp parallel" fork/join at 3.4/13.9 us for 4/32
+ *     threads on wallaby -- more than an entire B=64 execute here.  Each OMP
+ *     thread's affinity is captured with sched_getaffinity inside a create()-
+ *     time parallel region and copied to the pool worker of the same index,
+ *     so OMP_PROC_BIND=close, OMP_PLACES=cores is reproduced exactly.  Workers
+ *     pin FIRST, then allocate+memset their private 2112-double arena, so
+ *     every worker's scratch is first-touched NUMA-locally.  Release is one
+ *     generation store into a per-worker padded flag; collection is per-worker
+ *     done flags (also L17's shape -- their all-ack and futex variants both
+ *     lost, numbers in their record); workers spin with pause and decay to a
+ *     100 us nanosleep poll when idle.
+ *   * batch > 1: volumes are embarrassingly parallel.  Each rank runs the
+ *     UNCHANGED phase-1 FUSED runner over a contiguous static slice
+ *     [nvol*t/T, nvol*(t+1)/T) on its own scratch, or over dynamically grabbed
+ *     blocks (one fetch_add per grab) when the tuner prefers it.  A volume is
+ *     8 KiB = 128 whole lines, so slice boundaries never share a cache line.
+ *   * The MT tuner races (T, runner, schedule) under the REAL pool on a
+ *     serially-filled surrogate (first touch matches the driver's fread):
+ *     mid regime T in {32,16,8} x {s0, none} x {static, dyn2};
+ *     streaming T in {32,16} x {s0w, s0, none, nt+s0, nt} x {static, dyn8}.
+ *     NT-store and no-prefetch candidates are BACK in the race although five
+ *     phase-1 rounds retired them, on L17_matrixsimd's mt_r1 evidence: at 32
+ *     threads bandwidth is shared, so deleting the RFO (a third of the DRAM
+ *     traffic) wins, and prefetch can lose (every core's fill buffers are
+ *     already busy).  Phase-1 arena discipline kept: interleaved min-of-7,
+ *     untimed state-set pass, 3% hysteresis toward the default.
+ *   * B=1 runs the phase-1 serial path (FUSED/SI520) with NO pool: total work
+ *     is 0.551 us on the node, and the pool's own empty-job round-trip --
+ *     measured in create() and published in the description as poolrt{...} --
+ *     is already ~0.3 us at 2 threads (L17 measured 0.32/1.41 us at 2/32).
+ *     A 2-way split saves at most half the compute, 0.27 us < the handshake,
+ *     so B=1 does not parallelise at this size; create() still measures it
+ *     every run so the node's own numbers document the claim.
  */
 /* ===========================================================================
  * L8_batchsimd -- forward, unnormalised, complex-double 3D DFT of a FIXED
@@ -232,14 +268,23 @@
  *   * No library call of any kind inside fft3d_execute().
  * ===========================================================================*/
 
+#define _GNU_SOURCE 1
+
 #include <complex.h>
 #include <math.h>
+#include <pthread.h>
+#include <sched.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "fft3d_api.h"
 
@@ -579,11 +624,21 @@ enum { MODE_BATCH = 0, MODE_LANEX2 = 1, MODE_LANEX2S = 2, MODE_LANEX3 = 3,
 #define STR_(x) #x
 #define STR(x)  STR_(x)
 
+#if VW == 8
+struct mt_pool;         /* round mt_r1: persistent execute-time spin pool  */
+#endif
+
 struct fft3d_plan {
     int    batch;
     int    mode;
     int    nt;
     int    pf;          /* PF_NONE / PF_T0 / PF_T1                         */
+#if VW == 8
+    struct mt_pool *pool;   /* NULL -> serial phase-1 path                 */
+    int    tthr;        /* pool team size; <= 1 means serial               */
+    int    runner;      /* R_* pool runner (round mt_r1)                   */
+    int    dynb;        /* 0 = static contiguous slices, else dyn block    */
+#endif
     double *scr;        /* 64-B aligned working set                        */
     double *stage_in;   /* VW zero-padded volumes for the B % VW tail      */
     double *stage_out;
@@ -1319,6 +1374,233 @@ FUSED_RUN(f3_run_psw,    fused3_volume,  0, PF_SW,   L8_SI_BATCH)
 FUSED_RUN(f3_run_n_p0,   fused3_volume,  1, PF_NONE, L8_SI_BATCH)
 FUSED_RUN(f3_run_n_ps0,  fused3_volume,  1, PF_S0,   L8_SI_BATCH)
 #undef FUSED_RUN
+
+/* =========================================================================
+ * Round mt_r1: the execute-time thread pool.  Persistent, pinned, spinning
+ * -- fft3d_execute() creates no threads.  Shape borrowed from
+ * L17_matrixsimd mt_r1 (per-worker release/done generation flags, pause
+ * spin with nanosleep decay); see the file header for why not OpenMP.
+ * ======================================================================= */
+
+#if defined(__x86_64__) || defined(__i386__)
+#  define MT_PAUSE() _mm_pause()
+#else
+#  define MT_PAUSE() do { } while (0)
+#endif
+
+/* Pool runners: the FUSED batch family only.  LANEX/FUSED3/AA never won a
+ * batched phase-1 node cell (FUSED picked 9/9 at B=64, 6/6 streaming), and
+ * every rank must run on a private 2112-double arena. */
+enum { R_F_P0 = 0, R_F_PS0, R_F_PSW, R_F_N_P0, R_F_N_PS0, R_NOP };
+typedef void (*mt_runfn)(double *, const double *, double *, long);
+static mt_runfn const mt_rtab[5] = { f_run_p0, f_run_ps0, f_run_psw,
+                                     f_run_n_p0, f_run_n_ps0 };
+static const char *run_str(int r)
+{
+    switch (r) {
+    case R_F_P0:    return "none";
+    case R_F_PS0:   return "s0";
+    case R_F_PSW:   return "s0w";
+    case R_F_N_P0:  return "nt";
+    case R_F_N_PS0: return "nt-s0";
+    default:        return "nop";
+    }
+}
+
+#define MT_MAXT 32
+#define MT_SPIN 1500000         /* pause iterations before nanosleep decay */
+
+struct mt_worker {              /* each flag on its own line (false sharing) */
+    _Atomic uint32_t release;
+    char pad0[64 - sizeof(_Atomic uint32_t)];
+    _Atomic uint32_t done;
+    char pad1[64 - sizeof(_Atomic uint32_t)];
+    _Atomic int ready;          /* 0 starting, 1 ok, -1 scratch alloc failed */
+    char pad2[64 - sizeof(_Atomic int)];
+};
+
+struct mt_targ { struct mt_pool *pl; int tid; };
+
+struct mt_pool {
+    /* job broadcast: written by rank 0 strictly between a collect and the
+     * next release; each release store publishes it to that worker */
+    const double *src;
+    double *dst;
+    long nvol;
+    int runner, nthr, dynb;
+    _Atomic long next;          /* dynamic-schedule cursor */
+    _Atomic int shutdown;
+    uint32_t gen;               /* rank-0 private */
+    int nworkers;               /* created worker threads: tids 1..nworkers */
+    pthread_t th[MT_MAXT];
+    struct mt_targ targ[MT_MAXT];
+    double *wscr[MT_MAXT];      /* per-worker arenas, owner-first-touched */
+    cpu_set_t aff[MT_MAXT];     /* what OMP close/cores would have given */
+    struct mt_worker w[MT_MAXT];
+};
+
+/* One rank's share of a job.  Static: contiguous slice (volume = 128 whole
+ * lines, so slice boundaries share nothing).  Dynamic: fetch_add blocks of
+ * dynb volumes -- L17_matrixsimd mt_r1 measured dynamic beating static in
+ * streaming even single-socket (tail volumes), and the node adds the
+ * two-socket imbalance wallaby cannot show.  Each runner's last volume runs
+ * PF_NONE by construction, so no prefetch reaches past a slice. */
+static void mt_run_job(struct mt_pool *pl, int tid, double *scr)
+{
+    const int r = pl->runner;
+    if (r == R_NOP) return;
+    mt_runfn f = mt_rtab[r];
+    if (pl->dynb) {
+        const long b = pl->dynb, n = pl->nvol;
+        long v;
+        while ((v = atomic_fetch_add_explicit(&pl->next, b,
+                                              memory_order_relaxed)) < n) {
+            long m = n - v;
+            if (m > b) m = b;
+            f(scr, pl->src + (size_t)v * VOLD, pl->dst + (size_t)v * VOLD, m);
+        }
+    } else {
+        const long n = pl->nvol, T = pl->nthr;
+        const long v0 = n * tid / T, v1 = n * (tid + 1) / T;
+        if (v1 > v0)
+            f(scr, pl->src + (size_t)v0 * VOLD, pl->dst + (size_t)v0 * VOLD,
+              v1 - v0);
+    }
+    if (r == R_F_N_P0 || r == R_F_N_PS0) VFENCE();  /* NT drains before done */
+}
+
+static void *mt_worker_main(void *arg)
+{
+    struct mt_targ *a = (struct mt_targ *)arg;
+    struct mt_pool *pl = a->pl;
+    const int tid = a->tid;
+
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &pl->aff[tid]);
+
+    /* allocate AFTER pinning: first touch lands on this rank's socket */
+    double *scr = NULL;
+    if (posix_memalign((void **)&scr, 64, 2112 * sizeof(double)) != 0)
+        scr = NULL;
+    if (scr) memset(scr, 0, 2112 * sizeof(double));
+    pl->wscr[tid] = scr;
+    atomic_store_explicit(&pl->w[tid].ready, scr ? 1 : -1,
+                          memory_order_release);
+    if (!scr) return NULL;
+
+    uint32_t last = 0;
+    long idle = 0;
+    for (;;) {
+        uint32_t g = atomic_load_explicit(&pl->w[tid].release,
+                                          memory_order_acquire);
+        if (g == last) {
+            if (++idle < MT_SPIN) MT_PAUSE();
+            else { struct timespec ts = { 0, 100000 }; nanosleep(&ts, NULL); }
+            continue;
+        }
+        idle = 0;
+        last = g;
+        if (atomic_load_explicit(&pl->shutdown, memory_order_acquire)) break;
+        mt_run_job(pl, tid, scr);
+        atomic_store_explicit(&pl->w[tid].done, g, memory_order_release);
+    }
+    free(scr);
+    return NULL;
+}
+
+/* Release ranks 1..T-1, run rank 0's share on the CALLER's thread and
+ * scratch, collect.  Job fields may be rewritten freely between calls: the
+ * previous collect proved every released worker finished reading them. */
+static void mt_exec_raw(struct mt_pool *pl, double *scr0,
+                        const double *src, double *dst, long nvol,
+                        int runner, int T, int dynb)
+{
+    pl->src = src; pl->dst = dst; pl->nvol = nvol;
+    pl->runner = runner; pl->nthr = T; pl->dynb = dynb;
+    atomic_store_explicit(&pl->next, 0, memory_order_relaxed);
+    const uint32_t g = ++pl->gen;
+    for (int t = 1; t < T; ++t)
+        atomic_store_explicit(&pl->w[t].release, g, memory_order_release);
+    mt_run_job(pl, 0, scr0);
+    for (int t = 1; t < T; ++t)
+        while (atomic_load_explicit(&pl->w[t].done, memory_order_acquire) != g)
+            MT_PAUSE();
+}
+
+static int mt_nmax(void)
+{
+#ifdef _OPENMP
+    int n = omp_get_max_threads();      /* the harness's 32; never raised */
+#else
+    int n = 1;
+#endif
+    if (n > MT_MAXT) n = MT_MAXT;
+    if (n < 1) n = 1;
+    return n;
+}
+
+static void mt_pool_destroy(struct mt_pool *pl)
+{
+    if (!pl) return;
+    atomic_store_explicit(&pl->shutdown, 1, memory_order_release);
+    pl->gen++;
+    for (int t = 1; t <= pl->nworkers; ++t)
+        atomic_store_explicit(&pl->w[t].release, pl->gen,
+                              memory_order_release);
+    for (int t = 1; t <= pl->nworkers; ++t)
+        pthread_join(pl->th[t], NULL);
+    free(pl);
+}
+
+static struct mt_pool *mt_pool_create(void)
+{
+    const int nmax = mt_nmax();
+    if (nmax < 2) return NULL;
+    struct mt_pool *pl = NULL;
+    if (posix_memalign((void **)&pl, 64, sizeof *pl) != 0 || !pl) return NULL;
+    memset(pl, 0, sizeof *pl);
+
+    /* Capture, inside a create()-time OMP region, the affinity mask
+     * OMP_PROC_BIND=close / OMP_PLACES=cores gives thread t, and hand it to
+     * pool worker t -- L17_matrixsimd mt_r1's method, so the pool sits on
+     * exactly the cores the harness granted, with no topology guessing. */
+    int got[MT_MAXT] = { 0 };
+#ifdef _OPENMP
+#pragma omp parallel num_threads(nmax)
+    {
+        int t = omp_get_thread_num();
+        if (t < MT_MAXT &&
+            sched_getaffinity(0, sizeof(cpu_set_t), &pl->aff[t]) == 0)
+            got[t] = 1;
+    }
+#else
+    for (int t = 0; t < nmax; ++t)
+        if (sched_getaffinity(0, sizeof(cpu_set_t), &pl->aff[t]) == 0)
+            got[t] = 1;
+#endif
+    for (int t = 0; t < nmax; ++t)
+        if (!got[t]) { free(pl); return NULL; }
+
+    for (int t = 1; t < nmax; ++t) {
+        pl->targ[t].pl = pl;
+        pl->targ[t].tid = t;
+        if (pthread_create(&pl->th[t], NULL, mt_worker_main,
+                           &pl->targ[t]) != 0) {
+            pl->nworkers = t - 1;
+            mt_pool_destroy(pl);
+            return NULL;
+        }
+    }
+    pl->nworkers = nmax - 1;
+
+    for (int t = 1; t < nmax; ++t) {
+        int r;
+        while ((r = atomic_load_explicit(&pl->w[t].ready,
+                                         memory_order_acquire)) == 0)
+            MT_PAUSE();
+        if (r < 0) { mt_pool_destroy(pl); return NULL; }
+    }
+    return pl;
+}
 #endif /* VW == 8 */
 
 /* ========================== the API ==================================== */
@@ -1333,8 +1615,9 @@ const char *fft3d_name(void) { return "L8_batchsimd"; }
  * pick changes. */
 static char g_desc[384] =
     "split-complex radix-8; FUSED default, LANEX2/LANEX3 candidates; untuned";
-static char g_arena[176] = "";
+static char g_arena[224] = "";
 static char g_ab[80]     = "";
+static char g_rt[96]     = "";   /* B=1 pool round-trip evidence (mt_r1) */
 
 const char *fft3d_description(void) { return g_desc; }
 
@@ -1422,6 +1705,13 @@ static void run_all(struct fft3d_plan *p,
 void fft3d_execute(fft3d_plan *plan, const double _Complex *in,
                    double _Complex *out)
 {
+#if VW == 8
+    if (plan->pool && plan->tthr > 1) {
+        mt_exec_raw(plan->pool, plan->scr, (const double *)in, (double *)out,
+                    plan->batch, plan->runner, plan->tthr, plan->dynb);
+        return;
+    }
+#endif
     run_all(plan, (const double *)in, (double *)out);
 }
 
@@ -1670,6 +1960,152 @@ static void b1_ab(struct fft3d_plan *p)
     free(ai);
     free(ao);
 }
+
+/* Round mt_r1: race (team size, runner, schedule) under the REAL pool.
+ * Surrogate sized and filled exactly like the phase-1 tuner's -- SERIALLY,
+ * so its first touch matches the driver's own fread buffers -- and the
+ * phase-1 arena discipline kept (interleaved min-of-7, one untimed
+ * state-setting pass per candidate per trial, 3% hysteresis toward the
+ * default).  Candidate sets follow L17_matrixsimd's mt_r1 measurements:
+ * NT stores are BACK in the race (they lose single-threaded, win at 32
+ * threads -- the RFO is a third of the DRAM traffic), so is no-prefetch
+ * (32 busy cores leave no idle fill buffers), so is dynamic scheduling
+ * (beats static in streaming even single-socket; the node adds NUMA). */
+static void mt_autotune(struct fft3d_plan *p)
+{
+    long cap = (4L * l3_bytes()) / (long)(2 * VOLD * sizeof(double));
+    if (cap < 4096) cap = 4096;
+    if (cap > 8192) cap = 8192;
+    long nsur = p->batch < cap ? p->batch : cap;
+    if (nsur < 1) nsur = 1;
+
+    size_t bytes = (size_t)nsur * VOLD * sizeof(double);
+    double *ti = NULL, *to = NULL;
+    if (posix_memalign((void **)&ti, 64, bytes) != 0 || !ti) return;
+    if (posix_memalign((void **)&to, 64, bytes) != 0 || !to) { free(ti); return; }
+    for (size_t k = 0; k < (size_t)nsur * VOLD; ++k)
+        ti[k] = 1.0 + 0.5 * (double)(k & 63);
+    memset(to, 0, bytes);
+
+    const size_t ws = (size_t)p->batch * VOLD * sizeof(double) * 2;
+    const int big = ws * 10 > (size_t)l3_bytes() * 9;
+    int Tmax = mt_nmax();
+    if ((long)Tmax > p->batch) Tmax = (int)p->batch;
+
+    int cT[12], cR[12], cD[12], nc = 0;
+#define MCAND(T, R, D) do { cT[nc] = (T); cR[nc] = (R); cD[nc] = (D); ++nc; } while (0)
+    if (!big) {                          /* cache-resident batch (B=64) */
+        MCAND(Tmax, R_F_PS0, 0);         /* default: full team, phase-1 pick */
+        MCAND(Tmax, R_F_P0, 0);
+        MCAND(Tmax, R_F_PS0, 2);
+        if (Tmax >= 4) MCAND(Tmax / 2, R_F_PS0, 0);
+        if (Tmax >= 4) MCAND(Tmax / 2, R_F_P0, 0);
+        if (Tmax >= 8) MCAND(Tmax / 4, R_F_PS0, 0);
+        if (p->batch <= 256) MCAND(1, R_F_PS0, 0);   /* serial verdict line */
+    } else {                             /* streaming (B=2048, 16384) */
+        MCAND(Tmax, R_F_PSW, 0);         /* default: phase-1 pick, full team */
+        MCAND(Tmax, R_F_PS0, 0);
+        MCAND(Tmax, R_F_P0, 0);
+        MCAND(Tmax, R_F_N_PS0, 0);
+        MCAND(Tmax, R_F_N_P0, 0);
+        MCAND(Tmax, R_F_N_PS0, 8);
+        MCAND(Tmax, R_F_PSW, 8);
+        if (Tmax >= 4) MCAND(Tmax / 2, R_F_N_PS0, 0);
+    }
+#undef MCAND
+
+    long reps = 1;
+    {
+        /* one untimed call first: a worker that has decayed to the sleep
+         * poll pays up to 100 us of wake latency on its next release, which
+         * must not contaminate the reps calibration */
+        mt_exec_raw(p->pool, p->scr, ti, to, nsur, cR[0], cT[0], cD[0]);
+        double t0 = wall();
+        mt_exec_raw(p->pool, p->scr, ti, to, nsur, cR[0], cT[0], cD[0]);
+        double dt = wall() - t0;
+        if (dt > 0) reps = (long)(0.002 / dt);
+        if (reps < 1) reps = 1;
+        if (reps > 20000) reps = 20000;
+    }
+
+    double bt[12];
+    for (int c = 0; c < nc; ++c) {
+        bt[c] = 1e30;
+        mt_exec_raw(p->pool, p->scr, ti, to, nsur, cR[c], cT[c], cD[c]);
+    }
+    for (int trial = 0; trial < 7; ++trial) {
+        for (int c = 0; c < nc; ++c) {
+            mt_exec_raw(p->pool, p->scr, ti, to, nsur, cR[c], cT[c], cD[c]);
+            double t0 = wall();
+            for (long q = 0; q < reps; ++q)
+                mt_exec_raw(p->pool, p->scr, ti, to, nsur, cR[c], cT[c], cD[c]);
+            double dt = (wall() - t0) / (double)reps;
+            if (dt < bt[c]) bt[c] = dt;
+        }
+    }
+
+    int bi = 0;
+    double best = 1e30;
+    for (int c = 0; c < nc; ++c) {
+        const int incumbent = (cT[c] == p->tthr && cR[c] == p->runner &&
+                               cD[c] == p->dynb);
+        const double score = bt[c] * (incumbent ? 1.0 : 1.03);
+        if (score < best) { best = score; bi = c; }
+    }
+    p->tthr = cT[bi];
+    p->runner = cR[bi];
+    p->dynb = cD[bi];
+
+    {
+        int n = snprintf(g_arena, sizeof g_arena, " arena{");
+        for (int c = 0; c < nc && n > 0 && n < (int)sizeof g_arena; ++c) {
+            char db[8] = "";
+            if (cD[c]) snprintf(db, sizeof db, "/d%d", cD[c]);
+            n += snprintf(g_arena + n, sizeof g_arena - (size_t)n,
+                          "%sT%d/%s%s=%.4f", c ? "," : "",
+                          cT[c], run_str(cR[c]), db,
+                          1e6 * bt[c] / (double)nsur);
+        }
+        if (n > 0 && n < (int)sizeof g_arena - 1)
+            snprintf(g_arena + n, sizeof g_arena - (size_t)n, "}");
+    }
+    if (getenv("L8_TUNE_DEBUG"))
+        fprintf(stderr, "[L8_batchsimd mt tune] batch=%d nsur=%ld reps=%ld ->"
+                        " T=%d run=%s dynb=%d |%s\n", p->batch, nsur, reps,
+                p->tthr, run_str(p->runner), p->dynb, g_arena);
+    free(ti);
+    free(to);
+}
+
+/* Round mt_r1, B=1 only: measure the pool's own empty-job round-trip
+ * (release + collect, zero work) at T = 2 / 8 / full, publish it in the
+ * description, and tear the pool down again -- the B=1 execute path stays
+ * the phase-1 serial one, and this number is the argument for why: one
+ * volume is 0.551 us of total work on the node, so a T-way split cannot
+ * even pay for the handshake. */
+static void b1_pool_rt(void)
+{
+    struct mt_pool *pl = mt_pool_create();
+    if (!pl) return;
+    int Ts[3] = { 2, 8, mt_nmax() };
+    double rt[3] = { 0.0, 0.0, 0.0 };
+    for (int i = 0; i < 3; ++i) {
+        if (Ts[i] > mt_nmax() || Ts[i] < 2) continue;
+        double best = 1e30;
+        for (int trial = 0; trial < 7; ++trial) {
+            const long reps = 2000;
+            double t0 = wall();
+            for (long q = 0; q < reps; ++q)
+                mt_exec_raw(pl, NULL, NULL, NULL, 0, R_NOP, Ts[i], 0);
+            double dt = (wall() - t0) / (double)reps;
+            if (dt < best) best = dt;
+        }
+        rt[i] = 1e6 * best;
+    }
+    snprintf(g_rt, sizeof g_rt, " poolrt{2=%.3f,8=%.3f,%d=%.3f}",
+             rt[0], rt[1], Ts[2], rt[2]);
+    mt_pool_destroy(pl);
+}
 #endif /* VW == 8 */
 
 fft3d_plan *fft3d_create(int L, int batch)
@@ -1713,6 +2149,7 @@ fft3d_plan *fft3d_create(int L, int batch)
 
     g_arena[0] = '\0';
     g_ab[0] = '\0';
+    g_rt[0] = '\0';
 
 #if VW == 8
     /* fusedAA arena: 8 KiB scratch + 4 KiB execute-time base slack, in a
@@ -1768,27 +2205,72 @@ fft3d_plan *fft3d_create(int L, int batch)
      * arena has twice been shown unable to rank near-ties (r7 B=64, r8 B=1),
      * so at this cell it is retired rather than hysteresis-patched.
      * Round 11: at B=1 a publish-only fused-vs-fusedAA A/B runs instead --
-     * numbers to the description, pick untouched. */
-    if (batch > 1 || VW != 8) autotune(p);
+     * numbers to the description, pick untouched.
+     * Round mt_r1: batch > 1 builds the pool and runs the MT tuner; B=1
+     * stays serial (pool round-trip > the whole transform -- measured every
+     * create and published as poolrt) with the phase-1 probes kept. */
 #if VW == 8
-    else b1_ab(p);
+    if (batch > 1) {
+        p->pool = mt_pool_create();
+        if (p->pool) {
+            int tdef = mt_nmax();
+            if ((long)tdef > (long)batch) tdef = batch;
+            p->tthr = tdef;
+            p->runner = big ? R_F_PSW : R_F_PS0;   /* phase-1 per-regime pick */
+            p->dynb = 0;
+            mt_autotune(p);
+            if (p->tthr <= 1) {
+                /* the tuner's verdict is "serial": translate the runner back
+                 * to the phase-1 path and drop the pool entirely, so idle
+                 * workers cannot even sleep-poll during the timed region */
+                mt_pool_destroy(p->pool);
+                p->pool = NULL;
+                p->mode = MODE_FUSED;
+                p->nt = (p->runner == R_F_N_P0 || p->runner == R_F_N_PS0);
+                p->pf = (p->runner == R_F_PSW) ? PF_SW
+                      : (p->runner == R_F_PS0 || p->runner == R_F_N_PS0)
+                          ? PF_S0 : PF_NONE;
+            }
+        } else {
+            autotune(p);                 /* no pool: the full phase-1 tuner */
+        }
+    } else {
+        b1_ab(p);
+        b1_pool_rt();
+    }
+#else
+    autotune(p);
 #endif
 #endif
 
-    snprintf(g_desc, sizeof g_desc,
-             "radix-8 split; pick[B=%d]: mode=%s nt=%d pf=%s%s alloc=%s%s%s",
-             batch, mode_str(p->mode), p->nt, pf_str(p->pf),
-             (batch == 1 && VW == 8) ? " (fixed, no tuner)" : "",
-             (VW == 8) ? ((batch == 1) ? "r9(a4096,si" STR(L8_SI_B1) ")"
-                                       : "r8(a64,si" STR(L8_SI_BATCH) ")")
-                       : "w4",
-             g_arena, g_ab);
+    {
+        char mtbuf[48] = "";
+#if VW == 8
+        if (p->pool)
+            snprintf(mtbuf, sizeof mtbuf, " mt{T=%d run=%s dyn=%d}",
+                     p->tthr, run_str(p->runner), p->dynb);
+        else if (batch > 1)
+            snprintf(mtbuf, sizeof mtbuf, " mt{serial}");
+#endif
+        snprintf(g_desc, sizeof g_desc,
+                 "radix-8 split; pick[B=%d]: mode=%s nt=%d pf=%s%s alloc=%s"
+                 "%s%s%s%s",
+                 batch, mode_str(p->mode), p->nt, pf_str(p->pf),
+                 (batch == 1 && VW == 8) ? " (fixed, no tuner)" : "",
+                 (VW == 8) ? ((batch == 1) ? "r9(a4096,si" STR(L8_SI_B1) ")"
+                                           : "r8(a64,si" STR(L8_SI_BATCH) ")")
+                           : "w4",
+                 mtbuf, g_arena, g_ab, g_rt);
+    }
     return p;
 }
 
 void fft3d_destroy(fft3d_plan *plan)
 {
     if (!plan) return;
+#if VW == 8
+    mt_pool_destroy(plan->pool);
+#endif
     free(plan->raw2);
     free(plan->raw);
     free(plan);

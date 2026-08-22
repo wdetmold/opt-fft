@@ -319,14 +319,61 @@
  *       the 2592 default -- the node PFWD sweep the records have requested
  *       since r5, now self-served.  Non-default pfwd ranks as a tie-break
  *       below its default twin (same bit class, prefetch-only difference).
+ *
+ * ROUND mt_r1: the 32-core phase.  The serial kernel (codelets, passes,
+ *   prefetch machinery) is UNTOUCHED; what is added is a threading layer:
+ *   (1) A persistent pinned pthread SPIN POOL built in fft3d_create():
+ *       T-1 workers pinned to the CPUs the harness's close/cores OMP mapping
+ *       uses (read back from a throwaway omp region via sched_getcpu),
+ *       parked on an epoch spin, synchronised by flag-array barriers (each
+ *       arriver writes its OWN padded line; participant 0 scans and
+ *       publishes one release word).  Adopted from L23_matrixsimd mt_r1 /
+ *       L17_winograd mt_r1, whose records price the alternatives: one GOMP
+ *       parallel region = 5-8 us per call on wallaby (more than a whole
+ *       parallel volume here), central-counter barrier = 1.2-5 us.
+ *   (2) Batched path K_VOLS: thread t owns a contiguous volume block and
+ *       runs the settled serial run_vols on it with its OWN scratch
+ *       (first-touched by the owning thread -> NUMA-local).  Candidates
+ *       {inplace pf0, inplace pf2, scratch pf0, scratch+nt pf0} x {pw4,pw2}
+ *       x team {32,16}: NT is re-raced because L23's mt_r1 measured the
+ *       phase-1 "NT always loses" rule INVERTING at the 32-thread bandwidth
+ *       wall (nt 1.51 vs plain 1.89 us/vol); team 16 exists because the
+ *       driver first-touches in/out on one socket and the far 16 threads
+ *       may pay UPI for nothing -- measured, not guessed.
+ *   (3) B=1 path: within-volume decomposition on the pool.
+ *       K_FUSED2 = phase 1 as 36 x-plane units, barrier, phase 2 as 324
+ *       (y,zb-granule) tile units.  K_FUSED3 splits phase 1's two subloops
+ *       into separate passes over a 746 KB plane arena (z pass: 324
+ *       4-y-row units; y pass: 324 zb-granule units; then the same 324
+ *       x-tiles), trading one more barrier + an L2-level arena round trip
+ *       for near-perfect balance (36 units over 32 threads = a 2-wave
+ *       span, 56% efficiency; 324 units = 98%).  Pass A and pass B use the
+ *       IDENTICAL static unit partition, so each thread reads back the
+ *       arena planes it itself wrote (x-major units: u = x*9 + i).
+ *       All units write whole 64-byte lines at both PW -- no false sharing
+ *       at any partition cut, by construction.
+ *       Serial stays a candidate: the 3% hysteresis band must be beaten.
+ *   Every candidate is correctness-gated against a serial reference in
+ *   create(); parallelisation only reassigns whole units to threads, so the
+ *   output is bit-identical to the serial kernel at the same PW.
  */
+#ifndef _GNU_SOURCE
+# define _GNU_SOURCE            /* sched_getcpu, cpu_set_t, setaffinity */
+#endif
 #include <complex.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <time.h>
 #include <immintrin.h>
+#include <pthread.h>
+#include <sched.h>
+#include <stdatomic.h>
+#ifdef _OPENMP
+# include <omp.h>
+#endif
 
 #include "fft3d_api.h"
 
@@ -409,15 +456,19 @@
 enum { M_INPLACE = 0, M_SCRATCH = 1, M_SCRATCH_NT = 2, M_PIPE = 3 };
 static const char *const mode_name[] = {"inplace", "scratch", "scratch+nt", "pipe"};
 
+/* mt_r1 execution kinds */
+enum { K_SERIAL = 0, K_VOLS = 1, K_FUSED2 = 2, K_FUSED3 = 3 };
+static const char *const kind_name[] = {"serial", "vols", "fused2", "fused3"};
+
 struct fft3d_plan {
     int     batch;
+    int     kind;                /* K_SERIAL / K_VOLS / K_FUSED2 / K_FUSED3 */
+    int     tuse;                /* team size for the pool kinds   */
     int     pw;                  /* 2 or 4                         */
-    int     mode;                /* one of M_*                     */
+    int     mode;                /* one of M_* (serial/vols paths) */
     int     pf;                  /* software-prefetch the in stream */
     int     pfwd;                /* phase-1 write-intent cursor lead (doubles) */
-    double *S;                   /* reused scratch volume          */
-    double *S1;                  /* second scratch (M_PIPE ping-pong) */
-    void   *rawS, *rawS1;
+    double *S;                   /* participant-0 scratch (pool-owned) */
 };
 
 const char *fft3d_name(void) { return "L36_pfa"; }
@@ -425,14 +476,14 @@ const char *fft3d_name(void) { return "L36_pfa"; }
 /* Filled by fft3d_create() with the tuner's pick, so the leaderboard shows
  * which variant actually ran (r3 verdict requirement; mechanism borrowed from
  * L36_mixedradix / L6_pfa). */
-static char g_desc[288];
+static char g_desc[320];
 
 const char *fft3d_description(void)
 {
     return g_desc[0] ? g_desc
-                     : "Good-Thomas PFA 4x9 (genfft n1_9 DFT9 DAG), "
-                       "interleaved-complex lanes, two sweeps; {inplace, "
-                       "scratch(+NT), pipe} x {pw,pf} autotuned in create()";
+                     : "Good-Thomas PFA 4x9 (genfft n1_9 DAG) on a pinned "
+                       "spin pool; {serial, vol-parallel, fused2, fused3} x "
+                       "{T, pw, mode, pf} autotuned in create()";
 }
 int fft3d_supports(int Lq) { return Lq == L; }
 
@@ -509,21 +560,311 @@ static double now_s(void)
     return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec;
 }
 
-/* hysteresis rank: lower = simpler; a candidate must beat a simpler one by
- * >3% to be installed (r3 verdict: tuner coin-flips cost 3.9-6.7% elsewhere,
- * and pf=1 winning in-arena at B=32 while losing end-to-end is the leading
- * hypothesis for this entry's own r3 regression there; genuine wins measured
- * on wallaby -- pf at B=256, pipe vs scratch+nt -- are all >=10%, so the band
- * costs nothing where the choice is real) */
-static int cand_rank(int mode, int pf, int nondef_pfwd)
+/* ==== mt_r1: persistent pinned spin pool ================================== *
+ * One GOMP parallel region costs 5-8 us per dispatch on wallaby (measured by
+ * L23_matrixsimd mt_r1) -- comparable to this kernel's whole 32-way-parallel
+ * volume -- so the pool is raw pthreads created once in fft3d_create(),
+ * pinned to the CPUs the harness's OMP_PROC_BIND=close / OMP_PLACES=cores
+ * mapping gives (read back from a throwaway omp region via sched_getcpu),
+ * parked on an epoch spin.  Barriers are flag-array (L17_winograd mt_r1:
+ * central atomic counter 1.2 us/barrier at T=16, flag array 0.3-0.4 us):
+ * each arriver release-stores its OWN padded line, participant 0 scans them
+ * and publishes the next phase on a single release word.  Main never
+ * dispatches again until every worker (idle ones included) has posted its
+ * final flag, so g_job is never written while any worker might read it. */
+
+#define MT_MAXT 32
+
+enum { J_INIT = 1, J_VOLS, J_FUSED2, J_FUSED3, J_QUIT };
+
+struct mt_job {
+    int kind, tuse, nph;
+    int pw, mode, pf, pfwd, nvol;
+    int skip;                     /* diagnostic: bit p set = phase p is a no-op */
+    const double *in;
+    double *out;
+};
+
+static struct {
+    int T;                        /* pool size incl. participant 0 (main) */
+    int started;
+    pthread_t th[MT_MAXT];
+    int cpu[MT_MAXT];
+    double *S[MT_MAXT];           /* per-thread scratch volume, owner-touched */
+    void   *rawS[MT_MAXT];
+    double *pla;                  /* fused3 plane arena, 1 volume, partition-touched */
+    void   *rawpla;
+    struct mt_job job;
+    unsigned long epoch;          /* main-side epoch base                  */
+    _Atomic unsigned long release __attribute__((aligned(64)));
+    struct { _Atomic unsigned long v; char pad[56]; } arr[MT_MAXT]
+        __attribute__((aligned(64)));
+} g_pool;
+
+static void mt_run_phase(const struct mt_job *j, int p, int t)
 {
-    /* pf complexity: 0 < 1 < 7 < 5 < 2 < 6 < 4 < 3 -- one-mechanism levels
-     * (pf=1 paced read, pf=7 write-intent alone, pf=5 deep phase-2 staging)
-     * before two-mechanism ones (pf=2 = read + write-intent; pf=6 = 1+5;
-     * pf=4 NTA; pf=3 NTA + write-intent).  A non-default PFWD ranks as a
-     * tie-break below its default twin (same bit class, prefetch-only). */
-    static const int pfc[8] = {0, 1, 4, 7, 6, 3, 5, 2};
-    return (pfc[pf] * 4 + mode) * 2 + (nondef_pfwd != 0);
+    const int T = j->tuse;
+    if ((j->skip >> p) & 1) return;      /* FFT36_PROBE timing shapes only */
+    switch (j->kind) {
+    case J_INIT: {
+        /* per-thread scratch: allocated AND first-touched by its owner, so
+         * it is NUMA-local on the two-socket node (t=0 runs on main) */
+        if (!g_pool.S[t]) {
+            void *raw = NULL;
+            if (posix_memalign(&raw, 4096, VDBL * sizeof(double)) == 0) {
+                memset(raw, 0, VDBL * sizeof(double));
+                g_pool.rawS[t] = raw;
+                g_pool.S[t] = (double *)raw;
+            }
+        }
+        /* fused3 arena: first-touch with the same static u-partition pass A
+         * writes it with (unit u owns doubles [288u, 288(u+1)) -- x-major) */
+        if (g_pool.pla) {
+            size_t u0 = (size_t)324 * t / T, u1 = (size_t)324 * (t + 1) / T;
+            memset(g_pool.pla + u0 * 288, 0, (u1 - u0) * 288 * sizeof(double));
+        }
+        break; }
+    case J_VOLS: {
+        /* thread t owns a contiguous volume block; zero synchronisation
+         * inside the phase.  Scratchless fallback keeps OOM runs correct. */
+        int b0 = (int)((long long)j->nvol * t / T);
+        int b1 = (int)((long long)j->nvol * (t + 1) / T);
+        if (b1 > b0) {
+            int mode = j->mode;
+            double *S = g_pool.S[t];
+            if ((mode == M_SCRATCH || mode == M_SCRATCH_NT) && !S)
+                mode = M_INPLACE;
+            run_vols(j->pw, mode, j->pf, j->pfwd, S, NULL,
+                     j->in  + (size_t)b0 * VDBL,
+                     j->out + (size_t)b0 * VDBL, b1 - b0);
+        }
+        break; }
+    case J_FUSED2:
+        if (p == 0) {              /* phase 1, in-place: nvol*36 plane units */
+            const int nu = j->nvol * L;
+            int u0 = (int)((long long)nu * t / T);
+            int u1 = (int)((long long)nu * (t + 1) / T);
+            for (int u = u0; u < u1; ++u) {
+                const int b = u / L, x = u - b * L;
+                const double *i = j->in  + (size_t)b * VDBL;
+                double       *o = j->out + (size_t)b * VDBL;
+                /* pf=2: phase-1 write-intent cursor (prefetchw) against the
+                 * cross-execute invalidation storm; pf=3: NT mid stores
+                 * (see mt_p1plane_nt), PW=4 only. */
+#ifdef HAVE_PW4
+                if (j->pw == 4) {
+                    if (j->pf == 3) mt_p1plane_nt_pw4(i, o, x);
+                    else phase1_plane_pw4(i, o, x, 0, j->pf == 2, j->pfwd);
+                } else
+#endif
+                phase1_plane_pw2(i, o, x, 0, j->pf == 2, j->pfwd);
+            }
+            if (j->pf == 3) _mm_sfence();   /* NT stores are not ordered by
+                                             * the barrier's release store */
+        } else {                   /* phase 2, in-place: nvol*324 tile units */
+            const int nu = j->nvol * 324;
+            int u0 = (int)((long long)nu * t / T);
+            int u1 = (int)((long long)nu * (t + 1) / T);
+            int u = u0;
+            while (u < u1) {
+                const int b  = u / 324;
+                const int ue = (b + 1) * 324 < u1 ? (b + 1) * 324 : u1;
+                double *o = j->out + (size_t)b * VDBL;
+#ifdef HAVE_PW4
+                if (j->pw == 4) mt_xpass_pw4(o, o, u - b * 324, ue - b * 324);
+                else
+#endif
+                mt_xpass_pw2(o, o, u - b * 324, ue - b * 324);
+                u = ue;
+            }
+        }
+        break;
+    case J_FUSED3: {               /* nvol == 1 only; identical partition in
+                                    * every pass, so pass B reads back the
+                                    * arena planes this thread wrote in A */
+        int u0 = 324 * t / T, u1 = 324 * (t + 1) / T;
+        if (u1 <= u0) break;
+#ifdef HAVE_PW4
+        if (j->pw == 4) {
+            if      (p == 0) mt_zpass_pw4(j->in, g_pool.pla, u0, u1);
+            else if (p == 1) mt_ypass_pw4(g_pool.pla, j->out, u0, u1);
+            else             mt_xpass_pw4(j->out, j->out, u0, u1);
+        } else
+#endif
+        {
+            if      (p == 0) mt_zpass_pw2(j->in, g_pool.pla, u0, u1);
+            else if (p == 1) mt_ypass_pw2(g_pool.pla, j->out, u0, u1);
+            else             mt_xpass_pw2(j->out, j->out, u0, u1);
+        }
+        break; }
+    default: break;
+    }
+}
+
+static void *mt_worker(void *arg)
+{
+    const int t = (int)(intptr_t)arg;
+    if (g_pool.cpu[t] >= 0) {
+        cpu_set_t cs;
+        CPU_ZERO(&cs);
+        CPU_SET(g_pool.cpu[t], &cs);
+        pthread_setaffinity_np(pthread_self(), sizeof cs, &cs);
+    }
+    unsigned long e = 0;          /* last completed epoch */
+    for (;;) {
+        while (atomic_load_explicit(&g_pool.release, memory_order_acquire) < e + 1)
+            _mm_pause();
+        struct mt_job j = g_pool.job;
+        if (j.kind == J_QUIT) {  /* threads t >= tuse leave; the rest stay */
+            atomic_store_explicit(&g_pool.arr[t].v, e + j.nph, memory_order_release);
+            if (t >= j.tuse) return NULL;
+            e += j.nph;
+            continue;
+        }
+        if (t < j.tuse) {
+            for (int p = 0; p < j.nph; ++p) {
+                if (p)
+                    while (atomic_load_explicit(&g_pool.release,
+                                                memory_order_acquire) < e + 1 + p)
+                        _mm_pause();
+                mt_run_phase(&j, p, t);
+                atomic_store_explicit(&g_pool.arr[t].v, e + 1 + p,
+                                      memory_order_release);
+            }
+        } else {
+            /* idle this job: post the final flag only (main scans idle
+             * workers at the last phase, never in between) */
+            atomic_store_explicit(&g_pool.arr[t].v, e + j.nph, memory_order_release);
+        }
+        e += j.nph;
+    }
+}
+
+/* dispatch one job and run it to completion; main is participant 0 */
+static void mt_pool_run(struct mt_job *j)
+{
+    if (j->tuse > g_pool.T) j->tuse = g_pool.T;
+    if (j->tuse < 1) j->tuse = 1;
+    const unsigned long e = g_pool.epoch;
+    g_pool.job = *j;
+    for (int p = 0; p < j->nph; ++p) {
+        atomic_store_explicit(&g_pool.release, e + 1 + p, memory_order_release);
+        mt_run_phase(j, p, 0);
+        const int lim = (p == j->nph - 1) ? g_pool.T : j->tuse;
+        for (int t = 1; t < lim; ++t)
+            while (atomic_load_explicit(&g_pool.arr[t].v, memory_order_acquire)
+                   < e + 1 + p)
+                _mm_pause();
+    }
+    g_pool.epoch = e + j->nph;
+}
+
+static void mt_pool_start(void)
+{
+    if (g_pool.started) return;
+    int T = MT_MAXT;              /* never MORE than the harness gives */
+#ifdef _OPENMP
+    { int m = omp_get_max_threads(); if (m < T) T = m; }
+#else
+    { const char *e = getenv("OMP_NUM_THREADS");
+      T = e ? atoi(e) : 1;
+      if (T < 1) T = 1;
+      if (T > MT_MAXT) T = MT_MAXT; }
+#endif
+    for (int t = 0; t < MT_MAXT; ++t) g_pool.cpu[t] = -1;
+#ifdef _OPENMP
+    /* discover the close/cores placement so the pool pins to the exact CPUs
+     * OMP would have used (L23_matrixsimd mt_r1 mechanism) */
+    #pragma omp parallel num_threads(T)
+    {
+        int t = omp_get_thread_num();
+        if (t < MT_MAXT) g_pool.cpu[t] = sched_getcpu();
+    }
+#endif
+    g_pool.T = T;
+    g_pool.epoch = 0;
+    atomic_store(&g_pool.release, 0);
+    for (int t = 0; t < MT_MAXT; ++t) atomic_store(&g_pool.arr[t].v, 0);
+    if (g_pool.cpu[0] >= 0) {     /* pin participant 0 = the driver thread */
+        cpu_set_t cs;
+        CPU_ZERO(&cs);
+        CPU_SET(g_pool.cpu[0], &cs);
+        pthread_setaffinity_np(pthread_self(), sizeof cs, &cs);
+    }
+    for (int t = 1; t < T; ++t)
+        if (pthread_create(&g_pool.th[t], NULL, mt_worker,
+                           (void *)(intptr_t)t) != 0) {
+            g_pool.T = t;         /* run with what we got */
+            break;
+        }
+    g_pool.started = 1;
+}
+
+/* retire workers t >= keep: a spinning worker burns its core and drags the
+ * all-core clock, so after the tuner installs its pick the pool is shrunk to
+ * the picked team (L17_winograd mt_r1 mechanism).  The remaining team's
+ * epochs stay in lockstep because J_QUIT is a normal 1-phase job. */
+static void mt_pool_shrink(int keep)
+{
+    if (!g_pool.started || keep >= g_pool.T) return;
+    if (keep < 1) keep = 1;
+    struct mt_job j;
+    memset(&j, 0, sizeof j);
+    j.kind = J_QUIT; j.tuse = keep; j.nph = 1;
+    int oldT = g_pool.T;
+    mt_pool_run(&j);
+    for (int t = keep; t < oldT; ++t) pthread_join(g_pool.th[t], NULL);
+    g_pool.T = keep;
+}
+
+static void mt_pool_stop(void)
+{
+    if (!g_pool.started) return;
+    mt_pool_shrink(1);
+    for (int t = 0; t < MT_MAXT; ++t) {
+        free(g_pool.rawS[t]);
+        g_pool.rawS[t] = NULL;
+        g_pool.S[t] = NULL;
+    }
+    free(g_pool.rawpla);
+    g_pool.rawpla = NULL;
+    g_pool.pla = NULL;
+    g_pool.started = 0;
+    g_pool.epoch = 0;
+    atomic_store(&g_pool.release, 0);
+}
+
+/* run one execution shape (candidate or installed pick) over a buffer set */
+static void run_mcand(int kind, int tuse, int pw, int mode, int pf, int pfwd,
+                      double *S0, const double *in, double *out, int nvol)
+{
+    if (kind == K_SERIAL) {
+        run_vols(pw, mode, pf, pfwd, S0, NULL, in, out, nvol);
+        return;
+    }
+    struct mt_job j;
+    memset(&j, 0, sizeof j);
+    j.kind = (kind == K_VOLS) ? J_VOLS : (kind == K_FUSED2) ? J_FUSED2 : J_FUSED3;
+    j.nph  = (kind == K_VOLS) ? 1 : (kind == K_FUSED2) ? 2 : 3;
+    j.tuse = tuse;
+    j.pw = pw; j.mode = mode; j.pf = pf; j.pfwd = pfwd;
+    j.nvol = nvol; j.in = in; j.out = out;
+    mt_pool_run(&j);
+}
+
+struct mcand { int kind, tuse, pw, mode, pf, pfwd; };
+
+/* hysteresis rank: lower = simpler; a candidate must beat a simpler one by
+ * >3% to be installed (phase-1 r3 discipline: tuner coin-flips cost 3.9-6.7%
+ * elsewhere).  Simpler = serial < vols < fused2 < fused3, then FEWER
+ * threads, then inplace < scratch < nt, then lower pf. */
+static int mcand_rank(const struct mcand *c)
+{
+    int mo = (c->mode == M_INPLACE) ? 0 : (c->mode == M_SCRATCH) ? 1 : 2;
+    /* pw tie-break prefers pw4, the node's standing L=36 pick in every
+     * phase-1 round -- keeps a noisy pw2 win from installing (pick lottery,
+     * r10 lesson; observed once on a loaded wallaby in this round). */
+    return (((c->kind * 40 + c->tuse) * 4 + mo) * 8 + c->pf) * 2 + (c->pw == 2);
 }
 
 fft3d_plan *fft3d_create(int Lq, int batch)
@@ -532,108 +873,124 @@ fft3d_plan *fft3d_create(int Lq, int batch)
     fft3d_plan *p = calloc(1, sizeof(*p));
     if (!p) return NULL;
     p->batch = batch;
-    if (posix_memalign(&p->rawS, 64, VDBL * sizeof(double)) != 0) {
-        free(p); return NULL;
-    }
-    p->S = (double *)p->rawS;
-    memset(p->S, 0, VDBL * sizeof(double));
-    if (posix_memalign(&p->rawS1, 64, VDBL * sizeof(double)) == 0) {
-        p->S1 = (double *)p->rawS1;
-        memset(p->S1, 0, VDBL * sizeof(double));
-    }                            /* on failure: no pipe candidates, rest works */
-    p->pw = 2; p->mode = M_SCRATCH; p->pf = 0; p->pfwd = FFT36_PFWD;   /* safe default */
 
-    /* candidate list, first entry doubles as the numerical reference.
-     * pf=2/3 (write-intent prefetch) and pf=4 (NTA read alone) exist only
-     * where normal stores hit cold lines / where L2 residency of the store
-     * target is the prize: INPLACE (phase-1 mid==out) and SCRATCH.
-     * r7: SCRATCH_NT additionally gets pf=4 -- NTA-protected in-read keeps S
-     * L2-resident while the NT final write avoids the RFO; the only shape
-     * whose compulsory traffic (1.5 MB/vol) beats in-place's 2.2 MB floor.
-     * (pf=3 for NT would be identical: the write-intent half is mode-gated
-     * off, so only the pf=4 spelling is instantiated.) */
-    struct cand { int pw, mode, pf, pfwd; } cands[56];
-    int nc = 0;
-    for (int pf = 0; pf <= 4; ++pf) {
-        cands[nc++] = (struct cand){2, M_SCRATCH,    pf, FFT36_PFWD};
-        cands[nc++] = (struct cand){2, M_INPLACE,    pf, FFT36_PFWD};
-        if (pf <= 1 || pf == 4)
-            cands[nc++] = (struct cand){2, M_SCRATCH_NT, pf, FFT36_PFWD};
-        if (pf <= 1 && p->S1)
-            cands[nc++] = (struct cand){2, M_PIPE, pf, FFT36_PFWD};
-#ifdef HAVE_PW4
-        cands[nc++] = (struct cand){4, M_SCRATCH,    pf, FFT36_PFWD};
-        cands[nc++] = (struct cand){4, M_INPLACE,    pf, FFT36_PFWD};
-        if (pf <= 1 || pf == 4)
-            cands[nc++] = (struct cand){4, M_SCRATCH_NT, pf, FFT36_PFWD};
-        if (pf <= 1 && p->S1)
-            cands[nc++] = (struct cand){4, M_PIPE, pf, FFT36_PFWD};
-#endif
-    }
-    /* r8: pf=5 (deep T1 staging of phase 2's 36 source streams, on top of
-     * the always-on 1-line T0) and pf=6 (= pf=5 + the pf=1 paced in-read).
-     * INPLACE only: B=1 is the target cell; the r7 verdict orders the
-     * batched cells left alone, and inplace is the node's pick in every
-     * cell where phase 2 reads potentially-evicted lines. */
-    for (int pf = 5; pf <= 6; ++pf) {
-        cands[nc++] = (struct cand){2, M_INPLACE, pf, FFT36_PFWD};
-#ifdef HAVE_PW4
-        cands[nc++] = (struct cand){4, M_INPLACE, pf, FFT36_PFWD};
-#endif
-    }
-    /* r11: pf=7, the write-intent prefetch UNBUNDLED from the paced read
-     * cursor (pf=2 minus PFIN).  The one B=1 shape never fielded: at B=1
-     * the read half is pure uop tax (single linear HW-prefetchable stream)
-     * and has ridden along in every pf=2 tournament since r5. */
-    cands[nc++] = (struct cand){2, M_INPLACE, 7, FFT36_PFWD};
-    cands[nc++] = (struct cand){2, M_SCRATCH, 7, FFT36_PFWD};
-#ifdef HAVE_PW4
-    cands[nc++] = (struct cand){4, M_INPLACE, 7, FFT36_PFWD};
-    cands[nc++] = (struct cand){4, M_SCRATCH, 7, FFT36_PFWD};
-#endif
-    /* r11: the FFT36_PFWD sweep at streaming batch, self-served (the node
-     * A/B the records have requested since r5).  Only for the shape the
-     * node has actually picked in streaming cells (inplace-pf2). */
-    if (batch > 8) {
-        static const int wds[2] = {1296, 5184};
-        for (int w = 0; w < 2; ++w) {
-            cands[nc++] = (struct cand){2, M_INPLACE, 2, wds[w]};
-#ifdef HAVE_PW4
-            cands[nc++] = (struct cand){4, M_INPLACE, 2, wds[w]};
-#endif
-        }
-    }
-    /* r10: close the pick lottery (r9 verdict: B=1 122.58/131.06/122.64 and
-     * B=4 131.95/184.11/132.48 make this entry's small-batch numbers
-     * unusable).  At nv == batch <= 8 the list is restricted to the shapes
-     * the node has actually picked there in five consecutive scored rounds
-     * (r5-r9): {inplace, scratch} x pf<=2.  NT, pipe, NTA (pf=3/4) and
-     * deep-T1 (pf=5/6) are 0-for-every-tournament at B=1/B=4 and contribute
-     * only tail risk in those cells; they all remain candidates at streaming
-     * batch.  Any FFT36_* / FFT_FORCE_* override keeps the full list so the
-     * monitor's forced controls still work. */
+    mt_pool_start();
+
+    /* fused3 plane arena (one volume, 746 KB), allocated by main and
+     * first-touched inside J_INIT by the pool's own static partition */
+    if (!g_pool.pla && posix_memalign(&g_pool.rawpla, 4096,
+                                      VDBL * sizeof(double)) == 0)
+        g_pool.pla = (double *)g_pool.rawpla;
+
     {
-        int small_list = (batch <= 8) &&
-            !getenv("FFT36_PW") && !getenv("FFT36_MODE") && !getenv("FFT36_PF");
-#if defined(FFT_FORCE_PW) || defined(FFT_FORCE_MODE) || defined(FFT36_FORCE_PF)
-        small_list = 0;
+        struct mt_job j;
+        memset(&j, 0, sizeof j);
+        j.kind = J_INIT; j.tuse = g_pool.T; j.nph = 1;
+        mt_pool_run(&j);
+    }
+    p->S = g_pool.S[0];
+
+    /* safe default: the node's standing serial pick since panel_r5 */
+    p->kind = K_SERIAL; p->tuse = 1; p->mode = M_INPLACE; p->pf = 0;
+    p->pfwd = FFT36_PFWD;
+#ifdef HAVE_PW4
+    p->pw = 4;
+#else
+    p->pw = 2;
 #endif
-        if (small_list) {
-            /* r11: pf=7 (inplace) joins the restricted list -- the one
-             * never-tried B=1 shape; the 3% band still requires it to beat
-             * pf=0 by >3% before it can install.  PFWD sweep stays out
-             * (small-nv arena cannot price a streaming-store knob). */
-            int w = 0;
-            for (int c = 0; c < nc; ++c)
-                if ((cands[c].mode == M_INPLACE || cands[c].mode == M_SCRATCH)
-                    && (cands[c].pf <= 2
-                        || (cands[c].pf == 7 && cands[c].mode == M_INPLACE))
-                    && cands[c].pfwd == FFT36_PFWD) cands[w++] = cands[c];
-            nc = w;
+
+    const int T = g_pool.T;
+    int pws[2], npw = 0;
+#ifdef HAVE_PW4
+    pws[npw++] = 4;
+#endif
+    pws[npw++] = 2;
+
+    /* candidate list by regime.  batch==1: serial vs within-volume fused
+     * over a team-size axis; batch>=32: volume-parallel with the mode/NT
+     * question re-raced at 32 threads and the T=16 one-socket control;
+     * in between (unscored): volume-parallel with a fused2 fallback. */
+    struct mcand cands[40];
+    int nc = 0;
+    if (batch == 1) {
+        for (int w = 0; w < npw; ++w) {
+            cands[nc++] = (struct mcand){K_SERIAL, 1, pws[w], M_INPLACE, 0, FFT36_PFWD};
+            cands[nc++] = (struct mcand){K_SERIAL, 1, pws[w], M_INPLACE, 2, FFT36_PFWD};
+        }
+        static const int ts[4] = {32, 24, 16, 8};
+        int prev = -1;
+        for (int i = 0; i < 4; ++i) {
+            int t = ts[i] <= T ? ts[i] : T;
+            if (t < 2 || t == prev) continue;
+            prev = t;
+            cands[nc++] = (struct mcand){K_FUSED2, t, pws[0], M_INPLACE, 0, FFT36_PFWD};
+            if (g_pool.pla)
+                cands[nc++] = (struct mcand){K_FUSED3, t, pws[0], M_INPLACE, 0, FFT36_PFWD};
+        }
+        if (T >= 2) {             /* phase-1 prefetchw / NT-mid variants
+                                     against the fused coherence storm */
+            cands[nc++] = (struct mcand){K_FUSED2, T, pws[0], M_INPLACE, 2, FFT36_PFWD};
+#ifdef HAVE_PW4
+            cands[nc++] = (struct mcand){K_FUSED2, T, 4, M_INPLACE, 3, FFT36_PFWD};
+            if (T > 24)
+                cands[nc++] = (struct mcand){K_FUSED2, 24, 4, M_INPLACE, 3, FFT36_PFWD};
+#endif
+        }
+        if (npw > 1 && T >= 2) {
+            cands[nc++] = (struct mcand){K_FUSED2, T, 2, M_INPLACE, 0, FFT36_PFWD};
+            if (g_pool.pla)
+                cands[nc++] = (struct mcand){K_FUSED3, T, 2, M_INPLACE, 0, FFT36_PFWD};
+        }
+    } else if (batch < 32) {
+        int tb = batch < T ? batch : T;
+        for (int w = 0; w < npw; ++w)
+            cands[nc++] = (struct mcand){K_VOLS, tb, pws[w], M_INPLACE, 0, FFT36_PFWD};
+        if (T >= 2) {
+            cands[nc++] = (struct mcand){K_FUSED2, T, pws[0], M_INPLACE, 0, FFT36_PFWD};
+            if (T > 16)
+                cands[nc++] = (struct mcand){K_FUSED2, 16, pws[0], M_INPLACE, 0, FFT36_PFWD};
+        }
+        cands[nc++] = (struct mcand){K_SERIAL, 1, pws[0], M_INPLACE, 0, FFT36_PFWD};
+    } else {
+        static const int ts[2] = {32, 16};
+        int prev = -1;
+        for (int i = 0; i < 2; ++i) {
+            int t = ts[i] <= T ? ts[i] : T;
+            if (t < 1 || t == prev) continue;
+            prev = t;
+            for (int w = 0; w < npw; ++w) {
+                cands[nc++] = (struct mcand){K_VOLS, t, pws[w], M_INPLACE,    0, FFT36_PFWD};
+                cands[nc++] = (struct mcand){K_VOLS, t, pws[w], M_INPLACE,    2, FFT36_PFWD};
+                cands[nc++] = (struct mcand){K_VOLS, t, pws[w], M_SCRATCH_NT, 0, FFT36_PFWD};
+                /* nt+pf1: paced T1 read prefetch under NT (r3: +24% on
+                 * wallaby DRAM streams); nt+pf4: the r7 NTA-protected-
+                 * scratch shape -- on the node S is 3/4 of the 1 MB L2 and
+                 * the T1 in-read evicts it; NTA bypasses L2.  0-for-node at
+                 * one core, but 32-thread DRAM saturation is a new regime. */
+                cands[nc++] = (struct mcand){K_VOLS, t, pws[w], M_SCRATCH_NT, 1, FFT36_PFWD};
+                cands[nc++] = (struct mcand){K_VOLS, t, pws[w], M_SCRATCH_NT, 4, FFT36_PFWD};
+                cands[nc++] = (struct mcand){K_VOLS, t, pws[w], M_SCRATCH,    0, FFT36_PFWD};
+            }
         }
     }
-    /* run-time forcing for the monitor's control jobs (no recompile needed) */
+
+    /* run-time forcing for the monitor's control jobs (no recompile).
+     * Filters keep phase-1 semantics: an empty result leaves the list. */
     { const char *e;
+      if ((e = getenv("FFT36_MT"))) {
+          int num = (e[0] >= '0' && e[0] <= '9'), w = 0;
+          for (int c = 0; c < nc; ++c)
+              if (num ? cands[c].kind == atoi(e)
+                      : !strcmp(kind_name[cands[c].kind], e)) cands[w++] = cands[c];
+          if (w) nc = w;
+      }
+      if ((e = getenv("FFT36_T"))) {
+          int v = atoi(e), w = 0;
+          for (int c = 0; c < nc; ++c)
+              if (cands[c].tuse == v || cands[c].kind == K_SERIAL)
+                  cands[w++] = cands[c];
+          if (w) nc = w;
+      }
       if ((e = getenv("FFT36_PW"))) {
           int v = atoi(e), w = 0;
           for (int c = 0; c < nc; ++c) if (cands[c].pw == v) cands[w++] = cands[c];
@@ -650,46 +1007,22 @@ fft3d_plan *fft3d_create(int Lq, int batch)
           int v = atoi(e), w = 0;
           for (int c = 0; c < nc; ++c) if (cands[c].pf == v) cands[w++] = cands[c];
           if (w) nc = w;
-      }
-      if ((e = getenv("FFT36_PFWDF"))) {      /* r11: force a pfwd value */
-          int v = atoi(e), w = 0;
-          for (int c = 0; c < nc; ++c) {
-              if (cands[c].pf == 2 || cands[c].pf == 3 || cands[c].pf == 7) {
-                  cands[c].pfwd = v; cands[w++] = cands[c];
-              }
-          }
-          if (w) nc = w;
       } }
-#ifdef FFT_FORCE_PW
-    { int w = 0;
-      for (int c = 0; c < nc; ++c) if (cands[c].pw == FFT_FORCE_PW) cands[w++] = cands[c];
-      if (w) nc = w; }
-#endif
-#ifdef FFT_FORCE_MODE
-    { int w = 0;
-      for (int c = 0; c < nc; ++c) if (cands[c].mode == FFT_FORCE_MODE) cands[w++] = cands[c];
-      if (w) nc = w; }
-#endif
-#ifdef FFT36_FORCE_PF
-    { int w = 0;
-      for (int c = 0; c < nc; ++c) if (cands[c].pf == FFT36_FORCE_PF) cands[w++] = cands[c];
-      if (w) nc = w; }
-#endif
 
-    /* tuning arena: must actually leave L3 at large batch, or the NT-vs-
-     * cached-store ranking inverts (a 16-volume arena fit wallaby's 60 MB L3
-     * and mis-picked cached stores at B=256; 64 volumes = 96 MB does not) */
-    const int nv = batch < 64 ? batch : 64;
+    /* tuning arena.  Deliberately SERIAL fill: the driver freads `in` and
+     * memsets `out` on its main thread, so on the two-socket node every
+     * caller page is first-touched on ONE socket -- the arena must reproduce
+     * that placement or the T=32-vs-16 race lies (L23_matrixsimd mt_r1). */
+    const int nv = batch == 1 ? 1 : (batch < 128 ? batch : 128);
     void *ri = NULL, *ro = NULL, *rr = NULL;
     if (posix_memalign(&ri, 64, (size_t)nv * VDBL * sizeof(double)) ||
         posix_memalign(&ro, 64, (size_t)nv * VDBL * sizeof(double)) ||
         posix_memalign(&rr, 64, (size_t)nv * VDBL * sizeof(double))) {
-        free(ri); free(ro);                 /* keep the safe default */
-        p->pw = cands[0].pw; p->mode = cands[0].mode; p->pf = cands[0].pf;
-        p->pfwd = cands[0].pfwd;
+        free(ri); free(ro);
         snprintf(g_desc, sizeof g_desc,
-                 "GT-PFA 4x9 two-sweep; tuner SKIPPED (arena alloc failed): "
-                 "pw=%d mode=%s pf=%d", p->pw, mode_name[p->mode], p->pf);
+                 "GT-PFA 4x9 mt; tuner SKIPPED (arena alloc failed): "
+                 "kind=%s pw=%d mode=%s pf=%d",
+                 kind_name[p->kind], p->pw, mode_name[p->mode], p->pf);
         return p;
     }
     double *tin = ri, *tout = ro, *ref = rr;
@@ -698,137 +1031,121 @@ fft3d_plan *fft3d_create(int Lq, int batch)
         s = s * 6364136223846793005ull + 1442695040888963407ull;
         tin[i] = (double)(long long)(s >> 11) * 0x1p-53;
     }
+    memset(tout, 0, (size_t)nv * VDBL * sizeof(double));
 
-    run_vols(cands[0].pw, cands[0].mode, cands[0].pf, cands[0].pfwd,
-             p->S, p->S1, tin, ref, nv);
+    /* serial reference at max width */
+    run_vols(pws[0], M_INPLACE, 0, FFT36_PFWD, p->S, NULL, tin, ref, nv);
 
-    int    ok[56];
-    double tc[56];
+    int    ok[40];
+    double tc[40], est[40];
     for (int c = 0; c < nc; ++c) {
-        run_vols(cands[c].pw, cands[c].mode, cands[c].pf, cands[c].pfwd,
-                 p->S, p->S1, tin, tout, nv);
+        double t0 = now_s();
+        run_mcand(cands[c].kind, cands[c].tuse, cands[c].pw, cands[c].mode,
+                  cands[c].pf, cands[c].pfwd, p->S, tin, tout, nv);
+        est[c] = now_s() - t0;            /* rough single-exec estimate */
         double num = 0.0, den = 0.0;
         for (size_t i = 0; i < (size_t)nv * VDBL; ++i) {
             double d = tout[i] - ref[i];
             num += d * d; den += ref[i] * ref[i];
         }
-        ok[c] = (num <= den * 1e-26);       /* rel L2 < 1e-13 vs reference */
+        ok[c] = (num <= den * 1e-26);     /* rel L2 < 1e-13 vs reference */
         tc[c] = 1e300;
     }
-    const int R = (nv >= 8) ? 1 : (nv >= 2 ? 3 : 8);
-    /* r10: 9 rounds at small nv (was 5) -- min-of-more against the window
-     * wobble that fed the pick lottery; setup stays well under a second. */
-    const int NROUND = (nv <= 8) ? 9 : 5;
+    const int NROUND = (nv == 1) ? 7 : 3;
     for (int round = 0; round < NROUND; ++round)
         for (int c = 0; c < nc; ++c) {
             if (!ok[c]) continue;
-            /* self-warming (adopted from L36_pencilfused r5): one untimed
-             * exec so each candidate is timed from its OWN steady-state cache,
-             * not its predecessor's -- an NT/pipe candidate flushes tout and
-             * was charging its successor a deterministic cold-RFO penalty
-             * (their measured artifact: 167.4 vs a true 89.8 us/vol). */
-            run_vols(cands[c].pw, cands[c].mode, cands[c].pf, cands[c].pfwd,
-                     p->S, p->S1, tin, tout, nv);
+            /* per-candidate reps sized to its own cost, so pool dispatch is
+             * timed at the real per-execute granularity */
+            int R = est[c] < 30e-6 ? 16 : est[c] < 100e-6 ? 6
+                  : est[c] < 1e-3  ? 2  : 1;
+            /* self-warming (L36_pencilfused r5): each candidate is timed
+             * from its OWN steady-state cache, not its predecessor's */
+            run_mcand(cands[c].kind, cands[c].tuse, cands[c].pw, cands[c].mode,
+                      cands[c].pf, cands[c].pfwd, p->S, tin, tout, nv);
             double t0 = now_s();
             for (int r = 0; r < R; ++r)
-                run_vols(cands[c].pw, cands[c].mode, cands[c].pf, cands[c].pfwd,
-                         p->S, p->S1, tin, tout, nv);
+                run_mcand(cands[c].kind, cands[c].tuse, cands[c].pw,
+                          cands[c].mode, cands[c].pf, cands[c].pfwd,
+                          p->S, tin, tout, nv);
             double t = (now_s() - t0) / R;
             if (t < tc[c]) tc[c] = t;
         }
     int best = 0;
     for (int c = 1; c < nc; ++c) if (ok[c] && tc[c] < tc[best]) best = c;
     if (ok[best]) {
-        /* hysteresis: any simpler candidate within the band wins.  r10:
-         * uniform 3% again -- the r8 1% band at small nv was built to admit
-         * 1-3% pf wins that r9 showed do not exist (prefetch instruments
-         * 0-for-three-tournaments at B=1; the verdict's rule: "+-2% at these
-         * cells is the code-layout noise floor... stop building fixes for
-         * it").  All it bought was pick instability. */
         const double band = 1.03;
         int pick = best;
         for (int c = 0; c < nc; ++c)
             if (ok[c] && tc[c] <= tc[best] * band &&
-                cand_rank(cands[c].mode, cands[c].pf, cands[c].pfwd != FFT36_PFWD) <
-                cand_rank(cands[pick].mode, cands[pick].pf, cands[pick].pfwd != FFT36_PFWD)) pick = c;
-        p->pw = cands[pick].pw; p->mode = cands[pick].mode; p->pf = cands[pick].pf;
-        p->pfwd = cands[pick].pfwd;
+                mcand_rank(&cands[c]) < mcand_rank(&cands[pick])) pick = c;
+        p->kind = cands[pick].kind; p->tuse = cands[pick].tuse;
+        p->pw = cands[pick].pw;     p->mode = cands[pick].mode;
+        p->pf = cands[pick].pf;     p->pfwd = cands[pick].pfwd;
     }
 
-    /* r8 node probes: the phase split at nv=1 steady state, reported through
-     * fft3d_description() so the leaderboard carries the measurement the
-     * records have requested from the monitor for three rounds.  Fixed
-     * config (pw4 inplace pf0 = the node's standing B=1 pick) regardless of
-     * the tuner's choice, so the numbers are comparable across rounds:
-     *   p1  = phase 1 alone, steady state (honest: repeating it re-streams
-     *         in->tout, 1.5 MB, the same L2 pressure as the real execute)
-     *   p2w = phase 2 alone, repeated in place on tout (OPTIMISTIC: its
-     *         746 KB working set fits the 1 MB L2 once warm, so this is the
-     *         compute + L1/L2 floor of phase 2, with no phase-1 eviction)
-     *   p2wd= same with the pf=5 deep T1 staging (its pure uop tax shows
-     *         here; any gain it has needs the cold-L2 context, i.e. fu)
-     *   fu  = phase1 + phase2, the full pf0-inplace execute
-     * fu - p1 - p2w = the memory penalty phase 2 pays for the phase-1
-     * boundary; if it is small, the B=1 residual is NOT L2 thrash and the
-     * lever is front-end/scheduling, closing the fork in the r7 verdict. */
-#ifdef HAVE_PW4
-# define PRB1(a,b)       phase1_pf0_pw4(a, b)
-# define PRB2(a,b)       phase2_pf0_pw4(a, b)
-# define PRBZ(a)         phase1_zonly_pw4(a)
-# define PRBY(s,b)       phase1_yonly_pw4(s, b)
-#else
-# define PRB1(a,b)       phase1_pf0_pw2(a, b)
-# define PRB2(a,b)       phase2_pf0_pw2(a, b)
-# define PRBZ(a)         phase1_zonly_pw2(a)
-# define PRBY(s,b)       phase1_yonly_pw2(s, b)
-#endif
-    /* r10: fug and the perf_event group are retired -- both questions they
-     * were built to answer closed in r9 (node fug - fu = +0.3%: code size is
-     * not the B=1 residual; fe=na on the node too, counters withdrawn).
-     * p1/p2w/fu stay for cross-round phase-split comparability.
-     * r11: p1z/p1y split phase 1 into its two subloops (verdict's ask: locate
-     * the 35 us excess).  p1z = z-subloop only (in-read + transposes +
-     * codelet + pl write, pl kept live by an asm sink); p1y = y-subloop only
-     * (codelet + mid stores = the RFO side), reading a fixed L1-resident
-     * 20.25 KB plane from S.  Each is a lower bound for its side (the other
-     * stream's L2 pressure is absent); port share ~26 us each at 2.89 GHz. */
-    double pb1 = 1e300, pb2 = 1e300, pbf = 1e300, pbz = 1e300, pby = 1e300;
+    /* description: the pick plus the tournament's own key A/Bs, so the
+     * leaderboard carries the scaling evidence whatever was installed */
     {
-        double t;
-        const int PR = 4;
-        for (int round = 0; round < 3; ++round) {
-            PRB1(tin, tout);                                /* self-warm */
-            t = now_s();
-            for (int r = 0; r < PR; ++r) PRB1(tin, tout);
-            t = (now_s() - t) / PR;  if (t < pb1) pb1 = t;
-            PRBZ(tin);
-            t = now_s();
-            for (int r = 0; r < PR; ++r) PRBZ(tin);
-            t = (now_s() - t) / PR;  if (t < pbz) pbz = t;
-            PRBY(p->S, tout);
-            t = now_s();
-            for (int r = 0; r < PR; ++r) PRBY(p->S, tout);
-            t = (now_s() - t) / PR;  if (t < pby) pby = t;
-            PRB2(tout, tout);
-            t = now_s();
-            for (int r = 0; r < PR; ++r) PRB2(tout, tout);
-            t = (now_s() - t) / PR;  if (t < pb2) pb2 = t;
-            PRB1(tin, tout); PRB2(tout, tout);
-            t = now_s();
-            for (int r = 0; r < PR; ++r) { PRB1(tin, tout); PRB2(tout, tout); }
-            t = (now_s() - t) / PR;  if (t < pbf) pbf = t;
+        double b_ser = 1e300, b_f2 = 1e300, b_f3 = 1e300;
+        double vip32 = 1e300, vip16 = 1e300, vnt32 = 1e300, vnt16 = 1e300;
+        int tf2 = 0, tf3 = 0;
+        for (int c = 0; c < nc; ++c) {
+            if (!ok[c] || cands[c].pw != pws[0]) continue;
+            double us = tc[c] * 1e6 / nv;
+            if (cands[c].kind == K_SERIAL && cands[c].pf == 0 && us < b_ser)
+                b_ser = us;
+            if (cands[c].kind == K_FUSED2 && us < b_f2) { b_f2 = us; tf2 = cands[c].tuse; }
+            if (cands[c].kind == K_FUSED3 && us < b_f3) { b_f3 = us; tf3 = cands[c].tuse; }
+            if (cands[c].kind == K_VOLS && cands[c].tuse >= 32) {
+                if (cands[c].mode == M_INPLACE && cands[c].pf == 0 && us < vip32) vip32 = us;
+                if (cands[c].mode == M_SCRATCH_NT && us < vnt32) vnt32 = us;
+            }
+            if (cands[c].kind == K_VOLS && cands[c].tuse == 16) {
+                if (cands[c].mode == M_INPLACE && cands[c].pf == 0 && us < vip16) vip16 = us;
+                if (cands[c].mode == M_SCRATCH_NT && us < vnt16) vnt16 = us;
+            }
         }
+        int n = snprintf(g_desc, sizeof g_desc,
+                 "GT-PFA 4x9 (n1_9) spin-pool mt; pick: %s T=%d pw=%d %s pf=%d"
+                 " (B=%d nv=%d nc=%d Tpool=%d)",
+                 kind_name[p->kind], p->tuse, p->pw, mode_name[p->mode], p->pf,
+                 batch, nv, nc, T);
+        if (batch == 1 && n > 0 && (size_t)n < sizeof g_desc)
+            snprintf(g_desc + n, sizeof g_desc - n,
+                     "; us ser=%.1f f2t%d=%.1f f3t%d=%.1f",
+                     b_ser, tf2, b_f2, tf3, b_f3);
+        else if (batch >= 32 && n > 0 && (size_t)n < sizeof g_desc)
+            snprintf(g_desc + n, sizeof g_desc - n,
+                     "; us/vol ip32=%.2f nt32=%.2f ip16=%.2f nt16=%.2f",
+                     vip32, vnt32, vip16, vnt16);
     }
-    {
-        char wd[20];
-        wd[0] = 0;
-        if (p->pfwd != FFT36_PFWD) snprintf(wd, sizeof wd, " pfwd=%d", p->pfwd);
-        snprintf(g_desc, sizeof g_desc,
-                 "GT-PFA 4x9 (n1_9 DAG) two-sweep; tuner pick: pw=%d mode=%s pf=%d%s"
-                 " (B=%d, nv=%d, nc=%d); probe us p1=%.1f p1z=%.1f p1y=%.1f"
-                 " p2w=%.1f fu=%.1f",
-                 p->pw, mode_name[p->mode], p->pf, wd, batch, nv, nc,
-                 pb1 * 1e6, pbz * 1e6, pby * 1e6, pb2 * 1e6, pbf * 1e6);
+
+    /* FFT36_PROBE: phase-level timing of the fused shapes (dev diagnostic;
+     * skipped phases give wrong answers, so nothing here touches the pick) */
+    if (getenv("FFT36_PROBE") && batch == 1 && T >= 2) {
+        static const char *const nm[8] = {
+            "f2 null (barriers only)", "f2 p1 only", "f2 p2 only", "f2 full",
+            "f3 null (barriers only)", "f3 pA only", "f3 pB only", "f3 pC only"};
+        static const int kd[8]   = {J_FUSED2, J_FUSED2, J_FUSED2, J_FUSED2,
+                                    J_FUSED3, J_FUSED3, J_FUSED3, J_FUSED3};
+        static const int sk[8]   = {3, 2, 1, 0, 7, 6, 5, 3};
+        for (int q = 0; q < 8; ++q) {
+            struct mt_job j;
+            memset(&j, 0, sizeof j);
+            j.kind = kd[q]; j.nph = (kd[q] == J_FUSED2) ? 2 : 3;
+            j.tuse = T; j.pw = pws[0]; j.pfwd = FFT36_PFWD;
+            j.nvol = 1; j.in = tin; j.out = tout; j.skip = sk[q];
+            double bt = 1e300;
+            for (int round = 0; round < 5; ++round) {
+                mt_pool_run(&j);
+                double t0 = now_s();
+                for (int r = 0; r < 32; ++r) mt_pool_run(&j);
+                double tt = (now_s() - t0) / 32;
+                if (tt < bt) bt = tt;
+            }
+            fprintf(stderr, "L36_pfa probe: %-26s T=%-2d  %.2f us\n", nm[q], T, bt * 1e6);
+        }
     }
 
 #ifdef FFT36_LOUD
@@ -837,13 +1154,19 @@ fft3d_plan *fft3d_create(int Lq, int batch)
     if (getenv("FFT36_VERBOSE")) {
 #endif
         for (int c = 0; c < nc; ++c)
-            fprintf(stderr, "L36_pfa tuner: pw=%d mode=%-10s pf=%d pfwd=%-4d %s  %.1f us/vol\n",
-                    cands[c].pw, mode_name[cands[c].mode], cands[c].pf,
-                    cands[c].pfwd,
+            fprintf(stderr, "L36_pfa tuner: %-6s T=%-2d pw=%d %-10s pf=%d %s  %.2f us/vol\n",
+                    kind_name[cands[c].kind], cands[c].tuse, cands[c].pw,
+                    mode_name[cands[c].mode], cands[c].pf,
                     ok[c] ? "ok " : "BAD", ok[c] ? tc[c] * 1e6 / nv : 0.0);
-        fprintf(stderr, "L36_pfa tuner: chose pw=%d mode=%s pf=%d pfwd=%d (nv=%d)\n",
-                p->pw, mode_name[p->mode], p->pf, p->pfwd, nv);
+        fprintf(stderr, "L36_pfa tuner: chose %s T=%d pw=%d %s pf=%d (nv=%d Tpool=%d)\n",
+                kind_name[p->kind], p->tuse, p->pw, mode_name[p->mode], p->pf,
+                nv, T);
     }
+    /* give back the cores the pick does not use: spinning workers depress
+     * the all-core clock (the serial candidate ran 77 us here vs 51.4 us in
+     * phase 1 on wallaby for exactly this reason) */
+    mt_pool_shrink(p->kind == K_SERIAL ? 1 : p->tuse);
+
     free(ri); free(ro); free(rr);
     return p;
 }
@@ -851,13 +1174,15 @@ fft3d_plan *fft3d_create(int Lq, int batch)
 void fft3d_destroy(fft3d_plan *p)
 {
     if (!p) return;
-    free(p->rawS); free(p->rawS1); free(p);
+    mt_pool_stop();
+    free(p);
 }
 
 void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex *out)
 {
-    run_vols(plan->pw, plan->mode, plan->pf, plan->pfwd, plan->S, plan->S1,
-             (const double *)in, (double *)out, plan->batch);
+    run_mcand(plan->kind, plan->tuse, plan->pw, plan->mode, plan->pf,
+              plan->pfwd, plan->S, (const double *)in, (double *)out,
+              plan->batch);
 }
 
 #else /* ================= KERNEL TEMPLATE, PW = 2 or 4 ==================== */
@@ -1251,7 +1576,7 @@ static void FN(phase2_pf0)(const double *mid, double *out)   /* mid may == out *
  * (in-read, TRNC pair, PFA36, pl writes); the asm sink keeps the pl stores
  * live -- without it gcc dead-codes the entire body (r9 lesson: any A/B probe
  * must launder what the compiler could otherwise remove). */
-static void FN(phase1_zonly)(const double *restrict in)
+static __attribute__((unused)) void FN(phase1_zonly)(const double *restrict in)
 {
     for (int x = 0; x < L; ++x) {
         const double *px = in + (size_t)x * (2 * LSQ);
@@ -1290,7 +1615,7 @@ static void FN(phase1_zonly)(const double *restrict in)
  * matching the just-written pl of the real body; must hold normal doubles --
  * the plan's S serves).  The store side, the RFO-exposed one, is identical
  * to the real phase 1. */
-static void FN(phase1_yonly)(const double *plsrc, double *restrict mid)
+static __attribute__((unused)) void FN(phase1_yonly)(const double *plsrc, double *restrict mid)
 {
     const vec *pl = (const vec *)plsrc;
     for (int x = 0; x < L; ++x) {
@@ -1328,6 +1653,140 @@ static void FN(pipe_vols)(const double *restrict in, double *restrict out,
             if (nin) FN(phase1_plane)(nin, Sb, u, pf, 0, FFT36_PFWD);
         }
         double *sw = Sa; Sa = Sb; Sb = sw;
+    }
+}
+
+/* ---- mt_r1: ranged unit kernels for the pool's within-volume paths ------- *
+ * Unit space: 324 units per volume per pass, u = plane*9 + i.  Each unit
+ * covers a 4-y-row granule (z pass) or a 4-z-double-column granule (y and x
+ * passes), so the unit count and the store granularity are identical at
+ * PW=2 and PW=4 and every unit writes whole 64-byte lines -- no false
+ * sharing at any partition cut, by construction.  The z and y passes are
+ * the two subloops of phase1_plane with the local L1 plane buffer replaced
+ * by a caller-supplied whole-volume arena (pla, x-major so a unit range is
+ * a contiguous byte range); the x pass is phase2_yplane's tile loop.  Same
+ * codelets, same order per line -> bit-identical to serial at the same PW. */
+static void FN(mt_zpass)(const double *restrict in, double *restrict pla,
+                         int u0, int u1)
+{
+    for (int u = u0; u < u1; ++u) {
+        const int x = u / 9, uy = u % 9;
+        const double *px = in + (size_t)x * (2 * LSQ);
+        vec *pl = (vec *)(pla + (size_t)x * (2 * LSQ));
+        for (int yb = uy * 4; yb < uy * 4 + 4; yb += PW) {
+            vec Zv[36], Wv[36];
+            _Pragma("GCC unroll 18")
+            for (int zb = 0; zb < NVR; ++zb) {
+                vec r_[PW];
+                _Pragma("GCC unroll 4")
+                for (int j = 0; j < PW; ++j)
+                    r_[j] = *(const vec *)(px + ((size_t)(yb + j) * L + (size_t)zb * PW) * 2);
+                TRNC(r_, &Zv[zb * PW]);
+            }
+#define LDZM(n)    Zv[n]
+#define STZM(k, v) (Wv[k] = (v))
+            PFA36(LDZM, STZM);
+#undef LDZM
+#undef STZM
+            _Pragma("GCC unroll 18")
+            for (int zb = 0; zb < NVR; ++zb) {
+                vec r_[PW];
+                TRNC(&Wv[zb * PW], r_);
+                _Pragma("GCC unroll 4")
+                for (int j = 0; j < PW; ++j)
+                    pl[(size_t)(yb + j) * NVR + zb] = r_[j];
+            }
+        }
+    }
+}
+
+static void FN(mt_ypass)(const double *restrict pla, double *restrict mid,
+                         int u0, int u1)
+{
+    for (int u = u0; u < u1; ++u) {
+        const int x = u / 9, uz = u % 9;
+        const vec *pl = (const vec *)(pla + (size_t)x * (2 * LSQ));
+        double *mx = mid + (size_t)x * (2 * LSQ);
+        for (int zb = uz * (NVR / 9); zb < (uz + 1) * (NVR / 9); ++zb) {
+#define LDYM(n)    pl[(size_t)(n) * NVR + zb]
+#define STYM(k, v) (*(vec *)(mx + ((size_t)(k) * L + (size_t)zb * PW) * 2) = (v))
+            PFA36(LDYM, STYM);
+#undef LDYM
+#undef STYM
+        }
+    }
+}
+
+/* phase1_plane with NT mid stores (fused pf=3): the fused regime's cost is
+ * cross-core coherence -- phase 1's normal stores RFO lines the previous
+ * execute's phase-2 readers hold, and phase 2 then reads them remote-M.
+ * NT stores are fire-and-forget (snoop-invalidate, no ownership wait) and
+ * leave the lines in LLC/DRAM where phase 2's readers pay a shared hit
+ * instead of a dirty cross-core transfer.  PW=4 only in practice: there
+ * every PFA36 store is one full 64-byte line, so WC buffers never hold
+ * partial lines (at PW=2 the k-scattered 32-byte halves would thrash them).
+ * Caller must sfence before signalling the barrier. */
+static __attribute__((unused)) void
+FN(mt_p1plane_nt)(const double *restrict in, double *restrict mid, int x)
+{
+    vec pl[L * NVR];
+    const double *px = in  + (size_t)x * (2 * LSQ);
+    double       *mx = mid + (size_t)x * (2 * LSQ);
+    for (int yb = 0; yb < L; yb += PW) {
+        vec Zv[36], Wv[36];
+        _Pragma("GCC unroll 18")
+        for (int zb = 0; zb < NVR; ++zb) {
+            vec r_[PW];
+            _Pragma("GCC unroll 4")
+            for (int j = 0; j < PW; ++j)
+                r_[j] = *(const vec *)(px + ((size_t)(yb + j) * L + (size_t)zb * PW) * 2);
+            TRNC(r_, &Zv[zb * PW]);
+        }
+#define LDZN(n)    Zv[n]
+#define STZN(k, v) (Wv[k] = (v))
+        PFA36(LDZN, STZN);
+#undef LDZN
+#undef STZN
+        _Pragma("GCC unroll 18")
+        for (int zb = 0; zb < NVR; ++zb) {
+            vec r_[PW];
+            TRNC(&Wv[zb * PW], r_);
+            _Pragma("GCC unroll 4")
+            for (int j = 0; j < PW; ++j)
+                pl[(size_t)(yb + j) * NVR + zb] = r_[j];
+        }
+    }
+    for (int zb = 0; zb < NVR; ++zb) {
+#define LD2N(n)    pl[(size_t)(n) * NVR + zb]
+#define ST2N(k, v) STREAM_ST(mx + ((size_t)(k) * L + (size_t)zb * PW) * 2, (v))
+        PFA36(LD2N, ST2N);
+#undef LD2N
+#undef ST2N
+    }
+}
+
+/* mid may alias out (in-place x pass): PFA36 reads all 36 before storing */
+static void FN(mt_xpass)(const double *mid, double *out, int u0, int u1)
+{
+    for (int u = u0; u < u1; ++u) {
+        const int y = u / 9, uz = u % 9;
+        for (int zb = uz * (NVR / 9); zb < (uz + 1) * (NVR / 9); ++zb) {
+            const size_t o = ((size_t)y * L + (size_t)zb * PW) * 2;
+            const double *s_ = mid + o;
+            double       *d_ = out + o;
+            PF36(s_);
+            /* mt_r1: one more tile of read lead.  In the fused path the 36
+             * source lines of a tile are remote-M (just written by other
+             * cores' phase 1), ~2x the latency PF36's single-tile lead was
+             * sized for; a second cursor two tiles out keeps ~72 transfers
+             * in flight per thread instead of ~36. */
+            _Pragma("GCC unroll 36")
+            for (int n_ = 0; n_ < 36; ++n_)
+                __builtin_prefetch(s_ + (size_t)n_ * (2 * LSQ) + 16, 0, 3);
+#define STXM(k, v) (*(vec *)(d_ + (size_t)(k) * (2 * LSQ)) = (v))
+            PFA36(LD3, STXM);
+#undef STXM
+        }
     }
 }
 

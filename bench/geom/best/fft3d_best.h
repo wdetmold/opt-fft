@@ -38,6 +38,19 @@ int fft3d_best_supports(int L);
 const char *fft3d_best_kernel_name(int L);
 const char *fft3d_best_kernel_description(int L);
 
+/* Which kernel a given batch size selects -- the choice is batch-dependent at geometries
+ * where the measurements showed a real crossover (L=64 today). */
+const char *fft3d_best_kernel_name_for(int L, int batch);
+
+/* What a live plan actually selected. The choice is measured in create(), so this is the
+ * only authoritative answer. */
+const char *fft3d_best_selected_name(const fft3d_best_plan *plan);
+
+/* The second kernel this library carries at this geometry, if any: the runner-up from the
+ * competition, kept so a caller can measure the choice on its own machine instead of
+ * trusting ours. NULL where there is no alternate. */
+const char *fft3d_best_alternate_name(int L);
+
 /* All setup: twiddle tables, permutations, tuning. May be expensive. NULL if unsupported. */
 fft3d_best_plan *fft3d_best_create(int L, int batch);
 

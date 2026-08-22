@@ -6,6 +6,51 @@
  */
 /* L45_pfa.c -- forward complex 3D DFT of a 45^3 cube, batched, out-of-place.
  *
+ * ROUND mt_r1 (first multicore round).  The serial kernel below is UNCHANGED
+ * (same 344-op Good-Thomas 9x5 codelet, same two-sweep plane-fused schedule,
+ * same 514,968 zmm FMA-port ops per volume); what is new is a threading
+ * layer, tuned at plan time:
+ *   1. mtv -- volume-parallel (the B>=32 shape): thread t owns the
+ *      contiguous volume block [nvol*t/T, nvol*(t+1)/T) and runs the settled
+ *      serial per-volume pipeline on it with its OWN plane scratch; no
+ *      synchronisation at all except the join.  pf0/pf3/zal twins kept (the
+ *      pf ladder re-raced under 32-thread contention: r11's single-core
+ *      verdicts do not transfer to the bandwidth-shared regime).
+ *   2. mtf -- fused two-sweep (the B=1 shape): omp-for(static,1) over ALL
+ *      nvol*45 x-plane pipelines (z+y transform of one plane into mid=out,
+ *      each thread on its own plane scratch), ONE implicit barrier (every
+ *      phase-2 line reads all 45 mid planes of its volume), omp-for(static)
+ *      over nvol*507 flat phase-2 tiles (506 full + the masked tail as its
+ *      own unit).  static,1 on the plane sweep because 45 = 32+13: a blocked
+ *      static would idle 9 threads behind 2-plane threads at B=1.
+ *   3. mtn -- mtv with NT-STAGED output (the streaming shape): both phases
+ *      run in the thread's PRIVATE mid volume M (1.46 MB, one SPR L2), then
+ *      one linear vmovntpd burst (head/tail peel; out bases rotate 16 B per
+ *      volume) flushes M -> out, deleting the out-RFO third of the DRAM
+ *      traffic.  Direct NT on the transform's stores is impossible (16B-
+ *      aligned 64 B stores, 720 B rows); staging is how L13_rader/L17_rader
+ *      shipped it.  The NT-wins-at-threaded-streaming inversion is their
+ *      measured result (-13..-25%), re-raced here per machine.
+ *   4. Per-thread plane scratch Pt[t] (37 KB each) is allocated and
+ *      FIRST-TOUCHED by thread t inside fft3d_create()'s parallel region
+ *      (which also spins up the OpenMP pool): NUMA-local under
+ *      OMP_PROC_BIND=close, page-aligned so threads never share a scratch
+ *      line.  The caller's in/out are first-touched by the driver's main
+ *      thread (one socket owns them on the node) -- not ours to fix.
+ *   5. The SCRATCHP mode (padded mid-volume S) and the serial pf1/pf2 rungs
+ *      are DELETED: sp took zero node picks in five phase-1 rounds (its
+ *      pre-registered exit), and the serial rows kept below (ip-pf0, ip-pf3)
+ *      are controls only -- with ~300 us of work per volume against a
+ *      measured 3-8 us GOMP region cost (L13/L17/L23 mt_r1 records), the
+ *      "B=1 does not parallelise" outcome of the small-L entries does not
+ *      apply at L=45, and the create()-time race proves it per machine.
+ *   OpenMP regions (not a custom pool) because the smallest scored cell has
+ *   ~300 us of work; the L17/L23 spin pools attack a 2-8 us sync floor that
+ *   is <3% here.  Threading is attributed to L13_direct mt_r1 (range execs,
+ *   owner-first-touch, contiguous blocks) and L23_rader mt_r1 (fused-vs-
+ *   batch decomposition split, "intra-volume splitting pays iff work >>
+ *   region cost").
+ *
  * ROUND panel_r11 (sixth round).  Both changes attack phase 1's data
  * movement, per the r10 VERDICT (phase 1 = 76% of B=1, port 0 non-binding,
  * front end closed; §4.1 priced the spill difference between the two L=45
@@ -227,17 +272,6 @@
 #ifndef PPITCH
 # define PPITCH 52
 #endif
-/* padded mid-volume S for SCRATCHP: row pitch 52 complex (13 lines, odd),
- * plane pitch 45*52 = 2340 complex (585 lines, odd).  Odd-line pitches so no
- * fixed mod-4096 relation between phase 2's S reads (37440 B stride) and its
- * out writes (32400 B stride) can lock in -- the L23_rader aliasing rule. */
-#ifndef SPITCH
-# define SPITCH 52
-#endif
-#define SROWD  (2 * SPITCH)              /* S row stride, doubles = 104        */
-#define SPLND  (2 * L * SPITCH)          /* S plane stride, doubles = 4680     */
-#define SVDBL  ((size_t)L * SPLND)       /* doubles per padded S volume        */
-
 #define CAT_(a,b) a##b
 #define CAT(a,b)  CAT_(a,b)
 
@@ -274,9 +308,32 @@
 #define KIG  0.61803398874989484820458683436564   /* sin(4pi/5)/sin(2pi/5)     */
 #define KS5  0.95105651629515357211665325776975   /* sin(2pi/5)                */
 
+/* ---- multicore layer (mt_r1) --------------------------------------------- */
+#ifdef _OPENMP
+# include <omp.h>
+#else  /* shims so a no-OpenMP build still compiles (pragmas are ignored) */
+static inline int omp_get_num_threads(void) { return 1; }
+static inline int omp_get_thread_num(void)  { return 0; }
+static inline int omp_get_max_threads(void) { return 1; }
+#endif
+
+/* the harness's thread budget; never take more (PANEL_BRIEF rule 2) */
+#define MAXT 32
+
+/* Per-thread context.  Pt[t] is thread t's plane scratch (L*PPITCH complex)
+ * and Mt[t] its private mid VOLUME (VDBL doubles, the NT-staging variants'
+ * working set -- 1.46 MB, inside one SPR L2), both allocated and
+ * FIRST-TOUCHED by thread t in fft3d_create()'s parallel region: NUMA-local
+ * under OMP_PROC_BIND=close/OMP_PLACES=cores (thread t lands on the same
+ * core in every later region), page-aligned so no two threads ever share a
+ * scratch cache line.  nthr caps every execute-time region (num_threads
+ * clause LOWERS only -- a run with more than MAXT default threads must not
+ * index past Pt). */
+struct l45ctx { double *Pt[MAXT]; double *Mt[MAXT]; int nthr; };
+
 /* exec variant signature: whole batch, so dispatch happens once per execute */
 typedef void (*exec45_fn)(const double *in, double *out, long nvol,
-                          double *S, double *P);
+                          const struct l45ctx *c);
 
 /* The 45-point Good-Thomas 9x5 codelet over PW interleaved-complex lanes.
  * LD(n) must yield input element n as a vec rvalue; ST(k, v) consumes output
@@ -518,45 +575,57 @@ static void dft45_line1(const double *restrict s, const long sstr,
 
 /* ---- plan, tuner, API ---------------------------------------------------- */
 
-enum { M_INPLACE = 0, M_SCRATCHP = 1 };
+enum { MT_V = 0, MT_F = 1, MT_S = 2, MT_N = 3 };   /* vol-par, fused, serial,
+                                                      vol-par + NT-staged */
 
 /* candidate table, rank = simplest-first tie-break order (3% hysteresis).
- * pw4 ranks ahead of pw2 (the V1-first hardening, L36_mixedradix r6): a
- * narrower kernel must now beat pw4's minimum by >3%, not win a coin flip. */
+ * mtv ranks ahead of mtf (fewer barriers), threaded ahead of serial, pw4
+ * ahead of pw2 (the V1-first hardening, L36_mixedradix r6). */
 struct cand45 {
     exec45_fn   fn;
-    int         pw, mode, pf, rank;
+    int         pw, mt, pf, rank;
     const char *nm;
 };
 static const struct cand45 g_cands[] = {
 #ifdef HAVE_PW4
-    { x_ip0_pw4,  4, M_INPLACE,  0, 0,  "pw4-ip-pf0"  },
-    { x_ip1_pw4,  4, M_INPLACE,  1, 1,  "pw4-ip-pf1"  },
-    { x_ip2_pw4,  4, M_INPLACE,  2, 2,  "pw4-ip-pf2"  },
-    { x_ip3_pw4,  4, M_INPLACE,  3, 3,  "pw4-ip-pf3"  },
+    { m_v0_pw4,  4, MT_V, 0, 0,  "pw4-mtv-pf0"  },
+    { m_v3_pw4,  4, MT_V, 3, 1,  "pw4-mtv-pf3"  },
 #ifndef FFT45_OVERLAP_TAIL
-    { x_ip0a_pw4, 4, M_INPLACE,  4, 4,  "pw4-ip-pf0a" },   /* r11: zal     */
-    { x_ip3a_pw4, 4, M_INPLACE,  5, 5,  "pw4-ip-pf3a" },   /* r11: zal     */
+    { m_v0a_pw4, 4, MT_V, 4, 2,  "pw4-mtv-pf0a" },   /* r11 zal, MT-raced */
+    { m_v3a_pw4, 4, MT_V, 5, 3,  "pw4-mtv-pf3a" },
 #endif
-    { x_sp0_pw4,  4, M_SCRATCHP, 0, 6,  "pw4-sp-pf0"  },
-    { x_sps_pw4,  4, M_SCRATCHP, 2, 7,  "pw4-sp-pfs"  },
+    { m_n0_pw4,  4, MT_N, 6, 4,  "pw4-mtn-pf0"  },   /* NT-staged out     */
+    { m_ni_pw4,  4, MT_N, 7, 5,  "pw4-mtn-pfi"  },
+#ifndef FFT45_OVERLAP_TAIL
+    { m_nia_pw4, 4, MT_N, 8, 6,  "pw4-mtn-pfia" },
 #endif
-    { x_ip0_pw2,  2, M_INPLACE,  0, 8,  "pw2-ip-pf0"  },
-    { x_ip3_pw2,  2, M_INPLACE,  3, 9,  "pw2-ip-pf3"  },
-    { x_sp0_pw2,  2, M_SCRATCHP, 0, 10, "pw2-sp-pf0"  },
-    { x_sps_pw2,  2, M_SCRATCHP, 2, 11, "pw2-sp-pfs"  },
+    { m_ni16_pw4, 4, MT_N, 9, 19, "pw4-mtn-t16" },   /* node NUMA probe   */
+    { m_f0_pw4,  4, MT_F, 0, 7,  "pw4-mtf-pf0"  },
+    { m_fb_pw4,  4, MT_F, 1, 8,  "pw4-mtf-blk"  },   /* blocked planes    */
+    { m_fn_pw4,  4, MT_F, 6, 9,  "pw4-mtf-nt"   },   /* fused + NT flush  */
+#ifndef FFT45_OVERLAP_TAIL
+    { m_f0a_pw4, 4, MT_F, 4, 10, "pw4-mtf-pf0a" },
+    { m_fba_pw4, 4, MT_F, 5, 11, "pw4-mtf-blka" },   /* blk + zal         */
+#endif
+    { x_ip0_pw4, 4, MT_S, 0, 12, "pw4-ip-pf0"   },   /* serial controls   */
+    { x_ip3_pw4, 4, MT_S, 3, 13, "pw4-ip-pf3"   },
+#endif
+    { m_v0_pw2,  2, MT_V, 0, 14, "pw2-mtv-pf0"  },
+    { m_ni_pw2,  2, MT_N, 7, 15, "pw2-mtn-pfi"  },
+    { m_f0_pw2,  2, MT_F, 0, 16, "pw2-mtf-pf0"  },
+    { x_ip0_pw2, 2, MT_S, 0, 17, "pw2-ip-pf0"   },
+    { x_ip3_pw2, 2, MT_S, 3, 18, "pw2-ip-pf3"   },
 };
 #define NCAND ((int)(sizeof g_cands / sizeof g_cands[0]))
 
 struct fft3d_plan {
-    int       batch;
-    exec45_fn fn;
-    double   *S;                 /* padded scratch volume (SCRATCHP mid)    */
-    double   *P;                 /* plane scratch: page-aligned heap, NOT the
-                                    stack -- a stack plane 4K-aliases the
-                                    in/out streams in unlucky runs (measured
-                                    bimodal 204 vs 377 us at B=1, r6) */
-    void     *rawS, *rawP;
+    int           batch;
+    exec45_fn     fn;
+    struct l45ctx ctx;           /* per-thread plane scratch (page-aligned
+                                    heap, NOT the stack -- a stack plane
+                                    4K-aliases the in/out streams in unlucky
+                                    runs: bimodal 204 vs 377 us at B=1, r6) */
+    void         *rawPt[MAXT], *rawMt[MAXT];
 };
 
 const char *fft3d_name(void) { return "L45_pfa"; }
@@ -567,8 +636,8 @@ const char *fft3d_description(void)
 {
     return g_desc[0] ? g_desc
                      : "Good-Thomas PFA 9x5, interleaved-complex lanes, two "
-                       "sweeps, PW=1 xmm tail lines; {inplace, padded-scratch}"
-                       " x {pw, pf, zal} exec variants autotuned in create()";
+                       "sweeps, PW=1 xmm tail lines; {vol-parallel, fused-2-"
+                       "sweep, serial} x {pw, pf, zal} autotuned in create()";
 }
 int fft3d_supports(int Lq) { return Lq == L; }
 
@@ -633,16 +702,42 @@ fft3d_plan *fft3d_create(int Lq, int batch)
     fft3d_plan *p = calloc(1, sizeof(*p));
     if (!p) return NULL;
     p->batch = batch;
-    if (posix_memalign(&p->rawS, 4096, SVDBL * sizeof(double)) != 0) {
-        free(p); return NULL;
+
+    /* Spin up the OpenMP pool NOW (thread creation is setup, not transform
+     * time) and let every thread allocate + first-touch its OWN plane
+     * scratch, so Pt[t] is NUMA-local to the core thread t sits on in every
+     * later region (close/cores binding is stable). */
+    p->ctx.nthr = omp_get_max_threads();
+    if (p->ctx.nthr > MAXT) p->ctx.nthr = MAXT;
+    if (p->ctx.nthr < 1)    p->ctx.nthr = 1;
+    {
+        int fail = 0;
+        const size_t pbytes = (size_t)L * PPITCH * 2 * sizeof(double);
+        const size_t mbytes = VDBL * sizeof(double);
+#pragma omp parallel num_threads(p->ctx.nthr)
+        {
+            const int t = omp_get_thread_num();
+            if (t < MAXT) {
+                void *rp = NULL, *rm = NULL;
+                if (posix_memalign(&rp, 4096, pbytes) == 0 &&
+                    posix_memalign(&rm, 4096, mbytes) == 0) {
+                    memset(rp, 0, pbytes);        /* first touch by owner */
+                    memset(rm, 0, mbytes);
+                } else
+                    fail = 1;                     /* distinct slots; benign */
+                p->rawPt[t] = rp;  p->ctx.Pt[t] = (double *)rp;
+                p->rawMt[t] = rm;  p->ctx.Mt[t] = (double *)rm;
+            }
+        }
+        /* threads beyond the pool never run, but keep the table total */
+        for (int t = 0; t < MAXT; ++t) {
+            if (!p->ctx.Pt[t]) p->ctx.Pt[t] = p->ctx.Pt[0];
+            if (!p->ctx.Mt[t]) p->ctx.Mt[t] = p->ctx.Mt[0];
+        }
+        if (fail || !p->ctx.Pt[0] || !p->ctx.Mt[0]) {
+            fft3d_destroy(p); return NULL;
+        }
     }
-    p->S = (double *)p->rawS;
-    memset(p->S, 0, SVDBL * sizeof(double));  /* pad columns stay 0 forever */
-    if (posix_memalign(&p->rawP, 4096, (size_t)L * PPITCH * 2 * sizeof(double)) != 0) {
-        free(p->rawS); free(p); return NULL;
-    }
-    p->P = (double *)p->rawP;
-    memset(p->P, 0, (size_t)L * PPITCH * 2 * sizeof(double));
     p->fn = g_cands[0].fn;                            /* safe default        */
 
     int    live[NCAND];
@@ -655,10 +750,11 @@ fft3d_plan *fft3d_create(int Lq, int batch)
           int v = atoi(e);
           for (int c = 0; c < NCAND; ++c) if (g_cands[c].pw != v) live[c] = 0;
       }
-      if ((e = getenv("FFT45_MODE"))) {
+      if ((e = getenv("FFT45_MT"))) {     /* v=mtv, f=mtf, s=serial, n=mtn */
           int v = (e[0] >= '0' && e[0] <= '9') ? atoi(e)
-                : (e[0] == 's' ? M_SCRATCHP : M_INPLACE);
-          for (int c = 0; c < NCAND; ++c) if (g_cands[c].mode != v) live[c] = 0;
+                : (e[0] == 'f' ? MT_F : (e[0] == 's' ? MT_S
+                :  (e[0] == 'n' ? MT_N : MT_V)));
+          for (int c = 0; c < NCAND; ++c) if (g_cands[c].mt != v) live[c] = 0;
       }
       if ((e = getenv("FFT45_PF"))) {
           int v = atoi(e);
@@ -668,9 +764,12 @@ fft3d_plan *fft3d_create(int Lq, int batch)
         for (int c = 0; c < NCAND; ++c) any |= live[c];
         if (!any) for (int c = 0; c < NCAND; ++c) live[c] = 1; } }
 
-    /* tuning arena: must actually stream at large batch (L36_pfa r2 lesson);
-     * 32 volumes = 2 x 44.5 MB in+out, past both machines' L3 on the walk */
-    const int nv = batch < 32 ? batch : 32;
+    /* tuning arena: must actually stream at large batch (L36_pfa r2 lesson).
+     * mt_r1 raises the cap from 32 to 128 volumes (2 x 178 MB in+out): at
+     * 32 threads, 32 volumes is ONE volume per thread and the whole walk
+     * sat inside wallaby's 60 MB L3 -- it mispriced the streaming NT/pf
+     * class for B=256 (nv=32 said 9.6 us/vol, the driver said 25.7). */
+    const int nv = batch < 128 ? batch : 128;
     void *ri = NULL, *ro = NULL, *r0 = NULL, *r1 = NULL;
     if (posix_memalign(&ri, 64, (size_t)nv * VDBL * sizeof(double)) ||
         posix_memalign(&ro, 64, (size_t)nv * VDBL * sizeof(double)) ||
@@ -696,7 +795,7 @@ fft3d_plan *fft3d_create(int Lq, int batch)
     for (int c = 0; c < NCAND; ++c) {
         if (!live[c]) continue;
         memset(tout, 0, (size_t)nv * VDBL * sizeof(double));
-        g_cands[c].fn(tin, tout, nv, p->S, p->P);
+        g_cands[c].fn(tin, tout, nv, &p->ctx);
         if (!rel_ok(tout, ref0, VDBL)) live[c] = 0;
         if (nv > 1 && live[c] &&
             !rel_ok(tout + (size_t)(nv - 1) * VDBL, refN, VDBL)) live[c] = 0;
@@ -713,10 +812,10 @@ fft3d_plan *fft3d_create(int Lq, int batch)
         for (int c = 0; c < NCAND; ++c) {
             if (!live[c]) continue;
             /* self-warm so each candidate is timed from its own steady state */
-            g_cands[c].fn(tin, tout, nv, p->S, p->P);
+            g_cands[c].fn(tin, tout, nv, &p->ctx);
             double t0 = now_s();
             for (int r = 0; r < R; ++r)
-                g_cands[c].fn(tin, tout, nv, p->S, p->P);
+                g_cands[c].fn(tin, tout, nv, &p->ctx);
             double t = (now_s() - t0) / R;
             if (t < tc[c]) tc[c] = t;
         }
@@ -752,12 +851,13 @@ fft3d_plan *fft3d_create(int Lq, int batch)
 void fft3d_destroy(fft3d_plan *p)
 {
     if (!p) return;
-    free(p->rawS); free(p->rawP); free(p);
+    for (int t = 0; t < MAXT; ++t) { free(p->rawPt[t]); free(p->rawMt[t]); }
+    free(p);
 }
 
 void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex *out)
 {
-    plan->fn((const double *)in, (double *)out, plan->batch, plan->S, plan->P);
+    plan->fn((const double *)in, (double *)out, plan->batch, &plan->ctx);
 }
 
 #else /* ================ KERNEL TEMPLATE, PW = 2 or 4 ====================== */
@@ -1121,142 +1221,333 @@ void FN(phase2)(const double *mid, double *out, const double *pnext,
     }
 }
 
-/* phase 2, SCRATCHP: x transform S -> out, out of place.  S rows are padded
- * (SPITCH complex), so the flat (y,z) index does not map affinely to out and
- * tiling is per y-row: NFULL full tiles + ONE OVERLAPPING tile (starts at
- * z = 45-PW; recompute is idempotent because the pass is out of place).
- * All S loads are 64B-aligned; only the out stores pay the odd-L split toll,
- * and pfw covers their RFO in the streaming variant. */
+/* phase 2, ONE flat unit: tile t < NFT is a full-width tile, t == NFT the
+ * masked PW=1 tail (flat line 2024).  The mtf sweep's unit; recomputing
+ * s_/d_ from t each call is two leas against a 344-op codelet. */
+#define NFT (NPLANE / PW)
 static inline __attribute__((always_inline))
-void FN(phase2s)(const double *S, double *out, const double *pnext,
-                 const int pfw, const int pfn)
+void FN(phase2_unit)(double *vol, const int t)
 {
-    const double *pn_ = pnext;
-    for (int y = 0; y < L; ++y) {
-        const double *sy = S   + (size_t)y * SROWD;
-        double       *oy = out + (size_t)y * (2 * L);
-        for (int tg = 0; tg < NGRP; ++tg) {
-            const int zb = (tg == NGRP - 1) ? (L - PW) : tg * PW;
-            const double *s_ = sy + 2 * zb;
-            double       *d_ = oy + 2 * zb;
-            if (pfw) PFW45(d_);
-            PFNX();
-#define LD5(n)    LDU(s_ + (size_t)(n) * SPLND)
-#define ST5(k, v) STU(d_ + (size_t)(k) * PLND, (v))
-            PFA45(LD5, ST5);
-#undef LD5
-#undef ST5
-        }
+    if (t < NFT) {
+        const size_t o = (size_t)t * (PW * 2);
+        const double *s_ = vol + o;
+        double       *d_ = vol + o;
+#define LD6(n)    LDU(s_ + (size_t)(n) * PLND)
+#define ST6(k, v) STU(d_ + (size_t)(k) * PLND, (v))
+        PFA45(LD6, ST6);
+#undef LD6
+#undef ST6
+    } else {
+        const double *s_ = vol + (size_t)(NPLANE - 1) * 2;
+        double       *d_ = vol + (size_t)(NPLANE - 1) * 2;
+#define LD7(n)    LDT(s_ + (size_t)(n) * PLND)
+#define ST7(k, v) STT(d_ + (size_t)(k) * PLND, (v))
+        PFA45(LD7, ST7);
+#undef LD7
+#undef ST7
     }
 }
 
-/* ---- exec variants: every pf/mode/stride argument below is a literal, so
+/* One-volume non-temporal burst copy, M -> out.  The mtn variants' whole
+ * point: with 32 cores sharing DRAM the batched cells are bandwidth-bound
+ * and the out-RFO is a third of the traffic (in 1.46 + RFO 1.46 + out 1.46
+ * MB/vol); L13_rader/L17_rader/L23_matrixsimd all measured NT flipping from
+ * the settled phase-1 loser to a -13..-25% winner in this regime.  Direct
+ * NT on the transform's own stores is impossible here (every 64 B store is
+ * only 16B-aligned, rows are 720 B), so the volume is computed in the
+ * thread's private M (1.46 MB, one SPR L2) and flushed linearly: head peel
+ * to 64 B (a volume's out base rotates 16 B per volume: VDBL*8 mod 64 =
+ * 16), aligned vmovntpd body, scalar tail.  Same values, same places =>
+ * bit-identical.  sfence is the caller's (once per thread per execute). */
+static void FN(ntcopy)(double *restrict dst, const double *restrict src,
+                       const size_t n)
+{
+    size_t head = ((64 - ((uintptr_t)dst & 63)) & 63) / 8;
+    if (head > n) head = n;
+    for (size_t q = 0; q < head; ++q) dst[q] = src[q];
+#if PW == 4
+    const size_t body = (n - head) & ~(size_t)7;
+    for (size_t q = head; q < head + body; q += 8)
+        _mm512_stream_pd(dst + q, _mm512_loadu_pd(src + q));
+#elif defined(__AVX__)
+    const size_t body = (n - head) & ~(size_t)3;
+    for (size_t q = head; q < head + body; q += 4)
+        _mm256_stream_pd(dst + q, _mm256_loadu_pd(src + q));
+#else
+    const size_t body = n - head;
+    memcpy(dst + head, src + head, body * sizeof(double));
+#endif
+    for (size_t q = head + body; q < n; ++q) dst[q] = src[q];
+}
+
+/* ---- exec variants: every pf/zal argument below is a literal, so
  * const-propagation through the always_inline bodies specializes each one
  * completely (the L45_mixedradix structure). ------------------------------ */
 
+/* serial per-volume pipeline, shared by the serial controls and mtv */
+static inline __attribute__((always_inline))
+void FN(vols_ip)(const double *in, double *out, long b0, long b1,
+                 double *P, const int pfr, const int pfw, const int zal)
+{
+    for (long b = b0; b < b1; ++b) {
+        const double *i = in  + (size_t)b * VDBL;
+        double       *o = out + (size_t)b * VDBL;
+        const double *nx = (pfr && b + 1 < b1) ? i + VDBL : 0;
+        FN(phase1)(i, o, P, pfr, pfw, zal, 2 * L, PLND);
+        FN(phase2)(o, o, nx, pfr, pfr);
+    }
+}
+
+/* NT-staged per-volume pipeline: both phases run in the thread's private M
+ * (mid writes and phase-2 reads never touch DRAM when M holds in cache),
+ * then one NT burst to out.  pfr paces PFIN over `in` in phase 1 and PFNX
+ * pre-covers the NEXT volume's input during phase 2 (worth 30% to
+ * L13_rader's threaded streaming); PF45/prefetchw stay off -- M is
+ * cache-resident, and poking resident lines is a pure uop tax (L23's +0.9
+ * us lesson, L36_pfa's +13%). */
+static inline __attribute__((always_inline))
+void FN(vols_nt)(const double *in, double *out, long b0, long b1,
+                 double *P, double *M, const int pfr, const int zal)
+{
+    for (long b = b0; b < b1; ++b) {
+        const double *i = in  + (size_t)b * VDBL;
+        const double *nx = (pfr && b + 1 < b1) ? i + VDBL : 0;
+        FN(phase1)(i, M, P, pfr, 0, zal, 2 * L, PLND);
+        FN(phase2)(M, M, nx, 0, pfr);
+        FN(ntcopy)(out + (size_t)b * VDBL, M, VDBL);
+    }
+    if (b1 > b0) _mm_sfence();
+}
+
 static void FN(x_ip0)(const double *in, double *out, long nvol,
-                      double *S, double *P)
+                      const struct l45ctx *c)
 {
-    (void)S;
-    for (long b = 0; b < nvol; ++b) {
-        const double *i = in  + (size_t)b * VDBL;
-        double       *o = out + (size_t)b * VDBL;
-        FN(phase1)(i, o, P, 0, 0, 0, 2 * L, PLND);
-        FN(phase2)(o, o, 0, 0, 0);
-    }
+    FN(vols_ip)(in, out, 0, nvol, c->Pt[0], 0, 0, 0);
 }
-
-#if PW == 4      /* the pw2 tournament pool only carries ip0/ip3/sp0/sps */
-static void FN(x_ip1)(const double *in, double *out, long nvol,
-                      double *S, double *P)
-{
-    (void)S;
-    for (long b = 0; b < nvol; ++b) {
-        const double *i = in  + (size_t)b * VDBL;
-        double       *o = out + (size_t)b * VDBL;
-        FN(phase1)(i, o, P, 0, 0, 0, 2 * L, PLND);
-        FN(phase2)(o, o, 0, 1, 0);
-    }
-}
-
-static void FN(x_ip2)(const double *in, double *out, long nvol,
-                      double *S, double *P)
-{
-    (void)S;
-    for (long b = 0; b < nvol; ++b) {
-        const double *i = in  + (size_t)b * VDBL;
-        double       *o = out + (size_t)b * VDBL;
-        const double *nx = (b + 1 < nvol) ? i + VDBL : 0;
-        FN(phase1)(i, o, P, 1, 0, 0, 2 * L, PLND);
-        FN(phase2)(o, o, nx, 1, 1);
-    }
-}
-
-#ifndef FFT45_OVERLAP_TAIL
-/* r11: pf0 + aligned z-loads (the node's B=1/B=2 incumbent plus zal) */
-static void FN(x_ip0a)(const double *in, double *out, long nvol,
-                       double *S, double *P)
-{
-    (void)S;
-    for (long b = 0; b < nvol; ++b) {
-        const double *i = in  + (size_t)b * VDBL;
-        double       *o = out + (size_t)b * VDBL;
-        FN(phase1)(i, o, P, 0, 0, 1, 2 * L, PLND);
-        FN(phase2)(o, o, 0, 0, 0);
-    }
-}
-
-/* r11: pf3 + aligned z-loads (the node's B=16 incumbent plus zal) */
-static void FN(x_ip3a)(const double *in, double *out, long nvol,
-                       double *S, double *P)
-{
-    (void)S;
-    for (long b = 0; b < nvol; ++b) {
-        const double *i = in  + (size_t)b * VDBL;
-        double       *o = out + (size_t)b * VDBL;
-        const double *nx = (b + 1 < nvol) ? i + VDBL : 0;
-        FN(phase1)(i, o, P, 1, 1, 1, 2 * L, PLND);
-        FN(phase2)(o, o, nx, 1, 1);
-    }
-}
-#endif /* !FFT45_OVERLAP_TAIL */
-#endif
 
 static void FN(x_ip3)(const double *in, double *out, long nvol,
-                      double *S, double *P)
+                      const struct l45ctx *c)
 {
-    (void)S;
-    for (long b = 0; b < nvol; ++b) {
-        const double *i = in  + (size_t)b * VDBL;
-        double       *o = out + (size_t)b * VDBL;
-        const double *nx = (b + 1 < nvol) ? i + VDBL : 0;
-        FN(phase1)(i, o, P, 1, 1, 0, 2 * L, PLND);
-        FN(phase2)(o, o, nx, 1, 1);
+    FN(vols_ip)(in, out, 0, nvol, c->Pt[0], 1, 1, 0);
+}
+
+/* mtv: volume-parallel.  Thread t owns the CONTIGUOUS block
+ * [nvol*t/T, nvol*(t+1)/T) and runs the serial pipeline on it with its own
+ * NUMA-local plane scratch; no synchronisation except the join, and each
+ * thread touches the same volumes every call (prefetcher- and NUMA-stable).
+ * (Decomposition from L13_direct mt_r1.)  At nvol < T the spare threads
+ * idle into the join -- mtf covers that regime, the tuner picks. */
+static void FN(m_v0)(const double *in, double *out, long nvol,
+                     const struct l45ctx *c)
+{
+#pragma omp parallel num_threads(c->nthr)
+    {
+        const long T = omp_get_num_threads(), t = omp_get_thread_num();
+        FN(vols_ip)(in, out, nvol * t / T, nvol * (t + 1) / T,
+                    c->Pt[t], 0, 0, 0);
     }
 }
 
-static void FN(x_sp0)(const double *in, double *out, long nvol,
-                      double *S, double *P)
+static void FN(m_v3)(const double *in, double *out, long nvol,
+                     const struct l45ctx *c)
 {
-    for (long b = 0; b < nvol; ++b) {
-        const double *i = in  + (size_t)b * VDBL;
-        double       *o = out + (size_t)b * VDBL;
-        FN(phase1)(i, S, P, 0, 0, 0, SROWD, SPLND);
-        FN(phase2s)(S, o, 0, 0, 0);
+#pragma omp parallel num_threads(c->nthr)
+    {
+        const long T = omp_get_num_threads(), t = omp_get_thread_num();
+        FN(vols_ip)(in, out, nvol * t / T, nvol * (t + 1) / T,
+                    c->Pt[t], 1, 1, 0);
     }
 }
 
-static void FN(x_sps)(const double *in, double *out, long nvol,
-                      double *S, double *P)
+#if PW == 4 && !defined(FFT45_OVERLAP_TAIL)
+static void FN(m_v0a)(const double *in, double *out, long nvol,
+                      const struct l45ctx *c)
 {
-    for (long b = 0; b < nvol; ++b) {
-        const double *i = in  + (size_t)b * VDBL;
-        double       *o = out + (size_t)b * VDBL;
-        const double *nx = (b + 1 < nvol) ? i + VDBL : 0;
-        FN(phase1)(i, S, P, 1, 0, 0, SROWD, SPLND);
-        FN(phase2s)(S, o, nx, 1, 1);
+#pragma omp parallel num_threads(c->nthr)
+    {
+        const long T = omp_get_num_threads(), t = omp_get_thread_num();
+        FN(vols_ip)(in, out, nvol * t / T, nvol * (t + 1) / T,
+                    c->Pt[t], 0, 0, 1);
     }
 }
+
+static void FN(m_v3a)(const double *in, double *out, long nvol,
+                      const struct l45ctx *c)
+{
+#pragma omp parallel num_threads(c->nthr)
+    {
+        const long T = omp_get_num_threads(), t = omp_get_thread_num();
+        FN(vols_ip)(in, out, nvol * t / T, nvol * (t + 1) / T,
+                    c->Pt[t], 1, 1, 1);
+    }
+}
+#endif
+
+/* mtn: volume-parallel with NT-staged output (the streaming-cell shape) */
+static void FN(m_n0)(const double *in, double *out, long nvol,
+                     const struct l45ctx *c)
+{
+#pragma omp parallel num_threads(c->nthr)
+    {
+        const long T = omp_get_num_threads(), t = omp_get_thread_num();
+        FN(vols_nt)(in, out, nvol * t / T, nvol * (t + 1) / T,
+                    c->Pt[t], c->Mt[t], 0, 0);
+    }
+}
+
+static void FN(m_ni)(const double *in, double *out, long nvol,
+                     const struct l45ctx *c)
+{
+#pragma omp parallel num_threads(c->nthr)
+    {
+        const long T = omp_get_num_threads(), t = omp_get_thread_num();
+        FN(vols_nt)(in, out, nvol * t / T, nvol * (t + 1) / T,
+                    c->Pt[t], c->Mt[t], 1, 0);
+    }
+}
+
+#if PW == 4 && !defined(FFT45_OVERLAP_TAIL)
+static void FN(m_nia)(const double *in, double *out, long nvol,
+                      const struct l45ctx *c)
+{
+#pragma omp parallel num_threads(c->nthr)
+    {
+        const long T = omp_get_num_threads(), t = omp_get_thread_num();
+        FN(vols_nt)(in, out, nvol * t / T, nvol * (t + 1) / T,
+                    c->Pt[t], c->Mt[t], 1, 1);
+    }
+}
+#endif
+
+/* half-team twin: the node's two-socket instrument.  The driver freads in
+ * and allocates out from its main thread, so on the node every caller page
+ * is socket-0 resident and the far 16 threads stream over UPI; whether 16
+ * all-local threads beat 32 half-remote ones is a node-only question that
+ * wallaby (one 32-core socket) cannot answer -- every mt_r1 record flags
+ * it.  Raced, never assumed. */
+static void FN(m_ni16)(const double *in, double *out, long nvol,
+                       const struct l45ctx *c)
+{
+    const int h = c->nthr < 16 ? c->nthr : 16;
+#pragma omp parallel num_threads(h)
+    {
+        const long T = omp_get_num_threads(), t = omp_get_thread_num();
+        FN(vols_nt)(in, out, nvol * t / T, nvol * (t + 1) / T,
+                    c->Pt[t], c->Mt[t], 1, 0);
+    }
+}
+
+/* mtf: fused two-sweep, the B < T shape.  Sweep 1 runs ALL volumes'
+ * x-plane pipelines (z+y transform of one plane into mid=out, each thread
+ * on its own plane scratch); the omp-for's implicit barrier is the ONE
+ * true dependency (every phase-2 line reads all 45 mid planes of its
+ * volume); sweep 2 runs all flat phase-2 tiles in place.  The plane-sweep
+ * schedule is a compile-time knob: rr=1 round-robins single planes (45 =
+ * 32 + 13, so a blocked static would idle 9 threads behind the 2-plane
+ * threads at B=1); rr=0 hands out CONTIGUOUS plane blocks, so at B > 1 a
+ * volume's 45 planes stay on ~2 adjacent threads and the sweep-2 readers
+ * of its mid mostly hit neighbours (the L23_rader fused-at-mid-batch
+ * dirty-line-migration lesson).  Blocked static on the tile sweep so only
+ * chunk-boundary out lines are ever written by two threads. */
+static inline __attribute__((always_inline))
+void FN(fused_ip)(const double *in, double *out, long nvol,
+                  const struct l45ctx *c, const int rr, const int zal)
+{
+#pragma omp parallel num_threads(c->nthr)
+    {
+        double *P = c->Pt[omp_get_thread_num()];
+        if (rr) {
+#pragma omp for schedule(static, 1)
+            for (long u = 0; u < nvol * L; ++u)
+                FN(phase1_plane)(in  + (size_t)(u / L) * VDBL,
+                                 out + (size_t)(u / L) * VDBL,
+                                 P, (int)(u % L), 0, 0, zal, 2 * L, PLND);
+        } else {
+#pragma omp for schedule(static)
+            for (long u = 0; u < nvol * L; ++u)
+                FN(phase1_plane)(in  + (size_t)(u / L) * VDBL,
+                                 out + (size_t)(u / L) * VDBL,
+                                 P, (int)(u % L), 0, 0, zal, 2 * L, PLND);
+        }
+        /* implicit barrier above: phase 2 needs every mid plane.  nowait on
+         * the tile sweep -- the region join is the only sync anyone needs
+         * (L23_rader: their redundant second barrier cost 11% at B=1). */
+#pragma omp for schedule(static) nowait
+        for (long u = 0; u < nvol * (NFT + 1); ++u)
+            FN(phase2_unit)(out + (size_t)(u / (NFT + 1)) * VDBL,
+                            (int)(u % (NFT + 1)));
+    }
+}
+
+static void FN(m_f0)(const double *in, double *out, long nvol,
+                     const struct l45ctx *c)
+{
+    FN(fused_ip)(in, out, nvol, c, 1, 0);
+}
+
+static void FN(m_fb)(const double *in, double *out, long nvol,
+                     const struct l45ctx *c)
+{
+    FN(fused_ip)(in, out, nvol, c, 0, 0);
+}
+
+#if PW == 4 && !defined(FFT45_OVERLAP_TAIL)
+static void FN(m_f0a)(const double *in, double *out, long nvol,
+                      const struct l45ctx *c)
+{
+    FN(fused_ip)(in, out, nvol, c, 1, 1);
+}
+
+static void FN(m_fba)(const double *in, double *out, long nvol,
+                      const struct l45ctx *c)
+{
+    FN(fused_ip)(in, out, nvol, c, 0, 1);
+}
+#endif
+
+/* mtF + NT: fused three-sweep over per-VOLUME M slots (volume b stages in
+ * Mt[b mod MAXT]) -- all threads work at any batch AND the out-RFO is
+ * deleted: sweep 1 planes -> M, sweep 2 tiles in place in M, sweep 3 a
+ * chunked NT flush M -> out.  Batches beyond MAXT volumes run in MAXT-sized
+ * blocks with a barrier between blocks (an M slot must be fully flushed
+ * before the next block's sweep 1 reuses it). */
+#define NTC 64                      /* NT flush chunks per volume (~22 KB) */
+#define NTCH ((VDBL + NTC - 1) / NTC)
+static void FN(m_fn)(const double *in, double *out, long nvol,
+                     const struct l45ctx *c)
+{
+#pragma omp parallel num_threads(c->nthr)
+    {
+        double *P = c->Pt[omp_get_thread_num()];
+        for (long base = 0; base < nvol; base += MAXT) {
+            const long nb = (nvol - base < MAXT) ? (nvol - base) : MAXT;
+#pragma omp for schedule(static, 1)
+            for (long u = 0; u < nb * L; ++u)
+                FN(phase1_plane)(in + (size_t)(base + u / L) * VDBL,
+                                 c->Mt[u / L],
+                                 P, (int)(u % L), 0, 0, 0, 2 * L, PLND);
+#pragma omp for schedule(static)
+            for (long u = 0; u < nb * (NFT + 1); ++u)
+                FN(phase2_unit)(c->Mt[u / (NFT + 1)],
+                                (int)(u % (NFT + 1)));
+#pragma omp for schedule(static) nowait
+            for (long u = 0; u < nb * NTC; ++u) {
+                const long   b = u / NTC;
+                const size_t o = (size_t)(u % NTC) * NTCH;
+                const size_t n = (o + NTCH > VDBL) ? (VDBL - o) : NTCH;
+                FN(ntcopy)(out + (size_t)(base + b) * VDBL + o,
+                           c->Mt[b] + o, n);
+            }
+            if (base + MAXT < nvol) {
+                _mm_sfence();
+#pragma omp barrier
+            }
+        }
+        _mm_sfence();
+    }
+}
+#undef NTC
+#undef NTCH
 
 #undef PF45
 #undef PFW45
@@ -1266,6 +1557,7 @@ static void FN(x_sps)(const double *in, double *out, long nvol,
 #undef PFSTEP
 #undef PFL
 
+#undef NFT
 #undef TRNC
 #undef VALIGNQ
 #undef ZLA

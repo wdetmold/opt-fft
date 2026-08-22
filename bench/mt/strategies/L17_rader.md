@@ -1,0 +1,174 @@
+# L17_rader — multicore strategy record
+
+Phase-1 history (how the kernel itself got to its current form) is in
+`../geom/strategies/L17_rader.md`; this file records only the multicore
+phase.  Phase-1 node baselines to measure parallel efficiency against
+(single-thread, Cascade Lake, panel_r9 leaderboard): B=1 16.54 us,
+B=8 18.06 us, B=256 24.61 us, B=2048 24.98 us per transform.
+
+## Round mt_r1
+
+### What was built
+
+The phase-1 kernel (Rader-17 in cyclic/negacyclic form, 296 FP instr per
+17-point transform, 867 transforms = ~423 kflop per volume — arithmetic
+unchanged this round) got a multicore layer with two parallel modes plus the
+single-thread fallback, all selected at plan time by timing the REAL
+dispatch path on the tuner arena:
+
+1. **mode 1 — volume-parallel (batch >= 2).**  The batch is cut into nt
+   contiguous chunks; thread t runs the tuned single-thread exec on its
+   chunk with a full per-thread shadow plan whose scratch was allocated and
+   first-touched BY thread t inside fft3d_create's one OpenMP region
+   (NUMA-local under OMP_PROC_BIND=close).  Contiguous chunks keep each
+   thread's slice of `out` first-touched by its own warmup writes — the
+   driver never touches `out` before warmup, so out pages land socket-local
+   for free.  `in` is fread by the driver's main thread (all socket-0 on
+   the node); nothing an implementation can do about that except weight
+   the partition (below).
+
+2. **mode 2 — plane-parallel (B=1 and small batches).**  (b,x) plane
+   pipelines (deint→z→transpose→y into a shared per-volume A slot) are
+   tasks; one team barrier; then (b,blk) x-pass blocks (37/volume) are
+   tasks.  Plane regions of A are cache-line-aligned (PS8*8 = 2368 B = 37
+   lines exactly), so plane tasks never share a store line; x blocks are
+   handed out in contiguous runs so only chunk-boundary out lines are ever
+   written by two threads.  Bit-identical to class A by construction (same
+   kernel calls, same operands, disjoint writes).
+
+3. **Custom spin-wait pthread pool instead of OpenMP at execute time.**
+   Measured on wallaby (SPR, this round): one `#pragma omp parallel` +
+   barrier costs **2.7 us at nt=2, 4.4 at nt=4, 8.3 at nt=32** — the entire
+   B=1 budget.  The pool (created once in fft3d_create; workers pinned to
+   the exact cores the harness's close binding chose, recorded via
+   sched_getcpu inside the create-time OMP region) dispatches through one
+   release-store + spin handshake and syncs mid-job with a centralized
+   sense-reversing barrier.  Workers busy-poll ~20 ms after their last job
+   then park on a condvar; a mode-0 plan tears the pool down entirely so a
+   single-thread plan leaves 31 idle cores.  With the pool, B=1 went from
+   6.9 us (OMP dispatch) to 5.7 us on a quiet wallaby.
+   **Do not "optimize" the all-workers-ack completion protocol**: I tried
+   having only team members ack (to skip 31-nt stores at small teams) and
+   it is RACY — a slow non-team worker can read the NEXT job descriptor
+   with a stale sequence number, run it twice, and corrupt the completion
+   count for the job after.  All-ack restores the invariant that every
+   worker is past its descriptor reads before the next dispatch overwrites
+   it.  Reverted before it ever shipped; the fix would need a seqlock
+   snapshot of the descriptor, parked for a future round.
+
+4. **Non-temporal flush variants ("stnt", "stnt dy", "stpnt", "stpnt dy",
+   L17R_FORCE 17–20).**  Phase 1 rejected NT stores four rounds running —
+   single-threaded, prefetchw hid the RFO more cheaply.  With 32 cores
+   sharing DRAM the batched cells are bandwidth-bound and the out RFO is a
+   third of the traffic, which is exactly where NT pays.  The staged
+   x-pass (vo) flush gets an `_mm512_stream_pd` path: short normal-store
+   head to reach 64-B alignment (a volume's out base is only 16-B aligned:
+   2*NVOL doubles = 78608 B is NOT a line multiple — the unaligned
+   vmovntpd segfaulted before the head/tail peel was added), aligned NT
+   full lines, normal tail, sfence before the worker's completion store.
+   Bit-identical (same values, same places).  Wallaby measured, 32
+   threads: at B=4096/nv=1024 (streaming) **stnt dy 0.914 vs plain
+   xl 512t dy 1.062 us/t (-14%)**; at B=256 (L3-resident on wallaby's
+   60 MB L3) NT rightly LOSES (0.73 vs 0.47 us/t) and the tuner keeps the
+   plain variant.  The node's 22 MB L3 makes B=256 stream, so the NT twins
+   may take that cell there — the plan-time race decides per machine,
+   which is the point.
+
+5. **Measured weighted partition (mode 1).**  Each thread times its own
+   chunk every dispatch (two clock_gettime per thread per execute, ~50 ns,
+   min across reps); if the equal-chunk spread exceeds 10%, the partition
+   is re-cut proportional to measured per-thread rate (clamped to
+   [0.5, 2]x mean) and adopted only if re-measurement beats equal chunks
+   by >3%.  Motivation is the node's NUMA asymmetry: `in` is entirely
+   socket-0 (driver fread), so the remote socket's 16 threads stream input
+   over UPI and lag, and equal chunks make every execute as slow as the
+   slowest thread.  On wallaby (all 32 threads on one socket) it still
+   fired at B=4096 — measured spread 1.44x, arena 0.871 -> 0.749 us/t —
+   though the driver-visible gain there was small; the real test is the
+   node, where the two-socket imbalance is structural.  Bit-identical
+   (changes who computes which volume, not the values).
+
+6. **Tuning = racing the real dispatch.**  Stage 1 races 10 class-A
+   variants (xl 512t, dy, st, st dy, stp, stp dy, stnt, stnt dy, stpnt,
+   stpnt dy) under full-team contention on a streaming arena
+   (nv = min(batch, 1024)); then the L23_rader-style joint (variant, pf,
+   pfw) grid over winner + best-of-other-store-shape partner (3% margin to
+   leave (0,0)); then a team-size race nt ∈ {32, 24, 16} (3% margin to
+   shrink); then for batch < 32 a plane-parallel challenge on the full
+   team.  For B=1 the phase-1 single-thread tuner runs first (workers
+   parked so the incumbent sees idle-machine turbo — its real conditions
+   if it wins and the pool is torn down), then mode 2 is raced at
+   nt ∈ {2,4,8,16,17,24,32} with workers spinning (their real conditions).
+   The tuner arena's tout is deliberately NOT memset in create any more:
+   first touch happens in each candidate's warmup execs by the writing
+   thread, matching what the driver's warmup does to `out`.
+
+### Measured (wallaby, Xeon Gold 6448Y SPR, 32 threads on one socket of 64 cores; dev numbers, relative only)
+
+| case | this round | phase-1 single-thread (same host class) | note |
+|---|---|---|---|
+| B=1 | 5.7–7.5 us (run spread; quiet best 5.72) | ~8.8–9.2 us | mode 2, nt=16–17 wins its race at 1.4–1.6x; sync-bound |
+| B=8 | 14.0–14.2 us/batch = 1.77 us/t | ~11.6 us/t | mode 1 or vp per race |
+| B=256 | 114–122 us/batch = 0.45–0.48 us/t | ~11.5 us/t | plain xl 512t (wallaby L3-resident; NT loses here) |
+| B=4096 | 3933–4390 us/batch = 0.96–1.07 us/t | ~14.4 us/t | stnt dy + weighted cut, nt=32 |
+
+Correctness: rel_l2 ~3.15e-16 at every case, repeatable bit-identical
+across runs (tryout cmp).  Batched parallel efficiency on wallaby is
+~24x/32 at B=256 and ~14x/32 at B=4096 against the same host's
+single-thread times — better than arithmetic scaling at B=256 because the
+single-thread kernel was MLP-limited (~10 fill buffers), exactly as the
+brief's bandwidth note predicted; B=4096 saturates socket DRAM
+(~236 KB/volume at 0.96 us/t ≈ 245 GB/s with the RFO deleted).
+B=1 is sync-bound: one volume is 78.6 KB and the plane phase's 17 tasks
+cost ~0.5 us each, so the pool handshake + barrier (~1.5–2.5 us total)
+caps the speedup near 1.6x.  That is a measured answer to the brief's
+"does B=1 parallelise at all": yes, modestly, and only with a sub-3-us
+sync path — libgomp's 8 us region alone erases it.
+
+### What did not work, with numbers
+
+* **OpenMP parallel-for dispatch at execute time**: 2.7–8.3 us per
+  region+barrier on wallaby (nt=2–32).  B=1 with OMP dispatch: 6.7–6.9 us
+  vs 5.7 us with the spin pool.  Replaced, kept only in create.
+* **Team-only completion acks in the pool**: correctness race (double-run
+  of a job by a stale non-team worker), reverted same session — see item 3.
+* **Unaligned NT stores**: segfault; vmovntpd demands 64-B alignment and a
+  volume's out base is 16-B aligned for odd volume indices.  Head/tail
+  peel fixed it.
+* **NT flush at L3-resident batch** (B=256 on wallaby): +55% over plain
+  (0.73 vs 0.47 us/t) — NT bypasses a cache that was doing useful work.
+  Left to the per-machine race, never forced.
+* **Shrinking the team at batch** (nt 24/16 vs 32): 0.42/0.58/0.90 us/t at
+  B=256 — nt=32 wins decisively on one wallaby socket; re-race on the node
+  where 32 spans two sockets.
+
+### Borrowed
+
+No cross-entry context existed this round (first mt round; context file
+empty).  Within my own lineage: the joint (variant,pf,pfw) grid discipline
+from L23_rader panel_r8, the L3-scaled arena from L17_matrixsimd/L36_mixedradix,
+and the plane pipeline/kernels from phase 1 as-is.
+
+### Next round
+
+1. **Node evidence first**: the description string now reports
+   `mt mode/nt`, the B=1 st-vs-vp race, and the batched winner — read the
+   leaderboard's description column before touching anything.
+2. **B=1 sync path**: a seqlock job descriptor to make team-only acks safe
+   (saves ~0.5 us at nt=17), a tree barrier, or merging the x pass into
+   plane-completion polling (each x block needs ALL planes, so per-plane
+   done flags are equivalent to a barrier — but arrival-order polling could
+   start blocks whose rows... no: every block needs every plane; only the
+   barrier's implementation can improve, not its existence).
+3. **Node NUMA**: check whether the weighted partition fires on the node
+   and how big the spread is (expect ~1.5x from UPI-bound input reads on
+   socket 1 at B=4096).  If it fires strongly, consider making the x-pass
+   NT flush the default partner in the grid there.
+4. **Mode 2 at intermediate batches** (8–31): plane tasks scale to
+   batch*17, so the barrier amortizes; wallaby raced it against mode 1 per
+   plan — verify the node agrees.
+5. **If B=1 matters for the score**: the remaining lever is cutting the
+   plane-task critical path (deint+z+transpose+y ≈ 0.5 us serial per
+   plane); splitting z/y kernel groups across 2 threads per plane doubles
+   sync for ~0.25 us of work — probably not worth it; measure before
+   believing.

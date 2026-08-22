@@ -1,6 +1,34 @@
+/* MULTICORE (round mt_r1)
+ * -----------------------
+ * The batch is the parallel axis: thread t gets a CONTIGUOUS chunk of volumes
+ * (static split, no communication), each thread running the unmodified
+ * phase-1 kernel over its chunk with its OWN scratch, first-touched on its
+ * own core in fft3d_create() so it is NUMA-local.  Volumes are 3456 B =
+ * 54 cache lines, so chunk boundaries never share a line (no false sharing).
+ *
+ * What is raced at plan time (setup is unscored): a 2D tournament over
+ * (kernel x thread count) at the real batch size, T in {1,2,4,8,16,24,32}.
+ * The kernel rows are the phase-1 shapes whose differences could survive 32
+ * threads sharing the bus, PLUS two NT-store twins: NT was REJECTED on the
+ * node single-core (a lone core is limited by fill-buffer concurrency, not
+ * bandwidth), but with 32 cores the bus IS the limiter and streaming stores
+ * cut the out-traffic RFO -- 1/3 of all traffic -- which is precisely the
+ * regime change this race exists to detect.  Column choice is smallest-T-
+ * first with a 2% takeover margin, kernel rows keep the phase-1 safest-first
+ * margins, so a noisy 32-thread cell cannot steal the pick.
+ *
+ * B=1 stays SINGLE-THREADED by design: the whole transform is ~600 cycles
+ * (~0.21 us); an empty OMP fork/join at 32 threads costs microseconds (the
+ * fork=... probe in the batched descriptions measures it on the node), so
+ * any split loses before it starts.  The B=1 process never spawns a thread.
+ *
+ * fft3d_execute() creates no threads: the pool is warmed in fft3d_create()
+ * and every execute re-enters it via one parallel region (GOMP spin-wait
+ * keeps workers hot between the driver's back-to-back calls).
+ */
 /* Carried over from the SINGLE-THREAD competition, where this file finished as
- * written below. Your job in the multicore phase is to parallelise it across
- * 32 cores without losing its single-core efficiency -- read
+ * written below (phase-1 node: B=1 0.208 us, B=4096 0.394 us/vol, B=32768
+ * 0.565 us/vol, all 1.26-1.79x ahead of the best library) -- read
  * ../PANEL_BRIEF.md, and read ../../geom/strategies/L6_pfa.md for the full
  * history of how this kernel got here.
  */
@@ -183,6 +211,8 @@
  * guarantees both); single-threaded; the plan's scratch is not re-entrant.
  */
 
+#define _GNU_SOURCE 1     /* pthread_getaffinity_np for the spin pool */
+
 #include "fft3d_api.h"
 
 #include <stdint.h>
@@ -191,8 +221,16 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#include <pthread.h>
+#include <sched.h>
+#include <stdatomic.h>
+#endif
+
 #define VOLC 216          /* complex per volume */
 #define VOLD 432          /* doubles  per volume */
+#define L6_MAXT 32        /* never take more threads than the harness grants */
 /* Takeover margins are per-candidate since panel_r11 (see the cand[] table):
  * 1.5% default, 1.0% for bit-identical x-order twins. */
 
@@ -599,6 +637,16 @@ GEN_FU(k_fu_pfw_xa,          PASS_X_A,  STN, PF_T0W,  DFT6V)
 GEN_FU(k_fu_pfw_xa_d2,       PASS_X_A,  STN, PF_T0W,  DFT6V2)
 GEN_FU(k_fu_pfw,             PASS_X,    STN, PF_T0W,  DFT6V)
 
+/* NT-store twins (round mt_r1, MULTICORE ONLY -- never in the B=1 race).
+ * The fused stage's six 32B stores per z-chunk cover exactly three whole
+ * 64B lines in ascending order, so pairs of stream_pd stores combine to
+ * full-line WC writes: out is written with NO read-for-ownership.  The
+ * x-pass still stores t1 normally (L1-resident scratch).  Needs sfence
+ * after the batch (fence=1 in the candidate tables). */
+#define STNT(p, v) _mm256_stream_pd((double *)(p), (v))
+GEN_FU(k_fu_nt_xa_d2,        PASS_X_A,  STNT, PF_NONE, DFT6V2)
+GEN_FU(k_fu_pf_nt_xa_d2,     PASS_X_A,  STNT, PF_T0,   DFT6V2)
+
 /* The AVX-512 x-pass family (fused_zx*) was DELETED in panel_r8 (falsified
  * r7: zero picks in eight cells at measured-equal licence clock); the _rot
  * per-volume scratch-rotation twins were DELETED in panel_r9 (falsified r8:
@@ -657,6 +705,18 @@ struct fft3d_plan {
     int  fence;           /* nonzero if the chosen kernel uses NT stores */
     int  placed;
     const char *chosen;
+    /* multicore (round mt_r1): nthreads==1 is the phase-1 path, untouched.
+     * Per-thread scratch is one arena per thread, allocated AND first-touched
+     * by its own thread inside fft3d_create()'s pool-warm region, so each
+     * lives in that thread's socket's memory.  Arenas are separate mallocs
+     * (6976 B, 64B aligned): no two threads' scratch shares a cache line. */
+    int  nthreads;
+    double *tarena[L6_MAXT];
+    double *tt1[L6_MAXT], *tt2[L6_MAXT];
+    /* dispatch: 0 = one OMP parallel region per execute; 1 = the spin-wait
+     * pthread pool below (raced at plan time, pool must win by >2%) */
+    int  use_pool;
+    void *pool;
 };
 
 /* 4K-aliasing defence (adopted from L6_unrolled round 1: +22% at B=1 for an
@@ -689,6 +749,145 @@ static void place_scratch(fft3d_plan *p, const void *in, const void *out)
     p->placed = 1;
 }
 
+#if defined(L6_HAVE_AVX2) && defined(_OPENMP)
+/* Run (kernel, T) over the first nb volumes with the static contiguous
+ * split; the SAME function serves the plan-time 2D race and fft3d_execute,
+ * so what is raced is bit-for-bit what runs.  T==1 is a direct call (no
+ * parallel region), matching the single-thread path's overhead.  No 4K
+ * scratch placement here: per-volume store->load deltas cycle through 32
+ * residues mod 4096 inside any chunk of >=32 volumes, so placement is a
+ * B=1-scale effect and the threaded path never runs at B=1. */
+static void l6_run_cfg(fft3d_plan *p, l6_kernel k, int fence, int T,
+                       const double *in, double *out, long nb)
+{
+    if (T <= 1) {
+        k(p->tt1[0], p->tt2[0], in, out, nb);
+        if (fence) _mm_sfence();
+        return;
+    }
+    #pragma omp parallel num_threads(T)
+    {
+        int t = omp_get_thread_num();
+        long q = nb / T, r = nb % T;
+        long b0 = q * t + (t < r ? t : r);
+        long n  = q + (t < r ? 1 : 0);
+        if (n > 0)
+            k(p->tt1[t], p->tt2[t], in + b0 * VOLD, out + b0 * VOLD, n);
+        if (fence) _mm_sfence();
+    }
+}
+
+/* ---- spin-wait dispatch pool (round mt_r1) ----
+ * GOMP's fork/join at 32 threads measures 5-6 us on wallaby -- 15% of a
+ * whole B=4096 execute.  This pool replaces it with one release-store of an
+ * epoch counter (workers spin on it with pause) and 31 padded done-flags the
+ * master scans, ~1-2 us round trip.  Workers are pinned to the EXACT
+ * affinity masks the OMP threads report (captured inside the pool-warm
+ * region), so thread t runs on the same core -- and the same socket as its
+ * first-touched scratch -- under either dispatch.  Workers never sleep, so
+ * the pool is only kept if it BEATS the OMP dispatch by >2% in the plan-time
+ * race; otherwise it is torn down before create() returns and the scored
+ * run never sees a spinning core it did not pay for.  The pool never has
+ * more than the harness's 32 threads in total (master included). */
+typedef struct {
+    l6_kernel k;
+    int fence, T;
+    const double *in;
+    double *out;
+    long nb;
+} l6_job;
+
+struct l6_pool;
+typedef struct { struct l6_pool *pl; int idx; } l6_warg;
+
+typedef struct l6_pool {
+    _Atomic long epoch;
+    _Atomic int shutdown;
+    l6_job job;
+    fft3d_plan *plan;
+    int nworkers;                    /* workers 1..nworkers; master is 0 */
+    pthread_t th[L6_MAXT];
+    l6_warg warg[L6_MAXT];
+    struct { _Atomic long done; char pad[48]; } w[L6_MAXT]
+        __attribute__((aligned(64)));
+} l6_pool;
+
+static void *l6_pool_worker(void *argp)
+{
+    l6_pool *pl = ((l6_warg *)argp)->pl;
+    int t = ((l6_warg *)argp)->idx;
+    long seen = 0;
+    for (;;) {
+        long e;
+        while ((e = atomic_load_explicit(&pl->epoch, memory_order_acquire))
+               == seen)
+            _mm_pause();
+        if (atomic_load_explicit(&pl->shutdown, memory_order_acquire)) break;
+        l6_job jb = pl->job;         /* safe: written before the epoch bump */
+        if (t < jb.T) {
+            long q = jb.nb / jb.T, r = jb.nb % jb.T;
+            long b0 = q * t + (t < r ? t : r);
+            long n  = q + (t < r ? 1 : 0);
+            fft3d_plan *p = pl->plan;
+            if (n > 0)
+                jb.k(p->tt1[t], p->tt2[t],
+                     jb.in + b0 * VOLD, jb.out + b0 * VOLD, n);
+            if (jb.fence) _mm_sfence();
+        }
+        atomic_store_explicit(&pl->w[t].done, e, memory_order_release);
+        seen = e;
+    }
+    return NULL;
+}
+
+static void l6_run_pool(l6_pool *pl, l6_kernel k, int fence, int T,
+                        const double *in, double *out, long nb)
+{
+    fft3d_plan *p = pl->plan;
+    pl->job.k = k; pl->job.fence = fence; pl->job.T = T;
+    pl->job.in = in; pl->job.out = out; pl->job.nb = nb;
+    long e = atomic_load_explicit(&pl->epoch, memory_order_relaxed) + 1;
+    atomic_store_explicit(&pl->epoch, e, memory_order_release);
+    long q = nb / T, r = nb % T;     /* master takes chunk 0 itself */
+    long n = q + (r > 0 ? 1 : 0);
+    if (n > 0) k(p->tt1[0], p->tt2[0], in, out, n);
+    if (fence) _mm_sfence();
+    /* EVERY worker acks every epoch (idle ones immediately), so the next
+     * job write can never race a straggler's read of this one */
+    for (int t = 1; t <= pl->nworkers; ++t)
+        while (atomic_load_explicit(&pl->w[t].done, memory_order_acquire) != e)
+            _mm_pause();
+}
+
+static void l6_pool_destroy(l6_pool *pl)
+{
+    if (!pl) return;
+    atomic_store_explicit(&pl->shutdown, 1, memory_order_release);
+    atomic_fetch_add_explicit(&pl->epoch, 1, memory_order_release);
+    for (int t = 1; t <= pl->nworkers; ++t) pthread_join(pl->th[t], NULL);
+    free(pl);
+}
+
+static l6_pool *l6_pool_create(fft3d_plan *p, int tmax, const cpu_set_t *sets)
+{
+    l6_pool *pl = NULL;
+    if (posix_memalign((void **)&pl, 64, sizeof(*pl)) != 0 || !pl) return NULL;
+    memset(pl, 0, sizeof(*pl));
+    pl->plan = p;
+    pl->nworkers = tmax - 1;
+    for (int t = 1; t <= pl->nworkers; ++t) {
+        pl->warg[t].pl = pl; pl->warg[t].idx = t;
+        if (pthread_create(&pl->th[t], NULL, l6_pool_worker, &pl->warg[t])) {
+            pl->nworkers = t - 1;    /* join only what exists */
+            l6_pool_destroy(pl);
+            return NULL;
+        }
+        pthread_setaffinity_np(pl->th[t], sizeof(cpu_set_t), &sets[t]);
+    }
+    return pl;
+}
+#endif
+
 const char *fft3d_name(void) { return "L6_pfa"; }
 
 /* The chosen kernel, the clock probes, and the boundary probes are formatted
@@ -719,6 +918,30 @@ static double now_s(void)
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec;
 }
+
+#ifdef _OPENMP
+/* Cost of one empty fork/join at T threads (us), min of 5x128.  This is the
+ * floor any threaded execute pays; at B=1 it alone is ~10-20x the whole
+ * transform, which is the measured reason B=1 stays single-threaded. */
+static double l6_fork_us(int T)
+{
+    double best = 1e30;
+    for (int i = 0; i < 8; ++i) {
+        #pragma omp parallel num_threads(T)
+        { __asm__ __volatile__("" ::: "memory"); }
+    }
+    for (int trial = 0; trial < 5; ++trial) {
+        double t0 = now_s();
+        for (int i = 0; i < 128; ++i) {
+            #pragma omp parallel num_threads(T)
+            { __asm__ __volatile__("" ::: "memory"); }
+        }
+        double e = (now_s() - t0) / 128.0 * 1e6;
+        if (e < best) best = e;
+    }
+    return best;
+}
+#endif
 
 /* ---------------------------------------------------- clock probes ---
  * All setup-time only (unscored).  Frequencies from FMA chains of known
@@ -898,9 +1121,49 @@ fft3d_plan *fft3d_create(int L, int batch)
     p->fence = 0;
     p->placed = 0;
     p->chosen = "scalar";
+    p->nthreads = 1;
 
 #ifdef L6_HAVE_AVX2
     {
+        /* ---- multicore setup: warm the pool, give every thread its own
+         * NUMA-local scratch (allocated AND first-touched by that thread,
+         * under the same close/cores binding execute will see).  batch==1
+         * never spawns a thread: the fork alone costs ~10x the transform. */
+        int tmax = 1, use_mt = 0;
+        double fork_us = 0.0;
+#ifdef _OPENMP
+        static cpu_set_t omp_sets[L6_MAXT];  /* per-thread binding, captured
+                                              * for the spin pool's workers */
+        if (batch > 1) {
+            tmax = omp_get_max_threads();
+            if (tmax > L6_MAXT) tmax = L6_MAXT;
+            if (tmax < 1) tmax = 1;
+            if (tmax > 1) {
+                int fail = 0;
+                #pragma omp parallel num_threads(tmax)
+                {
+                    int t = omp_get_thread_num();
+                    pthread_getaffinity_np(pthread_self(),
+                                           sizeof(cpu_set_t), &omp_sets[t]);
+                    double *ar = (double *)l6_alloc(
+                        (size_t)(2 * VOLD) * sizeof(double) + 64);
+                    if (ar) {
+                        memset(ar, 0, (size_t)(2 * VOLD) * sizeof(double) + 64);
+                        p->tarena[t] = ar;
+                        p->tt1[t] = ar;
+                        p->tt2[t] = ar + VOLD;
+                    } else {
+                        #pragma omp atomic write
+                        fail = 1;
+                    }
+                }
+                for (int t = 0; t < tmax; ++t) if (!p->tarena[t]) fail = 1;
+                use_mt = !fail;
+                fork_us = l6_fork_us(tmax);
+            }
+        }
+#endif
+        (void)tmax; (void)fork_us;
         /* Safest-first order, re-derived from the r10 node evidence
          * (panel_r11).  Two changes, both selection plumbing -- no kernel is
          * added, deleted, or edited, so the raced .text is unchanged:
@@ -950,6 +1213,24 @@ fft3d_plan *fft3d_create(int L, int batch)
         int ok[NCAND];
         for (int c = 0; c < NCAND; ++c) ok[c] = 0;
 
+        /* MULTICORE candidate rows (round mt_r1): the phase-1 shapes whose
+         * differences could plausibly survive 32 threads sharing the bus
+         * (prefetch set, x order, sp2), plus the NT-store twins -- see the
+         * header for why NT re-enters in the multicore regime.  Safest-first
+         * order and per-row margins follow the phase-1 discipline. */
+        static const struct { l6_kernel k; int fence; double mar; const char *nm; } mtc[] = {
+            { k_fu_pf_d2,        0, 0.015, "fused_pf_d2"        },
+            { k_fu_pf_xa_d2,     0, 0.010, "fused_pf_xa_d2"     },
+            { k_fu_pfw_xa_d2,    0, 0.015, "fused_pfw_xa_d2"    },
+            { k_fu_d2,           0, 0.015, "fused_d2"           },
+            { k_fu_sp2_pf_xa,    0, 0.015, "fused_sp2_pf_xa"    },
+            { k_fu_nt_xa_d2,     1, 0.015, "fused_nt_xa_d2"     },
+            { k_fu_pf_nt_xa_d2,  1, 0.010, "fused_pf_nt_xa_d2"  },
+        };
+        enum { NMT = (int)(sizeof(mtc) / sizeof(mtc[0])) };
+        int okm[NMT];
+        for (int c = 0; c < NMT; ++c) okm[c] = 0;
+
         /* ---- correctness gate: reproduce the scalar reference bit-closely
          * on random data or never be timed at all. ---- */
         long nval = batch < 4 ? batch : 4;
@@ -976,9 +1257,50 @@ fft3d_plan *fft3d_create(int L, int batch)
                 }
                 ok[c] = nrm > 0.0 && e <= 1e-26 * nrm;   /* rel L2 <= 1e-13 */
             }
+            for (int c = 0; c < NMT; ++c) {
+                memset(vgot, 0, (size_t)nval * VOLD * sizeof(double));
+                mtc[c].k(p->t1, p->t2, vin, vgot, nval);
+                if (mtc[c].fence) _mm_sfence();
+                double e = 0.0;
+                for (long i = 0; i < nval * VOLD; ++i) {
+                    double d = vgot[i] - vref[i];
+                    e += d * d;
+                }
+                okm[c] = nrm > 0.0 && e <= 1e-26 * nrm;
+            }
         }
         free(vin); free(vref); free(vgot);
 
+        /* ---- race arena, common to both arms: (a truncation of) the real
+         * batch size.  Single-thread cap 16384 volumes = 113 MiB: DRAM on
+         * wallaby (60 MiB L3) and the node (22 MiB), so a DRAM-bound real
+         * batch is raced in a DRAM-bound arena (cap from L6_unrolled r2).
+         * The MULTICORE cap is 65536: 32 threads see L3 + 32 L2s of
+         * aggregate cache (~124 MiB on wallaby, ~54 MiB on the node), and a
+         * 113 MiB arena raced 2.7x FASTER than the real 452 MiB batch ran
+         * (measured mt_r1 on wallaby: 0.0159 vs 0.0434 us/vol) -- a capped
+         * race would crown a cache-regime kernel for a DRAM-regime problem.
+         * Filled SERIALLY by this thread, exactly as the driver first-touches
+         * the caller's buffers -- the NUMA page placement the race sees is
+         * the placement the scored run sees. ---- */
+        long nb = batch;
+        long nbcap = use_mt ? 65536 : 16384;
+        if (nb > nbcap) nb = nbcap;
+        size_t nd = (size_t)nb * VOLD;
+        double *a = (double *)l6_alloc((nd + VOLD) * sizeof(double));
+        double *b = (double *)l6_alloc(nd * sizeof(double));
+        if (a && b) {
+            unsigned s = 12345u;
+            for (size_t i = 0; i < nd + VOLD; ++i) {
+                s = s * 1664525u + 1013904223u;
+                a[i] = (double)(int)(s >> 8) * 1e-9;
+            }
+            memset(b, 0, nd * sizeof(double));
+            place_scratch(p, a, b);      /* race with realistically-placed scratch */
+        }
+
+        if (!use_mt) {
+        /* ============== single-thread arm: phase 1, verbatim ============ */
         /* Forced pick by NAME (env L6_FORCE, adopted from L6_unrolled's r5
          * switch): skips the race, still requires the correctness gate, and
          * is marked with '!' in the description so it can never be mistaken
@@ -990,26 +1312,7 @@ fft3d_plan *fft3d_create(int L, int batch)
                 for (int c = 0; c < NCAND; ++c)
                     if (ok[c] && strcmp(fn, cand[c].nm) == 0) { forced = c; break; }
         }
-
-        /* ---- race the survivors at (a truncation of) the real batch size.
-         * Cap 16384 volumes = 113 MiB: unambiguously DRAM on wallaby (60 MiB
-         * L3) and the node (22 MiB), so a DRAM-bound real batch is raced in a
-         * DRAM-bound arena (cap rationale from L6_unrolled round 2). ---- */
-        long nb = batch;
-        if (nb > 16384) nb = 16384;
-        size_t nd = (size_t)nb * VOLD;
-        double *a = (double *)l6_alloc((nd + VOLD) * sizeof(double));
-        double *b = (double *)l6_alloc(nd * sizeof(double));
         int best = -1;
-        if (a && b) {
-            unsigned s = 12345u;
-            for (size_t i = 0; i < nd + VOLD; ++i) {
-                s = s * 1664525u + 1013904223u;
-                a[i] = (double)(int)(s >> 8) * 1e-9;
-            }
-            memset(b, 0, nd * sizeof(double));
-            place_scratch(p, a, b);      /* race with realistically-placed scratch */
-        }
         if (a && b && forced < 0) {
             /* settle spin: ~100 ms of dense ymm FMA so the calibration and
              * round 0 are not ranked on a ramping clock (adopted from
@@ -1136,9 +1439,6 @@ fft3d_plan *fft3d_create(int L, int batch)
                 if (p->fence) _mm_sfence();
             } while (now_s() - t0 < 3e-3);
         }
-        free(a); free(b);
-        p->t1 = p->arena; p->t2 = p->arena + VOLD; p->placed = 0;
-
         snprintf(l6_desc, sizeof l6_desc,
                  "Good-Thomas PFA 2x3 per axis, no twiddles, 2 cplx/ymm, "
                  "plan-raced; variant=%s%s clkS256=%.2f clkD256=%.2f "
@@ -1154,6 +1454,273 @@ fft3d_plan *fft3d_create(int L, int batch)
                     clkS256, clkD256, clkS512, kclk,
                     bp[0], bp[1], bp[2], bp[3],
                     bp[0] - bp[1], bp[0] - bp[2] - bp[3]);
+        }
+#ifdef _OPENMP
+        else {
+        /* ================= MULTICORE arm (round mt_r1) =================
+         * 2D tournament over (kernel row x thread column) on the race arena,
+         * timed with the EXACT split-and-region code fft3d_execute runs.
+         * Column pick is smallest-T-first with a 2% takeover margin (a wide,
+         * noisier column must prove itself); rows keep phase-1 margins. */
+        static const int Tset[] = { 1, 2, 4, 8, 16, 24, 32 };
+        enum { NTS = (int)(sizeof(Tset) / sizeof(Tset[0])) };
+        int Tuse[NTS], nTu = 0;
+        for (int i = 0; i < NTS; ++i)
+            if (Tset[i] <= tmax && (long)Tset[i] <= nb) Tuse[nTu++] = Tset[i];
+
+        double bt[NTS][NMT];
+        for (int ci = 0; ci < NTS; ++ci)
+            for (int c = 0; c < NMT; ++c) bt[ci][c] = 1e30;
+        int ck = -1, cT = 1;
+        double t1c = 0.0, tbc = 0.0;
+
+        if (a && b && nTu > 0) {
+            /* settle spin: ~100 ms of dense ymm FMA so calibration and round
+             * 0 are not ranked on a ramping clock (phase-1 discipline) */
+            double ts0 = now_s();
+            while (now_s() - ts0 < 0.1) (void)l6_clk_d256(400000L);
+
+            int cal = 0;
+            while (cal < NMT - 1 && !okm[cal]) ++cal;
+            long reps[NTS];
+            for (int ci = 0; ci < nTu; ++ci) {
+                reps[ci] = 1;
+                if (!okm[cal]) continue;
+                for (;;) {           /* per-column reps: slices ~1.2 ms */
+                    double tc = now_s();
+                    for (long r = 0; r < reps[ci]; ++r)
+                        l6_run_cfg(p, mtc[cal].k, mtc[cal].fence,
+                                   Tuse[ci], a, b, nb);
+                    double e = now_s() - tc;
+                    if (e > 1.2e-3 || reps[ci] > (1L << 20)) break;
+                    reps[ci] *= 2;
+                }
+            }
+            /* round-robin over ALL cells so drift hits every cell equally;
+             * per-cell minimum; ~0.3 ms untimed dwell before each slice so a
+             * cell is measured in its own steady licence/cache state */
+            for (int round = 0; round < 7; ++round)
+                for (int ci = 0; ci < nTu; ++ci)
+                    for (int c = 0; c < NMT; ++c) {
+                        if (!okm[c]) continue;
+                        double td = now_s();
+                        do
+                            l6_run_cfg(p, mtc[c].k, mtc[c].fence,
+                                       Tuse[ci], a, b, nb);
+                        while (now_s() - td < 3e-4);
+                        double tt = now_s();
+                        for (long r = 0; r < reps[ci]; ++r)
+                            l6_run_cfg(p, mtc[c].k, mtc[c].fence,
+                                       Tuse[ci], a, b, nb);
+                        double e = (now_s() - tt) / (double)reps[ci];
+                        if (e < bt[ci][c]) bt[ci][c] = e;
+                    }
+            /* per-column winner: safest-first with per-row margins and the
+             * running true minimum (no sub-margin drift, phase-1 rule) */
+            int colk[NTS];
+            for (int ci = 0; ci < nTu; ++ci) {
+                int kk = -1; double ref = 1e30;
+                for (int c = 0; c < NMT; ++c) {
+                    if (!okm[c]) continue;
+                    if (kk < 0 || bt[ci][c] < ref * (1.0 - mtc[c].mar)) {
+                        kk = c; ref = bt[ci][c];
+                    } else if (bt[ci][c] < ref) ref = bt[ci][c];
+                }
+                colk[ci] = kk;
+            }
+            int bci = -1; double cref = 1e30;
+            for (int ci = 0; ci < nTu; ++ci) {
+                if (colk[ci] < 0) continue;
+                double tc = bt[ci][colk[ci]];
+                if (bci < 0 || tc < cref * 0.98) { bci = ci; cref = tc; }
+                else if (tc < cref) cref = tc;
+            }
+            if (bci >= 0) {
+                ck = colk[bci]; cT = Tuse[bci];
+                tbc = bt[bci][colk[bci]] / (double)nb * 1e6;
+            }
+            if (colk[0] >= 0) t1c = bt[0][colk[0]] / (double)nb * 1e6;
+            if (l6_verbose()) {
+                fprintf(stderr, "L6_pfa mt race (nb=%ld, us/vol):\n%22s",
+                        nb, "");
+                for (int ci = 0; ci < nTu; ++ci)
+                    fprintf(stderr, "     T=%-2d", Tuse[ci]);
+                for (int c = 0; c < NMT; ++c) {
+                    fprintf(stderr, "\n  %-20s", mtc[c].nm);
+                    for (int ci = 0; ci < nTu; ++ci)
+                        fprintf(stderr, " %8.4f",
+                                okm[c] ? bt[ci][c] / (double)nb * 1e6 : 0.0);
+                }
+                fprintf(stderr, "\n");
+                if (ck >= 0)
+                    fprintf(stderr, "  -> chosen %s T=%d (T=1 col best "
+                            "%.4f us/vol)\n", mtc[ck].nm, cT, t1c);
+            }
+        }
+
+        /* forced overrides for the monitor's A/Bs: L6_FORCE=<row name> and/or
+         * L6_FORCE_T=<threads>; the gate still applies, '!' marks the pick */
+        int forcedmt = 0;
+        {
+            const char *fn = getenv("L6_FORCE");
+            if (fn)
+                for (int c = 0; c < NMT; ++c)
+                    if (okm[c] && strcmp(fn, mtc[c].nm) == 0) {
+                        ck = c; forcedmt = 1; break;
+                    }
+            const char *ft = getenv("L6_FORCE_T");
+            if (ft) {
+                int T = atoi(ft);
+                if (T >= 1 && T <= tmax && (long)T <= batch) {
+                    cT = T; forcedmt = 1;
+                }
+            }
+        }
+
+        if (ck >= 0) {
+            p->run = mtc[ck].k; p->fence = mtc[ck].fence;
+            p->chosen = mtc[ck].nm; p->nthreads = cT;
+        } else {
+            for (int c = 0; c < NCAND; ++c)
+                if (ok[c]) { p->run = cand[c].k; p->fence = cand[c].fence;
+                             p->chosen = cand[c].nm; break; }
+            p->nthreads = 1;
+        }
+
+        /* ---- dispatch race: OMP fork/join vs the spin pool, on the CHOSEN
+         * (kernel, T).  Sequenced, not interleaved: the pool's workers never
+         * sleep, so timing OMP with a live pool (or vice versa) poisons the
+         * cell.  OMP is timed first (no pool exists), then the pool, with a
+         * ~3 ms dwell so GOMP's spinners have gone to sleep.  The pool must
+         * win by >2% or it is torn down on the spot. ---- */
+        double t_omp = 0.0, t_pool = 0.0;
+        if (p->nthreads > 1 && a && b) {
+            long reps2 = 1;
+            for (;;) {
+                double tc = now_s();
+                for (long r = 0; r < reps2; ++r)
+                    l6_run_cfg(p, p->run, p->fence, p->nthreads, a, b, nb);
+                if (now_s() - tc > 1.5e-3 || reps2 > (1L << 20)) break;
+                reps2 *= 2;
+            }
+            t_omp = 1e30;
+            for (int round = 0; round < 5; ++round) {
+                double td = now_s();
+                do
+                    l6_run_cfg(p, p->run, p->fence, p->nthreads, a, b, nb);
+                while (now_s() - td < 3e-4);
+                double tt = now_s();
+                for (long r = 0; r < reps2; ++r)
+                    l6_run_cfg(p, p->run, p->fence, p->nthreads, a, b, nb);
+                double e = (now_s() - tt) / (double)reps2;
+                if (e < t_omp) t_omp = e;
+            }
+            l6_pool *pl = l6_pool_create(p, tmax, omp_sets);
+            if (pl) {
+                t_pool = 1e30;
+                double td0 = now_s();      /* let GOMP's spinners sleep */
+                do
+                    l6_run_pool(pl, p->run, p->fence, p->nthreads, a, b, nb);
+                while (now_s() - td0 < 3e-3);
+                for (int round = 0; round < 5; ++round) {
+                    double td = now_s();
+                    do
+                        l6_run_pool(pl, p->run, p->fence, p->nthreads,
+                                    a, b, nb);
+                    while (now_s() - td < 3e-4);
+                    double tt = now_s();
+                    for (long r = 0; r < reps2; ++r)
+                        l6_run_pool(pl, p->run, p->fence, p->nthreads,
+                                    a, b, nb);
+                    double e = (now_s() - tt) / (double)reps2;
+                    if (e < t_pool) t_pool = e;
+                }
+                if (t_pool < t_omp * 0.98) {
+                    p->pool = pl; p->use_pool = 1;
+                } else {
+                    l6_pool_destroy(pl);
+                }
+            }
+            if (l6_verbose())
+                fprintf(stderr, "L6_pfa dispatch: omp=%.4f pool=%.4f us/vol"
+                        " -> %s\n", t_omp / (double)nb * 1e6,
+                        t_pool > 0 ? t_pool / (double)nb * 1e6 : 0.0,
+                        p->use_pool ? "pool" : "omp");
+        }
+
+        /* threaded-split correctness check of the FINAL configuration on an
+         * ODD volume count (uneven chunks), against the scalar reference: a
+         * split bug can never ship.  Falls back to T=1 (gate-proven). */
+        if (p->nthreads > 1) {
+            long nchk = batch < 61 ? batch : 61;
+            double *cin = (double *)l6_alloc((size_t)nchk * VOLD * sizeof(double));
+            double *crf = (double *)l6_alloc((size_t)nchk * VOLD * sizeof(double));
+            double *cgt = (double *)l6_alloc((size_t)nchk * VOLD * sizeof(double));
+            int good = 0;
+            if (cin && crf && cgt) {
+                unsigned s2 = 987654321u;
+                for (long i = 0; i < nchk * VOLD; ++i) {
+                    s2 = s2 * 1664525u + 1013904223u;
+                    cin[i] = (double)(int)(s2 >> 8) * 1e-9;
+                }
+                kern_scalar(p->t1, p->t2, cin, crf, nchk);
+                memset(cgt, 0, (size_t)nchk * VOLD * sizeof(double));
+                if (p->use_pool)
+                    l6_run_pool((l6_pool *)p->pool, p->run, p->fence,
+                                p->nthreads, cin, cgt, nchk);
+                else
+                    l6_run_cfg(p, p->run, p->fence, p->nthreads,
+                               cin, cgt, nchk);
+                double nrm2 = 0.0, e2 = 0.0;
+                for (long i = 0; i < nchk * VOLD; ++i) {
+                    nrm2 += crf[i] * crf[i];
+                    double d = cgt[i] - crf[i];
+                    e2 += d * d;
+                }
+                good = nrm2 > 0.0 && e2 <= 1e-26 * nrm2;
+            }
+            free(cin); free(crf); free(cgt);
+            if (!good) {                 /* the kernel itself is gate-proven */
+                p->nthreads = 1;
+                if (p->use_pool) {
+                    l6_pool_destroy((l6_pool *)p->pool);
+                    p->pool = NULL; p->use_pool = 0;
+                }
+            }
+        }
+
+        /* steady-state tail: hand the driver the pool, licence and caches in
+         * the CHOSEN configuration's own state (phase-1 lesson, threaded) */
+        if (a && b) {
+            double tt0 = now_s();
+            do {
+                if (p->use_pool)
+                    l6_run_pool((l6_pool *)p->pool, p->run, p->fence,
+                                p->nthreads, a, b, nb);
+                else
+                    l6_run_cfg(p, p->run, p->fence, p->nthreads, a, b, nb);
+            } while (now_s() - tt0 < 3e-3);
+        }
+
+        snprintf(l6_desc, sizeof l6_desc,
+                 "Good-Thomas PFA 2x3 per axis, no twiddles, 2 cplx/ymm; mt "
+                 "batch-split, per-thread NUMA scratch, 2D-raced (%d kernels "
+                 "x T<=%d); variant=%s%s T=%d disp=%s fork=%.2fus "
+                 "raceT1=%.4f raceBest=%.4f omp=%.4f pool=%.4fus/vol",
+                 (int)NMT, tmax, p->chosen, forcedmt ? "!" : "", p->nthreads,
+                 p->use_pool ? "pool" : "omp", fork_us, t1c, tbc,
+                 t_omp > 0.0 ? t_omp / (double)nb * 1e6 : 0.0,
+                 t_pool > 0.0 ? t_pool / (double)nb * 1e6 : 0.0);
+        if (l6_verbose())
+            fprintf(stderr, "L6_pfa mt: chosen %s T=%d disp=%s fork=%.2fus "
+                    "raceT1=%.4f raceBest=%.4f us/vol\n",
+                    p->chosen, p->nthreads, p->use_pool ? "pool" : "omp",
+                    fork_us, t1c, tbc);
+        }
+#endif /* _OPENMP */
+
+        free(a); free(b);
+        p->t1 = p->arena; p->t2 = p->arena + VOLD; p->placed = 0;
     }
 #else
     {
@@ -1169,6 +1736,20 @@ fft3d_plan *fft3d_create(int L, int batch)
 
 void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex *out)
 {
+#if defined(L6_HAVE_AVX2) && defined(_OPENMP)
+    if (plan->nthreads > 1) {
+        /* no thread is created here: either one parallel region re-entering
+         * the pool warmed in create(), or the plan's own spin pool */
+        if (plan->use_pool)
+            l6_run_pool((l6_pool *)plan->pool, plan->run, plan->fence,
+                        plan->nthreads, (const double *)in, (double *)out,
+                        plan->batch);
+        else
+            l6_run_cfg(plan, plan->run, plan->fence, plan->nthreads,
+                       (const double *)in, (double *)out, plan->batch);
+        return;
+    }
+#endif
     if (!plan->placed) place_scratch(plan, in, out);
     plan->run(plan->t1, plan->t2, (const double *)in, (double *)out, plan->batch);
 #ifdef L6_HAVE_AVX2
@@ -1179,6 +1760,10 @@ void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex 
 void fft3d_destroy(fft3d_plan *plan)
 {
     if (!plan) return;
+#if defined(L6_HAVE_AVX2) && defined(_OPENMP)
+    if (plan->pool) l6_pool_destroy((l6_pool *)plan->pool);
+#endif
+    for (int t = 0; t < L6_MAXT; ++t) free(plan->tarena[t]);
     free(plan->arena);
     free(plan);
 }
