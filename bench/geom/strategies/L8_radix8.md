@@ -1118,3 +1118,152 @@ plus the VERDICT §6 pending counter.
    that L=8 B=1, like streaming, stops being tuned.
 4. Still do not touch the codelet, the transpose networks, or the streaming candidate
    set.
+
+---
+
+## Round panel_r9
+
+### Where round 8 landed (node, panel_r8)
+
+Third in all four cells: B=1 **0.570** (fusedaxes 0.552, batchsimd 0.564), B=64 **0.618**
+(fusedaxes 0.575 min / median-tie with batchsimd 0.589), B=2048 **0.973** (batchsimd 0.912
+min, honestly ≈0.93–0.98 per VERDICT §3b — a three-way tie), B=16384 **1.263** (fusedaxes
+1.236, batchsimd 1.241).  Two findings own this round's decisions:
+
+1. **My r8 B=1 bet was measured wrong, by my own pick strings.**  The three node runs
+   read `2p (tuned)` 0.5700, `1f (default)` 0.5829, `1f (default)` 0.5813 — the fused
+   shape I promoted to default on the strength of both rivals' node wins is **2 % slower
+   than the 2p it displaced, in this file**, and the reported 0.570 came from the one run
+   whose arena tuned back to 2p.  My own pre-registered branch fired ("if it lands ≈0.572
+   the 4 % gap exists at B=1 too").  The VERDICT (§2) sharpens it: adopting a rival's
+   winning *configuration* did not transfer between files even with the arithmetic now
+   bit-identical.
+2. **L=8 has collapsed to one algorithm** (VERDICT §3b): all three entries produce
+   bit-identical output in all four cells, all publish 1248 vector FP per volume.  The
+   0.552 / 0.564 / 0.570 B=1 spread is therefore a **pure measurement of non-arithmetic
+   cost** — prefetch branch shape, scratch placement, code layout — and the pending
+   monitor counter run (`ld_blocks_partial.address_alias`, VERDICT §6 ask 1) is the only
+   named instrument that can attribute it.  The VERDICT also names this entry "the
+   natural donor" if the panel cuts L=8 to two slots.
+
+### What changed (one revert, one diagnostic; zero kernel changes)
+
+1. **B=1 default flipped back `1f` → `2p`** (set now {2p (default), 1f, 3p}).  Basis: the
+   r8 node data above — this file's own three-run measurement of exactly the two configs.
+   The r8 flip's basis (rivals' node numbers for the same shape+codelet) is now a
+   documented non-transfer; the r9 rule I take from it is **only this file's node numbers
+   pick this file's defaults**.  1f stays offered (it needs >2 % in-arena to displace,
+   which r7/r8 arenas say it does not have — so 2p should ship 3/3).
+2. **The in-arena candidate table and the scratch residue are now published through
+   `fft3d_description()`**, e.g. `pick[B=1]=avx512-2p (default) arena{2p=0.633 1f=0.655
+   3p=0.604} scr@0x540` (first three candidates, µs/volume from the same `best[]` the
+   pick logic uses; `scr@` = the plan scratch's address mod 4096).  This is L36_pfa's
+   create-side-measurement pattern, which the r8 VERDICT endorses panel-wide ("requires
+   nothing from the monitor... should become the panel's default").  What it buys, for
+   free, on the next leaderboard:
+   * the node's **arena-vs-driver ranking discrepancy becomes visible per run**
+     (L8_batchsimd r8 documented arenas reproducibly inverting driver rankings at B=64;
+     my r7/r8 story at B=1 is the same shape).  If the node's arena says 2p ≈ 1f while
+     the driver splits them by 2 %, that is direct evidence the tax is tied to the
+     *driver's* buffer layout, which the arena cannot see — exactly the discrimination
+     the alias-counter ask needs, obtained without a counter.
+   * the **scratch residue that each scored run actually drew** is on the record, so
+     fusedaxes' blocked-load model ((scr−out) mod 4096 lottery) can be checked against
+     the three runs' numbers post hoc.
+
+Mid and streaming candidate sets, defaults, kernels, prefetch cadences: **byte-identical
+to r7/r8** for the third round — the VERDICT declares streaming converged (three entries
+within 2.2 % at B=16384) and B=2048 a tie once batchsimd's outlier min is read honestly.
+
+Also read and deliberately NOT done: (a) no alias-avoidance/scratch-repositioning build —
+the r8 evidence pile is now 0-for-4 across the panel (L17_matrixsimd's model-chosen twins
+picked everywhere and worth −0.6 %…+0.4 %; L6_pfa's rotation 0-for-8 picks; L36_mixedradix's
+always-on pin +1.2 % at B=1; fusedaxes' fusedAA/seq3AA declined in-band r7–r8), and my r8
+record already gated this on the counter run saying the mechanism is real and mine;
+(b) no `-funroll-loops` pragma — the r8 VERDICT §3c shows the build-flag gap never existed
+and batchsimd's A/B at L=8 measured the null directly; (c) no new B=1 shapes or codelet
+work — five falsified uop-deletion classes at L=17/L=6 (§4/§5) plus eight rounds of flat
+B=1 here say the residue is not instruction-shaped.
+
+### Operation count per volume
+
+Unchanged in every shape: 1248 vector FP (24 × 52-instr codelets, the 56-flop optimum),
+896 shuffles, 256+256 (2p/1f) or 384+384 (3p) L1 loads/stores, 0 copies, 0 spills.
+Re-audited this round under the node's exact flags (`-O3 -march=cascadelake
+-fno-math-errno -funroll-loops`, gcc 11.4): every avx512 run function shows **0 zmm stack
+spills/reloads, 12–23 loop-edge zmm copies, ≤12 leas** — L45_pfa's r8 lea-spill pathology
+(48 leas + 37 GPR spills from IVOPTS, fixed there by an opaque-base asm barrier) does
+**not** exist in this file, so the barrier was checked and not adopted.  The description
+snprintf runs once per create; execute paths are bit-for-bit the r7 kernels.
+
+### What was measured (wallaby, Gold 6448Y SPR, gcc 11.4, tryout.sh; fast clock state)
+
+| B | r8 | this round | pick (wallaby) | arena table (same process) |
+|---|---|---|---|---|
+| 1 | 0.308 µs | **0.308** | 3p (tuned; the standing wallaby/node inversion — node keeps 2p) | 2p=0.633 1f=0.655 3p=0.602 |
+| 64 | 0.309 | **0.313** (20.045/64) | 3p-pfs (tuned; also the known inversion — node ships 1f-pfs) | 1f-pfs=0.661 3p-pfs=0.603 2p=0.651 |
+| 5632 | 0.594 | **0.582** | 1f-pfs-pfw (default, 3/3 in a dedicated pick-stability check) | 1f-pfs-pfw=0.589 3p-pfs-pfw=0.587 3p-pfs=0.814 |
+
+Correctness: PASS at B = 1, 8, 64, 5632 (rel_l2 1.87e-16 … 1.92e-16, tol 1e-12).  The
+three B=1 shapes were additionally force-run via `L8R_FORCE` and checked against numpy
+individually: 2p 1.308e-16, 1f 2.269e-16, 3p 1.874e-16 — the unchanged family
+fingerprints, so the default revert ships a byte-identical known kernel.  One tryout at
+B=5632 printed `NOT REPEATABLE` across two *processes*: traced (again) to the documented
+r8 artifact — one process's arena crossed the 2 % hysteresis line to 3p-pfs-pfw (its
+output is the 3p-family bit pattern, also PASS); a dedicated 3-process check then picked
+1f-pfs-pfw 3/3 with the twins 0.3–1 % apart in-arena.  Each plan remains bit-identical
+across its own runs, which is the contract.  AVX2 path (`-mno-avx512f`, B=64, 1.19 µs/vol)
+and portable path (`-mno-avx512f -mno-avx2 -mno-fma`, B=8, 1.67 µs/vol) PASS and are
+repeatable.  Builds warning-free under `-Wall -Wextra` at cascadelake / haswell / x86-64.
+
+### What was tried and did NOT work
+
+* **L45_pfa's opaque-base barrier: checked, not applicable** (the objdump audit above —
+  nothing to fix; recorded so nobody re-runs the audit at L=8).
+* Nothing else was attempted, deliberately.  The r1–r8 failure lists all stand.  The
+  wallaby B=1/B=64 inversions (wallaby prefers 3p/3p-pfs over the node's 2p/1f-pfs) were
+  re-confirmed and remain non-results for node purposes — and are now self-documenting on
+  the leaderboard via the arena string.
+
+### Attribution summary
+
+The B=1 revert basis: the **panel_r8 node pick strings** for my own file (via VERDICT §2/
+§3d).  Description-side arena publication: **L36_pfa**'s create-side measurement pattern,
+elevated by the **panel_r8 VERDICT** ("should become the panel's default"); the
+arena-vs-driver inversion it is aimed at is **L8_batchsimd**'s r8 lending.  The decision
+not to build alias avoidance: the r8 panel-wide 0-for-4 (L17_matrixsimd, L6_pfa,
+L36_mixedradix, L8_fusedaxes).  The decision not to ship an unroll pragma:
+**L8_batchsimd**'s r8 null + VERDICT §3c.
+
+### Node predictions (stated to be scored)
+
+* **B=1: 0.570 ± 0.002, pick = 2p (default) 3/3.**  This is the r7 configuration shipped
+  without the r8 lottery; 1f displacing it would need the >2 % in-arena win it has never
+  shown.  The prize this round is the *arena string*: if the node's arena reads
+  2p ≈ 1f (within ~1 %) while the driver holds the 2 % gap, the file tax is
+  driver-buffer-specific and the alias-counter ask gains a second, independent line of
+  evidence; if the arena also reads 1f +2 %, the tax lives in my 1f code path itself and
+  the counter should look at code layout instead.
+* **B=64: 0.612–0.620, pick = 1f-pfs (default)** — unchanged config; the cell is not
+  reachable from inside this file until the tax is attributed.
+* **B=2048: 0.95–1.00** and **B=16384: 1.25–1.28** — byte-identical code and candidate
+  sets for the third round; both cells are ties per the VERDICT's honest-minimum reading.
+* Standing asks, unchanged in substance: the §6 alias counter at B=1 (now with the
+  per-run `scr@` residue on the leaderboard to correlate against), and the
+  `-DL8R_SCRX=128` A/B (r3–r8; touches only the 2p/3p scratch stride).
+
+### Next
+
+1. **Read the node's B=1 arena strings against the driver numbers first** — that
+   comparison is this round's experiment, and either outcome narrows the tax to
+   buffer-layout or code-layout before any counter runs.
+2. **If the counter run lands and attributes the tax to (scr−out) residues**, the fix is
+   the execute-time base selection already sketched in r8 (4 KiB slack, deterministic
+   per (in,out), cached) — build it only then, because the panel's alias interventions
+   are 0-for-4 without counter evidence.
+3. **If the panel cuts L=8 to two slots** (VERDICT §7 names this entry the donor), the
+   transferable assets are documented: the regime-gated tuner protocol, the spread/pfw
+   cadences, and the arena-publication pattern — all attributed and reproducible from
+   this record.
+4. Still do not touch the codelet, the transpose networks, or the streaming candidate
+   set.

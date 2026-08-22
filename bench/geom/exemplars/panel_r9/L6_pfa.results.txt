@@ -1,0 +1,5 @@
+   L6_pfa                         0.207 us     0.207 us    40.50       0.0%    0.441s  ok 2.4e-16       1.00x
+   L6_pfa                         0.215 us    13.763 us    38.95       2.9%    0.452s  ok 2.4e-16       1.00x
+   L6_pfa                         0.395 us  1619.551 us    21.18       2.6%    0.585s  ok 2.4e-16       1.00x
+   L6_pfa                         0.573 us 18786.085 us    14.61       0.1%    2.238s  ok 2.4e-16       1.01x
+   L6_pfa                   Good-Thomas PFA 2x3 per axis, no twiddles, 2 cplx/ymm, plan-raced; variant=fused_pfw_xa clkS256=3.89 clkD256=2.89 clkS512=2.89 kclk=2.89GHz bf=223.0 bsp=221.3 bx=64.5 byz=156.8ns

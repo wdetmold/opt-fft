@@ -462,3 +462,155 @@ verdict's real point.
    (different L2/L3 and BW); it needs node A/Bs or the counter first.
 4. The arithmetic remains settled (L23_rader r6 counting; verdict §5
    confirms dense wins at 13, 17 and 23).
+
+## Round panel_r9 (2026-08-22)
+
+### Standing going in (r8 leaderboard + verdict)
+
+Node: B=1 48.184 µs / B=4 49.701 / B=128 66.223 — second to L23_rader in all
+three cells (47.688 / 49.557 / 64.835), with the B=128 min flagged by the
+verdict as 2.2% low against its own other runs (66.2 / 67.7 / 67.9).  The two
+entries remain bit-identical at every batch size; L=23 is one algorithm twice,
+L23_rader is the promoted arm.  My r8 protocol fix WORKED where it was
+deployed: B=1 and B=4 picked the same variant in all 3 processes
+(timed = checked, exposure gone) — but **B=128 still flipped across
+processes** (pinned+park / pinned / pinned+pw=1), i.e. streaming tuner noise
+on the node exceeds the 2% hysteresis margin.  The verdict's instruction for
+L=23 (§6): the only cell with headroom is B=128 (1.55× floor), the only thing
+that has ever moved it is **L23_rader's joint-grid combination "rp-t1 + pf=2 +
+pw=1" (−1.0%, picked in one process of three)**, and the next round should
+"make it the incumbent so it is picked 3/3".  za (my r8 experiment) is the
+same layout as rader's rp; what I lacked was pf=2 and the joint grid.
+
+### What changed (three things, all borrowed, all streaming-side)
+
+1. **pf=2, in-pass X prefetch** — adopted from **L23_rader r8**: before
+   issuing X chunk i, prefetch the 23 source lines of chunk i+4 (one line per
+   8464-B-strided x-plane of `in`).  Rationale (rader's): at streaming batch
+   `in` misses LLC and the hardware streamer restarts at every 4K boundary of
+   all 23 concurrently-read planes.  Wired into the flat and za X passes of
+   all non-pipelined X-first variants (the pipelined variants' interleaved X
+   chunks ARE the input prefetch — also rader's rule).  The old pf test
+   became `pf == 1` exactly.  Changes no bits (prefetch only; cmp-verified
+   anyway, below).
+2. **Streaming tuner (batch ≥ 64) is now ONE deterministic canonical walk
+   over 24 (variant, pf, pw) COMBOS** — the joint-grid discipline from
+   **L23_rader r8** (itself L17_matrixsimd r4/r6: interacting knobs must be
+   raced as combinations, never knobs-on-the-stage-1-winner), fused with my
+   r8 canonical-order hysteresis.  Two policy changes: the list head
+   (incumbent) is **za + pf=2 + pw=1**, the node-proven winner, per the
+   verdict; and the displacement margin at streaming is **4%** (my r8 B=128
+   flips prove node streaming tables are noisier than 2%; every real
+   streaming effect measured so far on either L=23 entry is smaller than 4%,
+   so the honest policy is: pin the node-proven combo, let only a genuinely
+   new mechanism displace it).  pf=1 (cross-volume plane-phase prefetch) is
+   excluded from the walk — it lost every streaming grid on both entries
+   three rounds running (rader r8 documents the third).  256-bit keeps two
+   sanity rows.  Resident cells (batch < 64) keep the r8 two-stage tuner
+   unchanged except the knob grid gains pf=2 rows (canonical walk
+   {00, 01, 20, 21}, 3% margin, prefetch never defaulted on).
+3. **Env overrides `L23_PF` / `L23_PW`** — from **L23_rader r7**: forced
+   knob A/Bs without a recompile; applied after tuning/FORCE, baked into the
+   description string, never set by the harness.
+
+### Operation count
+
+Unchanged: 594 real flop/line, 943 kflop/volume, 297 vector FP ops/chunk,
+409 zmm chunks (414 for za, +1.2%).  pf=2 adds 23 prefetch µops per X chunk
+when selected (~3.1k/volume flat, ~3.2k za); pw adds ~133 prefetchw per
+plane, as before.
+
+### Bit-class verification (every call site recompiled → redone in full)
+
+One class, pinned X-first.  Forced-variant cmp on full outputs, wallaby:
+all 10 combo-walk variants {9,13,23,30,34,40,41,42,43,44} ≡ representative
+v8 at B=4; spot re-check {13,30,34,40,42} at B=64 all IDENTICAL.  Knobs: all
+five non-zero (pf,pw) cells on v8 and on v40 at B=4, and (2,1) on both at
+B=64 — all IDENTICAL.  check.py PASS asserted on the representative at both
+batches.  tryout repeatability PASS at B=1, 4, 8, 64, 128, 256.  AVX2 host
+(wombat): PASS at 84.1 µs/vol B=2 (r8: 85.1), repeatable.
+
+### What was measured (wallaby, Xeon Gold 6448Y; ordinary-contention day)
+
+| case | r9 | r8 | pick (this round) |
+|---|---|---|---|
+| B=1   | 21.25 µs      | 21.03 | plain pinned X-first, pf=0 pw=0 |
+| B=4   | 22.41 µs/vol  | —     | (resident path, unchanged) |
+| B=8   | 23.59 µs/vol  | 24.87 | resident canonical |
+| B=64  | 26.12 µs/vol  | 24.56 | za pf=0 pw=0 (walk table: 24.17 vs plain 24.14 — a true tie) |
+| B=128 | 25.86 µs/vol  | —     | za pf=2 pw=1, 4/4 processes |
+| B=256 | 28.5–29.1 µs/vol | 30.27 | za pf=2 pw=1 (4/4; one earlier process: plain pf=2 pw=1) |
+
+rel L2 3.767e-16 – 3.808e-16 everywhere.  B=256 tuner table (nv=256, one
+window): plain pf0pw0 32.83 / plain pw1 28.81 / plain pf2pw1 29.13 / za
+pf0pw0 34.11 / za pw1 29.74 / za pf2pw1 30.50 / dz pf2pw1 28.66 / NT 30.44 /
+za-NT 30.17 / 256-bit 39.0.  Readings: **pw=1 at streaming is now worth
+~10–12% on wallaby** and beats NT outright (28.81 vs 30.44 — r8's wallaby NT
+pick is stale); pf=2 is ~1% NEGATIVE on wallaby (SPR's streamer covers it;
+the node's grid said the opposite in rader r8 — exactly why the incumbent is
+set from node evidence, not wallaby); dz+pf2+pw1 is wallaby's raw best but
+by <4%, so it cannot displace — if the node disagrees it must say so by >4%.
+
+### Determinism check (the round's protocol point)
+
+4 independent plan creations at B=128 and at B=256 on wallaby: **8/8 picked
+"za, pf=2, pw=1"**.  Caveat honestly recorded: wallaby's za-vs-plain gap
+(~4.5% in one window) sits near the 4% margin, and one earlier same-day
+process picked plain+pf2+pw1 instead — wallaby can flip across the margin
+boundary.  On the node this exposure should close: rader r8's node grid
+measured its rp (≡ za) rows within ~1% of plain (incumbent survives) and
+node tuner spread is ~0.3%.
+
+### What did NOT work / caveats (with numbers)
+
+* **pf=2 on wallaby at streaming: −1% (loses)** — plain pf2pw1 29.13 vs
+  pf0pw1 28.81; za 30.50 vs 29.74.  Kept as the incumbent's knob anyway on
+  the node's evidence (rader r8 B=128: the ONE process that gridded pf=2
+  picked it and won the cell).  If the node r9 leaderboard shows my B=128 at
+  or above r8's 66.2, the combo transferred badly and the incumbent should
+  be demoted to (za, 0, 1) next round.
+* **B=64 on wallaby reads 26.1 end-to-end vs 24.2 in its own tuner table**
+  — window drift between plan time and timing loop, not a pick error (the
+  table's plain row read 24.14, same 2 µs off the end-to-end number).  Node
+  B=64 is not a scored cell; not chased.
+* **The raw-ssh missing-`cd` trap fired for me this round — four times in a
+  row on the same command** (documented panel-wide three rounds running; my
+  own r7 record warns about it).  A bare `ssh wallaby 'python3
+  gen_input.py…'` lands in $HOME and everything downstream 'fails missing'.
+  What finally worked, and what I will do from now on: never inline the
+  remote command — write a helper script with the cd + env inside and
+  `ssh wallaby 'bash /full/path/script.sh'`.
+* The FP arithmetic remains settled (L23_rader r6 counting; r8 verdict §4.2:
+  dense wins at 13, 17, 23).  No kernel work attempted, per the verdict's
+  "algorithmically finished at 1.14× floor".
+
+### Where this stands / node prediction
+
+B=1 ≈ 48.0 and B=4 ≈ 49.6 unchanged (identical pick, identical arithmetic;
+deterministic 3/3 again).  B=128: pick will be **za + pf=2 + pw=1 in all
+three processes** (that is the round's design goal); expected ≈ **64.5–65.5
+µs** — rader's identical-arithmetic combo measured 64.835 in its one r8
+process — versus my r8 66.2, and timed = checked for the first time in this
+cell.  If it lands there, the B=128 gap to the ~47–50 µs bandwidth-overlap
+bound is pure DRAM overlap and the schedule space is close to empty.
+
+### Next
+
+1. **Node feedback**: (a) 3/3 same pick at B=128 (the protocol goal);
+   (b) does pf=2 transfer (B=128 ≤ 65.5) or backfire (≥ 66.2 → demote the
+   incumbent to (za, 0, 1)); (c) the alias counter ask stands a third round:
+   `perf stat -e ld_blocks_partial.address_alias` on `-DL23_FORCE=8` vs `40`
+   at B=1 — still the cleanest split-load A/B on the board.
+2. If the monitor stays counter-less, adopt **L36_pfa's create()-side
+   self-measurement** (verdict §6's recommended default): time forced
+   A/B pairs inside fft3d_create() and route the numbers out through the
+   description string.  One round of that would settle pf=2-on-node and
+   za-vs-plain-on-node without any monitor time.
+3. The only untried streaming schedule: pace volume b+1's X pass into the
+   TAIL planes only (my r8 next-item 3) — wallaby cannot rank it (different
+   L2/L3/BW); build it only if (1b) shows the current overlap is the
+   bottleneck rather than raw DRAM bandwidth.
+4. If the panel consolidates L=23 to one arm (r8 verdict floated it), this
+   entry's transferable assets are the canonical-order hysteresis (already
+   lifted into the verdict's recommendation for rader) and the 4%-margin
+   streaming policy introduced here.

@@ -1486,3 +1486,209 @@ shuffles correctly and the EVEX candidates self-eliminate).
    scalar movsd per array (~4.5k/volume).  An AVX-512 masked-store version
    is a small, class-safe uop deletion (~2k uops) if the node shows the
    movement passes still matter after item 1's answer.
+
+---
+
+## Round panel_r9 (2026-08-22)
+
+### Standing going in (panel_r8 node leaderboard)
+
+3rd in all four cells: B=1 16.638 (matrixsimd 15.182, winograd 16.527), B=8
+18.073, B=256 24.875 (matrixsimd 21.311, winograd 21.382), B=2048 25.890
+(winograd 21.645).  The r8 zmm transposes delivered −3.0%/−2.8% at B=1/B=8 as
+predicted but REGRESSED both batched cells (+1.7%/+1.4%) — the entry was not
+promoted, for the fourth consecutive round of node-rejected or negative
+headline mechanisms.  The r8 VERDICT's L=17 synthesis that frames this round:
+FOUR mechanism classes are now falsified at B=1 (rescheduling, address
+alignment, spill deletion, movement-uop deletion — all selected by node
+tuners, all ~0), B=1 has read 15.18–15.23 for five rounds at 1.31× the 33.4k-
+cycle floor, and the verdict's instruction is "stop optimizing and measure,
+or rewrite."  My B=1 is at the same wall as everyone's; **my batched cells
+are NOT — they trail the fused rivals 15–20%, which is proven headroom.**
+This round is therefore batch-only, and it ships measurement before mechanism.
+
+### What changed (kernel arithmetic untouched: 296 FP / 488 flops per 17-pt)
+
+1. **"dy" candidates — ymm deint inside the otherwise-zmm w8 pipeline**
+   (`xl 512t dy` = FORCE 11, `xl 512t sp dy` = FORCE 12).  Diagnosis of the
+   r8 batch regression: of everything r8 changed, the only stage whose
+   behaviour differs between B=1 and batch is the deinterleave — its source
+   loads from `in` are the one unaligned zmm stream r8 added, and at batch
+   they hit COLD lines.  A 64-byte load on the 16-byte alignment classes of
+   an odd-length complex plane splits a cache line 3/4 of the time (the two
+   loads of an 8-complex row piece touch 3 lines with 4 line-accesses),
+   against ~1/2 for the ymm tile's 32-byte loads; a split on a cold line
+   holds LFB entries for two fills on a 2-load-port CLX.  T/U/A accesses are
+   64-B aligned and L1-hot at every batch, so they are exonerated — the
+   batch-only regression signature points at the deint source alone.  dy
+   keeps every zmm transpose and swaps only the deint tile back to ymm.
+   Pure data movement, bit-identical (cmp-verified, below), tuner-ranked
+   per cell; expected outcome is dy at batch and plain zmm at B=1/B=8, i.e.
+   both regimes keep their r8 win.
+
+2. **Joint (variant, pf, pfw) grid at batch — ADOPTED FROM L23_rader
+   panel_r8** (their joint grid found plain-xf+pf=2+pw=1, a combination
+   stage-1-then-grid ranking can never select, and it took their B=128 cell;
+   the r8 VERDICT names racing knobs only on the stage-1 winner "a
+   documented, repeated mistake").  The batched stage now runs the 4-config
+   (pf,pfw) grid over TWO variants: the stage-1 winner and an sp-flavoured
+   partner (7↔2, 11↔12), 3% margin vs the incumbent at (0,0), two sweeps,
+   blocked.  Rationale: sp's r7 node rejection was measured at (0,0) only,
+   and its mechanism — spread the 78.6 KB out burst across the next volume's
+   compute — composes with pfw (prefetchw the rows it is about to scatter).
+   Class-A only, so a measured variant switch cannot change output bits;
+   disabled under L17R_FORCE so forced A/Bs stay clean.
+
+3. **Streaming decomposition probe in fft3d_create(), reported in the
+   description string** as `probe ph/xp/fu` (µs/volume on the streaming
+   arena at (pf,pfw)=(0,0)) — the pattern the r8 VERDICT says should become
+   the panel default, ADOPTED FROM L36_pfa panel_r8's in-plan node probe.
+   ph = plane phase alone (cold `in` reads + A fill: the input-side
+   exposure); xp = x pass alone (hot A reads + the `out` burst: the
+   output-side exposure); fu = full plain exec of the same family.  Probe
+   functions are exec_body instantiations gated by a compile-time `ph`
+   flag and are NEVER candidates (xp reads whatever A holds).  ~0.1 s of
+   unscored plan time.  On the node this attributes the ~4 µs/volume
+   batched gap in one leaderboard line: xp far above its ~4 µs compute
+   share means the out-burst RFO is the gap (respread the burst); ph
+   carrying the excess means the input side (restage the reads); and
+   fu − ph − xp ≫ 0 means the phases contend (attack the L2 footprint).
+
+### Operation count
+
+Unchanged per 17-point transform: 296 FP instr (192 FMA + 104 add/sub),
+488 flops.  dy moves zero arithmetic (the ymm deint tile is ~128 movement
+uops per 64 complex vs 80 at zmm — dy deliberately re-adds ~3.2k movement
+uops per volume to delete cold split-loads; it pays only where the split
+cost exceeds the uop cost, which is the batch regime on a 2-load-port
+machine).  Probes and grid are plan-time only.  Static (wallaby build):
+exec_npmdy_w8 6403 instr (vs npm_w8 6510 — the ymm deint bodies are
+smaller), exec_spmdy_w8 4897, probes ph/phdy/xp 4464/4358/1868; everything
+under r2's 38 KB kill line.
+
+### Measured — wallaby (Gold 6448Y, gcc 11.4, panel flags; clock bimodal as
+### always, same-window comparisons only)
+
+Autotuned end-to-end (tryout.sh):
+
+| case | r8 best (same machine) | this round | pick |
+|---|---|---|---|
+| B=1 | 8.660 | 9.41 session / 8.87 pinned best (window-limited; B=1 path unchanged) | xl 512 |
+| B=8 | 9.19 | 9.23 µs/t | xl 512 |
+| B=64 | 11.02 | **10.38 µs/t** | — |
+| B=256 | 10.87 | **10.59** / 10.83 µs/t (two windows) | w1: xl 512 pf0 pfw0; w2: **xl 512t dy pf0 pfw1** |
+| B=2048 | 16.34 | **15.01 µs/t (−8.1%)** | **xl 512t sp pf=1 pfw=1** (joint grid) |
+
+**The joint grid is the round's result.  B=2048, nv=978 arena, same window:**
+
+| variant | (0,0) | pf=1 | pfw=1 | pf=1,pfw=1 |
+|---|---|---|---|---|
+| xl 512 (stage-1 winner) | 15.554 | 14.805 | 15.608 | 14.801 |
+| xl 512t sp (partner) | 15.835 | 15.521 | 14.406 | **13.631** |
+
+sp had LOST stage 1 (16.09 vs 15.91) and pfw had been near-neutral on the
+incumbent for three rounds — but sp+pf+pfw together is −12.4% vs the
+incumbent at (0,0) and −7.9% vs the incumbent's own best config.  This is
+exactly the L23_rader shape: the winning combination is reachable only by
+racing the knobs jointly across variants.  At B=256 (nv=256, L3-resident on
+wallaby) the grid read sp+pfw 10.646 vs incumbent 10.766 — under the 3%
+margin, correctly kept the incumbent; the node's B=256 arena (40 MB vs
+22 MB L3) actually streams, where the B=2048 shape should apply.
+
+**Probe readings (wallaby):** nv=978 streaming: ph=8.91 xp=5.39 fu=15.98 —
+fu − ph − xp = +1.68 µs, i.e. at streaming the phases do NOT simply add
+even on wallaby (in-read + out-burst contend); nv=256 L3-resident: ph=7.21
+xp=3.57 fu=10.90, sum ≈ fu − 0.1 — phases add cleanly when nothing
+streams.  The node's numbers are the ones that matter; read them off the
+r9 leaderboard descriptions.
+
+**dy on wallaby:** stage-1 nv=256: dy 10.930 vs 512t 10.909 (wash);
+nv=978 streaming: dy 16.684 vs 512t 16.433 (−1.5% for dy).  Expected:
+wallaby has 3 load ports and DDR5, so split loads are cheap there and dy's
+extra uops show.  dy is a node bet (2 load ports, slower DRAM, and the
+node is where the +1.7%/+1.4% regression lives); it ships as candidates
+the node ranks itself.  In one B=256 window the node-side logic already
+picked `dy pfw=1` on wallaby and produced this entry's best-ever wallaby
+B=256 (10.59).
+
+Correctness, all PASS with the r5–r8 fingerprints preserved at every batch:
+rel_l2 = 3.114e-16 (B=1), 3.171e-16 (B=3), 3.151e-16 (B=8), 3.158e-16
+(B=64), 3.153e-16 (B=256), 3.155e-16 (B=2048); bitwise repeatable at every
+batch; full-output cmp: forced dy (F11) ≡ forced 512t (F2) ≡ forced sp dy +
+pfw (F12) at B=8, and forced sp dy + pf + pfw ≡ 512t at B=3 (odd batch
+exercises the sp ping-pong parity); `-Wall -Wextra` silent on both hosts;
+`-fsanitize=undefined` clean at B=8; AVX2 host (wombat) verified end-to-end
+(30.1 µs/t at B=8, PASS, repeatable, EVEX candidates self-eliminate).
+Setup: 0.26–0.31 s at B=1, ~1.0 s at B=256, 4.8 s at wallaby B=2048
+(977-volume arena; node arena stays 384 → roughly half).
+
+### What was tried and did NOT work / caveats
+
+1. **The raw-ssh missing-`cd` trap fired a FOURTH time, on me** (matrixsimd
+   documented three).  Three identical remote commands failed before I
+   noticed the `cd` was missing; the durable fix used here: call
+   `tryout.sh` by ABSOLUTE PATH — it `cd`s to its own directory itself, so
+   the command cannot be wrong.  Recommend every entry adopt that form.
+2. **dy forced on wallaby streaming loses ~1.5%** (16.684 vs 16.433 at
+   nv=978) — recorded so nobody deletes it for the wrong reason: the
+   mechanism prices cold split-loads on a 2-load-port CLX, which wallaby
+   does not have.  The node's r8 batch regression is the evidence it rides.
+3. **Nothing else was killed by measurement this round** — the round built
+   selection machinery and a probe rather than new kernels; every inherited
+   dead end stands (X-first on this structure, slab lane-packing, transpose
+   fusion into stores, NT stores, negacyclic splits, same-volume prefetch,
+   non-inline kernels, pragma-unroll forms, ov's split-loop overlap).
+4. Caveat on the wallaby B=2048 pick: the tuner's arena (978 vols, 154 MB)
+   streams past wallaby's L3, but the driver's steady state at B=2048
+   (314 MB in+out) is harsher; the picked sp+pf+pfw still delivered −8.1%
+   end-to-end, so the arena ranking held.  On the node the arena is 384
+   vols = 60 MB vs 22 MB L3 — honestly streaming, as in r5–r8.
+
+### Borrowed this round (attribution)
+
+* **L23_rader (panel_r8)**: the joint (variant, knob) grid — their B=128
+  node win is the direct precedent for racing sp jointly with (pf, pfw).
+* **L36_pfa (panel_r8)**: the in-plan decomposition probe routed through
+  fft3d_description(), endorsed by the r8 VERDICT as the panel default;
+  ph/xp/fu is their p1/p2w/fu pattern mapped onto my pass structure.
+* **L17_matrixsimd**: the raw-ssh trap documentation (which I re-triggered
+  anyway — see item 1) and, standing, the blocked-measurement discipline.
+
+### Expectations for the node, and what to read off the r9 leaderboard
+
+* **B=256/B=2048 are the round's bet.**  If the node's joint grid finds
+  what wallaby's found, the pick strings read `xl 512t sp` (or `sp dy`)
+  with `pf=1 pfw=1`, and the cells should move from 24.9/25.9 toward
+  22.5–24.5 (the wallaby −8% shape, damped by the node's slower DRAM).
+  If the node instead picks `dy` alone with pfw, the r8 regression is
+  recovered (~24.4/25.5) and the split-load story is confirmed at reduced
+  magnitude.
+* **The probe values in the description strings are the round's real
+  deliverable**: node ph vs xp vs fu at nv=384.  xp ≫ ~4 µs ⇒ the out
+  burst is the gap and r10 deepens the sp pipeline (start x blocks two
+  planes earlier, or pace 3-wide); ph carrying the excess ⇒ the input side
+  and r10 stages `in` through L2; fu − ph − xp ≫ 0 ⇒ phase contention and
+  r10 attacks the A/T/U footprint.
+* **B=1/B=8 should be flat** (~16.6/18.1): the paths are unchanged and the
+  whole panel is at the structural wall there; this entry deliberately
+  spent nothing on it.
+
+### Next (in order)
+
+1. Read the node's picks AND the probe ph/xp/fu off the r9 descriptions;
+   the r10 move reads directly off which of the three branches fired.
+2. If sp+pfw is picked and the gap to the fused rivals narrows but
+   persists: deepen the pipeline (issue the previous volume's x blocks two
+   planes behind instead of one, giving each store burst a longer drain
+   window — still class A, one more candidate), and consider extending the
+   joint grid to a third variant slot (dz-family) now that the grid
+   machinery exists.
+3. If the probe shows fu − ph − xp large on the node: shrink the streaming
+   L2 footprint — A is 2×296×17×8 = 80.5 KB; a kx-blocked x pass that
+   consumes A in two halves (r5 item 4, still uncosted) would halve the
+   live window.
+4. If everything is flat again: the honest position, per the r8 VERDICT,
+   is that this structure has met its wall at both regimes, and the only
+   remaining move is the interleaved-complex rewrite both rivals costed at
+   "likely a wash" — recommend the slot be judged on that basis rather
+   than spending r10 building it.

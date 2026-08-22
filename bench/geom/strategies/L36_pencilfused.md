@@ -1477,3 +1477,184 @@ this round.
    with pass A. Design only with the counter data in hand.
 4. B=256 remains at its modelled floor; leave it alone until something
    structural changes (monitor's standing instruction).
+
+---
+
+## Round panel_r9
+
+### Where round r8 landed, and the diagnosis
+
+Node (Gold 5218, panel_r8): third in all four cells — B=1 124.233 vs
+mixedradix 119.951 (−3.6%), B=4 130.557 vs 129.645 (−0.7%, second), B=32
+169.539 vs 166.402 (−1.9%), B=256 189.566 vs pfa 185.973 (−1.9%, **a real
++1.7% regression against a 0.4% spread**). The r8 verdict (§3c) then pulled
+the floor out of my round: **the r7 "build-flag gap" never existed** —
+`Makefile:15` has carried `-funroll-loops` on the scored build for at least
+three rounds, six entries measured the A/B as a null, and my r8 pragma (the
+round's only change) shipped on a false premise. Worse, L17_rader measured
+the `#pragma GCC optimize("unroll-loops")` form itself as a **~2% tax**
+(`optimize()` rebuilds the whole per-function option set, not just the named
+flag), which is consistent with both of my r8 regressions. The verdict's
+explicit instruction: A/B the pragma out before r9.
+
+The verdict's L=36 synthesis (§6): L36_pfa's in-plan probe measured
+`fu − p1 − p2w ≈ −3 µs` on the node — **no phase-boundary memory penalty at
+B=1; the L2-thrash story is dead**, every prefetch instrument is
+node-rejected at B=1, and the single named lever is **front-end: code size,
+not caches** ("if MITE dominates, the correct move is shrinking the unrolled
+bodies"). My own r6 record had already named the ~1100-µop plane bodies vs
+the ~1.5k-µop CLX DSB as the surviving suspect.
+
+### Technique (round r9): pragma out; mode 11 INPLACE-CS, a compact-code twin
+
+Three changes, all in the small-batch lane (streaming paths byte-identical;
+monitor's standing instruction):
+
+1. **The r8 pragma is removed** (verdict §3c). The scored and tryout builds
+   are flag-identical; there was never anything to pin. This alone should
+   recover the r8 B=256 regression (+1.7%) and part of B=1's (+0.2%).
+
+2. **Mode 11 INPLACE-CS** (this file's own design, aimed at the verdict's
+   front-end lever). Disassembly under the node's own flags
+   (`-O3 -march=cascadelake -funroll-loops`, gcc 11.4): mode 0's pass-A
+   x-plane loop body is **1221 instructions ≈ 6.9 KB** — two *distinct*
+   ~610-instruction subloop bodies alternating — and the inlined pass-B
+   group loop is unrolled ×2 to **~7.1 KB**. Both are marginal-to-over the
+   CLX DSB (~1.5k µops), while wallaby's SPR DSB (4k µops) holds them
+   trivially — a mechanism that would also explain my panel-worst
+   wallaby→node ratio (2.36× vs mixedradix 2.31×). The compact twin runs
+   mode 0's EXACT arithmetic (output bit-identical, same 3.835e-16
+   fingerprint) through small shared bodies:
+   * **The key observation: mode 0's two pass-A subloops are the same
+     code.** Both load PW lanes at stride 72 doubles (36 complex) from
+     `src + 2·g·PW`, run PFA36, and store PW×PW-transposed blocks to dst
+     rows of stride 72 — because the plane buffer's row stride PST == 36.
+     y-subloop ≡ `halfplane(in-plane, pp)`; z-subloop ≡
+     `halfplane(pp, out-plane)`. One **noinline** `halfplane()` (650
+     instructions, one 3387-byte loop body) replaces both 610-instruction
+     copies: the pass-A hot footprint halves by *code sharing*, zero
+     arithmetic change, cost = 72 call/rets per volume.
+   * `passB_small()`: the mode-0 cached pass B with wpf/nxt folded out and
+     the group loop fenced by `#pragma GCC unroll 1` (the per-loop pragma,
+     NOT the `optimize()` one), so the single-group body (3149 bytes,
+     ~570 µops) stays DSB-resident instead of the ×2-unrolled ~7.1 KB. The
+     one-line-ahead src prefetch burst stays (load-bearing, −14% if
+     dropped).
+   Raced at B ≤ 8 only (at streaming batch its pass A has mode 0's
+   documented 2× cold-read loss, r3). **Equal hysteresis rank with mode 0**:
+   same structure, same arithmetic, bit-identical output — the only
+   difference is code bytes, so the tie-break between them is purely the
+   measured time and a pick flip has no timed-vs-checked consequence.
+   **The in-arena pair rides the description string**
+   (`probe us ip4=… cs4=…`, L36_pfa r8's probe-in-description pattern): on
+   the node, cs4 < ip4 IS the DSB/MITE discrimination the monitor has been
+   asked for four rounds to run — the tournament doubles as the counter.
+
+3. **Regime-aware hysteresis band** (adopted from **L36_pfa r8**): 1% when
+   the arena is the scored regime (tb == batch ≤ 8), 3% otherwise. At 3% a
+   genuine 1–3% B=1 win — the entire size of the gap to the cell leader —
+   could never install.
+
+### Operation count
+
+Line kernel unchanged: 248 FMA-port ops + 49 port-5 shuffles per 36-point
+line over PW lanes; 241k FMA-port vector ops/volume at PW=4; ~83 µs/volume
+port floor at the 2.89 GHz licence clock. Mode 11 adds 72 call/rets + ~648
+loop-control µops per volume and **zero FP, zero memory traffic**; its
+rel_l2 fingerprint equals mode 0's to the last digit (3.835e-16) at both
+widths, i.e. arithmetic order is identical. `.text` grows 77 → 92 KB (the
+twins); the B=1 *hot* footprint shrinks 6.9+7.1 KB → 3.4+3.1 KB.
+
+### What was measured (wallaby, Gold 6448Y, in its documented multi-level
+window-toggling state all session — only same-session forced alternations
+quoted as evidence; µs per transform, driver min; rel_l2 3.654–3.836e-16 and
+bit-identical re-runs on every run listed)
+
+* **B=1 forced A/B, pw4, alternating tryouts:** mode 11 (cs) mins
+  **51.77 / 52.11 / 53.26** vs mode 0 (ip) **53.37 / 55.73** in clean
+  windows — **cs ≈ −3% end-to-end**, *on the machine whose 4k-µop DSB was
+  supposed to mask it*. In-arena the pair reads much closer (55.1 vs 55.2;
+  103.8 vs 104.0), i.e. the arena's call site partially masks a code-layout
+  effect the driver's loop sees — which is exactly why the twins carry
+  equal rank with a time tie-break instead of a simplest-wins preference.
+  Auto-tuned runs pick cs or ip on the in-arena coin flip; best auto run
+  52.73 (pick=cs, sd 0.07%).
+* **B=4 forced A/B, pw4:** ip **70.9 / 71.7** vs cs **75.3 / 75.5** — **cs
+  loses ~6% at B=4 on wallaby** (suspect: the ×2-unrolled inline pass B
+  keeps two groups' L3 misses in flight where fenced cs has one; at B=1 out
+  is L2-resident and code size dominates instead). The tuner races both per
+  cell and keeps ip at B=4; recorded so nobody ships cs unconditionally.
+* **Streaming parity (paths untouched):** B=32 auto **72.8 µs/vol** (r8:
+  73.4), B=256 auto **100.1** (r8: 98.9–99.9, window-dependent).
+* Hygiene: AVX2-only pw2 path with mode 11 forced, end-to-end on the
+  Haswell login node at B=2: PASS 3.818e-16, bit-repeatable. Clean builds:
+  `-march=cascadelake`, `-march=native` (Haswell), bare `-O2`. Description
+  string verified to carry pick + probe pair
+  (`…mode=inplace-cs (B=1); probe us ip4=101.0 cs4=100.8`).
+
+### What was tried and did NOT work — with the number that killed it
+
+1. **The r8 pragma itself** is this round's inherited negative: shipped on
+   a premise the verdict disproved from the harness, and coincident with a
+   +1.7% B=256 regression at an unchanged pick. Removed; wallaby confirms
+   removal is a no-op under tryout flags (52.3–53.7 auto B=1, unchanged).
+2. **Mode 11 at B=4 on wallaby: +6%** (75.3 vs 70.9, two clean pairs each
+   way). Kept as a candidate because the mechanism it targets (DSB
+   capacity) is node-specific and the per-cell tournament prices it; the
+   B≤8 gate already keeps it out of the streaming cells where its pass A
+   is a documented 2× loss.
+3. **Simplest-wins ranking between bit-identical twins** — rejected at
+   design time after the first tuner tables: with cs ranked "less simple"
+   than ip, wallaby's in-arena tie (0.1–0.2%) would have made the ~3%
+   end-to-end win uninstallable. Equal rank + time tie-break replaces it;
+   the cost (pick flips between runs at true ties) has no correctness or
+   timed≠checked consequence because the outputs are bit-identical.
+
+### Attribution summary
+
+Pragma removal: **r8 VERDICT §3c** (harness check) + **L17_rader r8** (the
+~2% pragma-form tax measurement). Regime-aware 1%/3% hysteresis band:
+**L36_pfa r8**. Probe-pair-in-description: **L36_pfa r8's**
+probe-in-`create()` pattern (ultimately L36_mixedradix's r2 g_desc channel).
+The front-end diagnosis this round acts on: the r8 verdict's §6 synthesis of
+**L36_pfa r8's** `fu ≈ p1 + p2w` node probe. The shared-body observation
+(PST == 36 makes the two pass-A subloops one function), the halfplane/
+passB_small twins, the equal-rank-bit-identical-twins tie-break rule, and
+the tournament-as-DSB-discriminator: this file, this round.
+
+### Predictions for the node (stated so they can be scored)
+
+* **Picks:** B=1 **pw4 inplace-cs** if the front-end story is real on CLX
+  (its 1.5k-µop DSB vs wallaby's 4k should make cs4 − ip4 *larger* there,
+  and the 1% band + equal rank installs any >0 gap); B=4 pw4 inplace (or
+  istream+pfw); B=32/B=256 pw4 istream+pfw unchanged.
+* **B=1: 114–121 µs** (from 124.233) if cs transfers at wallaby's −3% or
+  amplified; **122–125 with `probe us ip4≈cs4`** is the clean null branch —
+  and that null would kill the code-size theory for L=36 outright, since
+  the probe pair is same-tournament, self-warmed, and node-measured.
+* **B=4: 128–132** (pragma removal only; cs predicted NOT picked there).
+* **B=32: 166–171**, **B=256: 183–188** — recovering the r8 pragma
+  regression to r7 levels; streaming code is byte-identical to r7's.
+* The probe pair is the round's deliverable regardless of any pick: it is
+  the DSB/MITE discrimination for the whole L=36 board, taken by the
+  node's own tournament.
+
+### Next
+
+1. **Read the node's `probe us ip4=/cs4=` pair first.** If cs4 < ip4 by
+   >2%: front-end confirmed — next round shrink the OTHER hot bodies the
+   same way (mode 8's istream pass A shares the same 6.9 KB shape via
+   passA_plane; a shared-body variant of it is the same trick one lane
+   over), and consider retiring the never-picked modes 3–6/9/10 to shrink
+   `.text` (mixedradix's r8 move) now that a positive code-size result
+   would justify the refactor risk.
+2. If the pair reads flat but B=1 still improved: the gain was the pragma
+   removal; the residual is scheduling/port pressure inside the phases and
+   the honest statement is that B=1 is at its structural limit for this
+   kernel family until the monitor's counter run exists.
+3. **B=4** remains the cell where cs loses on wallaby — if the node's probe
+   confirms front-end at B=1, test a cs variant with the pass-B unroll
+   fence removed (halfplane sharing only) as the B=4 twin: it keeps the
+   MLP of the ×2 body while still halving pass A.
+4. Batched cells: still frozen (monitor's standing instruction, two rounds
+   running).
