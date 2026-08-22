@@ -1,0 +1,9 @@
+# THE GRADED CONFIGURATION: <L>:<batch>:<chain>. Fixed, identical for solver/base/SOTA.
+6:64:4856
+8:64:2572
+13:32:1278
+17:32:98
+23:16:165
+36:8:64
+45:4:177
+64:2:134

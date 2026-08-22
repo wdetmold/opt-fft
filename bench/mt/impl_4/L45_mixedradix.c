@@ -94,6 +94,24 @@
  *     compulsory read into that hole.  Mechanisms m8 (pp+poke+pfnx, the
  *     analog of their winning B=16 g2-pfw), m9 (pfin+pfnx, their mtn-pfi),
  *     m10 (pfnx alone, for the node's m0-preferring vnt table).
+ *   * vno     -- NEW round mt_r4, BORROWED from L45_pfa mt_r3's "omtn" (the
+ *                node B=256 winner at 26.8 us/vol against this entry's
+ *                vns at 47.7 on the SAME decomposition shape): the vns
+ *                static-block NT-staged work dispatched by one
+ *                '#pragma omp parallel' per execute, with the spin pool
+ *                NAPPED (mutex+condvar, entered before the region and held
+ *                for the plan's whole life once a vno pick is installed).
+ *                The mt_r3 VERDICT (S3.3/S4.4) has three independent
+ *                measurements that idle spinners drag the process state --
+ *                L17_matrixsimd's own probe read clk512 = 2.29 GHz in its
+ *                spin-pool process vs 2.89 in L17_winograd's OMP process on
+ *                the same node -- and L45_pfa's omtn-vs-mtn A/B decided it
+ *                at this exact cell: the OMP form settled mid-run into
+ *                ~108 GB/s (gov read i=16/16 pages) while every spin-pool
+ *                form of the same arithmetic never left ~64 GB/s (my gov
+ *                read fr=0).  The pool also naps PARTIALLY for pool picks
+ *                with T < nthr (the unused workers never participate), and
+ *                fully while the serial row runs.
  *   * Placement diagnostic (mt_r3, BORROWED from L8_fusedaxes mt_r2's
  *     governor, the instrument the mt_r2 VERDICT asked to be pointed at a
  *     32-thread streaming team): a read-only get_mempolicy scan of ~64
@@ -400,7 +418,8 @@ static void p1r_##V##_##M(const double *, double *, double *, double *,       \
 static void p2r_##V##_##M(double *, long, long, const double *);
 #define DECL_PR(V) DECL_PR1(V, 0) DECL_PR1(V, 1) DECL_PR1(V, 2) DECL_PR1(V, 3) \
                    DECL_PR1(V, 4) DECL_PR1(V, 5) DECL_PR1(V, 6) DECL_PR1(V, 7) \
-                   DECL_PR1(V, 8) DECL_PR1(V, 9) DECL_PR1(V, 10)
+                   DECL_PR1(V, 8) DECL_PR1(V, 9) DECL_PR1(V, 10) \
+                   DECL_PR1(V, 11)
 DECL_PR(0)
 DECL_PR(1)
 DECL_PR(2)
@@ -465,6 +484,16 @@ typedef struct {
     unsigned long emult;    /* epoch stride per generation      */
     long gen_local;
     int nthr;               /* pool size incl. main             */
+    /* NAP (mt_r4, after L45_pfa mt_r3's nap + L13_rader's intent): while
+     * napq[t] is set, worker t blocks on the condvar instead of spinning.
+     * All napq writes happen under napmx (no lost wakeup); the spin loop
+     * reads it relaxed.  naplo caches the current policy ("nap all tids
+     * >= naplo") so steady-state calls pay one compare. */
+    pthread_mutex_t napmx;
+    pthread_cond_t napcv;
+    _Atomic int nnap;       /* how many workers are blocked right now */
+    int naplo;              /* nap tids >= naplo; == nthr means none  */
+    mt_flag napq[MAXT];
     pthread_t th[MAXT];
     mt_warg wa[MAXT];
 } mt_pool;
@@ -472,7 +501,8 @@ typedef struct {
 struct fft3d_plan {
     long batch;
     int mode;   /* 0 serial, 1 vol, 2 grouped, 3 vnt (NT dynamic), 4 vns
-                   (NT static blocks, mt_r3) */
+                   (NT static blocks, mt_r3), 5 vno (vns under one OMP
+                   region per execute, pool napped, mt_r4) */
     int T, G;
     long ntt;   /* phase-2 tile count + 1 (tail) for the picked width */
     p1_fn p1;
@@ -577,29 +607,32 @@ static void mt_work_vol(struct fft3d_plan *p, int tid)
  * pages toward the far socket over the driver's timed loop (mt_r2 VERDICT
  * S5: that regime is worth up to 2x at a streaming cell, and the min-over-
  * samples statistic catches the settled end of it). */
+static void vns_block(struct fft3d_plan *p, int tid, int T,
+                      const double *in, double *out, long nb)
+{
+    const long lo = nb * tid / T, hi = nb * (tid + 1) / T;
+    mt_ctx *cx = &p->ctx[tid];
+    const double *inend = in + nb * (long)NVOL * 2;
+    double *outend = cx->mid + (long)NVOL * 2;
+    for (long b = lo; b < hi; ++b) {
+        const double *vin = in + b * (long)NVOL * 2;
+        double *vout = out + b * (long)NVOL * 2;
+        const double *nx = b + 1 < hi ? vin + (long)NVOL * 2 : NULL;
+        p->p1(vin, cx->mid, cx->plane, cx->plane2, 0, LSIDE,
+              inend, outend);
+        p->p2(cx->mid, 0, p->ntt, nx);
+        p->ntcpy(vout, cx->mid, (size_t)NVOL * 2);
+    }
+#if defined(__x86_64__)
+    if (hi > lo) _mm_sfence();
+#endif
+}
+
 static void mt_work_vns(struct fft3d_plan *p, int tid)
 {
     mt_pool *pl = p->pl;
-    const int T = pl->tw;
-    if (tid < T) {
-        const long nb = pl->batch;
-        const long lo = nb * tid / T, hi = nb * (tid + 1) / T;
-        mt_ctx *cx = &p->ctx[tid];
-        const double *inend = pl->in + nb * (long)NVOL * 2;
-        double *outend = cx->mid + (long)NVOL * 2;
-        for (long b = lo; b < hi; ++b) {
-            const double *vin = pl->in + b * (long)NVOL * 2;
-            double *vout = pl->out + b * (long)NVOL * 2;
-            const double *nx = b + 1 < hi ? vin + (long)NVOL * 2 : NULL;
-            p->p1(vin, cx->mid, cx->plane, cx->plane2, 0, LSIDE,
-                  inend, outend);
-            p->p2(cx->mid, 0, p->ntt, nx);
-            p->ntcpy(vout, cx->mid, (size_t)NVOL * 2);
-        }
-#if defined(__x86_64__)
-        if (hi > lo) _mm_sfence();
-#endif
-    }
+    if (tid < pl->tw)
+        vns_block(p, tid, pl->tw, pl->in, pl->out, pl->batch);
     mt_join(pl, tid, pl->tw);
 }
 
@@ -734,8 +767,29 @@ static void *mt_worker(void *arg)
 
     long last = 0;
     for (;;) {
-        while (atomic_load_explicit(&pl->gen, memory_order_acquire) == last)
-            cpu_relax();
+        while (atomic_load_explicit(&pl->gen, memory_order_acquire) == last) {
+            if (atomic_load_explicit(&pl->napq[tid].v,
+                                     memory_order_relaxed)) {
+                /* nap: block on the condvar so this core is genuinely idle
+                 * (an OMP team must never timeshare with a spinner --
+                 * L45_pfa mt_r3 / VERDICT S4.4).  Re-check under the mutex;
+                 * all flag writes happen under it, so no lost wakeup.  A
+                 * napped worker sleeps through generations it was excluded
+                 * from (partial nap), so on wake it RESYNCS `last` to the
+                 * current gen -- still under the mutex and before nnap--,
+                 * i.e. before pool_setnap's quiesce can let the main
+                 * thread publish another job. */
+                pthread_mutex_lock(&pl->napmx);
+                atomic_fetch_add(&pl->nnap, 1);
+                while (atomic_load_explicit(&pl->napq[tid].v,
+                                            memory_order_relaxed))
+                    pthread_cond_wait(&pl->napcv, &pl->napmx);
+                last = atomic_load_explicit(&pl->gen, memory_order_acquire);
+                atomic_fetch_sub(&pl->nnap, 1);
+                pthread_mutex_unlock(&pl->napmx);
+            } else
+                cpu_relax();
+        }
         ++last;
         if (atomic_load_explicit(&pl->shutdown, memory_order_relaxed)) break;
         pl->workfn(p, tid);
@@ -743,11 +797,38 @@ static void *mt_worker(void *arg)
     return NULL;
 }
 
+/* Set the nap policy: workers with tid >= lo sleep, the rest spin on gen.
+ * Steady state (the driver's timed loop) is one integer compare; a policy
+ * CHANGE quiesces -- when napping down it waits until every target worker
+ * is actually blocked, so a following OMP region never shares a core with
+ * a still-spinning worker (L45_pfa mt_r3's nap_on discipline). */
+static void pool_setnap(mt_pool *pl, int lo)
+{
+    if (!pl || pl->nthr < 2) return;
+    if (lo < 1) lo = 1;
+    if (lo > pl->nthr) lo = pl->nthr;
+    if (pl->naplo == lo) return;
+    pthread_mutex_lock(&pl->napmx);
+    for (int t = 1; t < pl->nthr; ++t)
+        atomic_store_explicit(&pl->napq[t].v, t >= lo ? 1UL : 0UL,
+                              memory_order_relaxed);
+    pthread_cond_broadcast(&pl->napcv);
+    pthread_mutex_unlock(&pl->napmx);
+    pl->naplo = lo;
+    /* exact quiesce, both directions: napping down, every target worker
+     * must be blocked before an OMP team may run; waking up, every woken
+     * worker must have resynced `last` and left the nap block before the
+     * next job can be published.  lo moves monotonically per call ([lo,
+     * nthr) either grows or shrinks), so equality is reached, not skipped. */
+    while (atomic_load(&pl->nnap) != pl->nthr - lo) cpu_relax();
+}
+
 /* Run the plan's current configuration on (in, out): serial on the main
  * thread, or one pool job.  Used by execute() and by the plan-time tuner. */
 static void mt_run(struct fft3d_plan *p, const double *in, double *out)
 {
     if (p->mode == 0 || !p->pl || p->pl->nthr < 2 || p->T < 2) {
+        if (p->pl) pool_setnap(p->pl, 1);   /* serial runs on idle cores */
         const double *inend = in + p->batch * (long)NVOL * 2;
         double *outend = out + p->batch * (long)NVOL * 2;
         for (long b = 0; b < p->batch; ++b) {
@@ -761,6 +842,32 @@ static void mt_run(struct fft3d_plan *p, const double *in, double *out)
         return;
     }
     mt_pool *pl = p->pl;
+    if (p->mode == 5) {
+        /* vno (mt_r4): the vns static-block NT-staged work under ONE OMP
+         * parallel region, the whole pool napped -- L45_pfa mt_r3's omtn,
+         * the node's B=256 winner.  ctx[t] was first-touched by pool
+         * worker t pinned to the CPU that OMP thread t reports under
+         * close/cores, so the scratch placement is identical either way.
+         * GOMP's team sleeps between calls; the process never carries a
+         * spinner during or between executes. */
+        pool_setnap(pl, 1);
+        {
+            const int Tw = p->T;
+            long nb = p->batch;
+#pragma omp parallel num_threads(Tw)
+            {
+                int t = omp_get_thread_num();
+                int T = omp_get_num_threads();
+                if (t < T && t < MAXT)
+                    vns_block(p, t, T, in, out, nb);
+            }
+        }
+        return;
+    }
+    /* pool dispatch: participants [0, T) spin-serve; any workers above the
+     * team (a T<32 pick, e.g. B=1 grp T=23) nap for the plan's life --
+     * idle spinners drag the all-core clock (VERDICT S3.3/S4.4). */
+    pool_setnap(pl, p->T < pl->nthr ? p->T : pl->nthr);
     pl->in = in;
     pl->out = out;
     pl->batch = p->batch;
@@ -787,21 +894,21 @@ static void mt_run(struct fft3d_plan *p, const double *in, double *out)
 #undef VAR
 
 /* (width, mech) tables; NTTW = phase-2 full tiles + 1 tail per width */
-static const p1_fn P1T[3][11] = {
+static const p1_fn P1T[3][12] = {
     {p1r_0_0, p1r_0_1, p1r_0_2, p1r_0_3, p1r_0_4, p1r_0_5, p1r_0_6, p1r_0_7,
-     p1r_0_8, p1r_0_9, p1r_0_10},
+     p1r_0_8, p1r_0_9, p1r_0_10, p1r_0_11},
     {p1r_1_0, p1r_1_1, p1r_1_2, p1r_1_3, p1r_1_4, p1r_1_5, p1r_1_6, p1r_1_7,
-     p1r_1_8, p1r_1_9, p1r_1_10},
+     p1r_1_8, p1r_1_9, p1r_1_10, p1r_1_11},
     {p1r_2_0, p1r_2_1, p1r_2_2, p1r_2_3, p1r_2_4, p1r_2_5, p1r_2_6, p1r_2_7,
-     p1r_2_8, p1r_2_9, p1r_2_10},
+     p1r_2_8, p1r_2_9, p1r_2_10, p1r_2_11},
 };
-static const p2_fn P2T[3][11] = {
+static const p2_fn P2T[3][12] = {
     {p2r_0_0, p2r_0_1, p2r_0_2, p2r_0_3, p2r_0_4, p2r_0_5, p2r_0_6, p2r_0_7,
-     p2r_0_8, p2r_0_9, p2r_0_10},
+     p2r_0_8, p2r_0_9, p2r_0_10, p2r_0_11},
     {p2r_1_0, p2r_1_1, p2r_1_2, p2r_1_3, p2r_1_4, p2r_1_5, p2r_1_6, p2r_1_7,
-     p2r_1_8, p2r_1_9, p2r_1_10},
+     p2r_1_8, p2r_1_9, p2r_1_10, p2r_1_11},
     {p2r_2_0, p2r_2_1, p2r_2_2, p2r_2_3, p2r_2_4, p2r_2_5, p2r_2_6, p2r_2_7,
-     p2r_2_8, p2r_2_9, p2r_2_10},
+     p2r_2_8, p2r_2_9, p2r_2_10, p2r_2_11},
 };
 static const long NTTW[3] = {NPLANE / 2 + 1, NPLANE / 4 + 1, NPLANE / 2 + 1};
 
@@ -837,8 +944,8 @@ typedef struct {
 
 static void cand_tag(mt_cand *c)
 {
-    static const char *mn[11] = {"m0", "pp", "cpy", "pfpp", "cpin", "cpinpf",
-                                 "pf", "pfpk", "ppnx", "pfnx", "nx"};
+    static const char *mn[12] = {"m0", "pp", "cpy", "pfpp", "cpin", "cpinpf",
+                                 "pf", "pfpk", "ppnx", "pfnx", "nx", "pfi"};
     if (c->mode == 0)
         snprintf(c->tag, sizeof c->tag, "ser-v%d-%s", c->v, mn[c->m]);
     else if (c->mode == 1)
@@ -847,6 +954,8 @@ static void cand_tag(mt_cand *c)
         snprintf(c->tag, sizeof c->tag, "vnt%d-v%d-%s", c->T, c->v, mn[c->m]);
     else if (c->mode == 4)
         snprintf(c->tag, sizeof c->tag, "vns%d-v%d-%s", c->T, c->v, mn[c->m]);
+    else if (c->mode == 5)
+        snprintf(c->tag, sizeof c->tag, "vno%d-v%d-%s", c->T, c->v, mn[c->m]);
     else
         snprintf(c->tag, sizeof c->tag, "grp%dx%d-v%d-%s",
                  c->T / c->G, c->G, c->v, mn[c->m]);
@@ -935,6 +1044,9 @@ fft3d_plan *fft3d_create(int L, int batch)
         p->pl->nthr = maxt;
         p->pl->tw = maxt;
         p->pl->emult = (unsigned long)batch + 8;
+        pthread_mutex_init(&p->pl->napmx, NULL);
+        pthread_cond_init(&p->pl->napcv, NULL);
+        p->pl->naplo = maxt;    /* nobody napped at creation */
         for (int t = 1; t < maxt; ++t) {
             p->pl->wa[t].p = p;
             p->pl->wa[t].tid = t;
@@ -968,10 +1080,10 @@ fft3d_plan *fft3d_create(int L, int batch)
     int streaming = batch > 1 && foot > 1.25 * (double)l3;
 
     /* ---- candidate pools ---- */
-    mt_cand cand[16];
+    mt_cand cand[20];
     int nc = 0;
 #define ADD(MO, TT, GG, VV, MM) do {                                          \
-        if (nc < 16) {                                                        \
+        if (nc < 20) {                                                        \
             mt_cand *c = &cand[nc];                                           \
             c->mode = (MO); c->T = (TT); c->G = (GG);                         \
             c->v = (VV); c->m = (MM);                                         \
@@ -980,7 +1092,8 @@ fft3d_plan *fft3d_create(int L, int batch)
                 if (c->G > c->T) c->G = c->T;                                 \
                 c->T = (c->T / c->G) * c->G;                                  \
             } else c->G = 1;                                                  \
-            if ((c->mode == 1 || c->mode == 4) && c->T > batch)               \
+            if ((c->mode == 1 || c->mode == 4 || c->mode == 5) &&             \
+                c->T > batch)                                                 \
                 c->T = batch;                                                 \
             if (c->T < 2) { c->mode = 0; c->T = 1; c->G = 1; }                \
             if ((c->v == 1 && !have_512) || (c->v == 2 && !have_vl))          \
@@ -1004,33 +1117,37 @@ fft3d_plan *fft3d_create(int L, int batch)
         if ((e = getenv("FFT45_V")))    { fV = atoi(e);    any = 1; }
         if ((e = getenv("FFT45_MECH"))) { fM = atoi(e);    any = 1; }
         if (any) {
-            int mo = (fmode >= 0 && fmode <= 4) ? fmode
+            int mo = (fmode >= 0 && fmode <= 5) ? fmode
                                                 : (batch == 1 ? 2 : 1);
             int T = fT > 0 ? fT : MAXT;
             int G = fG > 0 ? fG : (mo == 2 ? (batch == 1 ? T : 2) : 1);
             int v = (fV >= 0 && fV <= 2) ? fV : defv;
-            int m = (fM >= 0 && fM <= 10) ? fM : 0;
+            int m = (fM >= 0 && fM <= 11) ? fM : 0;
             ADD(mo, T, G, v, m);
         } else if (batch == 1) {
             /* one volume, latency-bound: grouped intra-volume splits over a
-             * T-sweep (barrier cost vs 45-plane / 507-tile granularity move
-             * against each other), plus the serial floor.  mt_r2: T=28/20
-             * added -- on the node the 32 threads span two sockets and the
-             * best team size is a cross-socket-barrier question the wallaby
-             * sweep cannot answer; widen it and let the node's race say. */
-            ADD(2, 32, 32, 1, 0);
+             * T-sweep, plus the serial floor.  mt_r4 reorder: T=23 LEADS --
+             * the node arena read grp1x23 fastest in all three r3 processes
+             * (56.8 vs 57.9 for the T=32 incumbent) and in r1, but the
+             * incumbent-first 3% hysteresis kept T=32; L45_pfa won the cell
+             * at exactly the T=23 level (56.6-57.2) three rounds running.
+             * The unused 9 workers now NAP for the plan's life (mt_run),
+             * removing the idle-spinner clock drag from the same cell.
+             * Dropped: T=8 (106.6 on the node, dead 3 rounds) and the v2
+             * T=32 row (65.6, dead). */
             ADD(2, 23, 23, 1, 0);
             ADD(2, 28, 28, 1, 0);
+            ADD(2, 32, 32, 1, 0);
             ADD(2, 16, 16, 1, 0);
             ADD(2, 20, 20, 1, 0);
-            ADD(2,  8,  8, 1, 0);
             ADD(2, 23, 23, 2, 0);
-            ADD(2, 32, 32, 2, 0);
             ADD(0,  1,  1, 1, 0);
         } else if (!streaming) {
             /* small cached batch; one vnt probe (mt_r2) in case the cell is
              * closer to the wall than the L3 heuristic thinks; one m8 row
-             * (mt_r3) so the pfnx mechanism is priced in the cached regime */
+             * (mt_r3) so the pfnx mechanism is priced in the cached regime;
+             * one grp1x32 row (mt_r4) so the whole-team-per-volume shape is
+             * priced here too. */
             ADD(1, 32,  1, 1, 0);
             ADD(1, 32,  1, 2, 0);
             ADD(2, 32,  2, 1, 0);
@@ -1038,35 +1155,62 @@ fft3d_plan *fft3d_create(int L, int batch)
             ADD(2, 32,  2, 2, 8);
             ADD(2, 32,  4, 1, 0);
             ADD(2, 32, 32, 1, 0);
+            ADD(2, 32, 32, 1, 1);
             ADD(3, 32,  1, 2, 6);
             ADD(0,  1,  1, 1, 0);
+        } else if (batch <= 24) {
+            /* small streaming batch -- the node's B=16 cell (44.5 MiB vs
+             * its 22 MiB L3; unreachable on wallaby, whose 60 MiB L3 keeps
+             * B<=24 cached).  mt_r4: L45_pfa took the cell (14.74 vs my
+             * grp16x2's 15.31) with mtf-blk = the WHOLE team on one volume
+             * at a time, contiguous unit blocks, pipelined across volumes
+             * -- which is exactly my grp shape at G=T: one volume in
+             * flight (2.9 MiB, L3-resident phase1->phase2 reuse), one
+             * barrier per volume amortised by cross-volume overlap.  Their
+             * class led their arena by 17% (15.5 vs g2's 18.6); mine never
+             * fielded G>2 here.  grp1x32 rows LEAD (VERDICT S6: make the
+             * right class the incumbent); the r3 node picks (grp16x2
+             * ppnx/pp) stay as controls; G=16/8 bracket the volumes-in-
+             * flight lever; one v2 width probe.  vns/vnt stay out: NT
+             * bypasses an L3 doing useful work here (57.3-66.7 vs 15.2 in
+             * every r3 node table). */
+            ADD(2, 32, 32, 1, 1);
+            ADD(2, 32, 32, 1, 0);
+            ADD(2, 32, 32, 1, 8);
+            ADD(2, 32,  2, 1, 8);
+            ADD(2, 32,  2, 1, 1);
+            ADD(2, 32, 16, 1, 1);
+            ADD(2, 32,  8, 1, 1);
+            ADD(2, 32, 32, 2, 1);
         } else {
-            /* streaming, mt_r3 reworked around the node's r2 tables and the
-             * VERDICT's placement finding.
-             * B=256 there: my vnt32-v2-m0 52.2/51.5/53.5 vs L45_pfa's
-             * static-block mtn 45.4 driver -- and their r1 mtn hit 26.9,
-             * which per VERDICT S5 needs the spread-page regime that only a
-             * CALL-STABLE volume->thread map lets AutoNUMA reach.  So the
-             * static vns class leads (earliest-wins hysteresis: static and
-             * dynamic tie in the pre-migration regime the arena races in,
-             * and static is the one that can improve during the driver's
-             * loop).  pfnx rows adopt L45_pfa's next-input pre-cover; m0
-             * rows respect the node's dislike of my pfin pacing (52.2 vs
-             * 56.8).  grp16x2 rows serve node B=16 (r2 winner shape) --
-             * mt_r3 adds their winning poke+pfnx mech (m8) and restores the
-             * v1 width (my r1 B=16 winner; L45_pfa's r2 win was pw4).
-             * DROPPED (took no picks r1+r2, dead by >=10% in every node
-             * table): all mode-1 vol rows, grp8x4, vnt16, the cpy family. */
+            /* deep streaming (node B=256).  mt_r4 is built around the r3
+             * result at this cell: my vns (spin pool) delivered 47.7 with
+             * gov fr=0 -- the caller's pages never moved and the cell sat
+             * at the socket-0 ~64 GB/s ceiling -- while L45_pfa's omtn
+             * (SAME static-block NT-staged shape, dispatched by an OMP
+             * region with their pool napped) delivered 26.8 with gov
+             * i=16/16, o=16/16: under a sleeping-between-calls team the
+             * kernel DID spread the pages mid-run and the cell settled at
+             * ~108 GB/s.  So vno rows lead (earliest-wins hysteresis: the
+             * arena races both forms in the pre-settled regime where they
+             * tie, and only the OMP form can improve during the driver's
+             * loop -- their S6 rule, their measured twins).  vno-pfi
+             * carries their fine-paced input prefetch (their pfi beat pf0
+             * 27.8 vs 29.8 in the settled regime; my coarse per-plane
+             * bursts lost 8% on the node and are convicted, r3 next-round
+             * note).  vno16 probes the half-team result (VERDICT S5: four
+             * entries measured T=16 19-35% faster at other streaming
+             * cells).  vns32/vnt32 stay as the pool-dispatch controls --
+             * the A/B the VERDICT ordered, kept honest. */
+            ADD(5, 32, 1, 2, 11);
+            ADD(5, 32, 1, 2, 10);
+            ADD(5, 32, 1, 2, 0);
+            ADD(5, 32, 1, 2, 9);
+            ADD(5, 32, 1, 1, 10);
+            ADD(5, 16, 1, 2, 10);
             ADD(4, 32, 1, 2, 10);
-            ADD(4, 32, 1, 2, 0);
-            ADD(4, 32, 1, 2, 9);
-            ADD(3, 32, 1, 2, 0);
             ADD(4, 32, 1, 1, 10);
-            ADD(2, 32, 2, 2, 8);
-            ADD(2, 32, 2, 2, 1);
-            ADD(2, 32, 2, 1, 8);
-            ADD(2, 32, 2, 1, 1);
-            ADD(3, 32, 1, 2, 7);
+            ADD(3, 32, 1, 2, 0);
         }
     }
 #undef ADD
@@ -1120,7 +1264,7 @@ fft3d_plan *fft3d_create(int L, int batch)
 
         /* gate every candidate at 1e-13 relative (they are all one bit
          * class with the reference, so this doubles as a threading check) */
-        int ok[16];
+        int ok[20];
         for (int k = 0; k < nc; ++k) {
             p->mode = cand[k].mode; p->T = cand[k].T; p->G = cand[k].G;
             p->p1 = P1T[cand[k].v][cand[k].m];
@@ -1139,7 +1283,7 @@ fft3d_plan *fft3d_create(int L, int batch)
 
         /* time the survivors: interleaved rounds, per-candidate min (the
          * phase-1 fast/slow-window lesson: never read one window) */
-        double best[16];
+        double best[20];
         for (int k = 0; k < nc; ++k) best[k] = 1e300;
         int reps = nt >= 16 ? 1 : (nt >= 4 ? 4 : 16);
         int rounds = nt >= 16 ? 5 : (nt >= 4 ? 6 : 10);
@@ -1211,7 +1355,7 @@ void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex 
      * the timed loop, so `fr` here is the POST-loop placement: fr0 > 0 or
      * frl > fr0 means the spread regime is live at this cell. */
     ++plan->ncall;
-    if ((plan->mode == 3 || plan->mode == 4) && plan->main_node >= 0 &&
+    if (plan->mode >= 3 && plan->main_node >= 0 &&
         (plan->ncall == 1 || plan->ncall % 24 == 0)) {
         int fr = gov_scan_remote((const double *)in, (double *)out,
                                  plan->batch, plan->main_node);
@@ -1228,12 +1372,15 @@ void fft3d_destroy(fft3d_plan *plan)
 {
     if (!plan) return;
     if (plan->pl) {
+        pool_setnap(plan->pl, plan->pl->nthr);   /* wake nappers first */
         atomic_store(&plan->pl->shutdown, 1);
         ++plan->pl->gen_local;
         atomic_store_explicit(&plan->pl->gen, plan->pl->gen_local,
                               memory_order_release);
         for (int t = 1; t < plan->pl->nthr; ++t)
             pthread_join(plan->pl->th[t], NULL);
+        pthread_mutex_destroy(&plan->pl->napmx);
+        pthread_cond_destroy(&plan->pl->napcv);
         free(plan->pl);
     }
     for (int t = 0; t < MAXT; ++t) free(plan->ctx[t].blk);
@@ -1337,6 +1484,12 @@ void fft3d_destroy(fft3d_plan *plan)
 #define NB   ((LSIDE + PW - 1) / PW)   /* blocks per pass: 12 (PW=4), 23 (PW=2) */
 #define NGF  (LSIDE / PW)              /* full blocks: 11 (PW=4), 22 (PW=2)     */
 #define PFCH ((PFLINES + NB - 1) / NB) /* prefetch lines per paced call         */
+/* fine-paced pfin (mech 11 "pfi", mt_r4, after L45_pfa's pfi which beat
+ * their pf0 27.8 vs 29.8 in the node's settled regime while my COARSE
+ * per-plane bursts lost 8% there): the next plane's 508 lines are issued
+ * as small bursts across BOTH subpasses' group loops -- 2*NGRP slots of
+ * PFB lines (24 at PW=4, 12 at PW=2) instead of 12 slots of 43. */
+#define PFB  ((PFLINES + 2 * NGRP - 1) / (2 * NGRP))
 #define NTFULL (NPLANE / PW)           /* full phase-2 tiles: 506 / 1012        */
 /* phase 1's z and y subloops run NGF full groups + one PW=1 tail line;
  * -DFFT45_R10TAIL restores the r6-r10 overlap-recompute tails. */
@@ -1416,6 +1569,7 @@ void FN(p1body)(const double *vin, double *vout, double *plane,
         /* the input/output planes one ahead of the ones in flight */
         const double *npf = pin  + (long)NPLANE * 2;
         double       *npw = pout + (long)NPLANE * 2;
+        long pfl = 0;   /* fine-pacing cursor (pfin == 2), lines issued */
 
         /* z pass: lanes = PW consecutive y-rows; NGF full groups, then ONE
          * true PW=1 (xmm) tail line for y=44 */
@@ -1424,7 +1578,7 @@ void FN(p1body)(const double *vin, double *vout, double *plane,
 #ifdef FFT45_R10TAIL
             if (y0 > LSIDE - PW) y0 = LSIDE - PW;
 #endif
-            if (pfin) {
+            if (pfin == 1) {
                 /* paced positional cursor: cover one plane of in, one plane
                  * ahead, spread over this subloop's calls */
                 long s = yb * PFCH, e = s + PFCH;
@@ -1435,6 +1589,15 @@ void FN(p1body)(const double *vin, double *vout, double *plane,
                     if (q < inend)
                         _mm_prefetch((const char *)q, _MM_HINT_T1);
                 }
+            } else if (pfin == 2) {
+                /* fine pacing: one small burst per group, both subpasses */
+#pragma GCC unroll 8
+                for (long i = 0; i < PFB; ++i) {
+                    const double *q = npf + (pfl + i) * 8;
+                    if (q < inend)
+                        _mm_prefetch((const char *)q, _MM_HINT_T1);
+                }
+                pfl += PFB;
             }
             VD Xv[LSIDE], Yv[LSIDE];
             const double *rows = pin + y0 * (LSIDE * 2);
@@ -1470,7 +1633,7 @@ void FN(p1body)(const double *vin, double *vout, double *plane,
             STCOL(prow + 44 * 2, PPITCH * 2, Yv[44]);
         }
 #ifndef FFT45_R10TAIL
-        if (pfin) {
+        if (pfin == 1) {
             /* the pacing chunks the removed 12th group would have issued */
             long s = (long)NGF * PFCH;
 #pragma GCC unroll 8
@@ -1502,6 +1665,16 @@ void FN(p1body)(const double *vin, double *vout, double *plane,
                         __builtin_prefetch(q, 1, 3);
                 }
             }
+            if (pfin == 2) {
+                /* second half of the fine-paced next-input cover */
+#pragma GCC unroll 8
+                for (long i = 0; i < PFB; ++i) {
+                    const double *q = npf + (pfl + i) * 8;
+                    if (q < inend)
+                        _mm_prefetch((const char *)q, _MM_HINT_T1);
+                }
+                pfl += PFB;
+            }
             FN(dft45_y)(plane + z0 * 2, ydst + z0 * 2);
         }
 #ifndef FFT45_R10TAIL
@@ -1518,6 +1691,7 @@ void FN(p1body)(const double *vin, double *vout, double *plane,
 #endif
         if (cpy)
             plane_copy(pout, plane2, (size_t)NPLANE * 2 * sizeof(double));
+        (void)pfl;
     }
 }
 
@@ -1591,6 +1765,10 @@ MKPR(7, 1, 0, 0, 1, 0)
 MKPR(8, 1, 1, 0, 1, 1)
 MKPR(9, 1, 0, 0, 0, 1)
 MKPR(10, 0, 0, 0, 0, 1)
+/* m11 "pfi" (mt_r4): FINE-paced input prefetch only -- the transcription of
+ * L45_pfa's pfi, which won the settled-regime node race (27.8 vs pf0's
+ * 29.8) where my coarse per-plane bursts (m6) lost 8%. */
+MKPR(11, 2, 0, 0, 0, 0)
 #undef MKPR
 
 #pragma GCC pop_options
@@ -1619,6 +1797,7 @@ MKPR(10, 0, 0, 0, 0, 1)
 #undef NB
 #undef NGF
 #undef PFCH
+#undef PFB
 #undef NTFULL
 #undef NGRP
 

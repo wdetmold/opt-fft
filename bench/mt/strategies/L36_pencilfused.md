@@ -580,3 +580,174 @@ cross-core staging per shared plane, zero arithmetic.
 3. B=32's remaining 6% to mixedradix (166.8 vs 176.5) is likely their pf1
    read-cursor shape; mode 7 is now in the race to answer that. If the node
    picks 7 and lands ≤170 µs/call, promote it into the B≤8 lists too.
+
+## Round mt_r4 — take the two structural deltas the r3 leaderboard names: mixedradix's ncw read-flow into my pinned NT drain, and their sub-socket exact-divisor teams into my B=1 ladder
+
+### Where mt_r3 landed on the node, and what this round is built on
+
+Node (Gold 5218, p55n3, min of 3 processes, all picks stable 3-of-3 for the
+first time at every cell):
+
+* B=1 **25.82** (3rd; mixedradix split12 **23.03**, pfa fused2-t16 25.72).
+  My pick: 2phase-pool team=16 z-first pw4, probe pl32=32.4–33.1
+  pl16=28.8–30.2 ps=29.6–29.8 ser=160.9–161.5.
+* B=32 **5.49 µs/vol** (3rd; pfa ip0 **5.21**, mixedradix 5.36).  Pick
+  volpar-pool istream(7) t32 in all three processes — the r3 lottery fix
+  held; the residual gap is not a pick problem any more.
+* B=512 **10.86 µs/vol** (2nd; mixedradix vol32-sntp **9.90**, pfa 19.32).
+  Pick volpar-PIN t32 pw4 scratch+nt, setup 4.01 s, gov{nb=1 fi=25–28
+  **fo=50** nc=16–80} — the r3 pin + dwell worked exactly as designed
+  (34.0 → 10.86, 3-of-3, and the governor measured 50% of sampled NT-written
+  out pages migrated, killing the r2 premise a second time).  The VERDICT
+  (§4.3, §6) credits this entry with building the L2-tile construction and
+  sets the L=36 order: "find the difference between 9.9 and 20.0 µs/vol."
+
+The diagnosis this round acts on: at B=512 mixedradix and I now run the SAME
+nominal shape (full-team, per-thread L2-resident volume scratch, NT stream to
+out, ~1.5 MB/vol compulsory) and differ 9%.  Reading their exemplar source
+(`exemplars/mt_r3/L36_mixedradix.c`, body()) against mine leaves exactly one
+structural difference in the winning path: their phase 2 — the NT drain —
+issues a small paced read flow into the NEXT volume's input (their `ncw`
+block: 3 T1 line-prefetches per phase-2 group, 324 × 3 × 64 B = 62 KB of
+in[b+1]), so the DRAM system never sits in a pure-write regime between
+volumes.  My mode 2 issued NO reads at all during the drain.  (I checked
+their anti-alias `pind` slide too, and did NOT take it: their own phase-1 r8
+node data prices it 0 to −1.2% and it ships default-off.)  At B=1 the delta
+is decomposition: their winning split12 gives every thread exactly 3 pass-A
+planes and 27 pass-B units on ONE socket; my ladder {8,16,18,20,24,32} had no
+sub-16 exact divisor of 36 at all — 16 splits 36 as 2.25 (span 3 with 12
+threads idle a wave) and everything ≥18 crosses the node's socket boundary.
+
+### What changed (serial kernel arithmetic untouched since panel_r11; both
+### changes are prefetch shape / team decomposition, bit-identical by class)
+
+1. **Mode 2 (the pinned streaming shape) gains light next-volume pre-coverage
+   in the NT drain**: passB_nt takes a lines-per-unit knob; mode 2 passes 3
+   (T1 hint, 62 KB of in[v+1] per volume — L36_mixedradix's ncw, adopted
+   verbatim from their node-winning sntp body and attributed inline); mode 3
+   keeps its old 36 (T2, the whole volume — the phase-1-rejected heavy XV,
+   now reachable only by forcing).  Desc marker: `scratch+ntx` (vs
+   `scratch+nt` when compiled with -DFFT36PF_NONXT, the A/B control).
+   Prefetch-only: output bit-identical (verified: ntx and nonxt binaries
+   produce cmp-identical out.bin).
+2. **B=1 pool ladder gains 12 and 9** — the exact divisors of 36 planes and
+   324 units that stay on one node socket.  From L36_mixedradix's split12
+   (node 23.0) and their ladder note ("bracket 12 from below with the other
+   exact divisor" — their T=9 = 4 planes + 36 units exact).  pl12= and pl9=
+   ride the B=1 probe string so the node prices the sub-socket curve even if
+   the pick goes elsewhere.  TP-OMP ladder gains 12 for symmetry.
+3. **Pair-split rows (strat 5) pruned**, per this record's own r3 rule: on
+   the node it beat plain t32 (29.7 vs 33.1 in-arena) but lost the pick to
+   sub-socket t16 — the mechanism it fixes (leftover-plane imbalance at wide
+   teams) is now covered by the exact-divisor teams with zero handshakes.
+   Code path kept behind FFT36PF_KEEP_PS; ps= leaves the probe string.
+
+### Operation count
+
+Unchanged: 232 FMA-port + 57 shuffle vector ops per 36-point line over PW
+lanes, 225 504 FMA-port vector ops/volume at PW=4.  The light ncw adds 972
+prefetch uops per volume (324 units × 3) and zero arithmetic, zero extra
+compulsory traffic (it touches only bytes pass A was about to read anyway).
+Team-ladder and prune changes are plan-time only.
+
+### What was measured (wallaby Gold 6448Y, 32 threads, shared login node;
+### driver minima; rel_l2 vs numpy, tol 1e-12; all PASS and bit-repeatable)
+
+| cell | mt_r3 | mt_r4 | pick |
+|---|---|---|---|
+| B=1 | 13.07–13.5 µs | **13.39 µs** | 2phase-pool t32 y-first pw4 (unchanged — wallaby is one socket, wide wins there) |
+| B=32 | 96.4 µs/call = 3.01 µs/vol | **95.76 µs/call = 2.99 µs/vol** | volpar-pool istream t32 pw4 (unchanged) |
+| B=512 close | 3712–3788 µs = 7.25 µs/vol | **3697.7 µs = 7.22 µs/vol** | volpar-PIN t32 pw4 scratch+**ntx** |
+| B=512 spread (node geometry) | 2406.6 µs = 4.70 µs/vol | **2339.5–2420.1 µs = 4.57–4.73 µs/vol** | same pin, setup 4.0 s, dwell fires |
+
+* **The ncw A/B is not priceable on wallaby** — stated plainly rather than
+  oversold.  Same-window interleaved ntx-vs-nonxt at B=512 spread: 2392.6 /
+  2417.1 vs 2356.7 / 2407.5 µs (a ~1% wash, plus one 4761-µs round poisoned
+  by login-node interference); close binding 3697.7 vs 3712.6–3744.2
+  (ntx ≤1% ahead, same noise band).  Wallaby's SPR memory system (DDR5, 2 MB
+  L2, stronger streamers) is exactly where a 62 KB read-flow-during-drain
+  should vanish; the node's DDR4-2666 with its costlier read/write turnaround
+  is where mixedradix's 9.90 says it pays.  The node run is the experiment;
+  scratch+ntx vs the r3 baseline 10.86 is the readout, and FFT36PF_NONXT is
+  the control if the monitor wants it.
+* B=1 in-arena pool team curve, wallaby pw4 (new rows in context): t8 23.15,
+  **t9 19.87, t12 17.15**, t16 18.00, t18 15.23, t20 15.44, t24 14.32, t32
+  13.56 — t12 beats t16 by 5% even on ONE socket (the 2.25-plane imbalance
+  is real and machine-independent); the ladder's wide end still wins where
+  there is no UPI, exactly as it should.
+* Correctness: 3.748e-16 (B=1 wallaby y-first class), 3.586–3.591e-16
+  (B=32/512 z-first class), repeatable (bit-identical across processes) at
+  every cell; wombat AVX2-only end-to-end B=1 32.66 µs, B=32 487.4 µs, PASS,
+  no regression vs r3 (32.6 / 483).  Clean compiles: bare -O2 without
+  -fopenmp, -march=haswell.
+
+### What did NOT work / negatives worth keeping
+
+1. **Wallaby cannot price the ncw** (numbers above) — this round ships it on
+   rival node evidence, not dev-box evidence.  If the node reads
+   scratch+ntx ≈ 10.9 (no change), the mechanism is not the mixedradix
+   delta and the remaining 9% is ENGINE: their node serial is ~6.5% faster
+   than mine (ser=150.7–152.1 vs my 160.9–161.5 in the r3 B=1 descs) on a
+   kernel that is FASTER than theirs on wallaby — a CLX-vs-SPR scheduling
+   gap (single 512-bit FMA pipe, half-size DSB), not a memory one.
+2. **Considered and rejected: racing mode 4 (PIPE ping-pong) under the pin**
+   as the read-overlap vehicle — its live mid set is 2 volumes = 1.46 MB
+   per thread, which blows the node's 1 MiB L2 and, at 16 threads/socket,
+   the 22 MiB socket L3 too (16 × 1.46 = 23.4 MB), converting scratch
+   traffic into DRAM traffic at exactly the cell that is DRAM-bound.  The
+   62 KB ncw buys the same read-during-drain property for 972 prefetches.
+3. **Considered and rejected: mixedradix's pind anti-alias slide** — their
+   own record ships it default-off after phase-1 r8 priced always-on at 0
+   to −1.2% at B=1.  Not rediscovered; noted so nobody else spends a round
+   on it either.
+4. Pair-split pruned on its pre-registered criterion (r3 Next item 2); the
+   negative that kills it is r3's own node probe (ps lost the pick to a
+   smaller plain team), not a new measurement.
+
+### Borrowed, and from whom (also credited inline in the source)
+
+* **Light next-volume pre-coverage in the NT drain (ncw, 3 lines/unit, T1)**:
+  L36_mixedradix's node-winning B=512 sntp body, `exemplars/mt_r3/
+  L36_mixedradix.c`, taken verbatim including the hint level and the 3-line
+  weight.  Transitively their pfin lineage runs through L36_pfa's PFIN.
+* **T=12 and T=9 exact-divisor sub-socket teams**: L36_mixedradix's split12
+  (the standing B=1 cell winner) and their T=9 ladder rationale, quoted in
+  the source comment.  L36_pfa's r3 t12 numbers (29.5–30.5 in-arena, did
+  NOT transfer to their fused2 structure) are the caution that made me keep
+  16/18 in the ladder rather than swap.
+* The prune discipline is phase-1 r10's rule, applied to my own strat 5.
+
+### Predictions for the node (pre-registered, so mt_r4's verdict can grade)
+
+* B=512: pick is deterministic (`volpar-PIN team=32 pw=? scratch+ntx`,
+  setup ~4 s, gov on desc).  If the ncw read-flow is the mixedradix delta:
+  **9.9–10.4 µs/vol** (their 9.90 is the existence proof of the shape's
+  ceiling on this node).  If it lands **10.6–11.0** (r3-flat), the delta is
+  engine, not schedule — then next round stops touching the memory system
+  at this cell and ports kernel scheduling instead (their DFT layering or
+  the zy-style port-5 interleave, measured on the node's own serial row).
+  Either way fo≈50 should reappear; fo≈0 with a slow run would mean the
+  balancer regime changed under me.
+* B=1: pool tp z-first at **t12** if mixedradix's decomposition transfers to
+  my kernels (**~23.5–25**), else t16 again at ~25.8 with pl12/pl9 published
+  for the record.  pl12 < pl16 on wallaby's single socket (17.15 vs 18.00)
+  is weak supporting evidence; the node's sub-socket coherence regime is
+  what actually decides it.
+* B=32: unchanged path, **5.3–5.6 µs/vol**, 3-of-3 on one pick.  No change
+  was made at this cell on purpose: the 5% to pfa's ip0 is the same engine
+  gap as the serial 6.5%, and no tuner change addresses it.
+
+### Next
+
+1. Read the node's B=512 number against 10.86 first — it adjudicates
+   schedule-vs-engine for the whole geometry (see prediction).  If ntx won,
+   sweep the ncw weight (3 → 6 lines) before anything else; if it tied,
+   open the engine file: CLX-side kernel scheduling (DSB-resident pass-A
+   bodies, the mode-11 compact-twin trick applied to the z-first class, or
+   mixedradix's zy interleave) is the only lever left at every cell.
+2. Read pl12/pl9/pl16 off the node's B=1 desc.  If t12 wins and lands ≤24,
+   the remaining ~1 µs to mixedradix is engine (same conclusion as item 1).
+   If t16 still wins despite pl12 < pl16 in-arena, the arena is mispricing
+   the B=1 cell too and the fix is an execute-time team race on the real
+   buffers (L8_fusedaxes' protocol, already ported by pfa).
+3. B=2..8 remain TP-OMP, unscored, unchanged.

@@ -484,3 +484,177 @@ Setup 0.06 s (B=1) … 0.41 s (B=512).
    the create-time arena becomes trustworthy again and the T question can
    move back into it.  Leave the governor in either way — it is the only
    instrument that races in the scored regime by construction.
+
+## Round mt_r4
+
+### Where mt_r3 landed on the node (the input to this round)
+
+B=1 **25.720, 2nd** (fused2 T=16 pw4 pf0; mixedradix split12 23.027).
+B=32 **5.212 us/vol, 1st** (vols T=32 ip0; the r2 lottery is dead — 166.8 /
+170.3 / 166.8 us/call, ≤2% spread).  B=512 **19.322, 3rd, 1.95x behind
+L36_mixedradix's 9.896 running the SAME nominal shape** (per-thread
+L2-resident volume scratch, NT stream to out, wide team).  The governor
+did exactly what I built it to do — raced d32/s16/s32 on the caller's real
+buffers, locked s16 (20.05 in-race, 19.32 delivered, an honest instrument)
+— and that is precisely why it lost: **none of its readings can see the
+steady state a SUSTAINED wide team produces.**  The verdict's L=36 order:
+find the difference between 9.9 and 20.0.
+
+### The diagnosis that drives this round
+
+The governor measures T=32 in **one-execute islands** — six probation
+executes, then one probe every 16th — sandwiched between s16 executes.  A
+one-execute probe of s32 runs against socket-0-resident pages and reads
+24.4; it never triggers, and never benefits from, the page spread that a
+wide team running the WHOLE loop produces.  The direct evidence that
+sustained-wide is a different regime: L36_pencilfused pinned team=32
+scratch+nt for the whole run and its own scan read **fi=28 / fo=50 percent
+of caller pages remote** in the scored process (10.9 us/vol); my probe
+islands read fr0=0 in all three processes.  L36_mixedradix pinned
+v1-vol32-sntp and delivered **9.9 us/vol 3-of-3** (150.9 GB/s — above one
+socket's DDR4 controllers, so both sockets' memory demonstrably serve it).
+So the choice "probe-race vs pin" is not instrumentation hygiene, it
+decides which regime the scored loop runs in.  A probe long enough to
+reach the migrated steady state would BE the scored run; there is nothing
+left to race, and the r3 verdict's SS6 says stop building placement
+instruments.  Pin it.
+
+### What changed (tuner + policy; codelets, passes, pool untouched)
+
+1. **B>=128 PIN** (policy from L36_mixedradix mt_r3, adopted whole): when
+   /proc/sys/kernel/numa_balancing reads 1 and no forcing env is set,
+   fft3d_create() installs **vols static T=32 pw4 scratch+nt pf=1**
+   directly — the shape behind 9.9 (mixedradix) and 10.9 (pencilfused) —
+   still correctness-gated at 1e-13 against the serial reference.  With
+   nb=0 the never-migrate arena and the driver share one regime, so the
+   create-time race installs as before (its r3 winner was n16 at an honest
+   19.3–20; that row stays raced as the fallback).  FFT36_PIN=0 (and the
+   old FFT36_GOV=0, kept as an alias) or any forcing env disarms the pin.
+2. **~3 s create-time dwell at the pinned cell** (L36_pencilfused mt_r2's
+   dwell via L36_mixedradix mt_r3, whose 9.9 processes carried 3.0 s
+   setups against my 0.69): after installing the pin, create() runs the
+   pinned shape on the arena until the plan is ~3 s old.  AutoNUMA's
+   per-task scanning ramps over the first seconds; the driver's timed loop
+   at B=512 is only ~0.3 s, so an aged process starts it with the balancer
+   already active.  Setup is unscored.
+3. **The execute-time governor is DELETED.**  What survives at streaming
+   is read-only: the get_mempolicy fr scan at execute 0 and execute 20
+   (r3's second scan at 40 never fired — the cell only runs ~29 executes),
+   published as `pin{on nb fr0 fr20}`.  dyn rows are gone from the default
+   list (0 scored wins panel-wide, r3 verdict); FFT36_DYN still generates
+   the stealing twin for forced controls.  Streaming candidate list
+   trimmed to {nt1@32, nt1@16, nt0@32, ip7@32, pw2-nt1@32} — gate rows +
+   the description A/B.
+4. **B=1: honest-clock team race.**  The tournament now times every
+   candidate with the pool SHRUNK to that candidate's team, walking the
+   ladder descending (32, 24, 18, 16, 12, 9, 8, then serial at pool=1),
+   then stops and restarts the pool for the installed pick.  Why: idle
+   pool workers spin hot between back-to-back tournament dispatches (they
+   never reach the 1 ms nap), so the old full-pool race timed a T=12
+   candidate under a 32-thread all-core AVX-512 clock — my r3 node arena
+   read t12=30.4 while mixedradix's scored split12, the same decomposition
+   on a 12-thread team, ran 23.0.  My own mt_r1 record measured the
+   mechanism directly (serial 77 us with 31 spinners vs 51.4 without) and
+   I still let it price the team ladder for two rounds.  **T=9 joins the
+   ladder** (mixedradix r3: the other exact divisor — 4 planes and 36
+   tiles per thread).  The description now carries t9= beside t18=/t12=.
+5. B=32: untouched (the cell is won and stable; verdict: leave it alone).
+
+Operation count: unchanged (232 FMA-port vector ops + ~57 swaps per
+36-point line over PW lanes; 225,504 port-0 vector ops/volume at PW=4).
+Output remains bit-identical to the serial kernel at the same PW — the pin
+and the ladder only choose which thread runs which whole unit.
+
+### Measured (wallaby, Gold 6448Y SPR, 32 threads close/cores on one
+### socket, shared login node — sessions this round ranged quiet to busy
+### (sd up to 17% on the streaming cell); wallaby still cannot price any
+### two-socket question — its job is correctness + no-regression)
+
+| cell | mt_r3 wallaby | mt_r4 wallaby | pick |
+|---|---|---|---|
+| B=1   | 13.85 us | **13.53 us** (quiet window) | fused2 T=32 pw4 pf0 (wide always wins on one socket; honest ladder changes nothing there by design) |
+| B=32  | 2.56 us/vol | **2.80 us/vol** (busier window; path byte-identical to r3) | vols T=32 pw4 ip0 |
+| B=512 | 7.15 us/vol | **7.33–7.41 us/vol**, setup 3.01 s (dwell fires) | vols-PIN T=32 pw4 scratch+nt pf1 |
+
+In-arena A/B on wallaby at B=512: nt1=5.86 nt0=6.86 ip7=9.36 n16=9.67 —
+same ordering as r3, and the pin installs exactly the arena's winner
+there, so no wallaby regression by construction.  Forced controls all
+verified: FFT36_T=16 → vols T=16 nt1 installs, pin{on=0}, 8.28 us/vol
+(half-team correctly slower on one socket); FFT36_PIN=0 → race installs
+nt1 T=32, 7.27; FFT36_DYN=1 → dyn twin runs, 7.34; FFT36_MT=serial → B=1
+serial pf0 installs.  fr scan reads fr0=0 fr20=0 on wallaby's single
+socket, as it must.
+
+Correctness: rel L2 vs numpy 3.575e-16 … 3.591e-16, PASS at
+B = 1, 2, 32, 33, 130 (pin path with a non-divisible batch), 512;
+repeatable (bit-identical output across runs) at every cell; AVX2-only
+host (no AVX-512) builds clean and passes at B=1 and B=130 (the pin
+correctly targets the pw2 nt1 row when pw4 does not exist).  Setup
+0.07 s (B=1) … 3.01 s (pinned cells, dominated by the deliberate dwell).
+
+### What did NOT work / was considered and rejected, with numbers
+
+1. **Keeping the governor with longer probes**: a probe long enough to
+   reach the spread steady state is indistinguishable from just running
+   the shape — the instrument's entire budget (6 probation + 1-in-16
+   probes inside a ~29-execute cell) cannot contain it.  The r3 data is
+   the refutation: s32 probed at 24.4 in all three processes while the
+   same shape sustained scores 9.9.  No probe schedule fixes an
+   instrument whose act of measuring changes the regime back.
+2. **Pinning dyn32 instead of static32**: my own r3 governor read d32
+   25.2–26.1 vs s32 24.4 (static ahead even pre-spread), mixedradix's
+   scored 9.9 is static, and dyn is 0-for-every-scored-race panel-wide.
+   The stealing cursor solves a problem (min-of-halves in the stuck
+   regime) that the pin's sustained-wide regime does not have.
+3. **A create-time dwell on the CALLER's buffers**: not possible — create
+   never sees them; the dwell ages the process on the arena and the
+   driver's own warmup executes do the caller-page part.
+4. **B=1 structural work (socket-staged x-pass)**: still deferred — the
+   node's B=1 winners remain single-socket sub-teams (mixedradix's 12),
+   so the honest ladder + T=9 is this round's cheap bite; structure only
+   if the repriced ladder says the cell is UPI-bound after all.
+
+### Borrowed, and from whom (also credited inline in the source)
+
+* **The pin policy, its nb=1 gate, and wide-team-sustained-at-streaming**:
+  L36_mixedradix mt_r3 (their v1-vol32-sntp pin, 9.9 us/vol 3-of-3).
+* **The create-time dwell**: L36_pencilfused mt_r2, via L36_mixedradix
+  mt_r3's simpler use of it.
+* **The sustained-wide-spreads-pages evidence**: L36_pencilfused mt_r3's
+  scored fi=28/fo=50 scan under their pinned team=32.
+* **T=9 in the B=1 ladder**: L36_mixedradix mt_r3.
+* **The honest-clock diagnosis at B=1**: the r3 VERDICT SS4.4 (spin pools
+  depressing clk512 panel-wide) plus my own mt_r1 spinner measurement,
+  finally applied to my own tournament.
+
+### Predictions for the node (pre-registered, so mt_r4's verdict can grade)
+
+* **B=512**: all three processes install vols-PIN T=32 nt1 and land
+  **9.5–11.5 us/vol** with pin{fr0 or fr20 > 0} in at least one process —
+  the mixedradix/pencilfused number, now with my cheaper dispatch.  If it
+  lands ~19–24 with fr0=fr20=0 in all three, the spread never happened for
+  my process and the residual difference from mixedradix is inside the
+  phase bodies, not the schedule — that A/B (their 9.9 vs my pinned same
+  shape) would then be the next round's first diff.  Either way the cell
+  stops being decided by a probe that cannot see the answer.
+* **B=32**: unchanged path, **5.2–5.6 us/vol**, ≤2% spread again.
+* **B=1**: the honest ladder reprices t12/t9 from 30.4/— to the low-to-mid
+  20s; pick t12 or t9 at **22.5–24.5 us** if mixedradix's split12 result
+  transfers to my cheaper barrier, else t16 holds at ~25.7 and the ladder
+  numbers on the description line say the sub-team clock story was wrong.
+
+### Next round
+
+1. Read pin{fr0 fr20} and the B=512 number off all three processes first.
+   If pinned-32 lands at ~10, L=36 B=512 is at the same 150 GB/s wall as
+   mixedradix and the next lever is the verdict's "what does the last 35%
+   of two-socket DDR4 cost" question — likely a socket-aware split where
+   each socket's threads keep their NT streams on their own controllers
+   (needs the driver's pages actually spread; the fr numbers will say).
+2. If B=1's honest ladder installs t12/t9 and lands 22–24, the remaining
+   gap to the ~15 us barrier+port floor is the same-socket all-to-all;
+   the next structural idea is plane-major phase-2 tile ordering per
+   thread (reader-set locality), sketched in r3 and still unbuilt.
+3. If the pin misses (19–24 with fr=0), diff my nt1 phase-1/phase-2
+   against mixedradix's sntp bodies line by line — same nominal traffic,
+   2x apart, would then be a code fact, not a placement fact.

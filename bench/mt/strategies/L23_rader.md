@@ -455,3 +455,182 @@ full outputs — 8 cells at B=1, 9 at B=3, 10 at B=128.
    down and stop spending rounds on it: the cell is ~1.4 us of work
    behind a ~10 us sync+imbalance floor that two independent kernels
    now measure identically.
+
+## Round mt_r4
+
+### Where mt_r3 landed on the node (read off results/mt_r3 + VERDICT)
+
+Scored: B=1 **11.865 us — won** (a 0.8% tie over matrixsimd's 11.956; pick
+fused T=16 flat, tuner 11.51-11.91); B=128 **2.300 — lost by 1.4%**
+(another tie; pick plain batch T=32 pf0pw0 in 2 of 3 processes, pf2pw1 in
+one, tuner 2.23-2.38); B=2048 **5.810 — won** (a 1.4% tie; pick batchNT
+static T=32 pf0, tuner pick 5.48 vs plain inc 6.44 at nv=640 — the
+borrowed aggregate arena fixed mt_r2's 7.17 exactly as pre-registered,
++1.23x).  My three r3 bets all resolved NEGATIVE on the node, per my own
+pre-registered readings: **bar=0 and wt=0 in every one of my nine node
+description strings** — the tree barrier displaced nothing (so B=1's cost
+is fused-t1 data movement / imbalance, not the flat barrier scan, and the
+cell is latency-closed: two kernels and a purpose-built tree barrier now
+measure the same ~11.6 floor), and the weighted split lost (socket-0 DRAM
+or the schedule, not UPI equalization, is the streaming wall).  The
+verdict's L=23 order: both entries sit at **65-67 GB/s, the LOWEST
+streaming bandwidth of any geometry**, while the L=36 entries reach
+137-151 GB/s on the same node, and what separates them is the
+sequential-read discipline (verdict 4.3/6); "stop building placement
+instruments" (team width and page migration are dead, four independent
+refutations).
+
+### What changed (memory schedule + idle-thread hygiene; DAG untouched)
+
+1. **Staged sequential input (`si` = 0/1/2), range exec**: with si on, a
+   thread copies its volume's `in` (24334 doubles, 190 KiB) sequentially
+   into a new page-aligned slot region (vs; slot grows 53 -> 101 pages)
+   and runs the X pass off the copy.  Same compulsory bytes, but ONE
+   hardware-prefetchable stream per thread instead of the X pass's 23
+   interleaved 8464-B-strided page streams (32 threads x 23 = 736 open
+   DRAM page streams was the suspected 65 GB/s wall).  si=2 stages
+   far-socket threads only.  This was my unbuilt next-item since mt_r1
+   ("idea 2"), r3 next-item 2's else-branch; built per the verdict's
+   explicit L=23 port order.
+2. **Paced next-volume input prefetch (`pv` = 0/1), range exec — my own
+   variant with zero extra stores**: during volume v's compute-heavy
+   plane phase, prefetcht1 volume v+1's `in` sequentially, ~133 lines
+   per plane (3043 total).  Same stream conversion as si, no copy tax;
+   the X pass then reads mostly L2 hits.  Distinct from the
+   node-rejected pf=2, which issued the same strided pattern
+   just-in-time against the X pass's own demand loads; pv issues a
+   sequential pattern into idle fill-buffer slots during compute.
+3. **Parked non-participants**: once the pick is final (end of create,
+   after env overrides), pool threads with tid >= team — which join no
+   barrier and run no work — poll the generation word with
+   nanosleep(100us) instead of pause-spinning; a catch-up loop tolerates
+   any generation backlog, so this cannot cost a participant anything.
+   The node's scored B=1 pick (fused T=16) leaves 16 workers spinning
+   all run; verdict 4.4 collects three entries blaming busy spinners for
+   all-core clock drag (clk512 2.29 vs 2.89 GHz).  `L23R_PARK=0`
+   disables; `pk=` in the description string.
+4. **Cell-list surgery on node evidence**: dropped the tree-barrier and
+   weighted-split cells (bar/wt 0-for-9 in my own r3 node strings; code
+   kept, env-forceable), dropped the streaming team=16 rows (verdict 5).
+   Streaming list is now: plain / plain-pf2pw1 (the two node B=128
+   picks), batchNT static (node B=2048 pick), batchNT-pf2 (wallaby), the
+   si/pv ladder (NT+si1, NT+pv1, NT+si1+pv1, plain+si1, plain+pv1,
+   NT+si2 two-socket only), batchNT-w2 (NEW: the 256-bit licence-clock
+   question on the node's 1-FMA CLX — never raced by either L23 entry),
+   plain-w2 fallback.  B=1 list: fused T16 head (node's pick), fused T
+   flat (wallaby's), fused T16 pf2, serial, w2 — five cells, per my r3
+   item 3: the cell is latency-closed, stop spending on it.
+   New env: `L23R_SI` (0/1/2), `L23R_PV`; description string gains
+   si/pv/pk.
+
+### Operation count
+
+Per volume unchanged from panel_r11: 3*529 line-groups x 297 vector FP
+ops = 943 kflop, 409 zmm chunks.  si adds one bit-exact 24334-double
+memcpy per volume when engaged (zero FP, L2-resident destination); pv
+adds <= 3043 prefetcht1 per volume; park adds nothing to any participant.
+
+### Measured on wallaby (Gold 6448Y SPR, 32 threads close/cores, ONE socket, shared login node)
+
+| case | mt_r3 | mt_r4 | per-vol |
+|---|---|---|---|
+| B=1    | 5.74-6.24 us | **5.49-7.21 us** across windows (fused T32 flat kept) | 5.5-7.2 |
+| B=8    | 20.5 us/call | 20.7 us/call | 2.59 |
+| B=33   | — | 65.0 us/call | 1.97 |
+| B=128  | 166.9 us/call | **166.7 us/call** (pick plain w4 static) | 1.30 |
+| B=512  | 852.9 us/call | 829.8 us/call | 1.62 |
+| B=2048 | 4425 us/call | **4110-4341 us/call** (pick batchNT pf2, as r2/r3) | 2.01-2.12 |
+
+Key tables and A/Bs (all on one socket, where si/pv's mechanism does not
+exist — parity-or-loss here was the pre-registered wallaby outcome):
+* B=2048 in-tuner (nv=640, us/t): NT-pf2 **1.98 <- kept**, NT 2.12,
+  NT+pv 2.15, NT+si+pv 2.31, NT+si 2.38, plain-pf2pw1 2.63, plain 3.01,
+  plain+si 3.29, plain+pv 3.22, w2 rows 3.2+.  Driver-level forced:
+  NT-si0 4147, **NT-pv1 4375 (+5.5%)**, **NT-si1 4559 (+9.9%)** — si is
+  pure copy tax without UPI/DDR4 page thrash, matching L23_matrixsimd's
+  independent +8.7% measurement this same round.
+* B=128 in-tuner (nv=128, L3-resident here): plain **1.29 <- kept**,
+  plain+pv 1.35, plain+si 1.58, NT rows 1.63-1.85.  One flagged driver
+  window (same shape matrixsimd flagged): forced plain-si1 175.9/177.1
+  min/median (sd 1.2%) vs plain ref 275.9/315.5 (sd 13%) — B=128
+  windows on this shared host swing >10%; the walk row exists and the
+  node decides.
+* B=1 park A/B at forced fused T=16 (the node's shape, 16 idle workers):
+  PARK=1 6.868/6.913 vs PARK=0 6.867/6.882 (min/median) — **a wash on
+  wallaby**, where SPR clocks per-core.  The node's CLX package
+  governor is the actual question; pk= in the description will answer.
+
+Correctness: PASS rel_l2 = 3.767e-16 ... 3.808e-16 at B = 1, 8, 33, 128,
+512, 2048; repeatable (bit-identical across runs) everywhere.
+Bit-class: forced-cell cmp on full outputs, all IDENTICAL — at B=128
+{plain ref, plain+si1, plain+pv1, NT+si1, NT+si1+pv1, w2, and with
+L23R_FAKESOCK=1 both NT+si1 (all-stage) and NT+si2 (far-half stages)};
+at B=1 {fused T32, fused T16 pk1, fused T16 pk0}; at B=2048 {NT si0,
+NT si1, NT pv1}.  The copy is bit-exact and pv is semantics-free, so
+the bit class is intact by construction AND by measurement.
+
+### What did NOT work / neutral observations with numbers
+
+1. **si and pv on one socket lose or tie, as designed-for**: +9.9% and
+   +5.5% driver-level at B=2048.  If the NODE also rejects the whole
+   si/pv ladder, the strided input read is exonerated as the 65 GB/s
+   wall and the next suspect is the compute clock or claim granularity
+   — that closes the question either way, which is the point.
+2. **Parking measures ~0 on wallaby** (6.868 vs 6.867 forced T16) — not
+   claimed as a win; it is free by construction and exists for the
+   node's clock question.  matrixsimd measured ~1% on the same host.
+3. Raw-ssh trap, eighth appearance, avoided again: all remote work ran
+   through `~/tmp_l23rader_r4/dev.sh` invoked as `ssh wallaby /abs/path`
+   (NOTE: `~/tmp_l23r4/` is matrixsimd's dir this round, not mine —
+   check ownership before reusing a dev dir name).
+
+### Borrowed this round (attributions)
+
+* **Staged sequential input** (the knob design, si=2 far-only shape, and
+  the wallaby copy-tax numbers that set expectations): **L23_matrixsimd
+  mt_r4**, who ported the sequential-read discipline of the >=100 GB/s
+  mt_r3 entries (L36_pencilfused's paced read cursor, L36_mixedradix's
+  sntp) per the verdict's L=23 order.  Both L23 records carried the idea
+  since mt_r1; they built it first this round — per the standing rule,
+  copied.  pv (prefetch-only conversion, no copy) is my own addition on
+  top; if it wins on the node it answers their "interleave the copy"
+  next-item for free.
+* **Parked non-participants**: L23_matrixsimd mt_r4 (park design with
+  parkfrom-after-pick), L36_pfa mt_r3 (nap-after-1ms), verdict 4.4.
+* **What I did NOT rebuild, on the node's own verdict**: my tree barrier
+  and weighted splits (my r3, 0-for-9), team-width rows (verdict 5,
+  four refutations), dyn volume claiming (matrixsimd r3: dy0 in every
+  node pick).
+
+### Node predictions (pre-registered)
+
+* **B=2048**: the si/pv ladder asks ONE question — is the 23-way strided
+  input read the 65 GB/s wall?  If si1/si2 wins: **4.6-5.4 us/vol**; if
+  pv wins instead, the same at zero copy tax (and pv should then beat
+  si).  If the whole ladder loses to NT static at ~5.8, the read
+  pattern is exonerated and the residual is compute clock (watch the
+  new NT-w2 row) or write-side/claim-granularity.  Both entries ship
+  si this round, so the cross-check is built in: if their si wins and
+  mine loses (or vice versa) the difference is schedule, not mechanism.
+* **B=128**: plain static holds (2.23-2.30) unless plain+si or plain+pv
+  displaces — the cell is half cache-resident on the node (47.5 MiB vs
+  76 MiB aggregate), so I expect a smaller si effect than at B=2048;
+  2.0-2.3 either way.
+* **B=1**: fused T16 pick again, 11.5-12.0, now with pk=1 (16 far-socket
+  workers napping).  Under ~11.3 = parking bought real clock and the
+  panel rule ("never leave busy spinners next to a scored team") gets
+  my latency-cell datum; flat = the 2.29 GHz was governor/licence, the
+  null goes in the record, and the cell stays parked for good.
+
+### Next
+
+1. Read si/pv/w2 off the node strings.  If si won: tune the staging
+   (half-volume staging to halve L2 footprint; NT loads are useless on
+   WB memory, skip).  If pv won: race pacing depth (prefetch 2 volumes
+   ahead at 66 lines/plane).  If both lost: claim granularity >1 volume
+   for UPI stream continuity (matrixsimd's next-item), or accept the
+   ceiling and write it down.
+2. If B=1 moved with pk=1, propose the panel-wide spinner rule with the
+   latency-cell number; if not, the cell is closed — say so and stop.
+3. If NT-w2 embarrasses NT-w4 on the node (licence clock), consider a
+   w2 si/pv pairing next round; do not pre-build it.

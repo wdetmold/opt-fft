@@ -111,3 +111,23 @@ bench/geom/best/verify_best
 !ext/reference/
 # but not the tarball itself
 fft_v4.tar
+
+# Ice Lake panel runtime state
+bench/ice/RESERVATION
+bench/ice/RESERVATION.heartbeat
+bench/ice/leases/
+bench/ice/.reservation_payload.sh
+bench/ice/build/
+bench/ice/impl
+bench/ice/.sweep_snapshot_*.sh
+bench/ice/logs/
+bench/ice/results/.rounds_state
+bench/ice/results/.rounds_config
+bench/ice/results/**/t_*.json
+bench/ice/results/**/c_*.json
+bench/ice/results/**/*.log
+bench/ice/results/**/*.err
+bench/ice/results/**/slurm-*.out
+bench/ice/results/**/prompts/
+bench/ice/results/**/agents/
+bench/ice/results/ice_smoke/

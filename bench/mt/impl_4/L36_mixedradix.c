@@ -447,15 +447,21 @@ static inline void pool_barrier(mt_pool *pl, int t, int T, uint32_t s)
 {
     __atomic_store_n(&pl->bar[t].v, s, __ATOMIC_RELEASE);
     if (t == 0) {
-        /* sweep the whole flag array per pass: the remote-line misses then
-         * overlap in the fill buffers instead of serialising (mt_r4) */
-        for (;;) {
-            int miss = 0;
-            for (int i = 1; i < T; ++i)
-                miss |= (int32_t)(__atomic_load_n(&pl->bar[i].v,
-                                                  __ATOMIC_ACQUIRE) - s) < 0;
-            if (!miss) break;
-            _mm_pause();
+        /* sweep the PENDING flags per pass (a bitmask drops satisfied ones):
+         * the remote-line misses of one pass overlap in the fill buffers
+         * instead of serialising, and satisfied lines are never re-read
+         * (mt_r4) */
+        uint64_t pend = (T >= 64 ? ~0ull : (1ull << T) - 1) & ~1ull;
+        while (pend) {
+            uint64_t sc = pend;
+            while (sc) {
+                int i = __builtin_ctzll(sc);
+                sc &= sc - 1;
+                if ((int32_t)(__atomic_load_n(&pl->bar[i].v,
+                                              __ATOMIC_ACQUIRE) - s) >= 0)
+                    pend &= ~(1ull << i);
+            }
+            if (pend) _mm_pause();
         }
         __atomic_store_n(&pl->bar_rel, s, __ATOMIC_RELEASE);
     } else {
@@ -535,13 +541,18 @@ static void pool_run(mt_pool *pl)
     uint32_t e = ++pl->epoch;
     __atomic_store_n(&pl->go, e, __ATOMIC_RELEASE);
     pool_do_work(pl, 0);
-    /* join sweep, same overlap argument as the barrier scan (mt_r4) */
-    for (;;) {
-        int miss = 0;
-        for (int i = 1; i < pl->nthr; ++i)
-            miss |= __atomic_load_n(&pl->done[i].v, __ATOMIC_ACQUIRE) != e;
-        if (!miss) return;
-        _mm_pause();
+    /* join sweep, same pending-bitmask overlap as the barrier scan (mt_r4) */
+    int n = pl->nthr;
+    uint64_t pend = (n >= 64 ? ~0ull : (1ull << n) - 1) & ~1ull;
+    while (pend) {
+        uint64_t sc = pend;
+        while (sc) {
+            int i = __builtin_ctzll(sc);
+            sc &= sc - 1;
+            if (__atomic_load_n(&pl->done[i].v, __ATOMIC_ACQUIRE) == e)
+                pend &= ~(1ull << i);
+        }
+        if (pend) _mm_pause();
     }
 }
 
@@ -1670,6 +1681,13 @@ void FN(body)(const double *in, double *out, long batch, double *plane,
                         _mm_prefetch((const char *)(base + i * (NPLANE * 2) + pf * 8),
                                      _MM_HINT_T0);
                 }
+                if (pfx && nvp) {
+                    long nl = (nvend - nvp) / 8;
+                    if (nl > PFX_L) nl = PFX_L;
+                    for (long i = 0; i < nl; ++i)
+                        _mm_prefetch((const char *)(nvp + i * 8), _MM_HINT_T2);
+                    nvp += nl * 8;
+                }
 #if PW == 4
                 if (ncw) {
                     const double *q = ncw + (y * 9 + zb) * 24;
@@ -1696,6 +1714,7 @@ void FN(body)(const double *in, double *out, long batch, double *plane,
 #undef PFIN_D
 #undef PFW_D
 #undef PFIN_L
+#undef PFX_L
 }
 
 /* zy body: phase 1 interleaves plane x+1's z-blocks with plane x's y-lines
@@ -1843,37 +1862,42 @@ static void XCAT(splitw_, VAR)(const double *in, double *out, long batch,
 
 static void FN(exec)(const double *in, double *out, long batch, double *plane)
 {
-    FN(body)(in, out, batch, plane, 0, 0, 0, 0);
+    FN(body)(in, out, batch, plane, 0, 0, 0, 0, 0);
 }
 
 static void FNP1(exec)(const double *in, double *out, long batch, double *plane)
 {
-    FN(body)(in, out, batch, plane, 1, 0, 0, 0);
+    FN(body)(in, out, batch, plane, 1, 0, 0, 0, 0);
 }
 
 static void FNP2(exec)(const double *in, double *out, long batch, double *plane)
 {
-    FN(body)(in, out, batch, plane, 4, 0, 0, 0);
+    FN(body)(in, out, batch, plane, 4, 0, 0, 0, 0);
 }
 
 static void FNP3(exec)(const double *in, double *out, long batch, double *plane)
 {
-    FN(body)(in, out, batch, plane, 1, 1, 0, 0);
+    FN(body)(in, out, batch, plane, 1, 1, 0, 0, 0);
 }
 
 static void FNP4(exec)(const double *in, double *out, long batch, double *plane)
 {
-    FN(body)(in, out, batch, plane, 1, 1, 1, 0);
+    FN(body)(in, out, batch, plane, 1, 1, 1, 0, 0);
 }
 
 static void FNP7(exec)(const double *in, double *out, long batch, double *plane)
 {
-    FN(body)(in, out, batch, plane, 1, 0, 0, 1);
+    FN(body)(in, out, batch, plane, 1, 0, 0, 1, 0);
 }
 
 static void FNP8(exec)(const double *in, double *out, long batch, double *plane)
 {
-    FN(body)(in, out, batch, plane, 1, 1, 0, 1);
+    FN(body)(in, out, batch, plane, 1, 1, 0, 1, 0);
+}
+
+static void FNP9(exec)(const double *in, double *out, long batch, double *plane)
+{
+    FN(body)(in, out, batch, plane, 1, 1, 0, 1, 1);
 }
 
 static void FNP5(exec)(const double *in, double *out, long batch, double *plane)
@@ -1899,6 +1923,7 @@ static void FNP6(exec)(const double *in, double *out, long batch, double *plane)
 #undef FNP6
 #undef FNP7
 #undef FNP8
+#undef FNP9
 #undef PW
 #undef VD
 #undef VLOAD

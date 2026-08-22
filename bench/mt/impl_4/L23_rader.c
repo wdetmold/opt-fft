@@ -1424,6 +1424,8 @@ fft3d_plan *fft3d_create(int L, int batch)
         ADDC(1, 4, T, 0, 0, 1, 0); /* plain + si (the B=128 regime) */
         ADDC(1, 4, T, 0, 0, 0, 1); /* plain + pv */
         if (twosock) ADDC(2, 4, T, 0, 0, 2, 0); /* NT + far-only staging */
+        ADDC(2, 2, T, 0, 0, 0, 0); /* NT at 256-bit: the licence-clock
+                                    * question on the node's 1-FMA CLX */
         ADDC(1, 2, T, 0, 0, 0, 0); /* non-AVX-512 fallback */
     } else if (batch == 1) {
         /* B=1: head = fused T=16 flat, the node's scored pick in mt_r2

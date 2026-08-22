@@ -146,7 +146,10 @@ log "    implementers: $IMPL_MODEL    monitor: $MONITOR_MODEL"
 # outside this script. Two sweeps would build in the same per-host directory and contend
 # for the node, so both sets of numbers would be junk.
 round_in_flight() {
-  squeue -h -u "$(whoami)" -o '%j' 2>/dev/null | grep -qE '^(fft-|probe-)'
+  # Only THIS harness's jobs: panels now run in parallel (multicore on the devel queue,
+  # the Ice Lake panel on a reserved node), and a runner that waited on another panel's
+  # benchmark job would serialize them for no reason.
+  squeue -h -u "$(whoami)" -o '%j' 2>/dev/null | grep -qE "^(fft-$ROUND_PREFIX|ice-$ROUND_PREFIX|probe-)"
 }
 
 wait_for_quiet() {

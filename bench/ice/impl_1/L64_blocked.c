@@ -1,100 +1,4 @@
-/* Carried over from the SINGLE-THREAD competition, where this file finished as
- * written below. Your job in the multicore phase is to parallelise it across
- * 32 cores without losing its single-core efficiency -- read
- * ../PANEL_BRIEF.md, and read ../../geom/strategies/L64_blocked.md for the full
- * history of how this kernel got here.
- */
 /* L64_blocked.c -- forward complex 3D DFT of a 64^3 cube, batched, out-of-place.
- *
- * ROUND mt_r3 (node r2: B=1 WON 127.0 stable 3/3; B=8 LOST to mkl by 5%
- * 76.7 vs 73.0, picks G=4/G=2 nt nth=32; B=128 LOST 1.30x to L64_radix8
- * 90.5 vs 69.5 with a PICK LOTTERY -- 2/3 processes chose G=16 dyn=1 sb=1
- * at 135.6/128.6 us/vol against the 1/3 G=2 static's 90.5.  The verdict's
- * mechanism: the create arena races in a different placement regime than
- * the scored loop and mis-prices team shapes at streaming cells; its
- * instruction: dyn lost every process it was picked in, remove it from the
- * tuner surface.  Tuner-policy changes only -- no kernel, no arithmetic,
- * one bit class as ever):
- *   1. dyn rows and nth=16 batched rows leave the DEFAULT pool (node
- *      rejected both 3/3; rows are still generated when FFT64B_DYN /
- *      FFT64B_NTH ask, so the monitor's controls keep working).
- *   2. STATIC sb=1 rows join at every G < batch, with pf in {0,6} -- the
- *      node-winning L64_radix8 B=128 shape (gang-T32-g4-nt+slabpf1 = my
- *      G=8 nth=32 static sb=1 nt pf=6) was a combination my mt_r2 pool
- *      never generated (static sb1 existed only at pf=0, slabpf only under
- *      dyn).  Also pf=8 (slabpf+p1pf) at nt G in {4,8}: the node's B=8
- *      winner carried p1pf, the rival's carries slabpf; race the pair.
- *   3. NODE-PRIOR INCUMBENT at batch >= 32 (where nv=min(B,32) < B means
- *      the arena cannot even be size-faithful): the pick must beat the
- *      incumbent row {eng2 G=8 nth=32 static sb=1 nt pf=6} by >5% in-arena
- *      or the incumbent ships.  This is the verdict's "make the proven
- *      team the incumbent and require a margin", with the incumbent taken
- *      from the rival's stable node win at my geometry (69.5 us/vol, 18%
- *      spread, vs my lottery's 90.5-135.6).
- *   4. Timing rounds 4 -> 6 at nv <= 8 (B=8 had 3 picks in 3 processes;
- *      more best-of samples per row cost ~100 ms of setup, not scored).
- *
- * ROUND mt_r2 (node r1: B=1 WON at 128.0 us, pick S nth=16 cached -- one
- * socket, as predicted; B=128 WON at 95.7 us but 28.5% spread; B=8 LOST to
- * mkl 73.7 vs 111.7.  The B=8 accounting: the driver first-touches in/out on
- * socket 0, so ALL 67 MB of a B=8 call crosses socket 0's memory
- * controllers no matter who computes -- socket-1 groups add UPI latency and
- * noise without adding bandwidth, and the static b=g,g+G map convoys behind
- * them.  Three schedule changes to eng=2, no kernel or arithmetic change,
- * all raced -- the whole pool stays one bit class):
- *   dyn=1  DYNAMIC VOLUME PULL: an atomic next-volume counter shared by all
- *          groups.  The group leader fetch-adds the next volume BEFORE its
- *          barrier arrival and publishes it in a round-parity mailbox pair;
- *          members read it after the barrier exit, so the handoff costs no
- *          extra sync (the mt_r1 "Next" leader-overwrite race is closed by
- *          the two parity slots + the intervening barrier).  On the node,
- *          socket-0 groups absorb volumes that UPI-throttled socket-1
- *          groups would convoy on.
- *   sb=1   SINGLE-BUFFER SC: one SC per group instead of the parity double
- *          buffer, at the price of a second spin barrier per volume
- *          (pass23 -> next pass1 reuse hazard).  Halves live scratch:
- *          G=8/B=128 keeps 36 MB live instead of 71 MB -- the difference
- *          between fitting and thrashing wallaby's 60-MB L3, and on the
- *          node 4 groups/socket fit the 22-MB L3 only single-buffered.
- *   nth=16 SOCKET-0-ONLY grouped rows at batch (bind=close puts threads
- *          0..15 on socket 0): 16 local threads can saturate the socket-0
- *          controllers that carry all the traffic anyway, without paying
- *          UPI.  On wallaby's single socket these lose; the node decides.
- *   pf=6 slabpf joins the batched eng=2 race (L64_radix8's node B=128 pick
- *   carries slabpf1 under gangs; their B=1/32-thread slabpf loss does not
- *   transfer to gsz<=8 groups where the prefetched slab is the thread's own).
- *   New env FFT64B_SB; FFT64B_DYN now also selects dynamic eng=2 rows.
- *
- * ROUND mt_r1 (first multicore round): an OpenMP layer over the UNCHANGED
- * st=3 split-complex kernel.  Three engines, create-time raced per {B, host}:
- *   eng=1 "S"  all threads on ONE volume at a time: omp-for over the 64
- *              pass-1 x-planes, implicit barrier, omp-for over the 64 ky
- *              slabs of the fused pass 2+3.  The shared 4.46-MB SC stays
- *              L3-resident, and the cold in/out sweeps get 32 cores' worth
- *              of line-fill buffers.  The only split that can pay at B=1;
- *              nth raced in {32,16,8} there (sync may cap scaling).
- *   eng=2 "G"  G groups of nth/G ADJACENT threads (bind=close, and every
- *              raced gsz divides 16, so a group never straddles a socket on
- *              the 2x16 node), each group running the S split on its own
- *              volume stream b = g, g+G, ... with its OWN hugepage slot and
- *              a per-group epoch spin barrier (2/volume).  Groups never
- *              sync with each other.  The B=8 middle ground; G=1 is also
- *              raced at small B as "S with my barrier instead of GOMP's".
- *   eng=3 "V"  one volume per thread, per-thread slot, ZERO sync;
- *              schedule static,1 vs dynamic,1 raced (the node's socket-1
- *              threads read in/out over UPI since the driver first-touches
- *              both on socket 0, so dynamic may win there; wallaby's 32
- *              threads are one socket).  The batch axis, B=128's engine.
- *   Slots are 3 x 2-MB hugepages each, FIRST-TOUCHED BY THEIR OWNER inside
- *   fft3d_create (NUMA-local scratch, per the brief); the GOMP pool is also
- *   warmed there, so execute creates no threads.  The mt layer only
- *   reassigns whole loop iterations -- every engine at every thread count
- *   is bit-identical to the single-thread st=3 kernel, so the r11
- *   one-bit-class invariant survives the multicore phase by construction.
- *   Group-decomposition-by-batch idea shared with L23_matrixsimd mt_r1
- *   (their pthread pool + volume/slab split); I keep GOMP because my
- *   volumes are ~500 us, not 0.5 us -- their measured 6-8 us GOMP overhead
- *   is B=1's problem only, and the raced nth/G=1 rows measure it here.
  *
  * ROUND panel_r11 (r10 node: st=3 landed -13.2%/-12.5%, B=1 is a TIE at
  * 952.9 vs 949.9; B=8 still -3.7% at 1311.5 vs 1262.9, pick cached pf9 st3
@@ -276,10 +180,6 @@
 #include <stdint.h>
 #include <time.h>
 #include <sys/mman.h>
-#include <stdatomic.h>
-#ifdef _OPENMP
-# include <omp.h>
-#endif
 #ifdef __x86_64__
 # include <immintrin.h>
 #endif
@@ -305,30 +205,6 @@
 #endif
 #define MIDDBL ((size_t)2 * L * PS)  /* doubles in the scratch volume          */
 #define OBDBL  ((size_t)16 * PS)     /* st=2 octet buffer: 8 padded planes     */
-
-/* mt_r1: per-thread/per-group scratch slot, in doubles.  One slot must hold
- * either the st=3 split SC (64*SCXS = 557568 doubles) or st<=2's mid+OB
- * (627264 doubles); rounded up to 3 x 2-MB hugepages so slots never share a
- * page and a first touch places a WHOLE slot on the owner's socket. */
-#define SLOTDBL ((size_t)3 * ((size_t)2 << 20) / sizeof(double))
-
-/* mt_r4 kb=1: compact per-thread ky-slab buffer for the st=3 fused pass 2+3.
- * The x-FFT writes its result here instead of IN PLACE back into the
- * (group-shared) SC, and the z-lines read it back sequentially.  KB[kx] is
- * one z-line: 8 (re,im) v8d pairs at +zb*16, row stride 17 lines (odd,
- * Bailey-proofed like SCKS), total 68 KB -- L2-resident, reused every ky.
- * What it buys: SC becomes READ-ONLY in pass 2+3, so the group all-to-all
- * (each lane reads (gsz-1)/gsz of its slab from sibling lanes' pass-1
- * writes) needs no RFO/ownership transfer on sibling lines and SC is swept
- * twice per volume, not four times; and the z-line loads walk KB at 1088 B
- * sequentially instead of revisiting the slab at the 69.7-KB SCXS stride.
- * The values stored/loaded are identical to the in-place path, so kb stays
- * inside the one bit class.  KB lives in the tail of each thread's own slot
- * (and of the shared S for eng=0), past the SC + prefetch-overrun region. */
-#define KBS   136                      /* KB row stride: 17 lines, odd       */
-#define KBOFF (MIDDBL + OBDBL)         /* KB offset inside a slot / shared S */
-#define KBDBL ((size_t)64 * KBS + 64)  /* 64 rows + one guard line           */
-_Static_assert(KBOFF + KBDBL <= SLOTDBL, "kb buffer must fit the slot tail");
 
 #define CAT_(a,b) a##b
 #define CAT(a,b)  CAT_(a,b)
@@ -594,7 +470,7 @@ static void sc_pass1(const double *restrict ip, double *restrict sp,
 # define FFT64B_PFWL3 4
 #endif
 static void sc_pass23(double *restrict SC, double *restrict out, int ky,
-                      int nt, int pfw, int slab, double *restrict KB)
+                      int nt, int pfw, int slab)
 {
     double *kb = SC + (size_t)ky * SCKS;
     for (int zb = 0; zb < 8; ++zb) {
@@ -609,15 +485,9 @@ static void sc_pass23(double *restrict SC, double *restrict out, int ky,
         double *cx_ = cb + (size_t)(k) * SCXS;                                \
         *(v8d *)cx_ = (rr); *(v8d *)(cx_ + 8) = (ii);                         \
     } while (0)
-#define SC_STK(k, rr, ii) do {                                                \
-        double *cx_ = KB + (size_t)(k) * KBS + (size_t)zb * 16;               \
-        *(v8d *)cx_ = (rr); *(v8d *)(cx_ + 8) = (ii);                         \
-    } while (0)
-        if (KB) FFT64S(SC_LDX, SC_STK, SC_NOHOOK);   /* kb=1: SC read-only  */
-        else    FFT64S(SC_LDX, SC_STX, SC_NOHOOK);   /* kb=0: in place      */
+        FFT64S(SC_LDX, SC_STX, SC_NOHOOK);
 #undef SC_LDX
 #undef SC_STX
-#undef SC_STK
     }
     for (int kx = 0; kx < L; ++kx) {
         if (slab && ky < L - 1) {
@@ -626,8 +496,7 @@ static void sc_pass23(double *restrict SC, double *restrict out, int ky,
             for (int q_ = 0; q_ < 17; ++q_)
                 __builtin_prefetch(sl_ + 8 * q_, 0, 2);
         }
-        const double *zl = KB ? KB + (size_t)kx * KBS
-                              : SC + (size_t)kx * SCXS + (size_t)ky * SCKS;
+        const double *zl = SC + (size_t)kx * SCXS + (size_t)ky * SCKS;
         v8d Vr[8], Vi[8], Ur[8], Ui[8], Tr[8], Ti[8], Wr[8], Wi[8];
         _Pragma("GCC unroll 8")
         for (int g = 0; g < 8; ++g) {
@@ -673,13 +542,12 @@ static void sc_pass23(double *restrict SC, double *restrict out, int ky,
  * a whole SC sweep ago, L3-cold on the node).  Prefetch-only: bit-identical. */
 static void run_vols_sc(const double *restrict in, double *restrict out,
                         double *restrict SC, int nvol, int mode, int pf,
-                        int pro, int kb)
+                        int pro)
 {
     const int p1  = (pf == 1 || pf == 8 || pf == 9);
     const int pw_ = (pf == 5 || pf == 7 || pf == 9) && mode == M_CACHED;
     const int sl  = (pf >= 6);
     const int nt  = (mode == M_NT);
-    double *KB = kb ? SC + KBOFF : NULL;   /* slot/shared-S tail region */
     for (int b = 0; b < nvol; ++b) {
         const double *iv = in  + (size_t)b * VDBL;
         double       *ov = out + (size_t)b * VDBL;
@@ -700,7 +568,7 @@ static void run_vols_sc(const double *restrict in, double *restrict out,
                     __builtin_prefetch(q_ + 8 * i, 0, 2);
             }
         for (int ky = 0; ky < L; ++ky)
-            sc_pass23(SC, ov, ky, nt, pw_, sl, KB);
+            sc_pass23(SC, ov, ky, nt, pw_, sl);
     }
 }
 
@@ -711,31 +579,27 @@ static void run_vols_sc(const double *restrict in, double *restrict out,
 static const char *const mode_name[] = {"cached", "nt"};
 static const char *const st_name[]   = {"3-sweep", "2-sweep", "x-first", "split-sc"};
 
-/* one tuner candidate = one (engine, decomposition, kernel-axes) row.
- * eng: 0 = single-thread (the phase-1 kernel verbatim);
- *      1 = S slab-split, all nth threads on one volume (omp-for barriers);
- *      2 = G grouped, G teams of nth/G threads, per-group spin barrier;
- *      3 = V volume-parallel, one volume per thread, no sync.
- * mode/pf/st/pw keep their phase-1 meanings (pf codes are st=3's:
- * 1 p1pf; 5 pfw; 6 slabpf; 7 slabpf+pfw; 8 slabpf+p1pf; 9 all).
- * mt_r2: dyn also selects eng=2's dynamic volume pull; sb=1 single-buffers
- * the group SC (positional initializers leave sb 0 = mt_r1 behaviour).
- * mt_r4: kb=1 routes the pass-2+3 x-FFT through the compact per-thread KB
- * slab buffer (SC read-only in pass 2+3).  Never a pool row: decided by a
- * create-time A/B on the picked candidate (the pro protocol), env
- * FFT64B_KB forces.  Positional initializers leave kb 0 = in-place. */
-struct mcand { int eng, G, nth, dyn, mode, pf, st, pw, sb, kb; };
-
 struct fft3d_plan {
-    int          batch;
-    struct mcand mc;             /* the tuner's pick                        */
-    int          pro;            /* eng=0 st=3 only: prologue prefetch      */
-    double      *S;              /* shared scratch (eng<=1 + references)    */
-    void        *rawS;
-    size_t       map_bytes;      /* nonzero: rawS is an mmap of this size   */
-    double      *pool;           /* mt slots, SLOTDBL doubles per thread,   */
-    void        *rawP;           /* first-touched by their owning thread    */
-    size_t       poolmap;
+    int     batch;
+    int     pw;                  /* 2 or 4                                  */
+    int     mode;                /* M_CACHED / M_NT (final out stores)      */
+    int     pf;                  /* st<=2: 0 none; 1 paced T1 read (+PFNX); */
+                                 /* 2 = 1 + prefetchw out; 3 NTA read +     */
+                                 /* prefetchw; 4 NTA read alone;            */
+                                 /* 5 prefetchw only; 6 pass-B mid-read T0  */
+                                 /* (pfb) only; 7 = pfb + prefetchw.        */
+                                 /* st=3: 1 p1pf; 5 pfw; 6 slabpf;          */
+                                 /* 7 slabpf+pfw; 8 slabpf+p1pf; 9 all      */
+    int     st;                  /* 0 = 3-sweep (A+x1, B octets);           */
+                                 /* 1 = 2-sweep (A z+y only, B2 full-x);    */
+                                 /* 2 = x-first 2-sweep (x1 off in, octet   */
+                                 /*     x2 -> OB, fused z+y OB -> out);     */
+                                 /* 3 = split-complex fused 2-sweep         */
+    int     pro;                 /* st=3 only: prologue prefetch (in plane 0
+                                  * + SC slab 0), create-time A/B decided   */
+    double *S;                   /* padded scratch volume, reused per batch */
+    void   *rawS;
+    size_t  map_bytes;           /* nonzero: rawS is an mmap of this size   */
 };
 
 const char *fft3d_name(void) { return "L64_blocked"; }
@@ -752,256 +616,18 @@ const char *fft3d_description(void)
 }
 int fft3d_supports(int Lq) { return Lq == L; }
 
-static void run_vols(int pw, int mode, int pf, int st, int pro, int kb,
-                     double *S, const double *in, double *out, int nvol)
+static void run_vols(int pw, int mode, int pf, int st, int pro, double *S,
+                     const double *in, double *out, int nvol)
 {
 #ifdef HAVE_PW4
-    if (st == 3)      run_vols_sc(in, out, S, nvol, mode, pf, pro, kb);
+    if (st == 3)      run_vols_sc(in, out, S, nvol, mode, pf, pro);
     else if (pw == 4) run_vols_pw4(in, out, S, nvol, mode, pf, st);
     else
 #endif
-    { (void)pw; (void)pro; (void)kb; run_vols_pw2(in, out, S, nvol, mode, pf, st); }
+    { (void)pw; (void)pro; run_vols_pw2(in, out, S, nvol, mode, pf, st); }
 #if defined(__SSE2__)
     if (mode == M_NT) _mm_sfence();
 #endif
-}
-
-/* ==================== MULTICORE ENGINES (mt_r1) =========================== */
-#ifdef _OPENMP
-
-_Static_assert(SLOTDBL >= MIDDBL + OBDBL, "one mt slot must hold mid+OB");
-#ifdef HAVE_PW4
-_Static_assert(SLOTDBL >= (size_t)64 * SCXS, "one mt slot must hold the SC");
-#endif
-
-/* per-group epoch barrier.  Arrivals form a release chain through count's
- * RMWs; the last arriver publishes the epoch bump, so every waiter's exit
- * acquire-synchronises with every arrival -- pass-1 writes to SC are visible
- * to pass-2+3 readers.  epoch is monotonic and count self-resets, so no
- * per-call initialisation is needed (safe across tuner runs and executes). */
-typedef struct {
-    _Atomic int      count;
-    _Atomic unsigned epoch;
-    char             pad[64 - sizeof(_Atomic int) - sizeof(_Atomic unsigned)];
-} gbar_t;
-static gbar_t gbars[16];
-
-static inline void gbarrier(gbar_t *b, int gsz)
-{
-    unsigned ep = atomic_load_explicit(&b->epoch, memory_order_acquire);
-    if (atomic_fetch_add_explicit(&b->count, 1, memory_order_acq_rel) == gsz - 1) {
-        atomic_store_explicit(&b->count, 0, memory_order_relaxed);
-        atomic_fetch_add_explicit(&b->epoch, 1, memory_order_release);
-    } else {
-        while (atomic_load_explicit(&b->epoch, memory_order_acquire) == ep)
-#ifdef __x86_64__
-            _mm_pause();
-#else
-            ;
-#endif
-    }
-}
-
-/* eng=3 "V": one volume per thread, per-thread slot, no synchronisation.
- * Works at any pw/st (each thread runs the whole phase-1 kernel).  dyn:
- * schedule dynamic,1 -- on the 2-socket node the remote threads run slower
- * against socket-0 in/out, so a static map can convoy.  Output is
- * bit-identical either way (the volume kernel does not depend on the slot). */
-static void run_mt_V(int pw, int st, int mode, int pf, int dyn, int nth,
-                     int kb, double *pool, const double *in, double *out,
-                     int nvol)
-{
-#pragma omp parallel num_threads(nth)
-    {
-        double *SC = pool + (size_t)omp_get_thread_num() * SLOTDBL;
-        if (dyn) {
-#pragma omp for schedule(dynamic, 1) nowait
-            for (int b = 0; b < nvol; ++b)
-                run_vols(pw, mode, pf, st, 0, kb, SC, in + (size_t)b * VDBL,
-                         out + (size_t)b * VDBL, 1);
-        } else {
-#pragma omp for schedule(static, 1) nowait
-            for (int b = 0; b < nvol; ++b)
-                run_vols(pw, mode, pf, st, 0, kb, SC, in + (size_t)b * VDBL,
-                         out + (size_t)b * VDBL, 1);
-        }
-    }
-}
-
-#ifdef HAVE_PW4
-/* pf decode shared by eng 1/2 (the same codes as run_vols_sc's st=3 axes) */
-#define MT_PFDEC(pf, mode)                                                     \
-    const int p1_ = ((pf) == 1 || (pf) == 8 || (pf) == 9);                     \
-    const int pw_ = ((pf) == 5 || (pf) == 7 || (pf) == 9) && (mode) == M_CACHED; \
-    const int sl_ = ((pf) >= 6);                                               \
-    const int nt_ = ((mode) == M_NT)
-
-/* eng=1 "S": all nth threads split ONE volume at a time.  Pass 1 planes and
- * pass-2+3 ky slabs are both 64 independent line-aligned units (SCXS and
- * SCKS are both whole odd line counts, out rows are 1 KB), so there is no
- * false sharing anywhere.  At nvol>1 the SC is double-buffered (p->S and
- * pool slot 0, alternating by volume parity) so the pass-2+3 loop can be
- * nowait: the only barrier per volume is pass1's, and a straggling reader
- * of volume b is protected from pass1(b+2)'s overwrite by the b+1 barrier
- * it must pass first.  dyn: schedule(dynamic) on both 64-unit loops
- * (straggler absorption; costs ~64 lock-xadds, raced not assumed). */
-static void run_mt_S(int mode, int pf, int dyn, int nth, int kb, double *SC0,
-                     double *SC1, const double *in, double *out, int nvol)
-{
-    MT_PFDEC(pf, mode);
-#pragma omp parallel num_threads(nth)
-    {
-        /* SC1 is the slot-pool base (slot 0 doubles as the parity buffer);
-         * a thread's kb slab buffer lives in ITS OWN slot's tail, past the
-         * SC+overrun region, so it never collides with SC1's use of slot 0 */
-        double *KB = kb ? SC1 + (size_t)omp_get_thread_num() * SLOTDBL + KBOFF
-                        : NULL;
-        for (int b = 0; b < nvol; ++b) {
-            const double *iv = in + (size_t)b * VDBL;
-            double       *ov = out + (size_t)b * VDBL;
-            double       *SC = (nvol > 1 && (b & 1)) ? SC1 : SC0;
-            if (dyn) {
-#pragma omp for schedule(dynamic)
-                for (int p = 0; p < L; ++p) {
-                    const double *pn = (p1_ && p < L - 1)
-                                     ? iv + (size_t)(p + 1) * (2 * LSQ) : NULL;
-                    sc_pass1(iv + (size_t)p * (2 * LSQ),
-                             SC + (size_t)p * SCXS, pn);
-                }
-#pragma omp for schedule(dynamic) nowait
-                for (int ky = 0; ky < L; ++ky)
-                    sc_pass23(SC, ov, ky, nt_, pw_, sl_, KB);
-            } else {
-#pragma omp for schedule(static)
-                for (int p = 0; p < L; ++p) {
-                    const double *pn = (p1_ && p < L - 1)
-                                     ? iv + (size_t)(p + 1) * (2 * LSQ) : NULL;
-                    sc_pass1(iv + (size_t)p * (2 * LSQ),
-                             SC + (size_t)p * SCXS, pn);
-                }
-#pragma omp for schedule(static) nowait
-                for (int ky = 0; ky < L; ++ky)
-                    sc_pass23(SC, ov, ky, nt_, pw_, sl_, KB);
-            }
-        }
-#if defined(__SSE2__)
-        if (nt_) _mm_sfence();
-#endif
-    }
-}
-
-/* eng=2 "G": G groups of gsz = nth/G ADJACENT threads (every raced gsz
- * divides 16, so under bind=close a group never straddles a socket on the
- * 2x16-core node).  Group g starts on volume b = g and owns slots g*gsz /
- * g*gsz+1 (first-touched by its own members, so group scratch is
- * NUMA-local), double-buffered by round parity: ONE spin barrier per
- * volume (pass1 -> pass23), and pass1(round r+2)'s overwrite of a buffer is
- * ordered behind every pass23(round r) reader by the round-(r+1) barrier
- * each thread must pass in between.  Fast threads flow into the next
- * volume's cold in-read while stragglers finish the previous z-lines.
- *
- * mt_r2 axes:
- *   dyn=1: volumes come from an atomic counter shared by ALL groups instead
- *     of the static b = g, g+G, ...  The leader fetch-adds the group's next
- *     volume BEFORE arriving at the volume's barrier and publishes it in a
- *     round-parity mailbox slot; members read the slot after the barrier
- *     exit, so the handoff rides the existing sync.  Two slots close the
- *     leader-overwrite race: the leader can run at most one barrier ahead,
- *     and its round-(r+2) overwrite of slot rp is separated from any
- *     straggler's round-r read of it by barrier r+1 (the read is sequenced
- *     before the straggler's arrival; the write after the leader's exit,
- *     which acquire-synchronises with every arrival).
- *   sb=1: ONE SC per group (SCB aliases SCA) and a second barrier per
- *     volume (pass23 -> next pass1 reuse hazard).  Halves live scratch. */
-typedef struct {
-    _Atomic int v[2];
-    char        pad[64 - 2 * sizeof(_Atomic int)];
-} gmail_t;
-static gmail_t gmail[16];
-
-static void run_mt_G(int mode, int pf, int G, int nth, int dyn, int sb,
-                     int kb, double *pool, const double *in, double *out,
-                     int nvol)
-{
-    MT_PFDEC(pf, mode);
-    const int gsz = nth / G;
-    _Atomic int nextv;
-    atomic_store_explicit(&nextv, G, memory_order_relaxed);
-#pragma omp parallel num_threads(nth)
-    {
-        const int tid = omp_get_thread_num();
-        double *KB = kb ? pool + (size_t)tid * SLOTDBL + KBOFF : NULL;
-        if (omp_get_num_threads() == nth) {
-            const int g = tid / gsz, lid = tid - g * gsz;
-            if (g < G) {
-                double *SCA = pool + (size_t)(g * gsz) * SLOTDBL;
-                double *SCB = (!sb && gsz > 1)
-                            ? pool + (size_t)(g * gsz + 1) * SLOTDBL : SCA;
-                const int lo = (L * lid) / gsz, hi = (L * (lid + 1)) / gsz;
-                int par = 0, rp = 0;
-                for (int b = g; b < nvol; ) {
-                    const double *iv = in + (size_t)b * VDBL;
-                    double       *ov = out + (size_t)b * VDBL;
-                    double       *SC = par ? SCB : SCA;
-                    for (int p = lo; p < hi; ++p) {
-                        const double *pn = (p1_ && p < hi - 1)
-                                         ? iv + (size_t)(p + 1) * (2 * LSQ) : NULL;
-                        sc_pass1(iv + (size_t)p * (2 * LSQ),
-                                 SC + (size_t)p * SCXS, pn);
-                    }
-                    if (dyn && lid == 0)
-                        atomic_store_explicit(&gmail[g].v[rp],
-                            atomic_fetch_add_explicit(&nextv, 1,
-                                                      memory_order_relaxed),
-                            memory_order_relaxed);
-                    gbarrier(&gbars[g], gsz);
-                    const int bn = dyn
-                        ? atomic_load_explicit(&gmail[g].v[rp],
-                                               memory_order_relaxed)
-                        : b + G;
-                    for (int ky = lo; ky < hi; ++ky)
-                        sc_pass23(SC, ov, ky, nt_, pw_, sl_, KB);
-                    /* mt_r4 (from L64_radix8 mt_r3 change 4): the sb reuse
-                     * barrier guards pass1(bn)'s overwrite; when bn is past
-                     * the batch there is no next pass 1 and the parallel-
-                     * region join orders everything -- skip it.  bn is group-
-                     * uniform (static b+G, or the leader's mailbox), so all
-                     * members take the same branch. */
-                    if (sb && bn < nvol) gbarrier(&gbars[g], gsz);
-                    b = bn; par ^= 1; rp ^= 1;
-                }
-            }
-        } else if (tid == 0) {
-            /* short team (should not happen under OMP_DYNAMIC=false): a spin
-             * barrier would deadlock, so compute serially and stay correct */
-            run_vols(4, mode, pf, 3, 0, kb, pool, in, out, nvol);
-        }
-#if defined(__SSE2__)
-        if (nt_) _mm_sfence();
-#endif
-    }
-}
-#endif /* HAVE_PW4 */
-#endif /* _OPENMP */
-
-/* candidate dispatcher: create's tuner and execute run the same code */
-static void run_mc(const struct mcand *c, int pro, double *S, double *pool,
-                   const double *in, double *out, int nvol)
-{
-    switch (c->eng) {
-#ifdef _OPENMP
-# ifdef HAVE_PW4
-    case 1: run_mt_S(c->mode, c->pf, c->dyn, c->nth, c->kb, S, pool,
-                     in, out, nvol); return;
-    case 2: run_mt_G(c->mode, c->pf, c->G, c->nth, c->dyn, c->sb, c->kb,
-                     pool, in, out, nvol); return;
-# endif
-    case 3: run_mt_V(c->pw, c->st, c->mode, c->pf, c->dyn, c->nth, c->kb,
-                     pool, in, out, nvol); return;
-#endif
-    default: run_vols(c->pw, c->mode, c->pf, c->st, pro, c->kb, S,
-                      in, out, nvol); return;
-    }
 }
 
 static double now_s(void)
@@ -1011,17 +637,18 @@ static double now_s(void)
     return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec;
 }
 
-/* hysteresis rank: lower = simpler (adopted from L36_pfa r4, mt form).
- * Prefetch machinery outranks everything; among engines the sync-free ones
- * are "simpler" (0 no threads, 1 GOMP barriers, 3 no sync, 2 my own
- * barrier); double-buffer before single (fewer barriers); static before
- * dynamic; cached before NT. */
-static int mt_rank(const struct mcand *c)
+/* hysteresis rank: lower = simpler (adopted from L36_pfa r4).  Read-side
+ * prefetch levels before store-side machinery, incumbent 3-sweep before
+ * 2-sweep, cached before NT. */
+static int cand_rank(int mode, int pf, int st)
 {
+    /* simplicity order: 0 < 1 < 4 < 6 < 5 < 2 < 7 < 3 < 8 < 9 (read-side
+     * pacing before store-side machinery, single mechanisms before
+     * combinations); structures: incumbent st0 first, then the split-complex
+     * st3, then st2 (x-first), st1 last */
     static const int pfc[10] = {0, 1, 5, 7, 2, 4, 3, 6, 8, 9};
-    static const int engc[4] = {0, 1, 3, 2};
-    return pfc[c->pf] * 32 + engc[c->eng] * 8 + c->sb * 4 + c->dyn * 2
-         + c->mode;
+    static const int stc[4]  = {0, 3, 2, 1};
+    return pfc[pf] * 8 + stc[st] * 2 + mode;
 }
 
 fft3d_plan *fft3d_create(int Lq, int batch)
@@ -1037,7 +664,7 @@ fft3d_plan *fft3d_create(int Lq, int batch)
      * the working base can be 2 MB-aligned; fall back to posix_memalign. */
     {
         const size_t hp = (size_t)2 << 20;
-        size_t bytes = (MIDDBL + OBDBL + KBDBL) * sizeof(double); /* +kb tail */
+        size_t bytes = (MIDDBL + OBDBL) * sizeof(double);   /* mid + st=2 OB */
         size_t mb = ((bytes + hp - 1) & ~(hp - 1)) + hp;
         void *m = mmap(NULL, mb, PROT_READ | PROT_WRITE,
                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -1051,292 +678,160 @@ fft3d_plan *fft3d_create(int Lq, int batch)
             p->map_bytes = 0; p->S = (double *)p->rawS;
         } else { free(p); return NULL; }
     }
-    int maxth = 1;
-#ifdef _OPENMP
-    maxth = omp_get_max_threads();   /* the harness's 32 -- NEVER raised */
-    if (maxth > 32) maxth = 32;
-    if (maxth < 1)  maxth = 1;
-#endif
-
-    /* first touch of the SHARED scratch: distributed across the team in
-     * eng=1's static plane order (this also warms the GOMP pool, so
-     * fft3d_execute never creates a thread) */
-#ifdef _OPENMP
-    if (maxth > 1) {
-        const size_t tot = MIDDBL + OBDBL + KBDBL;
-#pragma omp parallel num_threads(maxth)
-        {
-            const int    t_ = omp_get_thread_num();
-            const int    tn = omp_get_num_threads();
-            const size_t lo = tot * (size_t)t_ / (size_t)tn;
-            const size_t hi = tot * (size_t)(t_ + 1) / (size_t)tn;
-            memset(p->S + lo, 0, (hi - lo) * sizeof(double));
-        }
-    } else
-#endif
-        memset(p->S, 0, (MIDDBL + OBDBL + KBDBL) * sizeof(double));
-
-    /* mt slot pool: maxth hugepage slots, each FIRST-TOUCHED BY ITS OWNER so
-     * per-thread (eng=3) and per-group (eng=2) scratch is NUMA-local */
-    if (maxth > 1) {
-        const size_t hp = (size_t)2 << 20;
-        size_t bytes = (size_t)maxth * SLOTDBL * sizeof(double);
-        size_t mb = ((bytes + hp - 1) & ~(hp - 1)) + hp;
-        void *m = mmap(NULL, mb, PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (m != MAP_FAILED) {
-            uintptr_t a = ((uintptr_t)m + hp - 1) & ~(uintptr_t)(hp - 1);
-            p->rawP = m; p->poolmap = mb; p->pool = (double *)a;
-#if defined(MADV_HUGEPAGE) && !defined(FFT64B_NOHP)
-            madvise(m, mb, MADV_HUGEPAGE);
-#endif
-        } else if (posix_memalign(&p->rawP, 64, bytes) == 0) {
-            p->poolmap = 0; p->pool = (double *)p->rawP;
-        } else { p->pool = NULL; }
-#ifdef _OPENMP
-        if (p->pool) {
-#pragma omp parallel num_threads(maxth)
-            {
-                const int t_ = omp_get_thread_num();
-                memset(p->pool + (size_t)t_ * SLOTDBL, 0,
-                       SLOTDBL * sizeof(double));
-            }
-        }
-#endif
-        if (!p->pool) maxth = 1;         /* no slots -> no mt engines */
-    }
-
+    memset(p->S, 0, (MIDDBL + OBDBL) * sizeof(double));
 #ifdef HAVE_PW4
-    const int pwm = 4, stm = 3;
+    p->pw = 4; p->mode = M_CACHED; p->pf = 0; p->st = 3;   /* safe default */
 #else
-    const int pwm = 2, stm = 0;
+    p->pw = 2; p->mode = M_CACHED; p->pf = 1; p->st = 0;
 #endif
-    p->mc  = (struct mcand){0, 1, 1, 0, M_CACHED, 0, stm, pwm};
     p->pro = 0;
 
-    struct mcand mc[96];
-    int nc = 0;
-    /* mt_r1 pool.  Every row is the SAME bit class (the mt engines only
-     * reassign whole loop iterations of the one st=3 kernel), so the r11
-     * one-bit-class invariant holds across every engine/thread-count/pf/
-     * store-opcode row -- a pick flip can never change the answer's bits. */
-    if (maxth <= 1) {
-        /* single-thread build: the phase-1 r11 pool, verbatim */
-#ifdef HAVE_PW4
-        static const int pfs_s3[] = {0, 1, 5, 6, 8, 7, 9};
-        for (int i = 0; i < 7; ++i)
-            mc[nc++] = (struct mcand){0, 1, 1, 0, M_CACHED, pfs_s3[i], 3, 4};
-        mc[nc++] = (struct mcand){0, 1, 1, 0, M_NT, 0, 3, 4};
-        mc[nc++] = (struct mcand){0, 1, 1, 0, M_NT, 6, 3, 4};
-#else
-        static const int pfs_c[] = {0, 1, 2, 5};
-        for (int i = 0; i < 4; ++i)
-            mc[nc++] = (struct mcand){0, 1, 1, 0, M_CACHED, pfs_c[i], 0, 2};
-        mc[nc++] = (struct mcand){0, 1, 1, 0, M_NT, 0, 0, 2};
-        mc[nc++] = (struct mcand){0, 1, 1, 0, M_NT, 1, 0, 2};
-#endif
-    } else {
-        /* eng=0 anchors: one core must lose everywhere, but prove it */
-        mc[nc++] = (struct mcand){0, 1, 1, 0, M_CACHED, 0, stm, pwm};
-        mc[nc++] = (struct mcand){0, 1, 1, 0, M_NT, 6, stm, pwm};
-#ifdef HAVE_PW4
-        /* mt_r3: dyn rows and nth=16 batched rows are OUT of the default
-         * pool -- the node rejected both 3/3 (dyn was 1.5x worse where
-         * picked at B=128; nth=16 never picked at batch).  They are still
-         * generated when the monitor's env asks, so every control works. */
-        const char *edyn = getenv("FFT64B_DYN");
-        const int   wantdyn = edyn && atoi(edyn) != 0;
-        const char *enth = getenv("FFT64B_NTH");
-        const int   want16 = enth && atoi(enth) == 16 && maxth == 32;
-        /* mt_r4: G=16 leaves the default pool at batch >= 32.  It shipped in
-         * three node processes across mt_r2/mt_r3 (135.6, 128.6, 91.3 us/vol)
-         * and lost to the G=8 incumbent's 73.7 every time -- the arena keeps
-         * over-pricing 2-thread groups at streaming cells.  Still generated
-         * when FFT64B_G=16 asks, so the monitor's control keeps working. */
-        const char *eg16 = getenv("FFT64B_G");
-        const int   wantg16 = eg16 && atoi(eg16) == 16;
-        /* eng=1 S: full team; smaller teams only where B is small enough
-         * that sync could cap scaling (the brief's B=1 question) */
-        for (int m = 0; m < 2; ++m) {
-            mc[nc++] = (struct mcand){1, 1, maxth, 0, m, 0, 3, 4};
-            mc[nc++] = (struct mcand){1, 1, maxth, 0, m, 6, 3, 4};
-            if (wantdyn)
-                mc[nc++] = (struct mcand){1, 1, maxth, 1, m, 0, 3, 4};
-        }
-        if (batch <= 2)
-            for (int nth = maxth / 2; nth >= 4; nth /= 2)
-                for (int m = 0; m < 2; ++m)
-                    mc[nc++] = (struct mcand){1, 1, nth, 0, m, 0, 3, 4};
-        /* eng=2 grouped: G volume streams x nth/G threads each; pf=1
-         * (p1pf, T1 on the thread's own next input plane) raced too --
-         * the cold in-read is the DRAM-bound leg of the batched cells */
-        for (int G = 2; G <= 16; G *= 2)
-            if (G <= batch && G < maxth && maxth % G == 0 &&
-                !(G == 16 && batch >= 32 && !wantg16)) {
-                for (int m = 0; m < 2; ++m) {
-                    mc[nc++] = (struct mcand){2, G, maxth, 0, m, 0, 3, 4};
-                    mc[nc++] = (struct mcand){2, G, maxth, 0, m, 1, 3, 4};
-                    /* mt_r4: slabpf at sb=0 too -- the node's B=8 pick is
-                     * pf6, but G=8 (one volume per group at B=8, where sb
-                     * rows are correctly not generated) was only ever raced
-                     * at pf0/pf1/pf8 there */
-                    mc[nc++] = (struct mcand){2, G, maxth, 0, m, 6, 3, 4};
-                }
-                /* mt_r3: p1pf+slabpf on the node's B=8 winning shape */
-                if (G == 4 || G == 8)
-                    mc[nc++] = (struct mcand){2, G, maxth, 0, M_NT, 8, 3, 4};
-            }
-        /* mt_r3 STATIC sb=1 rows at every G < batch (sb is a no-op when a
-         * group sees one volume): one SC per group + a second spin barrier
-         * per volume.  Halves live scratch -- the L3 lever the node's
-         * winning rival shape uses (their gang-g4-nt+slabpf1 = my G=8
-         * static sb=1 nt pf=6, a combination mt_r2 never generated: static
-         * sb1 existed only at pf=0 and slabpf only under dyn).  pf=8
-         * (slabpf+p1pf) joins at nt, G in {4,8}: the node's B=8 pick
-         * carried p1pf and the rival's batch picks carry slabpf. */
-        for (int G = 2; G <= 16; G *= 2)
-            if (G < batch && G < maxth && maxth % G == 0 &&
-                !(G == 16 && batch >= 32 && !wantg16)) {
-                for (int m = 0; m < 2; ++m) {
-                    mc[nc++] = (struct mcand){2, G, maxth, 0, m, 0, 3, 4, 1};
-                    mc[nc++] = (struct mcand){2, G, maxth, 0, m, 6, 3, 4, 1};
-                    if (wantdyn) {
-                        mc[nc++] = (struct mcand){2, G, maxth, 1, m, 0, 3, 4, 0};
-                        mc[nc++] = (struct mcand){2, G, maxth, 1, m, 6, 3, 4, 1};
-                    }
-                }
-                if (G == 4 || G == 8)
-                    mc[nc++] = (struct mcand){2, G, maxth, 0, M_NT, 8, 3, 4, 1};
-            }
-        /* socket-0-only rows (mt_r2): node rejected them 3/3 at batch;
-         * env-gated for the monitor's controls */
-        if (want16) {
-            for (int G = 2; G <= 8; G *= 2)
-                if (G <= batch)
-                    for (int m = 0; m < 2; ++m)
-                        mc[nc++] = (struct mcand){2, G, 16, 0, m, 0, 3, 4, 0};
-            if (batch > 2)
-                for (int m = 0; m < 2; ++m)
-                    mc[nc++] = (struct mcand){1, 1, 16, 0, m, 0, 3, 4, 0};
-        }
-#endif
-        /* eng=3 V: the batch axis (static only; dyn env-gated) */
-        if (batch >= maxth) {
-            for (int m = 0; m < 2; ++m) {
-                mc[nc++] = (struct mcand){3, 1, maxth, 0, m, 0, stm, pwm};
-#ifdef HAVE_PW4
-                if (wantdyn) {
-                    mc[nc++] = (struct mcand){3, 1, maxth, 1, m, 0, stm, pwm};
-                    mc[nc++] = (struct mcand){3, 1, maxth, 1, m, 6, stm, pwm};
-                }
-#endif
-            }
-        } else if (batch >= 2) {
-            for (int m = 0; m < 2; ++m)
-                mc[nc++] = (struct mcand){3, 1, batch, 0, m, 0, stm, pwm};
-        }
-    }
+    /* streaming gate: NT / prefetchw only make sense once the batch's in+out
+     * footprint decisively leaves the node's 22 MB L3 (8.4 MB per volume) */
+    const int streaming = ((size_t)batch * 2 * VDBL * sizeof(double) > (size_t)24 << 20);
 
-    /* FFT64B_ST: keep only rows at that structure; if none exist (the
-     * retired st=0/1/2 numerical controls), generate single-thread rows */
+    struct cand { int pw, mode, pf, st; } cands[40];
+    int nc = 0;
+    /* r11: ONE bit class in the default pool.  On AVX-512 builds every
+     * default candidate is st=3 pw4; the rows differ only in prefetch level
+     * and store opcode, so all outputs are bit-identical and a run-to-run
+     * pick flip can never produce a leaderboard number whose bit class the
+     * checked run did not validate (r10 VERDICT 3(a)).  st=0 becomes the
+     * untimed numerical reference; FFT64B_ST=0 resurrects its rows.
+     * st=3 pf: 1 p1pf, 5 pfw, 6 slabpf, 7 slabpf+pfw, 8 slabpf+p1pf, 9 all.
+     * pf=5 is new to the pool (the rival's batched winner is pfw+slabpf;
+     * pfw-alone had never been offered).  NT is NOT streaming-gated (out is
+     * written exactly once by the z tail -- structural). */
+#ifdef HAVE_PW4
+    { static const int pfs_s3[] = {0, 1, 5, 6, 8, 7, 9};
+      for (int i = 0; i < 7; ++i)
+          cands[nc++] = (struct cand){4, M_CACHED, pfs_s3[i], 3};
+      cands[nc++] = (struct cand){4, M_NT, 0, 3};
+      cands[nc++] = (struct cand){4, M_NT, 6, 3};
+    }
+#else
+    /* no AVX-512: st=0 pw2 is the only implemented path; its r8-r9 shortlist */
+    static const int pfs_c[] = {0, 1, 2, 5};
+    for (int i = 0; i < 4; ++i)
+        cands[nc++] = (struct cand){2, M_CACHED, pfs_c[i], 0};
+    if (streaming)
+        for (int i = 0; i < 2; ++i)             /* pf = 0, 1 */
+            cands[nc++] = (struct cand){2, M_NT, i, 0};
+#endif
+    /* st=0 (interleaved 3-sweep, node incumbent until r10), st=1 and st=2
+     * (both dead on the node, r7/r9): candidates only when the monitor
+     * explicitly asks via FFT64B_ST=0|1|2 / -DFFT64B_FORCE_ST. */
     {
         const char *est = getenv("FFT64B_ST");
-        int stf = -1;
-        if (est && est[0]) stf = atoi(est);
+        int want_st0 = (est && est[0] && atoi(est) == 0);
+        int want_st1 = (est && atoi(est) == 1);
+        int want_st2 = (est && atoi(est) == 2);
 #ifdef FFT64B_FORCE_ST
-        stf = FFT64B_FORCE_ST;
+        want_st0 |= (FFT64B_FORCE_ST == 0);
+        want_st1 |= (FFT64B_FORCE_ST == 1);
+        want_st2 |= (FFT64B_FORCE_ST == 2);
 #endif
-        if (stf >= 0) {
-            int w = 0;
-            for (int c = 0; c < nc; ++c) if (mc[c].st == stf) mc[w++] = mc[c];
-            if (w) nc = w;
-            else {
-                nc = 0;
 #ifdef HAVE_PW4
-                mc[nc++] = (struct mcand){0, 1, 1, 0, M_CACHED, 0, stf, 4};
-#endif
-                mc[nc++] = (struct mcand){0, 1, 1, 0, M_CACHED, 0, stf, 2};
+        if (want_st0) {
+            static const int pfs_c[] = {0, 1, 2, 5};
+            for (int i = 0; i < 4; ++i) {
+                cands[nc++] = (struct cand){2, M_CACHED, pfs_c[i], 0};
+                cands[nc++] = (struct cand){4, M_CACHED, pfs_c[i], 0};
             }
+            if (streaming)
+                for (int i = 0; i < 2; ++i) {
+                    cands[nc++] = (struct cand){2, M_NT, i, 0};
+                    cands[nc++] = (struct cand){4, M_NT, i, 0};
+                }
+        }
+#else
+        (void)want_st0;                          /* st0 already the pool */
+#endif
+        if (want_st1) {
+#ifdef HAVE_PW4
+            for (int pf = 0; pf <= 1; ++pf) {
+                cands[nc++] = (struct cand){4, M_CACHED, pf, 1};
+                cands[nc++] = (struct cand){4, M_NT, pf, 1};
+            }
+#else
+            cands[nc++] = (struct cand){2, M_CACHED, 0, 1};
+            cands[nc++] = (struct cand){2, M_CACHED, 1, 1};
+#endif
+        }
+        if (want_st2) {
+#ifdef HAVE_PW4
+            { static const int pfs_s2[] = {0, 5, 6, 7};
+              for (int i = 0; i < 4; ++i)
+                  cands[nc++] = (struct cand){4, M_CACHED, pfs_s2[i], 2};
+              cands[nc++] = (struct cand){4, M_NT, 0, 2};
+              cands[nc++] = (struct cand){4, M_NT, 6, 2};
+            }
+#endif
+            cands[nc++] = (struct cand){2, M_CACHED, 0, 2};
+            cands[nc++] = (struct cand){2, M_CACHED, 6, 2};
         }
     }
 
-    /* run-time forcing for the monitor's control jobs.  New mt axes:
-     * FFT64B_ENG (0..3), FFT64B_G, FFT64B_NTH, FFT64B_DYN.  Filters keep
-     * the pool nonempty (an impossible ask falls back to the full race). */
+    /* run-time forcing for the monitor's control jobs */
     { const char *e;
       if ((e = getenv("FFT64B_PW"))) {
           int v = atoi(e), w = 0;
-          for (int c = 0; c < nc; ++c) if (mc[c].pw == v) mc[w++] = mc[c];
+          for (int c = 0; c < nc; ++c) if (cands[c].pw == v) cands[w++] = cands[c];
           if (w) nc = w;
       }
       if ((e = getenv("FFT64B_MODE"))) {
           int num = (e[0] >= '0' && e[0] <= '9'), w = 0;
           for (int c = 0; c < nc; ++c)
-              if (num ? mc[c].mode == atoi(e)
-                      : !strcmp(mode_name[mc[c].mode], e)) mc[w++] = mc[c];
+              if (num ? cands[c].mode == atoi(e)
+                      : !strcmp(mode_name[cands[c].mode], e)) cands[w++] = cands[c];
           if (w) nc = w;
       }
       if ((e = getenv("FFT64B_PF"))) {
           int v = atoi(e), w = 0;
-          for (int c = 0; c < nc; ++c) if (mc[c].pf == v) mc[w++] = mc[c];
+          for (int c = 0; c < nc; ++c) if (cands[c].pf == v) cands[w++] = cands[c];
           if (w) nc = w;
       }
-      if ((e = getenv("FFT64B_ENG"))) {
+      if ((e = getenv("FFT64B_ST"))) {
           int v = atoi(e), w = 0;
-          for (int c = 0; c < nc; ++c) if (mc[c].eng == v) mc[w++] = mc[c];
-          if (w) nc = w;
-      }
-      if ((e = getenv("FFT64B_G"))) {
-          int v = atoi(e), w = 0;
-          for (int c = 0; c < nc; ++c) if (mc[c].G == v) mc[w++] = mc[c];
-          if (w) nc = w;
-      }
-      if ((e = getenv("FFT64B_NTH"))) {
-          int v = atoi(e), w = 0;
-          for (int c = 0; c < nc; ++c) if (mc[c].nth == v) mc[w++] = mc[c];
-          if (w) nc = w;
-      }
-      if ((e = getenv("FFT64B_DYN"))) {
-          int v = atoi(e), w = 0;
-          for (int c = 0; c < nc; ++c) if (mc[c].dyn == v) mc[w++] = mc[c];
-          if (w) nc = w;
-      }
-      if ((e = getenv("FFT64B_SB"))) {
-          int v = atoi(e), w = 0;
-          for (int c = 0; c < nc; ++c) if (mc[c].sb == v) mc[w++] = mc[c];
+          for (int c = 0; c < nc; ++c) if (cands[c].st == v) cands[w++] = cands[c];
           if (w) nc = w;
       } }
 #ifdef FFT64B_FORCE_PW
     { int w = 0;
-      for (int c = 0; c < nc; ++c) if (mc[c].pw == FFT64B_FORCE_PW) mc[w++] = mc[c];
+      for (int c = 0; c < nc; ++c) if (cands[c].pw == FFT64B_FORCE_PW) cands[w++] = cands[c];
       if (w) nc = w; }
 #endif
 #ifdef FFT64B_FORCE_MODE
     { int w = 0;
-      for (int c = 0; c < nc; ++c) if (mc[c].mode == FFT64B_FORCE_MODE) mc[w++] = mc[c];
+      for (int c = 0; c < nc; ++c) if (cands[c].mode == FFT64B_FORCE_MODE) cands[w++] = cands[c];
       if (w) nc = w; }
 #endif
 #ifdef FFT64B_FORCE_PF
     { int w = 0;
-      for (int c = 0; c < nc; ++c) if (mc[c].pf == FFT64B_FORCE_PF) mc[w++] = mc[c];
+      for (int c = 0; c < nc; ++c) if (cands[c].pf == FFT64B_FORCE_PF) cands[w++] = cands[c];
+      if (w) nc = w; }
+#endif
+#ifdef FFT64B_FORCE_ST
+    { int w = 0;
+      for (int c = 0; c < nc; ++c) if (cands[c].st == FFT64B_FORCE_ST) cands[w++] = cands[c];
       if (w) nc = w; }
 #endif
 
-    /* tuning arena: up to 32 volumes (268 MB in+out) so the batched engines
-     * are tuned with every thread actually loaded; thread 0 fills it, which
-     * matches the driver's socket-0 first touch of the real buffers */
-    const int nv = batch < 32 ? batch : 32;
+    /* tuning arena: 8 volumes = 67 MB in+out streams past every L3 involved */
+    const int nv = batch < 8 ? batch : 8;
     void *ri = NULL, *ro = NULL, *rr = NULL;
     if (posix_memalign(&ri, 64, (size_t)nv * VDBL * sizeof(double)) ||
         posix_memalign(&ro, 64, (size_t)nv * VDBL * sizeof(double)) ||
         posix_memalign(&rr, 64, (size_t)nv * VDBL * sizeof(double))) {
         free(ri); free(ro);
-        p->mc = mc[0];
+        p->pw = cands[0].pw; p->mode = cands[0].mode;
+        p->pf = cands[0].pf; p->st = cands[0].st;
+        { const char *ep = getenv("FFT64B_PRO");
+          if (ep && p->st == 3) p->pro = (atoi(ep) != 0); }
         snprintf(g_desc, sizeof g_desc,
                  "L64 8x8 blocked; tuner SKIPPED (arena alloc failed): "
-                 "eng=%d G=%d nth=%d mode=%s pf=%d st=%d",
-                 p->mc.eng, p->mc.G, p->mc.nth, mode_name[p->mc.mode],
-                 p->mc.pf, p->mc.st);
+                 "pw=%d mode=%s pf=%d st=%d pro=%d",
+                 p->pw, mode_name[p->mode], p->pf, p->st, p->pro);
         return p;
     }
     double *tin = ri, *tout = ro, *ref = rr;
@@ -1346,19 +841,19 @@ fft3d_plan *fft3d_create(int Lq, int batch)
         tin[i] = (double)(long long)(s >> 11) * 0x1p-53;
     }
 
-    /* numerical reference: the interleaved st=0 path, single-thread -- an
-     * INDEPENDENT kernel, so the interlock cross-checks the whole mt layer
-     * (decomposition bugs, missing barriers, slot aliasing) numerically. */
+    /* numerical reference: the interleaved st=0 path, which no longer
+     * competes -- so the interlock still cross-checks two INDEPENDENT
+     * kernels even though the timed pool is one bit class. */
 #ifdef HAVE_PW4
     run_vols(4, M_CACHED, 0, 0, 0, p->S, tin, ref, nv);
 #else
     run_vols(2, M_CACHED, 0, 0, 0, p->S, tin, ref, nv);
 #endif
 
-    int    ok[96];
-    double tc[96];
+    int    ok[40];
+    double tc[40];
     for (int c = 0; c < nc; ++c) {
-        run_mc(&mc[c], 0, p->S, p->pool, tin, tout, nv);
+        run_vols(cands[c].pw, cands[c].mode, cands[c].pf, cands[c].st, 0, p->S, tin, tout, nv);
         double num = 0.0, den = 0.0;
         for (size_t i = 0; i < (size_t)nv * VDBL; ++i) {
             double d = tout[i] - ref[i];
@@ -1367,20 +862,18 @@ fft3d_plan *fft3d_create(int Lq, int batch)
         ok[c] = (num <= den * 1e-26);       /* rel L2 < 1e-13 vs reference */
         tc[c] = 1e300;
     }
-    /* parallel runs are short (tens of us): more reps per timing sample.
-     * mt_r3: 6 best-of rounds at nv <= 8 (the node's B=8 cell picked 3
-     * different rows in 3 processes; cheaper noise floor, setup unscored) */
-    const int R = (nv >= 16) ? 2 : (nv >= 4) ? 4 : (nv >= 2) ? 8 : 16;
-    const int NROUND = (nv <= 8) ? 6 : 4;
-    for (int round = 0; round < NROUND; ++round)
+    const int R = (nv >= 4) ? 1 : (nv >= 2 ? 3 : 4);
+    for (int round = 0; round < 4; ++round)
         for (int c = 0; c < nc; ++c) {
             if (!ok[c]) continue;
             /* self-warming: one untimed exec so each candidate is timed from
-             * its OWN steady-state cache (L36_pencilfused r5's fix) */
-            run_mc(&mc[c], 0, p->S, p->pool, tin, tout, nv);
+             * its OWN steady-state cache (L36_pencilfused r5's 86% phantom-
+             * penalty fix: an NT candidate flushes tout and poisons whoever
+             * runs next in the rotation). */
+            run_vols(cands[c].pw, cands[c].mode, cands[c].pf, cands[c].st, 0, p->S, tin, tout, nv);
             double t0 = now_s();
             for (int r = 0; r < R; ++r)
-                run_mc(&mc[c], 0, p->S, p->pool, tin, tout, nv);
+                run_vols(cands[c].pw, cands[c].mode, cands[c].pf, cands[c].st, 0, p->S, tin, tout, nv);
             double t = (now_s() - t0) / R;
             if (t < tc[c]) tc[c] = t;
         }
@@ -1389,95 +882,46 @@ fft3d_plan *fft3d_create(int Lq, int batch)
         if (ok[c] && (best < 0 || tc[c] < tc[best])) best = c;
     if (best >= 0) {
         int pick = best;
-        /* NT must beat the best cached candidate by 2% (the L64_radix8 r6
-         * bar: a store-mode flip moves traffic, noise must not take it) */
-        if (mc[pick].mode == M_NT) {
+        /* NT must beat the best cached candidate by 2% (a store-mode flip
+         * moves traffic, so a noise-level win must not take it -- the
+         * L64_radix8 r6 bar; the node has never picked NT at L=64). */
+        if (cands[pick].mode == M_NT) {
             int bc = -1;
             for (int c = 0; c < nc; ++c)
-                if (ok[c] && mc[c].mode == M_CACHED &&
+                if (ok[c] && cands[c].mode == M_CACHED &&
                     (bc < 0 || tc[c] < tc[bc])) bc = c;
             if (bc >= 0 && tc[bc] <= tc[pick] * 1.02) pick = bc;
         }
-        /* simplest-wins hysteresis at 1% (r11): one bit class, so a complex
-         * pick risks nothing but obscurity */
+        /* simplest-wins hysteresis, 3% -> 1% in r11: the pool is now one bit
+         * class differing only in prefetch level, so a "complex" pick risks
+         * nothing -- while the 3% band was discarding exactly the 1-2%
+         * slabpf/p1pf wins the rival banks on the node (its B=1 pick carries
+         * both; my r10 node B=1 pick was bare pf0). */
         for (int c = 0; c < nc; ++c)
-            if (ok[c] && mc[c].mode == mc[pick].mode &&
-                mc[c].eng == mc[pick].eng && mc[c].nth == mc[pick].nth &&
-                mc[c].G == mc[pick].G && tc[c] <= tc[pick] * 1.01 &&
-                mt_rank(&mc[c]) < mt_rank(&mc[pick]))
+            if (ok[c] && cands[c].mode == cands[pick].mode &&
+                cands[c].st == cands[pick].st && tc[c] <= tc[pick] * 1.01 &&
+                cand_rank(cands[c].mode, cands[c].pf, cands[c].st) <
+                cand_rank(cands[pick].mode, cands[pick].pf, cands[pick].st))
                 pick = c;
-        /* mt_r3 NODE PRIOR at streaming cells: at batch >= 32 the arena
-         * (nv = min(B,32) < B) cannot be faithful to the scored regime,
-         * and mt_r2's node run proved it mis-prices team shapes there (the
-         * G=16/dyn pick cost 1.5x on the driver).  The incumbent is the
-         * shape the node itself scored fastest at this geometry (the
-         * rival's stable B=128 win, 69.5 us/vol = my eng2 G=8 static sb=1
-         * nt slabpf): a challenger ships only if it beats the incumbent by
-         * >5% in-arena.  Env forcing bypasses this naturally (a filtered
-         * pool that lacks the incumbent row skips the override). */
-        if (batch >= 32) {
-            int inc = -1;
-            for (int c = 0; c < nc; ++c)
-                if (ok[c] && mc[c].eng == 2 && mc[c].G == 8 &&
-                    mc[c].nth == maxth && mc[c].dyn == 0 && mc[c].sb == 1 &&
-                    mc[c].mode == M_NT && mc[c].pf == 6) { inc = c; break; }
-            if (inc >= 0 && pick != inc && tc[pick] > tc[inc] * 0.95)
-                pick = inc;
-        }
-        p->mc = mc[pick];
+        p->pw = cands[pick].pw; p->mode = cands[pick].mode;
+        p->pf = cands[pick].pf; p->st = cands[pick].st;
     }
 
-    /* kb A/B (mt_r4): race the compact-slab-buffer pass 2+3 against the
-     * in-place one ON THE PICKED CANDIDATE ONLY (the pro protocol) -- no kb
-     * pool rows, so the pick lottery surface does not grow.  kb=1 is gated
-     * on its own correctness check against the independent st=0 reference
-     * (the interlock discipline: nothing ships untested), and must win by
-     * >1%; in-place ships on ties.  FFT64B_KB=0|1 forces (still gated). */
-    double t_kb[2] = {1e300, 1e300};
-#ifdef HAVE_PW4
-    if (p->mc.st == 3) {
-        struct mcand kc = p->mc;
-        kc.kb = 1;
-        run_mc(&kc, 0, p->S, p->pool, tin, tout, nv);
-        double knum = 0.0, kden = 0.0;
-        for (size_t i = 0; i < (size_t)nv * VDBL; ++i) {
-            double d = tout[i] - ref[i];
-            knum += d * d; kden += ref[i] * ref[i];
-        }
-        const int kok = (knum <= kden * 1e-26);
-        const char *ek = getenv("FFT64B_KB");
-        if (ek) p->mc.kb = kok && atoi(ek) != 0;
-        else if (kok) {
-            struct mcand ks[2] = {p->mc, kc};
-            ks[0].kb = 0;
-            for (int round = 0; round < 3; ++round)
-                for (int side = 0; side < 2; ++side) {
-                    run_mc(&ks[side], 0, p->S, p->pool, tin, tout, nv);
-                    double t0 = now_s();
-                    for (int r = 0; r < R; ++r)
-                        run_mc(&ks[side], 0, p->S, p->pool, tin, tout, nv);
-                    double t = (now_s() - t0) / R;
-                    if (t < t_kb[side]) t_kb[side] = t;
-                }
-            p->mc.kb = (t_kb[1] < t_kb[0] * 0.99);
-        }
-    }
-#endif
-
-    /* pro A/B (L64_radix8 r9's protocol) -- meaningful only when the pick is
-     * the single-thread st=3 kernel; the mt engines never use it. */
+    /* pro A/B on the picked candidate (L64_radix8 r9's propf protocol):
+     * 3 interleaved rounds, self-warmed, min per side, strict win to turn
+     * on.  Prefetch-only, so it cannot change the output bit class. */
     double t_pro[2] = {1e300, 1e300};
 #ifdef HAVE_PW4
-    if (p->mc.eng == 0 && p->mc.st == 3) {
+    if (p->st == 3) {
         const char *ep = getenv("FFT64B_PRO");
         if (ep) p->pro = (atoi(ep) != 0);
         else {
             for (int round = 0; round < 3; ++round)
                 for (int side = 0; side < 2; ++side) {
-                    run_mc(&p->mc, side, p->S, p->pool, tin, tout, nv);
+                    run_vols(p->pw, p->mode, p->pf, p->st, side, p->S, tin, tout, nv);
                     double t0 = now_s();
                     for (int r = 0; r < R; ++r)
-                        run_mc(&p->mc, side, p->S, p->pool, tin, tout, nv);
+                        run_vols(p->pw, p->mode, p->pf, p->st, side, p->S, tin, tout, nv);
                     double t = (now_s() - t0) / R;
                     if (t < t_pro[side]) t_pro[side] = t;
                 }
@@ -1486,29 +930,22 @@ fft3d_plan *fft3d_create(int Lq, int batch)
     }
 #endif
 
-    static const char *const eng_name[] = {"1core", "S:slab", "G:group", "V:vol"};
     snprintf(g_desc, sizeof g_desc,
-             "L64 8x8 split-sc two-stage, hugepage scratch; mt pick: "
-             "eng=%d(%s) G=%d nth=%d dyn=%d sb=%d mode=%s pf=%d st=%d pro=%d (B=%d nv=%d)",
-             p->mc.eng, eng_name[p->mc.eng], p->mc.G, p->mc.nth, p->mc.dyn,
-             p->mc.sb, mode_name[p->mc.mode], p->mc.pf, p->mc.st, p->pro,
-             batch, nv);
+             "L64 8x8 two-stage, hugepage odd-line-padded scratch; "
+             "tuner pick: pw=%d mode=%s pf=%d st=%d(%s) pro=%d (B=%d, nv=%d)",
+             p->pw, mode_name[p->mode], p->pf, p->st,
+             st_name[p->st], p->pro, batch, nv);
 
     if (getenv("FFT64B_VERBOSE")) {
         for (int c = 0; c < nc; ++c)
-            fprintf(stderr, "L64_blocked tuner: eng=%d(%-6s) G=%-2d nth=%-2d dyn=%d "
-                    "sb=%d mode=%-6s pf=%d st=%d  %s  %8.1f us/vol\n",
-                    mc[c].eng, eng_name[mc[c].eng], mc[c].G, mc[c].nth,
-                    mc[c].dyn, mc[c].sb, mode_name[mc[c].mode], mc[c].pf,
-                    mc[c].st, ok[c] ? "ok " : "BAD",
-                    ok[c] ? tc[c] * 1e6 / nv : 0.0);
+            fprintf(stderr, "L64_blocked tuner: pw=%d mode=%-7s pf=%d st=%d  %s  %.1f us/vol\n",
+                    cands[c].pw, mode_name[cands[c].mode], cands[c].pf, cands[c].st,
+                    ok[c] ? "ok " : "BAD", ok[c] ? tc[c] * 1e6 / nv : 0.0);
         if (t_pro[0] < 1e300)
             fprintf(stderr, "L64_blocked tuner: pro A/B off %.1f / on %.1f us/vol\n",
                     t_pro[0] * 1e6 / nv, t_pro[1] * 1e6 / nv);
-        fprintf(stderr, "L64_blocked tuner: chose eng=%d G=%d nth=%d dyn=%d "
-                "sb=%d mode=%s pf=%d st=%d pro=%d (nv=%d)\n",
-                p->mc.eng, p->mc.G, p->mc.nth, p->mc.dyn, p->mc.sb,
-                mode_name[p->mc.mode], p->mc.pf, p->mc.st, p->pro, nv);
+        fprintf(stderr, "L64_blocked tuner: chose pw=%d mode=%s pf=%d st=%d pro=%d (nv=%d)\n",
+                p->pw, mode_name[p->mode], p->pf, p->st, p->pro, nv);
     }
     free(ri); free(ro); free(rr);
     return p;
@@ -1519,15 +956,13 @@ void fft3d_destroy(fft3d_plan *p)
     if (!p) return;
     if (p->map_bytes) munmap(p->rawS, p->map_bytes);
     else              free(p->rawS);
-    if (p->poolmap)   munmap(p->rawP, p->poolmap);
-    else              free(p->rawP);
     free(p);
 }
 
 void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex *out)
 {
-    run_mc(&plan->mc, plan->pro, plan->S, plan->pool,
-           (const double *)in, (double *)out, plan->batch);
+    run_vols(plan->pw, plan->mode, plan->pf, plan->st, plan->pro, plan->S,
+             (const double *)in, (double *)out, plan->batch);
 }
 
 #else /* ================= KERNEL TEMPLATE, PW = 2 or 4 ==================== */

@@ -446,3 +446,164 @@ bit-identical re-runs everywhere.
 4. The socket-staged two-stage x-pass (L36_pfa's sketch) stays the only
    idea that shrinks B=1's all-to-all bytes; still not worth building
    while B=1 leads by 11% and the cell is stable.
+
+## Round mt_r4
+
+### Where mt_r3 landed on the node, and what this round attacks
+
+Scored (Gold 5218, min of 3 processes): B=1 **23.027 us, 1st** — but a
+1.13x lottery (23.0/23.2/25.9): the slow process picked v1-split18-pf0,
+and the per-process descs show why — under close binding an 18-thread
+team puts threads 16-17 on socket 1, so every per-volume barrier crosses
+UPI (its dsp=1.49 vs split12's 0.64/0.70).  B=32 **5.362, 2nd** — lost
+to L36_pfa's 5.212 by 3%: all three processes installed v1-vol32-pfin
+(5.36) where mt_r2's node evidence has v1-vol32-pf1 at 5.21; the arena
+ranked them the other way (>3%, since pf1 precedes pfin in hysteresis
+order and was displaced 3/3).  B=512 **9.896, 1st, 3-of-3 at
+150.9 GB/s** — the round's best result panel-wide (VERDICT s1); the pin
+did exactly what the r3 record pre-registered.  VERDICT s6's L=36
+directive: "find the difference between 9.9 and 20.0 us/vol [that one is
+L36_pfa's to fix], then push past 151 GB/s."
+
+### What changed (tuner + one new prefetch body + sync-scan order;
+### codelets and operation count untouched — 232 FMA-port ops + 57
+### shuffles per 36-point line over PW lanes, 2,814,912 flops/volume)
+
+1. **sntx body** (exec code 9 = snt + pfin + PFX): a paced T2 prefetch
+   cursor covering the WHOLE of in[b+1], issued from phase 2's NT drain —
+   9*PW lines per (y,zb) tile, 11664 lines = exactly one volume per
+   volume drained.  Rationale: in the sntp shape phase 1 is read-only
+   DRAM traffic, phase 2 write-only, so the two DRAM directions alternate
+   instead of overlapping; at 9.9 us/vol the read channel idles for
+   roughly the drain half of each volume.  T2 stages into L3
+   (deliberately not the L2 holding the 746 KiB volume scratch); phase
+   1's existing 32 KB-ahead T1 pfin cursor promotes L3->L2 in time.  This
+   is my own mt_r3 "next" item 2, built as a prefetch schedule instead of
+   a restructure.  At pinned cells the tuner races **sntp vs sntx** —
+   team width and NT-vs-inplace stay pinned (the dimensions the arena
+   cannot price), but a paced-prefetch delta IS arena-priceable (the
+   r2/r3 snt-vs-pfw arena gaps reproduced on the node both rounds).
+   sntp is the incumbent; sntx must beat it by the standard 3% in the
+   node's own create-time arena to install, and both arena times ride
+   the description (spA=/sxA=).  FFT36_PFX=0|1 excludes/forces.
+2. **Cross-package split teams dropped at B=1** (unless FFT36_MT_T
+   forces one): the ladder now reads each pinned CPU's
+   physical_package_id from sysfs and drops split teams whose threads
+   span packages.  On the node that leaves {16,12,9,8} — split18/24/32
+   gone, which is exactly the r3 lottery's losing pick; on wallaby (32
+   close-bound threads on one package) the ladder is unchanged, and if
+   sysfs is unreadable there is no restriction.  Verified both ways: an
+   unbound run (no OMP env) restricted itself to 7c and installed
+   split9; a close-bound run kept all 15c and installed split32.
+3. **pfin probe-only at streaming NON-deep vol cells** (B=32's class):
+   still timed, published as pfinA=, not installable; FFT36_PFIN=1
+   restores it.  Node evidence across two rounds: pf1 scored 5.21,
+   pfin 5.36, arena preferred pfin — the arena's in-buffer is
+   create-filled and cycles candidates, so cross-call cache state
+   differs from the timed loop and the paced input prefetch prices high.
+   Expected effect: all three processes install v1-vol32-pf1 at B=32.
+4. **Pending-bitmask sync scans**: pool_run's join and the flag-array
+   barrier's participant-0 scan used to wait on each flag IN TURN — up
+   to 31 serialised remote-line misses (node dsp 2.06-2.60 us at T=32 vs
+   0.72 on wallaby's single socket, i.e. ~1.2% of the B=32 call).  Both
+   now sweep the pending set per pass with a bitmask, so one pass's
+   misses overlap in the line-fill buffers and satisfied lines are never
+   re-read.  Protocol unchanged (same flags, epochs, release/acquire
+   pairs) — only the scan order.  Output stays bit-identical everywhere.
+
+### What was measured (wallaby, Gold 6448Y SPR, 32 threads close/cores;
+### the login node was VERY noisy this session — identical B=512 configs
+### read 7.2-17.8 us/vol across windows, so only same-create arena pairs
+### and quiet-window minima are quoted)
+
+All PASS rel_l2 = 3.586e-16 … 3.591e-16 vs numpy at B = 1, 32, 64, 512
+(B=64 timing-only), bit-identical re-runs everywhere, including with
+FFT36_PFX=1 forcing the sntx install at B=512.
+
+| cell | mt_r3 (wallaby) | mt_r4 (wallaby, quiet window) | pick | note |
+|---|---|---|---|---|
+| B=1   | 12.72 | **13.69** (window; sd 1.9%) | v1-split32-pf0 | ladder unchanged on one package |
+| B=32  | 2.65  | **2.79** (cached race, window) | v1-vol32-{pf4/pfw} varies | node regime differs (streaming there) |
+| B=512 | 7.25  | **7.20** | v1-vol32-sntp PINNED | spA/sxA below |
+
+* **sntp-vs-sntx in-arena** (same create, interleaved 6 rounds, three
+  separate creates): 6.2/6.4, 6.4/6.3, 5.9/6.1 — a tie on wallaby, so
+  sntp correctly stays installed there.  Wallaby's DDR5 read channel is
+  not the drain-phase bottleneck the way DDR4 may be on the node; the
+  node's arena prices it itself and the leaderboard desc carries both
+  numbers whatever it picks.  Full-buffer forced A/B was unusable in
+  this session's noise (8.6-17.8 both shapes) and is NOT quoted.
+* dsp with the bitmask sweep: 0.45-0.61 us typical at T=32 post-shrink
+  (r3 same machine: 0.72), one noisy-window 1.06/1.25 outlier.  The real
+  target is the node's serialised cross-socket 2.06-2.60.
+* B=64 forced probe of the streaming non-deep path (the node's B=32
+  class): pick raced among pf1/pfw/snt rows, pfinA=15.1 published,
+  8 candidates — mechanism verified.
+* Unbound-vs-bound ladder check (item 2) verified as described above.
+
+### What did NOT work / negatives worth keeping
+
+1. **sntx does not beat sntp on wallaby** (arena ties above, three
+   creates).  Not killed — the machine it targets is the node (DDR4,
+   1 MiB L2, one FMA port); shipping it as an arena-raced twin with the
+   3% bar means the node answers with zero regression risk.  If the node
+   also ties, the "overlap the read channel with the NT drain" idea is
+   dead at L=36 and the record should say so next round.
+2. Full-buffer A/Bs on wallaby this session: worthless (sd to 38%,
+   2.4x swings between identical configs).  Arena twins inside one
+   create were the only trustworthy instrument.  Keep using them.
+3. Standing negatives carried: dyn (VERDICT-closed), NT at sub-socket
+   teams semi-cached, fused3 3-barrier B=1, zy bodies (env-gated), and
+   from this round's VERDICT panel-wide: page migration never happens
+   (fr=0 six entries) and my own fr=0/7/23 all at ~150 GB/s — placement
+   instruments are done; the gov scan stays only because it already
+   exists and costs ~nothing.
+
+### Borrowed, and from whom
+
+* The **spin-pool clock-drag lead** (VERDICT s3.3/s4.4: L17_matrixsimd's
+  clk512=2.29 vs 2.89 GHz under idle spinners; L36_pfa's nap-after-1ms)
+  is why the bitmask sweep keeps main's scan SHORT rather than adding
+  helper spinners; my pool already naps idle workers after ~10 ms and
+  shrinks to the picked team, so no further change was needed — noted
+  here so the next round doesn't re-derive it.
+* **Deterministic-install-at-uninstrumentable-dimensions** is the
+  VERDICT s5/s6 finding ("at DRAM-bound cells, install from the working
+  set and don't race"), which mt_r3 already implemented; this round
+  extends it with "race ONLY the dimensions the arena can price"
+  (prefetch pacing yes, team width / NT no).
+* The B=1 lottery diagnosis is straight from VERDICT s3.2's per-process
+  table plus my own dsp telemetry; the sysfs package-map read is the
+  same pattern as my r2 sched_getcpu map read-back.
+
+### Predictions for the node (pre-registered)
+
+* B=1: split18 cannot be picked.  All three processes install
+  v1-split{12 or 16}-pf0 and read **22.5-23.5 us**; the lottery is dead
+  by construction.  If split16 edges split12 in some process the spread
+  should stay under ~3% (both single-socket, no UPI barrier).
+* B=32: all three processes install **v1-vol32-pf1** (pfin demoted) and
+  read **5.15-5.25 us/vol** — the r2 pf1 number, minus ~1-1.5 us/call of
+  join serialisation → expect ~5.17-5.21.  Ties or narrowly takes the
+  cell back from L36_pfa's 5.212.
+* B=512: pin installs the vol32-snt macro-shape 3-of-3 as in r3.  If
+  the node's arena prices sntx >3% under sntp, it installs and the cell
+  reads **9.0-9.6 us/vol** (drain-overlap worth 5-10% of 9.9); if it
+  ties like wallaby, sntp reinstalls and the cell repeats **9.8-10.1**
+  with sxA~=spA published — either way the overlap question gets its
+  node answer from a scored run.  dsp should drop 2.4→~1.0.
+
+### Next
+
+1. Read spA/sxA and the B=32/B=1 picks off the node descs first.
+2. If sntx ties on the node too, the remaining B=512 idea is a
+   ping-pong TWO-volume scratch with phase-1(b+1) interleaved into
+   phase-2(b) at tile granularity (true MLP overlap, not hint-based) —
+   only worth building on a measured read-channel-idle signal, e.g. if
+   pfwA-style probes show phase 2 alone accounts for >55% of volume time.
+3. If B=32 lands 5.17-5.21 and still loses to L36_pfa, diff their
+   inplace pf=0 phase-2 against my pf1 — the 36-stream hand prefetch may
+   be net-negative semi-cached on CLX (it was tuned for DRAM streams).
+4. B=1's structural ceiling stands (cross-core transpose bytes); the
+   socket-staged two-stage x-pass remains the only shrink-the-bytes idea
+   and stays unbuilt while the cell leads by >10%.

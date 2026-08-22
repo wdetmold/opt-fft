@@ -6,6 +6,49 @@
  */
 /* L45_pfa.c -- forward complex 3D DFT of a 45^3 cube, batched, out-of-place.
  *
+ * ROUND mt_r4 (fourth multicore round).  Node verdict on mt_r3: ALL THREE
+ * CELLS WON -- B=1 56.569 (picks rr/bpf/t23, rival 58.798), B=16 14.742
+ * (mtf-blk/bpf took the cell back from g2: blk 15.5-16.0 vs g2-pfw
+ * 16.7-18.6 in-arena; B=16 is aggregate-cache-resident on the node, 44.5
+ * of 76 MB), B=256 26.763 (omtn-pfi 3/3, 27.8/44.9/27.7 in-arena, the r2
+ * regression fully repaired: 64.2 -> 109.0 GB/s).  The dispatch A/B came
+ * back a tie (mtn-pfi == omtn-pfi in-arena in every process), so the r2
+ * regression is now attributed to the Pt alignment bug, not the pool.
+ * The VERDICT's panel-wide directive is §4.3: the L2-tile construction
+ * (per-thread scratch, all three axes inside, in read once, out written
+ * once) moved L=36 to 150.9 GB/s while I hold 109.0 at the same node.
+ * This round's changes:
+ *   1. REVIVED mts (staged-tile NT phase 2) as mts-pfi + an OMP twin
+ *      omts-pfi, ranked BEHIND the omtn/mtn incumbents.  Justification
+ *      for reopening a pre-registered exit, stated plainly: the r2 race
+ *      that killed mts ran with a 16-mod-64-aligned tile buffer Tb (the
+ *      same offset bug as Pt -- every hot Tb store and every segment-
+ *      flush read split a cache line on CLX) inside the broken 64 GB/s
+ *      regime, and mts still came within 4% (44.1-46.3 vs 42.4-45.8).
+ *      It has never been raced aligned in the repaired regime.  What it
+ *      deletes vs mtn: phase 2's in-place M write (1.46 MB) and the
+ *      ntcopy's M re-read (1.46 MB) per volume -- 2.9 MB/vol of L2<->L3
+ *      mesh traffic on a node where 16 threads x 1.46 MB M > one
+ *      socket's 22 MB L3, replaced by the same passes through a 45 KiB
+ *      L1/L2-hot Tb.  This is §4.3's avoided-passes rule applied at the
+ *      one level L=45 can still avoid them (M itself cannot shrink: the
+ *      x pass needs all 45 planes, so 1.46 MB is the tile floor here).
+ *      Tb is now PAGE-aligned in the per-thread block [M | Pt | Tb],
+ *      every stride 64B-clean.  Pre-registered exits: if the node arena
+ *      prices mts-pfi within 3% of mtn-pfi again (aligned this time),
+ *      the M-traffic theory is dead on CLX and mts exits permanently;
+ *      wallaby is expected to keep mtn (M fits its 2 MiB L2 -- r2
+ *      measured mts 18.3 vs mtn 16.8 there, and that is not the point).
+ *   2. DELETED mtf-hp per its pre-registered exit: node B=1 in-arena hp
+ *      59.7/59.0/59.4 vs rr 58.3-60.1 / t23 56.8-57.5 -- the subpass
+ *      split never beat the incumbents in any process (its win condition
+ *      was ">3% over rr").  With it go p1z_unit/p1y_unit, the shared Ph
+ *      slot arena, and pf code 4.
+ *   3. Everything else untouched: B=1 keeps rr/blk/bpf/t23 (won), B=16
+ *      keeps mtf-blk/bpf and g2 (won), serial kernel untouched for the
+ *      fifth round running.  Env: FFT45_MT adds 't' (mts class);
+ *      FFT45_PF 8 = mts-pfi (pool), 9 = omts-pfi (OMP); 4 retired.
+ *
  * ROUND mt_r3 (third multicore round).  Node verdict on mt_r2: B=1 WON
  * (57.197, mtf-rr picks), B=16 WON (15.751, g2-pfw all 3 processes),
  * B=256 WON but REGRESSED 1.69x (26.897 -> 45.446) after the r2 pool
@@ -476,7 +519,10 @@ typedef struct { struct l45mt *pl; int tid; int cpu; } mt_warg;
  * they are NUMA-local and no two threads ever share a scratch line.
  * mt_r3: M is padded to a page boundary inside the block so Pt is PAGE-
  * aligned -- r2 put Pt at VDBL*8 = 16 mod 64 and every 64 B plane-scratch
- * access split a cache line (free on SPR, real on the node's CLX).  Job
+ * access split a cache line (free on SPR, real on the node's CLX).
+ * mt_r4: Tb[t] (the revived staged-NT tile buffer, 45 x TBK*PW complex)
+ * returns to the block, PAGE-aligned this time -- r2's Tb carried the
+ * same 16-mod-64 offset bug as Pt.  Job
  * fields are plain stores published by the gen release-store; epochs on
  * the arrival flags derive from (generation, in-job volume index) and
  * only ever increase, so join / global-barrier / pair-barrier can share
@@ -505,8 +551,7 @@ struct l45mt {
     int           nthr;         /* pool size incl. main                   */
     double       *Pt[MAXT];
     double       *Mt[MAXT];
-    double       *Ph;           /* mtf-hp shared per-plane slots (or 0)   */
-    void         *rawPh;
+    double       *Tb[MAXT];     /* staged-NT tile buffer (mts/omts)       */
     void         *raw[MAXT];
     pthread_t     th[MAXT];
     mt_warg       wa[MAXT];
@@ -514,10 +559,12 @@ struct l45mt {
     pthread_cond_t  cv;
 };
 
-/* mtf-hp per-plane slot stride, doubles: L*PPITCH complex = 37440 B of
- * payload padded to 40960 B (page multiple) so every slot is page-aligned
- * and no two slots share a line */
-#define PSLOTD 5120
+/* staged-NT tile block: TBK flat tiles per flush.  Tb row = TBK*PW complex
+ * = 1 KiB at PW=4 (64B-clean), Tb total = 45 KiB (L1/L2-hot).  At TBK=16
+ * the segment head/tail peels cost ~6% of out as regular-store RFOs (the
+ * price of out's 16 B per-plane phase rotation, PLND*8 mod 64 = 16). */
+#define TBK 16
+#define TBD ((size_t)L * TBK * 4 * 2)   /* Tb doubles at the max width PW=4 */
 
 /* JOIN (end of every job): workers post their flag and go straight back to
  * the generation spin; main cannot dispatch again (or return to the
@@ -574,20 +621,23 @@ static inline void mt_pbar(struct l45mt *pl, int tid, int g, unsigned long e)
 }
 
 /* per-thread scratch block: Mt (page-aligned) + page pad + Pt (page-
- * aligned, the r3 fix), one allocation, memset (= first touch) by the
- * OWNER thread */
+ * aligned, the r3 fix) + page pad + Tb (page-aligned, the r4 fix -- r2's
+ * Tb sat at 16 mod 64 and every hot tile access split a line on CLX),
+ * one allocation, memset (= first touch) by the OWNER thread */
 static int mt_ctx_alloc(struct l45mt *pl, int t)
 {
     const size_t md = (VDBL * sizeof(double) + 4095) / 4096 * 4096
                         / sizeof(double);      /* M padded to page, doubles */
-    const size_t pd = (size_t)L * PPITCH * 2;   /* plane scratch, doubles  */
-    const size_t nd = md + pd + 64;
+    const size_t pd = ((size_t)L * PPITCH * 2 * sizeof(double) + 4095)
+                        / 4096 * 4096 / sizeof(double); /* Pt page-padded  */
+    const size_t nd = md + pd + TBD + 64;
     void *b = NULL;
     if (posix_memalign(&b, 4096, nd * sizeof(double)) != 0 || !b) return 1;
     memset(b, 0, nd * sizeof(double));
     pl->raw[t] = b;
     pl->Mt[t]  = (double *)b;
     pl->Pt[t]  = (double *)b + md;
+    pl->Tb[t]  = (double *)b + md + pd;
     return 0;
 }
 
@@ -895,10 +945,10 @@ static void dft45_line1(const double *restrict s, const long sstr,
 
 /* ---- plan, tuner, API ---------------------------------------------------- */
 
-enum { MT_V = 0, MT_N = 1, MT_G = 2, MT_F = 3, MT_S = 4 };
+enum { MT_V = 0, MT_N = 1, MT_G = 2, MT_F = 3, MT_S = 4, MT_T = 5 };
 /* vol-parallel, vol-parallel+NT (pool mtn and OMP-region o-mtn, pf codes
- * 6/7 and 10/11), pair-grained grp2, fused (rr/blk/bpf/t23 and the
- * subpass-split hp, pf code 4), serial control */
+ * 6/7 and 10/11), pair-grained grp2, fused (rr/blk/bpf/t23), serial
+ * control, staged-tile NT (pool mts pf 8 / OMP o-mts pf 9, mt_r4) */
 
 /* candidate table, rank = simplest-first tie-break order (3% hysteresis).
  * minb/maxb gate a row to the batch range where it can matter (a grp2 or
@@ -913,9 +963,10 @@ struct cand45 {
 /* rank order (the <=3% simplest-first tie-break): o-mtn sits AHEAD of the
  * pool mtn so a streaming-cell tie routes to the r1 OMP construction the
  * node measured at 26.9 (the arena races both twins in the same placement
- * regime and cannot separate them -- mt_r2's central finding); mtf-hp sits
- * LAST among the fused rows so the new mechanism must beat the incumbents
- * by >3% to install. */
+ * regime and cannot separate them -- mt_r2's central finding; the r3 A/B
+ * confirmed the twins tie in-arena and the pick delivered, so the order
+ * stays).  The revived mts/omts rows sit BEHIND all four mtn rows: a
+ * reopened exit must beat the incumbents by >3% to install. */
 static const struct cand45 g_cands[] = {
 #ifdef HAVE_PW4
     { w_v0_pw4,  0, 4, MT_V, 0,  MAXT, 0,  2, 0, "pw4-mtv-pf0"  },
@@ -926,19 +977,22 @@ static const struct cand45 g_cands[] = {
 #endif
     { w_n0_pw4,  0, 4, MT_N, 6,  MAXT, 4,  2, 0, "pw4-mtn-pf0"  },
     { w_ni_pw4,  0, 4, MT_N, 7,  MAXT, 5,  2, 0, "pw4-mtn-pfi"  },
-    { w_g0_pw4,  0, 4, MT_G, 0,  MAXT, 6,  2, 0, "pw4-g2-pf0"   },
-    { w_gi_pw4,  0, 4, MT_G, 3,  MAXT, 7,  2, 0, "pw4-g2-pfw"   },
-    { w_f0_pw4,  0, 4, MT_F, 0,  MAXT, 8,  1, 0, "pw4-mtf-rr"   },
-    { w_fb_pw4,  0, 4, MT_F, 1,  MAXT, 9,  1, 0, "pw4-mtf-blk"  },
-    { w_fb3_pw4, 0, 4, MT_F, 2,  MAXT, 10, 1, 0, "pw4-mtf-bpf"  },
-    { w_fb_pw4,  0, 4, MT_F, 5,  23,   11, 1, 2, "pw4-mtf-t23"  },
-    { w_hp_pw4,  0, 4, MT_F, 4,  MAXT, 12, 1, 2, "pw4-mtf-hp"   },
-    { 0, x_ip0_pw4, 4, MT_S, 0,  1,    13, 1, 0, "pw4-ip-pf0"   },
-    { 0, x_ip3_pw4, 4, MT_S, 3,  1,    14, 1, 0, "pw4-ip-pf3"   },
+#ifdef _OPENMP
+    { 0, o_ts_pw4,  4, MT_T, 9,  MAXT, 6,  2, 0, "pw4-omts-pfi" },
 #endif
-    { w_v0_pw2,  0, 2, MT_V, 0,  MAXT, 15, 2, 0, "pw2-mtv-pf0"  },
-    { w_fb_pw2,  0, 2, MT_F, 1,  MAXT, 16, 1, 0, "pw2-mtf-blk"  },
-    { 0, x_ip0_pw2, 2, MT_S, 0,  1,    17, 1, 0, "pw2-ip-pf0"   },
+    { w_ts_pw4,  0, 4, MT_T, 8,  MAXT, 7,  2, 0, "pw4-mts-pfi"  },
+    { w_g0_pw4,  0, 4, MT_G, 0,  MAXT, 8,  2, 0, "pw4-g2-pf0"   },
+    { w_gi_pw4,  0, 4, MT_G, 3,  MAXT, 9,  2, 0, "pw4-g2-pfw"   },
+    { w_f0_pw4,  0, 4, MT_F, 0,  MAXT, 10, 1, 0, "pw4-mtf-rr"   },
+    { w_fb_pw4,  0, 4, MT_F, 1,  MAXT, 11, 1, 0, "pw4-mtf-blk"  },
+    { w_fb3_pw4, 0, 4, MT_F, 2,  MAXT, 12, 1, 0, "pw4-mtf-bpf"  },
+    { w_fb_pw4,  0, 4, MT_F, 5,  23,   13, 1, 2, "pw4-mtf-t23"  },
+    { 0, x_ip0_pw4, 4, MT_S, 0,  1,    14, 1, 0, "pw4-ip-pf0"   },
+    { 0, x_ip3_pw4, 4, MT_S, 3,  1,    15, 1, 0, "pw4-ip-pf3"   },
+#endif
+    { w_v0_pw2,  0, 2, MT_V, 0,  MAXT, 16, 2, 0, "pw2-mtv-pf0"  },
+    { w_fb_pw2,  0, 2, MT_F, 1,  MAXT, 17, 1, 0, "pw2-mtf-blk"  },
+    { 0, x_ip0_pw2, 2, MT_S, 0,  1,    18, 1, 0, "pw2-ip-pf0"   },
 };
 #define NCAND ((int)(sizeof g_cands / sizeof g_cands[0]))
 
@@ -1025,8 +1079,8 @@ const char *fft3d_description(void)
     if (!g_desc[0])
         return "Good-Thomas PFA 9x5, interleaved-complex lanes, two sweeps, "
                "PW=1 xmm tail lines; pinned spin pool with nap + OMP-region "
-               "twins; {vol, vol-NT pool/omp, pair, fused/hp, serial} x pf "
-               "autotuned in create(); read-only page-home governor";
+               "twins; {vol, vol-NT, staged-tile-NT, pair, fused, serial} x "
+               "pf autotuned in create(); read-only page-home governor";
     snprintf(g_full, sizeof g_full, "%s%s", g_desc, g_gov);
     return g_full;
 }
@@ -1141,18 +1195,6 @@ fft3d_plan *fft3d_create(int Lq, int batch)
         pl->nthr = 1;                   /* nothing spawned yet: join none  */
         fft3d_destroy(p); return NULL;
     }
-    /* mtf-hp shared per-plane slots, B<=2 only (its candidate range);
-     * page-aligned so no two slots share a line.  Main-thread first touch:
-     * at B<=2 the caller's whole dataset is one socket's anyway. */
-    if (batch <= 2) {
-        const size_t phb = (size_t)batch * L * PSLOTD * sizeof(double);
-        void *ph = NULL;
-        if (posix_memalign(&ph, 4096, phb) == 0 && ph) {
-            memset(ph, 0, phb);
-            pl->rawPh = ph;
-            pl->Ph    = (double *)ph;
-        }
-    }
     /* kernel.numa_balancing, for the governor line (read once) */
     {
         FILE *f = fopen("/proc/sys/kernel/numa_balancing", "r");
@@ -1185,8 +1227,6 @@ fft3d_plan *fft3d_create(int Lq, int batch)
         if (g_cands[c].maxb && batch > g_cands[c].maxb) live[c] = 0;
         if (!g_cands[c].sfn && pl->nthr < 2) live[c] = 0;
         if (g_cands[c].mt == MT_G && pl->nthr < 4) live[c] = 0;
-        if (g_cands[c].mt == MT_F && g_cands[c].pf == 4 && !pl->Ph)
-            live[c] = 0;                /* hp needs its slot arena */
     }
 
     /* run-time forcing for the monitor's control jobs */
@@ -1195,10 +1235,11 @@ fft3d_plan *fft3d_create(int Lq, int batch)
           int v = atoi(e);
           for (int c = 0; c < NCAND; ++c) if (g_cands[c].pw != v) live[c] = 0;
       }
-      if ((e = getenv("FFT45_MT"))) { /* v / n(mtn+omtn) / g / f / s */
+      if ((e = getenv("FFT45_MT"))) { /* v / n(mtn+omtn) / g / f / s / t(mts) */
           int v = (e[0] >= '0' && e[0] <= '9') ? atoi(e)
                 : (e[0] == 'n' ? MT_N : (e[0] == 'g' ? MT_G
-                :  (e[0] == 'f' ? MT_F : (e[0] == 's' ? MT_S : MT_V))));
+                :  (e[0] == 'f' ? MT_F : (e[0] == 's' ? MT_S
+                :   (e[0] == 't' ? MT_T : MT_V)))));
           for (int c = 0; c < NCAND; ++c) if (g_cands[c].mt != v) live[c] = 0;
       }
       if ((e = getenv("FFT45_PF"))) {
@@ -1315,7 +1356,6 @@ void fft3d_destroy(fft3d_plan *p)
                 pthread_join(pl->th[t], NULL);
         }
         for (int t = 0; t < MAXT; ++t) free(pl->raw[t]);
-        free(pl->rawPh);
         pthread_mutex_destroy(&pl->mu);
         pthread_cond_destroy(&pl->cv);
         free(pl);
@@ -1690,12 +1730,58 @@ static void FN(ntcopy)(double *restrict dst, const double *restrict src,
     for (size_t q = head + body; q < n; ++q) dst[q] = src[q];
 }
 
-/* (mt_r3: phase2_nts / the mts and g2n classes are DELETED per their
- * pre-registered exits -- the node kept mtn in all three r2 processes and
- * g2n took zero picks at any cell.  The staged-tile mechanism lives in
- * impl_2/L45_pfa.c if a future round wants it back; note that r2's Tb
- * carried the same 16-mod-64 alignment bug as Pt, so any revival should
- * re-race it aligned.) */
+/* phase 2 with STAGED NON-TEMPORAL output (mt_r2 "mts", REVIVED mt_r4 with
+ * a page-aligned Tb -- the r2 exit was measured with Tb at 16 mod 64, so
+ * every hot tile store and every segment-flush read split a cache line on
+ * CLX): the x transform reads mid (the thread's private M) and writes each
+ * block of TBK flat tiles into the tile buffer tb (45 rows of TBK*PW
+ * complex; row stride 1 KiB at PW=4, 64B-clean), which is then flushed to
+ * out as 45 short NT segments.  Against mtn (phase 2 in place in M + one
+ * linear ntcopy) this deletes one full write AND one full re-read of M per
+ * volume (~2.9 MB of L2<->L3 traffic; M at 1.46 MB does not fit the node's
+ * 1 MiB L2, and 16 threads x 1.46 MB does not fit one socket's 22 MB L3
+ * either) -- the §4.3 avoided-passes construction at the only level L=45
+ * can still avoid a pass.  The segment head/tail peels are regular stores:
+ * at TBK=16 ~6% of out pays RFO (the 16 B per-plane phase rotation of out,
+ * PLND*8 mod 64 = 16).  Same values, same places => bit-identical.
+ * Handles any tile range [u0, u1); u1 == NFT+1 includes the masked PW=1
+ * tail, written to out directly (16 B masked stores, 45 lines/volume). */
+static inline __attribute__((always_inline))
+void FN(phase2_nts)(const double *restrict mid, double *restrict out,
+                    double *restrict tb, const long u0, const long u1,
+                    const double *pnext, const int pfn)
+{
+    const double *pn_ = pnext;
+    const long uf = u1 < NFT ? u1 : NFT;
+    for (long ub = u0; ub < uf; ) {
+        long nb = uf - ub;
+        if (nb > TBK) nb = TBK;
+        for (long j = 0; j < nb; ++j) {
+            const double *s_ = mid + (size_t)(ub + j) * (PW * 2);
+            double       *d_ = tb  + (size_t)j * (PW * 2);
+#define LD8(n)    LDU(s_ + (size_t)(n) * PLND)
+#define ST8(k, v) STU(d_ + (size_t)(k) * (TBK * PW * 2), (v))
+            PFA45(LD8, ST8);
+#undef LD8
+#undef ST8
+            PFNX();
+        }
+        for (int k = 0; k < L; ++k)
+            FN(ntcopy)(out + (size_t)k * PLND + (size_t)ub * (PW * 2),
+                       tb  + (size_t)k * (TBK * PW * 2),
+                       (size_t)nb * (PW * 2));
+        ub += nb;
+    }
+    if (u1 > NFT) {   /* masked PW=1 tail: flat line 2024 = (y,z) = (44,44) */
+        const double *s_ = mid + (size_t)(NPLANE - 1) * 2;
+        double       *d_ = out + (size_t)(NPLANE - 1) * 2;
+#define LD9(n)    LDT(s_ + (size_t)(n) * PLND)
+#define ST9(k, v) STT(d_ + (size_t)(k) * PLND, (v))
+        PFA45(LD9, ST9);
+#undef LD9
+#undef ST9
+    }
+}
 
 /* ---- exec bodies: every pf/nt argument below is a literal, so const-
  * propagation through the always_inline bodies specializes each work
@@ -1732,6 +1818,20 @@ void FN(vols_nt)(const double *in, double *out, long b0, long b1,
         FN(phase1)(i, M, P, pfr, 0, 2 * L, PLND);
         FN(phase2)(M, M, nx, 0, pfr);
         FN(ntcopy)(out + (size_t)b * VDBL, M, VDBL);
+    }
+    if (b1 > b0) _mm_sfence();
+}
+
+/* staged-tile NT pipeline (mts): phase 1 into M, phase 2 M -> tb -> NT out */
+static inline __attribute__((always_inline))
+void FN(vols_nts)(const double *in, double *out, long b0, long b1,
+                  double *P, double *M, double *tb, const int pfr)
+{
+    for (long b = b0; b < b1; ++b) {
+        const double *i = in  + (size_t)b * VDBL;
+        const double *nx = (pfr && b + 1 < b1) ? i + VDBL : 0;
+        FN(phase1)(i, M, P, pfr, 0, 2 * L, PLND);
+        FN(phase2_nts)(M, out + (size_t)b * VDBL, tb, 0, NFT + 1, nx, pfr);
     }
     if (b1 > b0) _mm_sfence();
 }
@@ -1785,6 +1885,20 @@ static void FN(o_ni)(const double *in, double *out, long nvol,
                         pl->Pt[t], pl->Mt[t], 1);
     }
 }
+
+/* o-mts: the staged-tile pipeline under the OMP-region dispatch (the r3
+ * node winner's thread picture at the streaming cell), pool napping */
+static void FN(o_ts)(const double *in, double *out, long nvol,
+                     struct l45mt *pl)
+{
+#pragma omp parallel num_threads(pl->nthr)
+    {
+        const int T = omp_get_num_threads(), t = omp_get_thread_num();
+        if (t < T && t < MAXT)
+            FN(vols_nts)(in, out, nvol * t / T, nvol * (t + 1) / T,
+                         pl->Pt[t], pl->Mt[t], pl->Tb[t], 1);
+    }
+}
 #endif /* _OPENMP */
 
 /* mtv/mtn: volume-parallel.  Thread t owns the CONTIGUOUS block
@@ -1813,6 +1927,20 @@ static void FN(w_v0)(struct l45mt *pl, int tid) { FN(vol_body)(pl, tid, 0, 0, 0)
 static void FN(w_v3)(struct l45mt *pl, int tid) { FN(vol_body)(pl, tid, 0, 1, 1); }
 static void FN(w_n0)(struct l45mt *pl, int tid) { FN(vol_body)(pl, tid, 1, 0, 0); }
 static void FN(w_ni)(struct l45mt *pl, int tid) { FN(vol_body)(pl, tid, 1, 1, 0); }
+
+/* mts pool worker: same contiguous volume blocks as mtn, staged-tile NT
+ * phase 2, pfin+PFNX paced (the pfi form -- pfi beat pf0 in every NT race
+ * at the node's streaming cell, r1-r3, so only the pfi twin is raced) */
+static void FN(w_ts)(struct l45mt *pl, int tid)
+{
+    const int T = pl->tw;
+    if (tid < T) {
+        const long lo = pl->nvol * tid / T, hi = pl->nvol * (tid + 1) / T;
+        FN(vols_nts)(pl->in, pl->out, lo, hi,
+                     pl->Pt[tid], pl->Mt[tid], pl->Tb[tid], 1);
+    }
+    mt_join(pl, tid);
+}
 
 /* grp2: pair-grained volumes (BORROWED from L45_mixedradix mt_r1's grp
  * mode, their node B=16 winner).  The pair (2g, 2g+1) -- adjacent cores
@@ -1908,122 +2036,10 @@ static void FN(w_f0)(struct l45mt *pl, int tid)  { FN(fused_body)(pl, tid, 1, 0)
 static void FN(w_fb)(struct l45mt *pl, int tid)  { FN(fused_body)(pl, tid, 0, 0); }
 static void FN(w_fb3)(struct l45mt *pl, int tid) { FN(fused_body)(pl, tid, 0, 1); }
 
-/* mtf-hp (mt_r3, B<=2): phase 1's z and y subpasses as SEPARATE sweeps
- * over (plane, lane-group) units through SHARED per-plane scratch slots
- * Ph[v*L+x] -- the r1/r2 records' pre-registered B=1 lever.  45 planes
- * over 32 threads quantizes the fused sweep's critical path to 2 whole
- * planes; L*NHP = 540 units over 32 quantizes to 17/12 = 1.42 plane-
- * equivalents.  Both sweeps partition the SAME contiguous unit index
- * space, so a thread y-transforms the planes it z-transformed and the
- * slots stay in its own L2 except at the ~T partition boundaries.  Cost:
- * one extra global flag barrier (~0.3-0.5 us).  The unit bodies below are
- * verbatim extractions of phase1_plane's two subloops (same operand
- * order, same stores) -- results are bit-identical to every other exec. */
-#ifdef FFT45_OVERLAP_TAIL
-# define NHP NG1
-#else
-# define NHP (NG1 + 1)          /* 11 full groups + the PW=1 tail line     */
-#endif
-
-/* z transform of lane-group g of plane x: in rows -> slot rows */
-static void FN(p1z_unit)(const double *restrict px, double *restrict pld,
-                         const int g)
-{
-#ifndef FFT45_OVERLAP_TAIL
-    if (g == NG1) {             /* odd 45th row: one PW=1 line             */
-        dft45_line1(px  + (size_t)(L - 1) * (2 * L), 2,
-                    pld + (size_t)(L - 1) * (2 * PPITCH), 2);
-        return;
-    }
-#endif
-    const int yb = (g == NGRP - 1) ? (L - PW) : g * PW;
-    const double *rows = px  + (size_t)yb * (2 * L);
-    double       *prow = pld + (size_t)yb * (2 * PPITCH);
-    vec Zv[L], Wv[L];
-    _Pragma("GCC unroll 22")
-    for (int zg = 0; zg < NFULL; ++zg) {
-        const int zb = zg * PW;
-        vec r_[PW];
-        _Pragma("GCC unroll 4")
-        for (int j = 0; j < PW; ++j)
-            r_[j] = LDU(rows + (size_t)j * (2 * L) + 2 * zb);
-        TRNC(r_, &Zv[zb]);
-    }
-    GCOL(Zv[L - 1], rows + 2 * (L - 1), 2 * L);
-#define LDZ(n)    Zv[n]
-#define STZ(k, v) (Wv[k] = (v))
-    PFA45R(LDZ, STZ);
-#undef LDZ
-#undef STZ
-    _Pragma("GCC unroll 22")
-    for (int zg = 0; zg < NFULL; ++zg) {
-        const int zb = zg * PW;
-        vec r_[PW];
-        TRNC(&Wv[zb], r_);
-        _Pragma("GCC unroll 4")
-        for (int j = 0; j < PW; ++j)
-            STU(prow + (size_t)j * (2 * PPITCH) + 2 * zb, r_[j]);
-    }
-    SCOL(Wv[L - 1], prow + 2 * (L - 1), 2 * PPITCH);
-}
-
-/* y transform of lane-group g of plane x: slot columns -> mid[x] (inplace
- * strides: mrow = 2*L, mpln = PLND, folded as literals) */
-static void FN(p1y_unit)(const double *restrict pld, double *restrict mx,
-                         const int g)
-{
-#ifndef FFT45_OVERLAP_TAIL
-    if (g == NG1) {             /* odd 45th column: one PW=1 line          */
-        dft45_line1(pld + 2 * (L - 1), 2 * PPITCH,
-                    mx  + 2 * (L - 1), 2 * L);
-        return;
-    }
-#endif
-    const int zb = (g == NGRP - 1) ? (L - PW) : g * PW;
-    const double *pcol = pld + 2 * zb;
-    double       *mcol = mx  + 2 * zb;
-    __asm__("" : "+r"(pcol), "+r"(mcol));   /* the r7/r11 opaque-base fix  */
-#define LDY(n)    LDU(pcol + (size_t)(n) * (2 * PPITCH))
-#define STY(k, v) STU(mcol + (size_t)(k) * (2 * L), (v))
-    PFA45(LDY, STY);
-#undef LDY
-#undef STY
-}
-
-static void FN(w_hp)(struct l45mt *pl, int tid)
-{
-    const int T = pl->tw;
-    if (tid < T && pl->Ph) {
-        const long nu = pl->nvol * (long)(L * NHP);
-        const long a0 = nu * tid / T, a1 = nu * (tid + 1) / T;
-        const unsigned long eb =
-            (unsigned long)atomic_load_explicit(&pl->gen,
-                                                memory_order_relaxed)
-                * pl->emult;
-        for (long u = a0; u < a1; ++u) {
-            const long v = u / (L * NHP), r = u % (L * NHP);
-            const int  x = (int)(r / NHP), g = (int)(r % NHP);
-            FN(p1z_unit)(pl->in + (size_t)v * VDBL + (size_t)x * PLND,
-                         pl->Ph + (size_t)(v * L + x) * PSLOTD, g);
-        }
-        mt_gbar(pl, tid, T, eb + 1);
-        for (long u = a0; u < a1; ++u) {
-            const long v = u / (L * NHP), r = u % (L * NHP);
-            const int  x = (int)(r / NHP), g = (int)(r % NHP);
-            FN(p1y_unit)(pl->Ph  + (size_t)(v * L + x) * PSLOTD,
-                         pl->out + (size_t)v * VDBL + (size_t)x * PLND, g);
-        }
-        mt_gbar(pl, tid, T, eb + 2);
-        const long n2 = pl->nvol * (NFT + 1);
-        const long lo2 = n2 * tid / T, hi2 = n2 * (tid + 1) / T;
-        for (long u = lo2; u < hi2; ++u)
-            FN(phase2_unit)(pl->out + (size_t)(u / (NFT + 1)) * VDBL,
-                            (int)(u % (NFT + 1)), 0);
-    }
-    mt_join(pl, tid);
-}
-
-#undef NHP
+/* (mt_r4: mtf-hp and its p1z/p1y subpass units are DELETED per the
+ * pre-registered exit -- node B=1 in-arena hp 59.7/59.0/59.4 never beat
+ * rr/blk/bpf/t23 in any r3 process.  The mechanism lives in
+ * impl_3/L45_pfa.c if a future round wants it back.) */
 
 #undef PF45
 #undef PFW45

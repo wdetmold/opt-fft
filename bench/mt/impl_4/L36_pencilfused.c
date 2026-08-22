@@ -1,4 +1,31 @@
-/* MULTICORE round mt_r3.  Changes over mt_r2 (serial kernels still UNTOUCHED
+/* MULTICORE round mt_r4.  Changes over mt_r3 (serial kernel arithmetic still
+ * UNTOUCHED since panel_r11 -- everything below is prefetch shape and team
+ * decomposition; every candidate stays bit-identical within its pass-A class):
+ *
+ *   1. THE PINNED STREAMING SHAPE (mode 2, B=512) GAINS LIGHT NEXT-VOLUME
+ *      PRE-COVERAGE IN ITS NT DRAIN: 3 lines per pass-B unit, T1 hint, so
+ *      324 units cover the first 62 KB of in[v+1] while pass B is store-
+ *      drain-bound.  Adopted verbatim from L36_mixedradix's node-winning
+ *      B=512 sntp body (their ncw block) -- the one structural difference
+ *      between their scored 9.90 us/vol and my 10.86 at the same nominal
+ *      full-team scratch+NT shape in mt_r3.  My old mode 3 (XV) was the
+ *      same idea 12x heavier (36 lines/unit, T2/L3 hint, the WHOLE next
+ *      volume) and the node rejected it in phase 1; the light form keeps a
+ *      small read flow open through the drain window without competing for
+ *      the fill buffers the NT stores hold.  FFT36PF_NONXT compiles it out
+ *      (the desc marker is scratch+ntx vs scratch+nt).
+ *   2. B=1 POOL TEAM LADDER GAINS 12 AND 9 -- the exact divisors of both 36
+ *      pass-A planes and 324 pass-B units that stay on ONE socket of the
+ *      node's 2x16 close map (16 is single-socket but splits 36 as 2.25;
+ *      18/20/24/32 cross the UPI).  L36_mixedradix's split12 holds the
+ *      node's B=1 cell at 23.0 vs my t16 25.86.  pl12=/pl9= ride the probe
+ *      string so the node prices the whole sub-socket curve either way.
+ *   3. PAIR-SPLIT ROWS (strat 5) PRUNED per my own r3 rule: on the node it
+ *      beat plain t32 but lost the pick to sub-socket t16, and the exact-
+ *      divisor teams cover the imbalance mechanism with zero handshakes.
+ *      Code path kept for FFT36PF_KEEP_PS.
+ *
+ * MULTICORE round mt_r3.  Changes over mt_r2 (serial kernels still UNTOUCHED
  * since panel_r11):
  *
  *   1. THE mt_r2 NT-ELIGIBILITY RULE AND nt-adapt ARE DELETED -- both were
@@ -551,7 +578,13 @@ static int span_nodes_(const fft3d_plan *p, int T)
 
 static const char *mode_name(int m)
 {
+    /* mt_r4: mode 2's name carries the nx marker so the node's desc records
+     * whether the light next-volume pre-coverage was compiled in */
+#ifdef FFT36PF_NONXT
     return m == 0 ? "inplace" : m == 1 ? "scratch" : m == 2 ? "scratch+nt"
+#else
+    return m == 0 ? "inplace" : m == 1 ? "scratch" : m == 2 ? "scratch+ntx"
+#endif
                               : m == 3 ? "scratch+nt+xvpf" : m == 4 ? "pipe"
                               : m == 5 ? "scratch+seqnt" : m == 6 ? "pipeseq"
                               : m == 7 ? "istream" : m == 8 ? "istream+pfw"
@@ -1076,10 +1109,10 @@ fft3d_plan *fft3d_create(int L, int batch)
          * because 36 planes over 18 threads is the perfectly balanced
          * 2-planes-each point; 32 carries a 2:1 pass-A tail (28 threads x1
          * + 4 x2 planes) but wins pass B. */
-        static const int b1t[5] = {4, 8, 16, 18, 32};
+        static const int b1t[6] = {4, 8, 12, 16, 18, 32};
         for (int wi = 0; wi < npw; ++wi) {
             ADDC(2, pws[wi], yclass ? 0 : 12, 1, 0);
-            for (int ti = 0; ti < 5; ++ti) {
+            for (int ti = 0; ti < 6; ++ti) {
                 if (b1t[ti] > nthmax || b1t[ti] < 2) continue;
                 ADDC(1, pws[wi], 0, b1t[ti], yclass);
             }
@@ -1135,20 +1168,32 @@ fft3d_plan *fft3d_create(int L, int batch)
         if (pool && pool->nwork >= 1) {
             p->pool = pool;
             if (batch == 1) {
-                static const int plt[6] = {8, 16, 18, 20, 24, 32};
+                /* mt_r4: 12 and 9 join the ladder -- both are exact divisors
+                 * of 36 planes AND 324 pass-B units (3 planes + 27 units per
+                 * thread at 12; 4 + 36 at 9), and both stay on one socket of
+                 * the node's 2x16 close map where 18/20/24/32 cross the UPI.
+                 * L36_mixedradix's split12 took the node's B=1 cell at 23.0
+                 * against my t16 pick's 25.86 (their mt_r2/r3 record); their
+                 * ladder note ("bracket 12 from below with the other exact
+                 * divisor") is why 9 comes along. */
+                static const int plt[8] = {8, 9, 12, 16, 18, 20, 24, 32};
                 for (int wi = 0; wi < npw; ++wi)
-                    for (int ti = 0; ti < 6; ++ti) {
+                    for (int ti = 0; ti < 8; ++ti) {
                         if (plt[ti] > nthmax) continue;
                         ADDC(3, pws[wi], 0, plt[ti], yclass);
                     }
-                /* mt_r3 pair-split rows (strat 5, from L36_mixedradix mt_r2):
-                 * T=32 -> 4 leftover planes shared by 4 thread pairs, span
-                 * 1.5 waves; T=24 -> 12 leftovers over 12 pairs, exactly
-                 * 1.5 planes per thread.  Needs 2*(36-T) <= T. */
+                /* mt_r3 pair-split rows (strat 5): PRUNED in mt_r4 per the
+                 * r3 record's own rule -- on the node it beat plain t32
+                 * (29.7 vs 33.1 in-arena) but lost the pick to sub-socket
+                 * t16, and the exact-divisor teams above now cover the
+                 * imbalance mechanism with zero handshakes.  The code path
+                 * stays for FFT36PF_KEEP_PS A/Bs. */
+#ifdef FFT36PF_KEEP_PS
                 for (int wi = 0; wi < npw; ++wi) {
                     if (nthmax >= 32) ADDC(5, pws[wi], 0, 32, yclass);
                     if (nthmax >= 24) ADDC(5, pws[wi], 0, 24, yclass);
                 }
+#endif
             } else if (!streaming) {
                 /* pool twins of the VP candidates (same modes, same teams).
                  * Streaming cells get no pool twins: the pick there is
@@ -1359,25 +1404,29 @@ fft3d_plan *fft3d_create(int L, int batch)
                  * serial -- the node's own numbers for where the sync cost
                  * and the scaling limit sit */
                 double plfull = 1e300, plhalf = 1e300, tfull = 1e300, tser = 1e300;
-                double psbest = 1e300;
+                double pl12 = 1e300, pl9 = 1e300;
                 for (int c = 0; c < nc; ++c) {
                     if (!ok[c]) continue;
                     if (cs[c].strat == 3 && cs[c].team == nthmax
                         && bestc[c] < plfull) plfull = bestc[c];
                     if (cs[c].strat == 3 && cs[c].team == 16
                         && bestc[c] < plhalf) plhalf = bestc[c];
-                    if (cs[c].strat == 5 && bestc[c] < psbest) psbest = bestc[c];
+                    if (cs[c].strat == 3 && cs[c].team == 12
+                        && bestc[c] < pl12) pl12 = bestc[c];
+                    if (cs[c].strat == 3 && cs[c].team == 9
+                        && bestc[c] < pl9) pl9 = bestc[c];
                     if (cs[c].strat == 1 && cs[c].team == nthmax
                         && bestc[c] < tfull) tfull = bestc[c];
                     if (cs[c].strat == 2 && bestc[c] < tser) tser = bestc[c];
                 }
                 if (tser < 1e300)
                     snprintf(probe, sizeof probe,
-                             "; probe us pl%d=%.1f pl16=%.1f ps=%.1f tp%d=%.1f ser=%.1f",
+                             "; probe us pl%d=%.1f pl16=%.1f pl12=%.1f pl9=%.1f tp%d=%.1f ser=%.1f",
                              nthmax,
                              plfull < 1e300 ? plfull * 1e6 : -1.0,
                              plhalf < 1e300 ? plhalf * 1e6 : -1.0,
-                             psbest < 1e300 ? psbest * 1e6 : -1.0, nthmax,
+                             pl12 < 1e300 ? pl12 * 1e6 : -1.0,
+                             pl9 < 1e300 ? pl9 * 1e6 : -1.0, nthmax,
                              tfull < 1e300 ? tfull * 1e6 : -1.0, tser * 1e6);
             } else {
                 double vfull = 1e300, vhalf = 1e300, m_ip = 1e300, m_nt = 1e300;
@@ -1811,12 +1860,19 @@ TATTR static void TS(passB_cached)(const double *mid, double *outv,
  * at PW=4 and one PAIR of flat groups at PW=2 (32-B NT stores are half a cache
  * line; pairing completes every 64-B line back-to-back -- L36_pfa/mixedradix
  * r2 trick).  Either way there are exactly 324 units per volume, 9 per output
- * x-slot, which is what the PIPE interleave relies on.  nxt (mode 3 only)
- * prefetches the next volume's input, 36 lines per unit = one volume total.
+ * x-slot, which is what the PIPE interleave relies on.  nxt pre-covers the
+ * next volume's input while this pass is store-drain-bound; nxl selects the
+ * weight: 36 lines per unit (mode 3's XV: the whole next volume at T2 -- the
+ * node rejected it, kept only for the forced A/B) or 3 lines per unit at T1
+ * (mt_r4: 324 x 3 lines = 62 KB, L36_mixedradix's ncw pre-coverage from their
+ * node-winning B=512 sntp body, adopted verbatim -- it keeps demand-priority
+ * reads OUT of the drain window but still holds a small read flow open, so
+ * the DRAM controller never sits in a pure-write regime between volumes).
  * pfd is the src prefetch distance in doubles: 8 (one line) when mid is
  * L2-resident (modes 2/3), 16 when mid lives in L3 (PIPE). ------------------- */
 TATTR static void TS(passB_nt)(const double *restrict mid, double *restrict outv,
-                               int u0, int u1, const double *restrict nxt, int pfd)
+                               int u0, int u1, const double *restrict nxt, int pfd,
+                               int nxl)
 {
 #if PW == 4
     for (int g = u0; g < u1; ++g) {
@@ -1824,11 +1880,14 @@ TATTR static void TS(passB_nt)(const double *restrict mid, double *restrict outv
         double       *dst = outv + 2 * (size_t)g * PW;
         for (int j_ = 0; j_ < 36; ++j_)
             __builtin_prefetch(src + (size_t)j_ * (2 * NPLANE) + pfd, 0, 3);
-        /* XV: stage the NEXT volume's input into L3 while this pass is
-         * store-drain-bound.  324 units x 36 lines = the whole volume. */
-        if (nxt)
-            for (int j_ = 0; j_ < 36; ++j_)
-                __builtin_prefetch(nxt + ((size_t)g * 36 + j_) * 8, 0, 1);
+        if (nxt) {
+            if (nxl == 36)          /* XV heavy: whole next volume, T2 */
+                for (int j_ = 0; j_ < 36; ++j_)
+                    __builtin_prefetch(nxt + ((size_t)g * 36 + j_) * 8, 0, 1);
+            else                    /* light ncw: 3 lines per unit, T1 */
+                for (int j_ = 0; j_ < 3; ++j_)
+                    __builtin_prefetch(nxt + ((size_t)g * 3 + j_) * 8, 0, 2);
+        }
 #define BLOAD(j, X)    { (X) = LD(src + (size_t)(j) * (2 * NPLANE)); }
 #define BSTORENT(k, X) { STNT(dst + (size_t)(k) * (2 * NPLANE), X); }
         PFA36(BLOAD, BSTORENT);
@@ -1841,9 +1900,14 @@ TATTR static void TS(passB_nt)(const double *restrict mid, double *restrict outv
         double       *dst = outv + 4 * (size_t)gp * PW;
         for (int j_ = 0; j_ < 36; ++j_)
             __builtin_prefetch(src + (size_t)j_ * (2 * NPLANE) + pfd, 0, 3);
-        if (nxt)
-            for (int j_ = 0; j_ < 36; ++j_)
-                __builtin_prefetch(nxt + ((size_t)gp * 36 + j_) * 8, 0, 1);
+        if (nxt) {
+            if (nxl == 36)
+                for (int j_ = 0; j_ < 36; ++j_)
+                    __builtin_prefetch(nxt + ((size_t)gp * 36 + j_) * 8, 0, 1);
+            else
+                for (int j_ = 0; j_ < 3; ++j_)
+                    __builtin_prefetch(nxt + ((size_t)gp * 3 + j_) * 8, 0, 2);
+        }
         vd Wa[36], Wb[36];
 #define BLOADA(j, X) { (X) = LD(src + (size_t)(j) * (2 * NPLANE)); }
 #define BSTA(k, X)   { Wa[k] = (X); }
@@ -2236,7 +2300,7 @@ TATTR static void TS(exec)(const double *restrict in, double *restrict out,
                                     (double *)0, (const double *)0);
 #endif
 #ifndef FFT36PF_SKIPB
-                TS(passB_nt)(cur, outv, x * 9, x * 9 + 9, (const double *)0, 16);
+                TS(passB_nt)(cur, outv, x * 9, x * 9 + 9, (const double *)0, 16, 0);
 #endif
             }
         }
@@ -2245,11 +2309,22 @@ TATTR static void TS(exec)(const double *restrict in, double *restrict out,
     }
 
     const int nt = (mode == 2 || mode == 3);
+    /* mt_r4: mode 2 (the streaming-pin shape) now carries the LIGHT
+     * next-volume pre-coverage in its NT drain (see passB_nt): 3 lines per
+     * unit, T1, 62 KB of in[v+1] -- L36_mixedradix's ncw, the one structural
+     * difference between their node-scored 9.90 us/vol and my 10.86 at the
+     * same nominal shape.  FFT36PF_NONXT compiles it back out for the A/B. */
+#ifdef FFT36PF_NONXT
+    const int m2nx = 0;
+#else
+    const int m2nx = (mode == 2);
+#endif
     for (long v = 0; v < nvol; ++v) {
         const double *inv  = in  + (size_t)v * NVOL2;
         double       *outv = out + (size_t)v * NVOL2;
         double       *mid  = (mode == 0 || mode >= 7) ? outv : mids;
-        const double *nxt  = ((mode == 3 || mode == 7 || mode == 8) && v + 1 < nvol)
+        const double *nxt  = ((mode == 3 || mode == 7 || mode == 8 || m2nx)
+                              && v + 1 < nvol)
                              ? in + (size_t)(v + 1) * NVOL2 : (const double *)0;
 
 #ifndef FFT36PF_SKIPA
@@ -2341,7 +2416,7 @@ TATTR static void TS(exec)(const double *restrict in, double *restrict out,
             TS(passB_cached)(mid, outv, 0, NPLANE / PW, mode == 1,
                              mode >= 7 ? nxt : (const double *)0);
         else
-            TS(passB_nt)(mid, outv, 0, 324, nxt, 8);
+            TS(passB_nt)(mid, outv, 0, 324, nxt, 8, mode == 3 ? 36 : 3);
 #endif /* FFT36PF_SKIPB */
     }
     if (nt) _mm_sfence();

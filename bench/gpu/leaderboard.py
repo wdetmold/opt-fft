@@ -17,6 +17,7 @@ root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", a.rou
 
 timings = defaultdict(list)   # (L, batch, name) -> [per_execute_min per run]
 medians = defaultdict(list)
+chains = {}                   # (L, batch) -> chain length m (1 when not a chained case)
 setups, descriptions = {}, {}
 for path in glob.glob(os.path.join(root, "t_*.json")):
     with open(path) as f:
@@ -27,6 +28,7 @@ for path in glob.glob(os.path.join(root, "t_*.json")):
     if not d.get("supported", False):
         continue
     key = (d["L"], d["batch"], d["name"])
+    chains[(d["L"], d["batch"])] = int(d.get("chain", 1) or 1)
     timings[key].append(d["per_execute_seconds"]["min"])
     medians[key].append(d["per_execute_seconds"]["median"])
     setups[key] = d.get("setup_seconds", float("nan"))
@@ -61,8 +63,13 @@ emit()
 cases = sorted({(L, B) for (L, B, _) in timings})
 for (L, B) in cases:
     volume = L ** 3
-    nominal = 5.0 * volume * math.log2(volume) * B
+    m = chains.get((L, B), 1)
+    # One timed unit is a CHAIN of m transforms of B volumes; per-transform figures and
+    # the flop yardstick must divide by both, or a chained case reads m times too slow.
+    nominal = 5.0 * volume * math.log2(volume) * B * m
     label = "non-batched" if B == 1 else f"batched B={B}"
+    if m > 1:
+        label += f", chain m={m}"
     working_set = 2 * 16 * volume * B / 1024**2   # in + out, MiB
     emit(f"-- L={L} ({label}), volume {volume}, working set {working_set:.2f} MiB --")
     emit(f"   {'backend':<24} {'per-transform':>14} {'per-call':>12} {'GF/s':>8} "
@@ -82,7 +89,7 @@ for (L, B) in cases:
         verdict = ("ok %.1e" % chk["rel_l2"]) if ok else (
             "FAILED %.1e" % chk["rel_l2"] if chk else "unchecked")
         rel = f"{best / fastest_ok:.2f}x" if (fastest_ok and ok) else "--"
-        emit(f"   {name:<24} {best/B*1e6:11.3f} us {best*1e6:9.3f} us "
+        emit(f"   {name:<24} {best/(B*m)*1e6:11.3f} us {best*1e6:9.3f} us "
              f"{nominal/best/1e9:8.2f} {spread*100:9.1f}% "
              f"{setups[(L,B,name)]:8.3f}s  {verdict:<16} {rel}")
     emit()

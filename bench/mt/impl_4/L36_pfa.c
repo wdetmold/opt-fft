@@ -439,6 +439,53 @@
  *   (5) Idle pool workers spin ~1 ms then nap in 50 us sleeps (refinement
  *       taken from L36_mixedradix mt_r2), so the governor's unshrunk pool
  *       does not drag the clock while a 16-thread shape holds the lock.
+ *
+ * ROUND mt_r4: the governor could not see the steady state it was racing
+ *   for; pinned wide scratch+nt at deep streaming, and an honest-clock team
+ *   race at B=1.
+ *   mt_r3 node: B=1 25.720 (2nd; mixedradix split12 23.027); B=32 5.212
+ *   (1st); B=512 19.322 (3rd, 1.95x behind mixedradix's 9.896 running the
+ *   SAME nominal shape -- per-thread L2 volume scratch, NT stream, T=32).
+ *   The r3 verdict's L=36 order: find the difference between 9.9 and 20.
+ *   It is not the kernel and not tuner fidelity (gov read s16=20.05,
+ *   delivered 19.32); it is that the governor's probation and its 1-in-16
+ *   probes measure T=32 in ONE-EXECUTE ISLANDS between s16 executes.  A
+ *   sustained wide team spreads the caller's pages across both sockets
+ *   (L36_pencilfused's scored r3 process reads fi=28/fo=50 percent remote
+ *   under its pinned T=32; my probe islands read fr0=0 always) and only the
+ *   spread steady state runs at ~10 us/vol; a probe never gets there, so
+ *   the race is structurally rigged for the narrow team.  Changes:
+ *   (1) B>=128, numa_balancing on, nothing forced: INSTALL vols static
+ *       T=32 pw4 scratch+nt pf=1 directly (the shape behind mixedradix's
+ *       9.9 3-of-3 and pencilfused's 10.9) -- no governor, no execute-time
+ *       race.  Policy + mechanism from L36_mixedradix mt_r3 (their pin,
+ *       their nb gate), transitively my own r1 nt machinery.  With nb=0
+ *       (never-migrate world) the arena and the driver share one regime, so
+ *       the create-time race installs as before (it picked n16 in r3, an
+ *       honest 19.3-20 there).  FFT36_PIN=0 / FFT36_GOV=0 / any forcing env
+ *       disarms the pin; the T=16 nt1 row stays raced for that fallback.
+ *   (2) A ~3 s create-time dwell running the pinned shape on the arena
+ *       (L36_pencilfused mt_r2's dwell via L36_mixedradix mt_r3): ages the
+ *       process past AutoNUMA's scan ramp-up so the driver's short
+ *       (~0.3 s) timed loop starts with migration already active, and
+ *       hands the driver a hot 32-thread team.  Setup time is unscored.
+ *   (3) The execute-time governor is DELETED (verdict SS6: stop building
+ *       placement instruments).  What remains at streaming is read-only:
+ *       the get_mempolicy fr scan at execute 0 and 20 (r3's fr40 never
+ *       fired -- the cell only runs ~29 executes), published as pin{...}.
+ *   (4) B=1: the tournament times every team-size candidate with the pool
+ *       SHRUNK to that candidate's team, walking the ladder descending
+ *       (32,24,18,16,12,9,8 then serial at 1), then restarts the pool for
+ *       the installed pick.  Why: idle pool workers spin hot between
+ *       back-to-back tournament dispatches (they never reach the 1 ms nap),
+ *       so a T=12 candidate was being timed under a 32-thread all-core
+ *       AVX-512 clock -- my r3 arena read t12=30.4 while mixedradix's
+ *       scored split12 (same decomposition, 12-thread OMP team) ran 23.0;
+ *       mt_r1 measured the same mechanism directly (serial 77 us with 31
+ *       spinners vs 51.4 without).  T=9 joins the ladder (mixedradix r3,
+ *       exact divisor: 4 planes / 36 tiles per thread).  dyn rows are gone
+ *       from the default streaming list (0 scored wins anywhere, verdict);
+ *       FFT36_DYN still generates the twin for forced controls.
  */
 #ifndef _GNU_SOURCE
 # define _GNU_SOURCE            /* sched_getcpu, cpu_set_t, setaffinity */
@@ -545,8 +592,6 @@ static const char *const mode_name[] = {"inplace", "scratch", "scratch+nt", "pip
 enum { K_SERIAL = 0, K_VOLS = 1, K_FUSED2 = 2, K_FUSED3 = 3 };
 static const char *const kind_name[] = {"serial", "vols", "fused2", "fused3"};
 
-struct gov_shape { int kind, tuse, pw, mode, pf, dyn; };
-
 struct fft3d_plan {
     int     batch;
     int     kind;                /* K_SERIAL / K_VOLS / K_FUSED2 / K_FUSED3 */
@@ -555,23 +600,17 @@ struct fft3d_plan {
     int     mode;                /* one of M_* (serial/vols paths) */
     int     pf;                  /* software-prefetch the in stream */
     int     pfwd;                /* phase-1 write-intent cursor lead (doubles) */
-    int     dyn;                 /* mt_r3: K_VOLS work-stealing twin */
+    int     dyn;                 /* K_VOLS work-stealing twin (forced only) */
     double *S;                   /* participant-0 scratch (pool-owned) */
-    /* mt_r3 execute-time team governor (batch >= 128 streaming only):
-     * the create-time arena provably races in a different placement regime
-     * from the driver's buffers (mt_r2 verdict SS5), so the team choice is
-     * made by timing the gated shapes on the CALLER's buffers during the
-     * driver's warmup executes.  Mechanism from L8_fusedaxes mt_r2. */
-    int     gov_on;
-    int     gnsh;                /* number of governor shapes            */
-    struct gov_shape gsh[3];     /* dyn32-nt1, static16-nt1, static32-nt1 */
-    double  gbest[3];            /* best observed per-execute seconds    */
-    double  glast;               /* incumbent's last non-probe time      */
-    long    gexec;               /* execute counter                      */
-    int     glock;               /* locked shape, -1 during probation    */
-    int     gprobe;              /* round-robin probe cursor             */
-    int     gsw;                 /* relock count                         */
-    int     gfr0, gfr1, gnb;     /* page-home scans + numa_balancing     */
+    /* mt_r4: deep-streaming PIN (replaces the mt_r3 execute-time governor,
+     * which raced T=32 in one-execute islands that can never reach the
+     * spread-pages steady state a SUSTAINED wide team produces).  pinned=1
+     * means vols static T=32 scratch+nt pf=1 was installed by policy, not
+     * by a race.  The only execute-time machinery left is the read-only
+     * get_mempolicy fr scan (L8_fusedaxes mt_r2), published via pin{...}. */
+    int     pinned;
+    long    pexec;               /* execute counter for the fr instrument */
+    int     pfr0, pfr1, pnb;     /* page-home scans + numa_balancing      */
 };
 
 const char *fft3d_name(void) { return "L36_pfa"; }
@@ -580,8 +619,9 @@ const char *fft3d_name(void) { return "L36_pfa"; }
  * which variant actually ran (r3 verdict requirement; mechanism borrowed from
  * L36_mixedradix / L6_pfa). */
 static char g_desc[448];
-static int  g_desc_len;          /* end of the create()-time part; the
-                                  * governor appends its gov{...} after it */
+static int  g_desc_len;          /* end of the create()-time part; the fr
+                                  * instrument appends its pin{...} after it */
+static void pin_desc(const struct fft3d_plan *p);
 
 const char *fft3d_description(void)
 {
@@ -1014,6 +1054,7 @@ static int mcand_rank(const struct mcand *c)
 fft3d_plan *fft3d_create(int Lq, int batch)
 {
     if (Lq != L || batch < 1) return NULL;
+    const double t_create0 = now_s();
     fft3d_plan *p = calloc(1, sizeof(*p));
     if (!p) return NULL;
     p->batch = batch;
@@ -1067,9 +1108,11 @@ fft3d_plan *fft3d_create(int Lq, int batch)
          * 3 planes/thread (zero imbalance in phase 1), 324 tiles = exactly
          * 27 waves, 12 < 16 threads in the phase-2 all-to-all, one socket,
          * and my dispatch is 0.7 us against the 2.0 their pick paid. */
-        static const int ts[6] = {32, 24, 18, 16, 12, 8};
+        /* mt_r4 adds T=9 (from L36_mixedradix mt_r3's ladder: the other
+         * exact divisor below 12 -- 4 planes and 36 tiles per thread) */
+        static const int ts[7] = {32, 24, 18, 16, 12, 9, 8};
         int prev = -1;
-        for (int i = 0; i < 6; ++i) {
+        for (int i = 0; i < 7; ++i) {
             int t = ts[i] <= T ? ts[i] : T;
             if (t < 2 || t == prev) continue;
             prev = t;
@@ -1121,39 +1164,31 @@ fft3d_plan *fft3d_create(int Lq, int batch)
                 cands[nc++] = (struct mcand){K_VOLS, t, 2, M_INPLACE, 0, FFT36_PFWD};
         }
     } else {
-        /* B>=128 STREAMING (B=512 scored).  mt_r2's T=32-only override was
-         * itself an artifact (a stable 1.62x regression: ip7 arena 24.1-25.0
-         * vs driver 31.57, while the deleted T=16 nt row was worth 19.47 in
-         * r1).  The mode question is settled by node evidence from both
-         * regimes -- scratch+nt is the r1 winner at T=16 AND the shape
-         * behind mixedradix's 9.99 us/vol at T=32 (sntp), with the lowest
-         * traffic floor (1.5 MB/vol) -- so this round fixes mode=nt and
-         * races the TEAM at execute time on the caller's real buffers (the
-         * governor below); the arena rows here exist to correctness-gate
-         * every shape and to publish the in-arena A/B on the description
-         * line.  dyn = the work-stealing twin: in the socket-0 regime a
-         * static T=32 split is bounded by its remote half (16 far threads x
-         * 1.5 MB/vol over UPI = the measured 31.57); stealing lets the near
-         * socket take what its controllers can serve. */
-        static const int ts_all[2] = {32, 16};
-        int prev = -1;
-        for (int i = 0; i < 2; ++i) {
-            int t = ts_all[i] <= T ? ts_all[i] : T;
-            if (t < 1 || t == prev) continue;
-            prev = t;
-            cands[nc++] = (struct mcand){K_VOLS, t, pws[0], M_SCRATCH_NT, 1, FFT36_PFWD, 0};
-            if (t >= 32)
-                cands[nc++] = (struct mcand){K_VOLS, t, pws[0], M_SCRATCH_NT, 1, FFT36_PFWD, 1};
-            if (npw > 1)
-                cands[nc++] = (struct mcand){K_VOLS, t, 2, M_SCRATCH_NT, 1, FFT36_PFWD, 0};
-        }
-        /* T=32 mode A/B rows for the description (and as tuner fallbacks
-         * when the governor is disabled by a forcing env) */
-        cands[nc++] = (struct mcand){K_VOLS, 32 <= T ? 32 : T, pws[0], M_INPLACE,    0, FFT36_PFWD, 0};
-        cands[nc++] = (struct mcand){K_VOLS, 32 <= T ? 32 : T, pws[0], M_INPLACE,    7, FFT36_PFWD, 0};
-        cands[nc++] = (struct mcand){K_VOLS, 32 <= T ? 32 : T, pws[0], M_SCRATCH_NT, 0, FFT36_PFWD, 0};
-        cands[nc++] = (struct mcand){K_VOLS, 32 <= T ? 32 : T, pws[0], M_SCRATCH_NT, 4, FFT36_PFWD, 0};
-        cands[nc++] = (struct mcand){K_VOLS, 32 <= T ? 32 : T, pws[0], M_SCRATCH,    0, FFT36_PFWD, 0};
+        /* B>=128 STREAMING (B=512 scored).  mt_r4: the winning shape is
+         * KNOWN from scored node evidence -- vols static T=32 pw4
+         * scratch+nt with the paced read prefetch (mixedradix's sntp 9.9
+         * us/vol 3-of-3, pencilfused's volpar-PIN nt 10.9; lowest traffic
+         * floor 1.5 MB/vol) -- and it only reaches that number when it runs
+         * the WHOLE loop, because a sustained wide team is what spreads the
+         * caller's pages (pencilfused's scored process: fi=28/fo=50).  No
+         * create-time arena and no probe-style governor can price that, so
+         * the shape is installed by the PIN below when numa_balancing is
+         * on.  The rows here correctness-gate every shape, publish the
+         * in-arena A/B, and provide the race fallback for nb=0 / forced
+         * runs (in the never-migrate world the arena regime IS the driver
+         * regime, and n16 was its honest r3 winner at 19.3-20). */
+        const int t32 = 32 <= T ? 32 : T;
+        cands[nc++] = (struct mcand){K_VOLS, t32, pws[0], M_SCRATCH_NT, 1, FFT36_PFWD, 0};
+        if (T > 16)
+            cands[nc++] = (struct mcand){K_VOLS, 16, pws[0], M_SCRATCH_NT, 1, FFT36_PFWD, 0};
+        cands[nc++] = (struct mcand){K_VOLS, t32, pws[0], M_SCRATCH_NT, 0, FFT36_PFWD, 0};
+        cands[nc++] = (struct mcand){K_VOLS, t32, pws[0], M_INPLACE,    7, FFT36_PFWD, 0};
+        if (npw > 1)
+            cands[nc++] = (struct mcand){K_VOLS, t32, 2, M_SCRATCH_NT, 1, FFT36_PFWD, 0};
+        /* dyn lost every scored race it entered, panel-wide (mt_r3 verdict);
+         * the twin is generated only when the monitor forces it */
+        if (getenv("FFT36_DYN"))
+            cands[nc++] = (struct mcand){K_VOLS, t32, pws[0], M_SCRATCH_NT, 1, FFT36_PFWD, 1};
     }
 
     /* run-time forcing for the monitor's control jobs (no recompile).
@@ -1206,7 +1241,11 @@ fft3d_plan *fft3d_create(int Lq, int batch)
           for (int c = 0; c < nc; ++c) if (cands[c].pf == v) cands[w++] = cands[c];
           if (w) nc = w;
       }
-      if ((e = getenv("FFT36_GOV")) && atoi(e) == 0) forced = 1; }
+      /* FFT36_PIN=0 (FFT36_GOV=0 kept as an alias for the monitor's
+       * existing controls) disarms the deep-streaming pin: the create-time
+       * race installs instead */
+      if ((e = getenv("FFT36_GOV")) && atoi(e) == 0) forced = 1;
+      if ((e = getenv("FFT36_PIN")) && atoi(e) == 0) forced = 1; }
 
     /* tuning arena.  Deliberately SERIAL fill: the driver freads `in` and
      * memsets `out` on its main thread, so on the two-socket node every
@@ -1251,25 +1290,73 @@ fft3d_plan *fft3d_create(int Lq, int batch)
         tc[c] = 1e300;
     }
     const int NROUND = (nv == 1) ? 7 : 3;
-    for (int round = 0; round < NROUND; ++round)
-        for (int c = 0; c < nc; ++c) {
-            if (!ok[c]) continue;
-            /* per-candidate reps sized to its own cost, so pool dispatch is
-             * timed at the real per-execute granularity */
-            int R = est[c] < 30e-6 ? 16 : est[c] < 100e-6 ? 6
-                  : est[c] < 1e-3  ? 2  : 1;
-            /* self-warming (L36_pencilfused r5): each candidate is timed
-             * from its OWN steady-state cache, not its predecessor's */
-            run_mcand(cands[c].kind, cands[c].tuse, cands[c].pw, cands[c].mode,
-                      cands[c].pf, cands[c].pfwd, cands[c].dyn, p->S, tin, tout, nv);
-            double t0 = now_s();
-            for (int r = 0; r < R; ++r)
-                run_mcand(cands[c].kind, cands[c].tuse, cands[c].pw,
-                          cands[c].mode, cands[c].pf, cands[c].pfwd,
-                          cands[c].dyn, p->S, tin, tout, nv);
-            double t = (now_s() - t0) / R;
-            if (t < tc[c]) tc[c] = t;
+#define TIME_ONE(c) do {                                                     \
+            /* per-candidate reps sized to its own cost, so pool dispatch is \
+             * timed at the real per-execute granularity */                  \
+            int R = est[c] < 30e-6 ? 16 : est[c] < 100e-6 ? 6                \
+                  : est[c] < 1e-3  ? 2  : 1;                                 \
+            /* self-warming (L36_pencilfused r5): each candidate is timed    \
+             * from its OWN steady-state cache, not its predecessor's */     \
+            run_mcand(cands[c].kind, cands[c].tuse, cands[c].pw, cands[c].mode, \
+                      cands[c].pf, cands[c].pfwd, cands[c].dyn, p->S, tin, tout, nv); \
+            double t0 = now_s();                                             \
+            for (int r = 0; r < R; ++r)                                      \
+                run_mcand(cands[c].kind, cands[c].tuse, cands[c].pw,         \
+                          cands[c].mode, cands[c].pf, cands[c].pfwd,         \
+                          cands[c].dyn, p->S, tin, tout, nv);                \
+            double t = (now_s() - t0) / R;                                   \
+            if (t < tc[c]) tc[c] = t;                                        \
+        } while (0)
+    if (batch == 1 && T >= 2) {
+        /* mt_r4: time each candidate with the pool SHRUNK to its own team,
+         * walking distinct team sizes in descending order (shrink is
+         * one-way), serial last at pool=1.  Idle workers spin hot between
+         * back-to-back tournament dispatches (they never reach the 1 ms
+         * nap), so under the old full-pool race a T=12 candidate was timed
+         * at a 32-thread all-core AVX-512 clock: r3 node arena t12=30.4
+         * while L36_mixedradix's scored split12 -- the same decomposition
+         * on a 12-thread OMP team -- ran 23.0.  mt_r1 measured the same
+         * mechanism at serial: 77 us with 31 spinners vs 51.4 without. */
+        int done[40] = {0};
+        for (;;) {
+            int tcur = 0;
+            for (int c = 0; c < nc; ++c)
+                if (ok[c] && !done[c] && cands[c].tuse > tcur) tcur = cands[c].tuse;
+            if (tcur < 1) break;
+            mt_pool_shrink(tcur);
+            for (int round = 0; round < NROUND; ++round)
+                for (int c = 0; c < nc; ++c) {
+                    if (!ok[c] || done[c] || cands[c].tuse != tcur) continue;
+                    TIME_ONE(c);
+                }
+            for (int c = 0; c < nc; ++c)
+                if (cands[c].tuse == tcur) done[c] = 1;
         }
+        /* restart the pool at full width for the probe and the installed
+         * pick; scratch and the fused3 arena are re-owner-touched by J_INIT */
+        mt_pool_stop();
+        mt_pool_start();
+        if (!g_pool.pla && posix_memalign(&g_pool.rawpla, 4096,
+                                          VDBL * sizeof(double)) == 0)
+            g_pool.pla = (double *)g_pool.rawpla;
+        {
+            struct mt_job j;
+            memset(&j, 0, sizeof j);
+            j.kind = J_INIT; j.tuse = g_pool.T; j.nph = 1;
+            mt_pool_run(&j);
+        }
+        p->S = g_pool.S[0];
+        if (!g_pool.pla)              /* re-alloc failed: no fused3 pick */
+            for (int c = 0; c < nc; ++c)
+                if (cands[c].kind == K_FUSED3) ok[c] = 0;
+    } else {
+        for (int round = 0; round < NROUND; ++round)
+            for (int c = 0; c < nc; ++c) {
+                if (!ok[c]) continue;
+                TIME_ONE(c);
+            }
+    }
+#undef TIME_ONE
     int best = 0;
     for (int c = 1; c < nc; ++c) if (ok[c] && tc[c] < tc[best]) best = c;
     if (ok[best]) {
@@ -1284,57 +1371,50 @@ fft3d_plan *fft3d_create(int Lq, int batch)
         p->dyn = cands[pick].dyn;
     }
 
-    /* mt_r3: arm the execute-time team governor at streaming batch.  Both
-     * shapes must have passed the correctness gate above; any forcing env
-     * (or FFT36_GOV=0) leaves the create-time pick in charge instead. */
-    p->glock = -1;
-    p->gfr0 = p->gfr1 = p->gnb = -1;
-    if (batch >= 128 && !forced && T >= 32) {
-        int okA = 0, okB = 0, okC = 0;
-        for (int c = 0; c < nc; ++c) {
-            if (!ok[c] || cands[c].kind != K_VOLS || cands[c].pw != pws[0] ||
-                cands[c].mode != M_SCRATCH_NT || cands[c].pf != 1) continue;
-            if (cands[c].tuse >= 32 && cands[c].dyn)  okA = 1;
-            if (cands[c].tuse == 16 && !cands[c].dyn) okB = 1;
-            if (cands[c].tuse >= 32 && !cands[c].dyn) okC = 1;
-        }
-        if (okA && okB) {
-            p->gov_on = 1;
-            p->gsh[0] = (struct gov_shape){K_VOLS, 32, pws[0], M_SCRATCH_NT, 1, 1};
-            p->gsh[1] = (struct gov_shape){K_VOLS, 16, pws[0], M_SCRATCH_NT, 1, 0};
-            p->gnsh = 2;
-            /* static32: ~2.5% ahead of dyn on a symmetric machine (no
-             * cursor / chunk-tail prefetch tax; wallaby arena dy=6.02 vs
-             * nt1=5.87), catastrophic in the socket-0 regime (31.57 on the
-             * mt_r2 node) -- exactly what a probation race can price. */
-            if (okC) {
-                p->gsh[2] = (struct gov_shape){K_VOLS, 32, pws[0], M_SCRATCH_NT, 1, 0};
-                p->gnsh = 3;
-            }
-            p->gbest[0] = p->gbest[1] = p->gbest[2] = 1e300;
-            /* description base shows shape A as the nominal pick */
-            p->kind = K_VOLS; p->tuse = 32; p->pw = pws[0];
-            p->mode = M_SCRATCH_NT; p->pf = 1; p->dyn = 1;
+    /* mt_r4 PIN: at deep streaming with the NUMA balancer on, install the
+     * scored-best shape directly -- vols static T=32 pw4 scratch+nt pf=1
+     * (mixedradix 9.9 us/vol 3-of-3, pencilfused 10.9, both sustained wide
+     * teams; my r3 governor raced the same shape in one-execute islands,
+     * read 24.4, and locked s16 = 19.3).  A sustained wide team is the
+     * thing that spreads the caller's pages (pencilfused: fi=28/fo=50), so
+     * no create-time arena and no probe can price it; only the whole timed
+     * loop can, and min-of-samples scores its steady state.  The pin still
+     * requires the shape to have PASSED the correctness gate above.  With
+     * nb=0 the never-migrate arena is trustworthy and the race pick stands
+     * (n16 was its honest r3 winner).  Policy from L36_mixedradix mt_r3. */
+    p->pfr0 = p->pfr1 = -1;
+    p->pnb  = -1;
 #if defined(__linux__)
-            {   /* is AutoNUMA even on?  (verdict's cheap check) */
-                FILE *nf = fopen("/proc/sys/kernel/numa_balancing", "r");
-                if (nf) {
-                    int nb = -1;
-                    if (fscanf(nf, "%d", &nb) == 1) p->gnb = nb;
-                    fclose(nf);
-                }
-            }
-#endif
+    {
+        FILE *nf = fopen("/proc/sys/kernel/numa_balancing", "r");
+        if (nf) {
+            int nb = -1;
+            if (fscanf(nf, "%d", &nb) == 1) p->pnb = nb;
+            fclose(nf);
         }
+    }
+#endif
+    if (batch >= 128 && !forced && T >= 32 && p->pnb == 1) {
+        for (int c = 0; c < nc; ++c)
+            if (ok[c] && cands[c].kind == K_VOLS && cands[c].tuse >= 32 &&
+                cands[c].pw == pws[0] && cands[c].mode == M_SCRATCH_NT &&
+                cands[c].pf == 1 && !cands[c].dyn) {
+                p->kind = K_VOLS;        p->tuse = cands[c].tuse;
+                p->pw   = pws[0];        p->mode = M_SCRATCH_NT;
+                p->pf   = 1;             p->dyn  = 0;
+                p->pfwd = cands[c].pfwd;
+                p->pinned = 1;
+                break;
+            }
     }
 
     /* description: the pick plus the tournament's own key A/Bs, so the
      * leaderboard carries the scaling evidence whatever was installed */
     {
         double b_ser = 1e300, b_f2 = 1e300, b_f3 = 1e300;
-        double bt12 = 1e300, bt18 = 1e300;
-        double vip0 = 1e300, vip7 = 1e300, vdy = 1e300, v16 = 1e300;
-        double vnt0 = 1e300, vnt1 = 1e300, vsc = 1e300;
+        double bt12 = 1e300, bt18 = 1e300, bt9 = 1e300;
+        double vip0 = 1e300, vip7 = 1e300, v16 = 1e300;
+        double vnt0 = 1e300, vnt1 = 1e300;
         int tf2 = 0, tf3 = 0;
         for (int c = 0; c < nc; ++c) {
             if (!ok[c] || cands[c].pw != pws[0]) continue;
@@ -1347,35 +1427,35 @@ fft3d_plan *fft3d_create(int Lq, int batch)
                 cands[c].tuse == 18 && us < bt18) bt18 = us;
             if (cands[c].kind == K_FUSED2 && cands[c].pf == 0 &&
                 cands[c].tuse == 12 && us < bt12) bt12 = us;
+            if (cands[c].kind == K_FUSED2 && cands[c].pf == 0 &&
+                cands[c].tuse == 9 && us < bt9) bt9 = us;
             if (cands[c].kind == K_VOLS && cands[c].tuse >= 32 && !cands[c].dyn) {
                 if (cands[c].mode == M_INPLACE && cands[c].pf == 0 && us < vip0) vip0 = us;
                 if (cands[c].mode == M_INPLACE && cands[c].pf == 7 && us < vip7) vip7 = us;
                 if (cands[c].mode == M_SCRATCH_NT && cands[c].pf == 0 && us < vnt0) vnt0 = us;
                 if (cands[c].mode == M_SCRATCH_NT && cands[c].pf == 1 && us < vnt1) vnt1 = us;
-                if (cands[c].mode == M_SCRATCH && us < vsc) vsc = us;
             }
-            if (cands[c].kind == K_VOLS && cands[c].tuse >= 32 && cands[c].dyn &&
-                us < vdy) vdy = us;
             if (cands[c].kind == K_VOLS && cands[c].tuse == 16 && !cands[c].dyn &&
                 cands[c].mode == M_SCRATCH_NT && cands[c].pf == 1 && us < v16)
                 v16 = us;
         }
         int n = snprintf(g_desc, sizeof g_desc,
-                 "GT-PFA 4x9 (n1_9) spin-pool mt; pick: %s%s T=%d pw=%d %s pf=%d"
+                 "GT-PFA 4x9 (n1_9) spin-pool mt; pick: %s%s%s T=%d pw=%d %s pf=%d"
                  " (B=%d nv=%d nc=%d Tpool=%d)",
-                 kind_name[p->kind], p->dyn ? "+dyn" : "", p->tuse, p->pw,
+                 kind_name[p->kind], p->dyn ? "+dyn" : "",
+                 p->pinned ? "-PIN" : "", p->tuse, p->pw,
                  mode_name[p->mode], p->pf, batch, nv, nc, T);
 #define DP(x) ((x) < 1e299 ? (x) : -1.0)   /* absent row prints -1 */
         if (batch == 1 && n > 0 && (size_t)n < sizeof g_desc)
             n += snprintf(g_desc + n, sizeof g_desc - n,
-                     "; us ser=%.1f f2t%d=%.1f f3t%d=%.1f t18=%.1f t12=%.1f",
-                     DP(b_ser), tf2, DP(b_f2), tf3, DP(b_f3), DP(bt18), DP(bt12));
+                     "; us ser=%.1f f2t%d=%.1f f3t%d=%.1f t18=%.1f t12=%.1f"
+                     " t9=%.1f",
+                     DP(b_ser), tf2, DP(b_f2), tf3, DP(b_f3), DP(bt18),
+                     DP(bt12), DP(bt9));
         else if (batch >= 128 && n > 0 && (size_t)n < sizeof g_desc)
             n += snprintf(g_desc + n, sizeof g_desc - n,
-                     "; us/vol ip0=%.2f ip7=%.2f nt0=%.2f nt1=%.2f dy=%.2f"
-                     " n16=%.2f sc=%.2f",
-                     DP(vip0), DP(vip7), DP(vnt0), DP(vnt1), DP(vdy),
-                     DP(v16), DP(vsc));
+                     "; us/vol nt1=%.2f nt0=%.2f ip7=%.2f n16=%.2f",
+                     DP(vnt1), DP(vnt0), DP(vip7), DP(v16));
         else if (batch >= 32 && n > 0 && (size_t)n < sizeof g_desc)
             n += snprintf(g_desc + n, sizeof g_desc - n,
                      "; us/vol@32 ip0=%.2f ip7=%.2f", DP(vip0), DP(vip7));
@@ -1383,6 +1463,7 @@ fft3d_plan *fft3d_create(int Lq, int batch)
         g_desc_len = (n > 0 && (size_t)n < sizeof g_desc) ? n
                    : (int)strlen(g_desc);
     }
+    if (batch >= 128) pin_desc(p);   /* fr fields update at execute 0 / 20 */
 
     /* FFT36_PROBE: phase-level timing of the fused shapes (dev diagnostic;
      * skipped phases give wrong answers, so nothing here touches the pick) */
@@ -1425,13 +1506,24 @@ fft3d_plan *fft3d_create(int Lq, int batch)
                 kind_name[p->kind], p->tuse, p->pw, mode_name[p->mode], p->pf,
                 nv, T);
     }
+    /* mt_r4: create-time dwell at the pinned cell (L36_pencilfused mt_r2's
+     * dwell, via L36_mixedradix mt_r3 whose 9.9-us/vol processes carried a
+     * 3.0 s setup against my 0.69 s): run the pinned shape on the arena
+     * until the plan is ~3 s old.  AutoNUMA's per-task scan ramps up over
+     * the first seconds of runtime, and the driver's timed loop at B=512 is
+     * only ~0.3 s long -- an old process starts that loop with the balancer
+     * already scanning, so the caller-page spread the pinned wide team
+     * depends on begins at warmup, not at sample 8.  Setup is unscored. */
+    if (p->pinned)
+        while (now_s() - t_create0 < 3.0)
+            run_mcand(p->kind, p->tuse, p->pw, p->mode, p->pf, p->pfwd,
+                      p->dyn, p->S, tin, tout, nv);
+
     /* give back the cores the pick does not use: spinning workers depress
      * the all-core clock (the serial candidate ran 77 us here vs 51.4 us in
-     * phase 1 on wallaby for exactly this reason).  NOT when the governor is
-     * armed -- it needs both teams alive; idle workers nap after ~1 ms, so a
-     * 16-thread lock no longer drags the clock (mt_r3 worker change). */
-    if (!p->gov_on)
-        mt_pool_shrink(p->kind == K_SERIAL ? 1 : p->tuse);
+     * phase 1 on wallaby for exactly this reason; idle workers nap after
+     * ~1 ms, mt_r3 worker change).  The pinned pick uses the whole pool. */
+    mt_pool_shrink(p->kind == K_SERIAL ? 1 : p->tuse);
 
     free(ri); free(ro); free(rr);
     return p;
@@ -1483,77 +1575,41 @@ static int gov_scan_remote(int batch, const double *ip, const double *op)
 #endif
 }
 
-static void gov_desc(const fft3d_plan *p)
+static void pin_desc(const fft3d_plan *p)
 {
     if (g_desc_len <= 0 || (size_t)g_desc_len >= sizeof g_desc) return;
-    static const char *const gnm[3] = {"d32", "s16", "s32"};
     snprintf(g_desc + g_desc_len, sizeof g_desc - g_desc_len,
-             " gov{fr0=%d fr40=%d nb=%d d32=%.2f s16=%.2f s32=%.2f lock=%s sw=%d}",
-             p->gfr0, p->gfr1, p->gnb,
-             p->gbest[0] < 1e299 ? p->gbest[0] * 1e6 / p->batch : -1.0,
-             p->gbest[1] < 1e299 ? p->gbest[1] * 1e6 / p->batch : -1.0,
-             p->gbest[2] < 1e299 ? p->gbest[2] * 1e6 / p->batch : -1.0,
-             p->glock >= 0 && p->glock < 3 ? gnm[p->glock] : "-", p->gsw);
+             " pin{on=%d nb=%d fr0=%d fr20=%d}",
+             p->pinned, p->pnb, p->pfr0, p->pfr1);
 }
 
 void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex *out)
 {
-    if (!plan->gov_on) {
+    if (plan->batch >= 128) {
+        /* read-only fr instrument (L8_fusedaxes mt_r2's scan): page homes
+         * at the first execute and at execute 20 -- inside the ~29-execute
+         * envelope the B=512 cell actually runs (r3's scan at 40 never
+         * fired).  ~64 syscalls each; execute 0 is a discarded warmup and
+         * min-of-samples ignores the one perturbed sample at 20. */
+        const long e = plan->pexec++;
+        if (e == 0) {
+            plan->pfr0 = gov_scan_remote(plan->batch, (const double *)in,
+                                         (double *)out);
+            pin_desc(plan);
+        }
         run_mcand(plan->kind, plan->tuse, plan->pw, plan->mode, plan->pf,
                   plan->pfwd, plan->dyn, plan->S, (const double *)in,
                   (double *)out, plan->batch);
+        if (e == 20) {
+            plan->pfr1 = gov_scan_remote(plan->batch, (const double *)in,
+                                         (double *)out);
+            pin_desc(plan);
+        }
         return;
     }
-    /* mt_r3 team governor: the first 2*gnsh executes round-robin the gated
-     * shapes ON THE CALLER'S BUFFERS (each shape runs twice; its first call
-     * is the cache/TLB warm and is not scored), lock the fastest, then
-     * re-probe the losers round-robin every 16th execute so a late page
-     * migration is not missed (>3% win relocks).  The driver discards 5
-     * warmup executes, spends ~3-15 more calibrating its inner count, and
-     * scores min-of-samples -- probe executes that land in the timed region
-     * are ignored by the statistic.  Mechanism from L8_fusedaxes mt_r2. */
-    const long e = plan->gexec++;
-    const int nsh = plan->gnsh;
-    int s, probe = 0, warm = 0;
-    if (e < 2 * nsh) { s = (int)(e / 2); warm = !(e & 1); }
-    else if (plan->glock >= 0 && (e & 15) == 15) {
-        s = plan->gprobe % nsh;
-        if (s == plan->glock) s = (s + 1) % nsh;
-        plan->gprobe = s + 1;
-        probe = 1;
-    } else
-        s = plan->glock >= 0 ? plan->glock : 0;
-    if (e == 0) {
-        plan->gfr0 = gov_scan_remote(plan->batch, (const double *)in,
-                                     (double *)out);
-        gov_desc(plan);
-    }
-    const struct gov_shape *g = &plan->gsh[s];
-    double t0 = now_s();
-    run_mcand(g->kind, g->tuse, g->pw, g->mode, g->pf, plan->pfwd, g->dyn,
-              plan->S, (const double *)in, (double *)out, plan->batch);
-    double dt = now_s() - t0;
-    if (!warm) {
-        if (dt < plan->gbest[s]) plan->gbest[s] = dt;
-        if (!probe && s == plan->glock)  plan->glast = dt;
-    }
-    if (e == 2 * nsh - 1) {
-        plan->glock = 0;
-        for (int c = 1; c < nsh; ++c)
-            if (plan->gbest[c] < plan->gbest[plan->glock]) plan->glock = c;
-        plan->glast = plan->gbest[plan->glock];
-        gov_desc(plan);
-    } else if (probe && plan->glast > 0 && dt < plan->glast * 0.97) {
-        plan->glock = s;                 /* the regime moved; follow it */
-        plan->glast = dt;
-        ++plan->gsw;
-        gov_desc(plan);
-    }
-    if (e == 40) {
-        plan->gfr1 = gov_scan_remote(plan->batch, (const double *)in,
-                                     (double *)out);
-        gov_desc(plan);
-    }
+    run_mcand(plan->kind, plan->tuse, plan->pw, plan->mode, plan->pf,
+              plan->pfwd, plan->dyn, plan->S, (const double *)in,
+              (double *)out, plan->batch);
 }
 
 #else /* ================= KERNEL TEMPLATE, PW = 2 or 4 ==================== */
