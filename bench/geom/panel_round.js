@@ -55,12 +55,12 @@ your assignment rather than all of them.
   every scored number is taken on an uncontended machine by one party with one method.
   \`probe_node.sh\` refuses to run for you. If you need a measurement only that node can
   give, say so in your return value and your strategy record and the monitor will take it.
-* wallaby is NOT the scoring machine and two differences matter: its L2 is 2 MB per core
-  against the benchmark node's 1 MB (so a tile size tuned there can be twice too large),
-  and Sapphire Rapids runs 512-bit code at full clock while Cascade Lake downclocks it
-  hard (2.7 -> 2.3 AVX2 -> 1.6 GHz AVX-512 on a comparable part). So keep the AVX2 path
-  competitive, make blocking constants easy to change, and read PANEL_BRIEF.md
-  "Where to develop: wallaby" before you tune anything.
+* wallaby is NOT the scoring machine, but the difference that matters is CACHE, not clock:
+  its L2 is 2 MB per core against the benchmark node's 1 MB, so a tile size tuned there can
+  be twice too large. AVX-512 frequency is NOT a problem -- Intel's turbo table for the Gold
+  5218 gives 2.9 GHz under both AVX2 and AVX-512 at 1 to 8 active cores, so prefer 512-bit
+  (half the instructions, 32 registers, 2x L1 load bandwidth) and keep only a portable
+  fallback. Make blocking constants easy to change and read PANEL_BRIEF.md before tuning.
 * Correctness is a gate, not a tradeoff: relative L2 vs numpy must be < 1e-12, and a
   correct implementation lands near 1e-16. Verify with check.py at B=1 AND at a large
   batch, and verify that calling fft3d_execute twice on one plan still gives the right
@@ -281,9 +281,10 @@ jobs and develop on wallaby instead, precisely so that every scored number comes
 uncontended machine measured one way. That makes you the only source of comparable
 numbers, so take the measurement carefully. You may also use
 \`FFT_MONITOR=1 ./probe_node.sh <impl>\` to take a targeted per-implementation measurement
-that an implementer asked for in their return value (several may ask about AVX-512 versus
-AVX2, since Sapphire Rapids development machines do not show Cascade Lake's AVX-512
-downclocking).
+that an implementer asked for in their return value (a useful one is
+`perf stat -e cycles,ref-cycles` to confirm the actual clock under a 512-bit kernel: Intel's
+table says 2.9 GHz at low core counts, which if true means every B=1 floor computed at the
+2.30 GHz base clock understated the remaining headroom).
 
 Steps:
 
@@ -308,8 +309,8 @@ Steps:
 7. Read results/${ROUND}/leaderboard.txt, results/${ROUND}/environment.txt,
    results/${ROUND}/failures.txt (if present) and results/${ROUND}/build_errors.txt.
 8. Cross-check the implementers' self-reported timings against what you measured. Note
-   that they develop on wallaby (Sapphire Rapids, full-clock AVX-512, 2 MB L2/core) while
-   you score on Cascade Lake (downclocked AVX-512, 1 MB L2/core), so an honest entry can
+   that they develop on wallaby (Sapphire Rapids, 2 MB L2/core) while you score on Cascade
+   Lake (2.9 GHz under AVX-512 at low core counts, 1 MB L2/core), so an honest entry can
    legitimately be well off its own number -- MKL alone spans 2.9x between those machines.
    Flag discrepancies as information about the microarchitecture gap, not as dishonesty,
    unless an entry claims to beat a library it does not beat anywhere.

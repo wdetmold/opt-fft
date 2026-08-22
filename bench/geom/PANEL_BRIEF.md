@@ -54,15 +54,30 @@ AVX-512), so AVX-512 code paths compile there only under an explicit `-mavx512f`
 cannot be *run* there. Develop the portable path locally, guard the AVX-512 path, and
 let the monitor measure it on the real node.
 
-**AVX-512 is not automatically a win on this part, and you must measure it.** The corpus
-(§04 §8.1-8.2, and `LITERATURE.md` §4.8 gap 6) documents licence-based downclocking on
-Skylake-SP/Cascade Lake: a Xeon Gold 5120 runs 2.7 GHz scalar, 2.3 GHz under AVX2 and
-**1.6 GHz under AVX-512** with several cores active, and some SKUs in this family have only
-one AVX-512 FMA unit rather than two. Our node is a Gold 5218, same family. So a 512-bit
-kernel can lose to a 256-bit one despite twice the width. Build both paths where you can,
-and let the monitor's numbers decide rather than assuming wider is faster. No AVX-512
-measurement exists anywhere in the corpus — whatever you measure here is new information,
-so put it in your strategy record.
+**CORRECTION (supersedes what earlier rounds were told): AVX-512 is free on this part, so
+prefer 512-bit.** Earlier versions of this brief warned that licence-based downclocking
+might make a 512-bit kernel lose to a 256-bit one, and told you to keep the AVX2 path
+competitive. That was wrong for our situation, and §08 of the corpus documents why. Intel's
+own Specification Update 338848-028US (Figures 1–6) gives the **Xeon Gold 5218**'s turbo
+table: at **one active core** it runs non-AVX 3.9 GHz, AVX2 **2.9 GHz**, AVX-512 **2.9 GHz**
+— the AVX2 and AVX-512 licence levels are *identical*, and stay identical from 1 to 8 active
+cores. The 1.6 GHz figure in the old warning is a Gold 5120 at **9+ active cores**; it does
+not describe a single-threaded run on an exclusive node, which is exactly what you are
+scored on.
+
+So there is no frequency penalty to pay. The Gold 5218 does have only **one** 512-bit FMA
+unit, so 512-bit and 256-bit code have the same peak FP throughput — but 512-bit still wins
+on everything else: half the instructions retired, 32 vector registers instead of 16, 2× the
+L1 and 1.7× the L2 load bandwidth, and free embedded broadcast on the load ports. Write the
+512-bit path as the primary one. Keep a portable fallback so the build never breaks, but you
+no longer need to spend effort keeping AVX2 *competitive*.
+
+One consequence worth chasing: every B=1 conclusion in the first rounds' records was
+compared against a port-limited floor computed at the 2.30 GHz base clock. At the true 2.9
+GHz the geometries sit **1.31–1.43×** above their floors, not 1.04–1.13× — i.e. there is
+substantially more headroom left at B=1 than the panel has been assuming. A single
+`perf stat -e cycles,ref-cycles` on a node run settles the actual clock; ask the monitor for
+it if you cannot get it yourself.
 
 Working-set arithmetic (complex double = 16 B/point, 32 KB L1d, 1 MB L2, 22 MB L3):
 
@@ -120,12 +135,13 @@ path can actually be **run and verified**, not merely compiled.
   Where a blocking size matters, make it a compile-time constant that is easy to change,
   say why you chose it in your strategy record, and expect the monitor's numbers to
   revise it.
-* **AVX-512 frequency behaviour is completely different.** Sapphire Rapids runs 512-bit
-  code at essentially full clock; Cascade Lake applies severe licence-based downclocking
-  (the corpus documents a Gold 5120 going 2.7 GHz scalar → 2.3 AVX2 → **1.6 AVX-512**).
-  So a 512-bit kernel that wins on wallaby can lose to a 256-bit one on the scoring node.
-  If you write an AVX-512 path, keep the AVX2 path working and competitive, and say in
-  your record which you expect to win where. Nobody has measured this for our sizes.
+* **AVX-512 frequency: no longer a concern** (this bullet previously said the opposite).
+  Both machines run 512-bit code at their single-core licence clock — Sapphire Rapids at
+  essentially full clock, and the Gold 5218 at 2.9 GHz, the same clock it uses for AVX2.
+  A 512-bit kernel that wins on wallaby will not lose on the scoring node *for frequency
+  reasons*. What can still differ is the FMA unit count (the 5218 has one 512-bit unit,
+  so 512-bit buys instruction count and registers rather than peak FLOPs) and the cache
+  sizes above.
 
 For calibration: at L=8, B=64 MKL runs at 50.1 GF/s on wallaby and 17.3 GF/s on wombat —
 a 2.9× spread on identical code. Never compare a number from one machine to a number from

@@ -611,3 +611,155 @@ obvious candidate).
    is the pass-boundary store→load chain, and the next lever is issuing the fused
    stage's first plane loads *before* the x-pass finishes its last groups — a
    software-pipelined variant, worth building only with a measured cycle budget.
+
+---
+
+## Round panel_r5 (dev machine = wallaby, Sapphire Rapids Gold 6448Y)
+
+### Where round panel_r4 left me — the clock probe changed everything
+
+r4 node results: first or tied-first in all four cells (B=1 0.219, B=64 0.214,
+B=4096 0.397, B=32768 0.566), picks `fused`/`fused_pf`/`fused_pf(w)`/`fused_pfw`,
+and **every cell carries `clk=3.89GHz`** — the node turbos to its 3.9 GHz maximum,
+not the 2.3 GHz base that three rounds of my own cycle accounting assumed. So B=1
+is **852 cycles against the 486-cycle FP-port floor: 1.75×, with ~366 cycles/volume
+unaccounted for** (the r4 VERDICT §5a re-derivation, which reopened the geometry).
+Two more r4 facts drove this round: (a) my split-z `_s` shapes, worth 12% on wallaby,
+were never selected on the node in 12 invocations — so the bottleneck on Cascade Lake
+is NOT port 5; (b) L17_rader's mixed-width zmm+ymm passes were selected by the node
+tuner in all four L=17 cells (+2.5–5.2%) — the first direct proof that trading
+instruction count for 512-bit width pays on this 1-FMA-unit part.
+
+### What I changed (three things)
+
+1. **Mixed-width AVX-512 kernels — the round's headline.** Eight new tournament
+   candidates (`z2p`, `z2s`, `z3t`, and `_pf`/`_pfw` variants), guarded by
+   `__AVX512F__ && __AVX512VL__ && __AVX512DQ__`, appended LAST in the safest-first
+   order so a licence-downclocked node silently keeps its ymm incumbents.
+   The structural idea is adopted from **L17_rader** (mixed zmm+ymm passes, node-
+   confirmed) with the mechanism argument from **L8_batchsimd**'s round-1 record
+   (on a 1-FMA Gold 5218 zmm buys zero FP throughput — 8 doubles/cycle either way —
+   so the win is instruction count, shuffle count, and register count):
+   * **x-pass zmm**: lanes = 4 adjacent (y,z) sites, 9 groups instead of 18,
+     everything 64-byte aligned by construction. 288 uops vs 468.
+   * **y-pass zmm+ymm**: per x-plane one zmm codelet on z=0..3 (`loadu`; the
+     12-double row stride makes half the 64-B accesses line-split — accepted, see
+     "did not work" for the padding analysis) plus one ymm codelet on the z=4,5
+     tail (32-B aligned). 384 uops vs 468.
+   * **z-pass, three raced options**: existing ymm pairing (`z2p`), existing
+     split-store form (`z2s`), and a new all-zmm form (`z3t`): 4 whole z-pencils
+     per iteration = 6 aligned zmm loads, in-register 4×6-complex transpose
+     (12 `vpermt2pd` + 6 mask-blends each way; forward needs only 4 index vectors
+     because the lo/hi 256-bit halves share patterns, inverse needs 6), one zmm
+     codelet, 6 aligned stores. 594 uops vs 792.
+   * Volume totals: ymm fused 1728 uops → `z2s` 1464 (−15%) → `z3t` 1266 (−27%).
+     FP-port floor unchanged at 486 cycles on the node (1 FMA unit) — this attacks
+     the unexplained 366 cycles, not the floor.
+2. **`L6_FORCE` variant-forcing switch** — the r4 VERDICT's explicit ask ("force
+   the `_s` shapes on the node and A/B them"). `L6_FORCE=<name>` (env var, or
+   `-DL6_FORCE_DEFAULT='"name"'` at compile time) selects that candidate
+   unconditionally, skips the race (fast setup), still passes the correctness
+   gate, and reports `variant=<name>!` — the bang marks a forced pick so it can
+   never be mistaken for a tournament result. Verified: `L6_FORCE=3pass_s` →
+   `variant=3pass_s!`; unknown names fall back to the normal race.
+3. **Dual clock probe**: `fft3d_description()` now reports
+   `clk=<256-bit>/<512-bit>GHz` — the second number is a serially dependent
+   512-bit FMA chain (latency 4, same as ymm, so directly comparable) and is the
+   AVX-512 licence-clock measurement the r4 VERDICT asked for (§5b/§6, requested
+   for L=17 but every geometry wants it). Wallaby validation: **4.10/4.10 GHz** —
+   Sapphire Rapids runs 512-bit heavy FMA at full turbo, confirming the brief's
+   claim with a number. The node's second figure in the r5 leaderboard will be the
+   first AVX-512 licence clock ever measured on the scoring machine.
+
+### Operation count
+
+Arithmetic unchanged and still closed (PFA 2×3, 48 flops/36 instrs per line, 4 real
+mul + 4 FMA + 40 add-class flops per line). What changes is width and uop count:
+`z2s` does 270 zmm-FP + 432 ymm-FP uops per volume (arith), `z3t` 324 zmm-FP +
+216 ymm-FP + 162 zmm p5 (transpose+codelet swaps). On the node (512-bit FP at
+1/cycle on the fused port 0+1, 256-bit at 2/cycle) every variant's FP floor is the
+same 486 cycles; on wallaby (2×512-bit units) the `z2s` floor is ~351 cycles.
+
+### What was measured (wallaby, quiet, full-clock invocations; race table = same
+process, same clock; rel L2 2.34–2.43e-16 everywhere, bit-identical re-runs, PASS)
+
+B=1 race (µs/vol): **z2s_pf 0.1080 < z2s_pfw 0.1082 < z2s 0.1115 < 3pass_s 0.1126
+< fused_s 0.1163 < z3t 0.1209 < z2p 0.1258 < 3pass 0.1269 < fused 0.1287**.
+
+| B | r4 code | r5 code | picked | note |
+|---|---|---|---|---|
+| 1 | 0.114 µs | **0.108 µs** | **z2s_pf** | −5.3%; sd 0.04%; 443 cycles at 4.10 GHz, under the ymm 486 floor (2-FMA machine) |
+| 64 | 0.131 µs/vol | 0.138 µs/vol | 3pass | base-clock race invocation; B=64 races remain noisy on wallaby (r4 note stands); z3t won the raw table (0.2470 vs 0.2533) but inside the 2.5% margin |
+| 4096 | 0.196 µs/vol | 0.191 µs/vol | 3pass_nt_pf | wallaby DRAM/L3 still NT country |
+| 32768 | 0.249–0.260 | 0.249 µs/vol | 3pass_nt_pf | unchanged; zmm irrelevant at bandwidth |
+
+MKL same-host reference: 0.351 µs at B=1 (full clock), 0.722 µs/vol at B=32768.
+Cross-compile at `-march=cascadelake`: all four zmm kernels **spill-free** (0 stack
+refs), 72 `vpermt2pd` and 36 `prefetchw` sites emitted as intended.
+
+### Node prediction (falsifiable via the description strings)
+
+* Every cell now reports `clk=A/B`; **B is the node's AVX-512 licence clock** — the
+  panel-wide unknown. If B ≈ 3.5–3.9, zmm is near-free on this SKU and I expect
+  `z2s_pf` or `z3t(_pf)` to take B=1 at **0.18–0.21 µs** (uop scaling: 852 →
+  725/623 cycles if the non-port limiter tracks uop count). If B ≤ 3.2, the 2.5%
+  margin plus the clock loss will keep `fused` and the cell stays ≈0.219 — and the
+  measured B still converts every past L=17 zmm number into cycles, which is worth
+  the round by itself.
+* B=64: same logic; z3t narrowly won wallaby's (noisy) race, so a node pick of any
+  `z*` variant here is a genuine signal, not noise.
+* B=4096/32768: bandwidth-bound; expect `fused_pf(w)` unchanged ≈0.39/0.56. zmm
+  variants racing there cost nothing.
+* If the monitor wants the r4 VERDICT's A/B: `L6_FORCE=3pass_s` (and `z2s`,
+  `z3t`) with `perf stat -e uops_issued.any,cycles` on B=1 now takes one command
+  per variant and ~0.1 s of setup each (forced picks skip the race).
+
+### What was tried and did NOT work (with the number)
+
+1. **`z2p` (zmm x/y + ymm permute z)**: 0.1258 at B=1 on wallaby — beaten by z2s
+   (0.1115) and even by plain 3pass_s. With the zmm front half, the z-pass's 216
+   port-5 `vperm2f128` become the visible tail; the split-store z is the right
+   partner for zmm passes. Kept in the grid only because the node's store port
+   count differs (1 vs SPR's 2) and could invert z2s/z2p there.
+2. **`z3t` on wallaby**: 0.1209 vs z2s 0.1115 at B=1 — the fully-zmm z-pass LOSES
+   on SPR despite the lowest uop count (1266). The transpose's vpermt2pd→blend→
+   codelet→vpermt2pd→blend chain adds ~6 p5-class latencies to every pencil quad's
+   critical path, and SPR had no uop-supply problem to relieve. On CLX, where the
+   working hypothesis IS a uop/window limit, the trade may flip — that is exactly
+   what the tournament is for. Do not delete it on wallaby evidence.
+3. **Padding t1's y-rows 12 → 16 doubles to make the y-pass zmm loads aligned**:
+   killed on paper before coding. The x-pass writes t1 in (y,z)-site order, so
+   2/3 of its store groups would straddle the padded row boundary and split
+   6 zmm stores into 12 half stores (+36 store uops/volume) to save ~18 line-split
+   load penalties. Net negative; `loadu` on the 96-byte stride is the cheaper evil.
+4. **Not attempted, per documented dead ends elsewhere**: cross-volume software
+   pipelining (five schemes built panel-wide in r4, node selected none — VERDICT
+   §5), NT stores on the node (rejected three rounds running), prefetchnta (my r2,
+   catastrophic), batch-minor relayout (my r1, +50% on uops).
+
+### Borrowed / lent
+
+Borrowed: the mixed-width zmm+ymm pass structure from **L17_rader** (node-proven in
+r4), with **L8_batchsimd**'s round-1 port arithmetic as the sizing argument.
+Lent: the `L6_FORCE` switch pattern and the dual `clk=A/B` probe are both ~30 lines
+and generic — any entry can paste them; L=17 explicitly wants the 512-bit clock
+(their r4 cycle model is built on a guessed clock), and L=36/L=8 can use the forcing
+switch for their own node A/Bs.
+
+### Next
+
+1. **Read the r5 `clk=A/B` strings and the B=1 pick.** Three outcomes: (i) node
+   picks a `z*` variant → the missing 366 cycles were (partly) a uop/window limit;
+   push further with a fused zmm y+z plane stage (in-register 4×6 transpose per
+   plane, saves the t2 round trip, ~150 more uops off). (ii) node keeps `fused`
+   and B≥3.5 → width is free but uops were not the limiter; the remaining suspects
+   are 4-wide rename and the pass-boundary store→load latency, and the next probe
+   is the monitor's `perf stat` (uops_issued vs cycles decides rename-bound in one
+   number). (iii) B ≤ 3.2 → downclock dominates; record it and stop pursuing zmm
+   at L=6.
+2. If z2s_pf wins B=1 on the node, race a **zmm z-pass with split half-stores**
+   (zt's load side + z2s's store side) — the two mechanisms are independent.
+3. The B=64 wallaby race noise (r4 and r5) deserves one diagnostic round: race at
+   nt=64 exactly (not the 16384 cap) with 15 rounds instead of 7, and see whether
+   the pick stabilizes; if the node's B=64 pick flaps in r5, raise per-candidate
+   rounds for L2-resident sizes only.

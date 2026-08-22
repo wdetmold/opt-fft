@@ -780,3 +780,135 @@ wallaby (~0.9 s expected on the node's 37-volume arena), excluded from score.
 3. **B=1 software pipelining of two line transforms** (round-1 Next #2,
    still undone, ~10% front-end headroom documented): now the only lever
    left at B=1, where three entries sit within 1.2%.
+
+---
+
+## Round panel_r5
+
+### Where round panel_r4 landed (node, p55n3)
+
+Held **B=1 (119.021 µs, first)** and **B=4 (129.921, first)** — both picks
+stable at `v1-cached-pf0` across all three runs, so the r4 tuner fix worked.
+pfin recovered the batched cells vs r3 (B=256 264.5 → 228.7, B=32 233.4 →
+221.6) but **both still lost to L36_pfa, and B=32 lost by 27%** (174.226 vs
+221.602). The decisive datum is in the r4 pick strings: L36_pfa won BOTH
+batched cells with **`mode=inplace pf=1` — cached in-place stores, no NT, no
+volume scratch, paced input prefetch** — while my picks were `v1-nt-pf1-pfin`.
+The r4 VERDICT also settled the clock question: the node runs ~3.89 GHz
+sustained (L6_unrolled's in-plan probe), not the 2.3 GHz three rounds of
+cycle accounting assumed.
+
+### What changed: the cached path gets pfin, and the store policy becomes a
+### tournament decision at streaming batch sizes
+
+My candidate list had a structural hole that the threshold policy made
+invisible: `pfin` (the paced phase-1 input prefetch that is worth −23% on
+wallaby and −13.5% on the node) existed **only as an NT-path candidate**, and
+at B≥32 the working-set threshold excluded every cached candidate from the
+tournament. So the exact configuration that won both of L36_pfa's batched
+cells on the node — cached in-place phase 2 + paced input prefetch — was
+never even timed by my tuner. This round:
+
+1. **New execute body, code 7 = `cached-pf1-pfin`** (all three kernels):
+   phase 1 `in -> out` with the 32 KB paced T1 cursor, phase 2 in place in
+   `out` with cached stores and the one-line 36-stream prefetch, plus the
+   PFNX-style cold-window pre-coverage of `in[b+1]` (3 T1 lines per 36-line
+   tile group = 62 KB) now issued from the *cached* phase 2 as well (at PW=2
+   it fires on even z-tiles with the pair index, same 62 KB coverage).
+   **Borrowed, with attribution: this is L36_pfa's `inplace pf=1`, the
+   panel_r4 node winner at B=32 (174.2) and B=256 (218.9), reproduced inside
+   my two-sweep structure.** No arithmetic change anywhere — still 248
+   FMA-port vector ops + 49 shuffles per 36-point line, 708 real flops/line,
+   2 752 704 flops/volume.
+2. **Mixed tournament in the streaming regime.** The threshold now decides
+   only whether NT candidates (and the volume scratch) are *in play*; it no
+   longer excludes cached candidates. Per kernel, simplest first:
+   `cached-pf1, cached-pf1-pfin, nt-pf0, nt-pf1, nt-pf1-pfin, nt-pf1-xv`
+   = 18 candidates at streaming batch (12 at cached-only sizes, where
+   `cached-pf1-pfin` is also added). The r2-era rule "the threshold picks the
+   policy, the tuner only ranks within it" was correct **when tuning arenas
+   were ≤4 volumes and could not rank store policies honestly (L6_pfa's
+   documented mis-pick)**; it has been obsolete since r3 made the arena
+   machine-relative (2.5× this machine's L3, 32–128 volumes — it genuinely
+   streams on both wallaby and the node), and r4 proved the cost: the
+   threshold locked me onto NT on the exact machine where cached wins.
+3. **Hysteresis widened 1% → 3%** (borrowed from L36_pfa r4: they measured
+   the coin-flip zone at 2.4%, and every genuine win on this board is ≥10%).
+   With cached listed before NT, a near-tie now resolves to the store policy
+   the node measured as the winner.
+4. **Override semantics** (plan-time, execution stays repeatable):
+   `FFT36_NT=0` = cached candidates only, `FFT36_NT=1` = NT candidates only
+   (the old A/B semantics preserved); unset = threshold decides whether the
+   pool is mixed. `FFT36_PFIN`/`FFT36_XV` filter as before, now across both
+   store policies.
+
+### What was measured (wallaby, Sapphire Rapids Gold 6448Y, 2 MB L2, 60 MB L3)
+
+All numbers driver min, µs per transform; rel_l2 3.954–3.968e-16 at every
+batch tried (1, 4, 8, 32, 256), bit-identical re-runs everywhere.
+
+* **B=1: 51.59 (sd 0.06%, quiet window)**, pick `v1-cached-pf1` from the
+  12-candidate pool, stable across plans. MKL same window: 142.4.
+* B=4: 72.5/vol, pick `v1-cached-pf1`.
+* B=32: 83.8/vol (cached pool on wallaby — 47.8 MB fits its L3).
+* **B=256: 101.2/vol (sd 2.1%)**, the 18-candidate mixed pool picks
+  `v1-nt-pf1-pfin` — correctly for this machine, see the A/B. MKL same
+  window: 163.6/vol.
+* Paired A/B at B=256, forced pools, back-to-back, two pairs:
+  `cached-pf1-pfin` **154.4 / 165.8** vs `nt-pf1-pfin` **101.9 / 101.5** —
+  on wallaby NT wins by ~35%, i.e. wallaby CANNOT reproduce the node's
+  cached-wins result (its DRAM absorbs the RFO stream; same lesson as r4's
+  in-arena inversion). The point of this round is precisely that the node's
+  own tournament now gets to make that call with both policies present.
+* The new `v1-cached-pf1-pfin` body was verified against numpy end-to-end
+  at B=256 (PASS 3.961e-16) and the PW=2 variant (`v0-cached-pf1-pfin`,
+  including the even-tile cold-window indexing) end-to-end on the Haswell
+  login node at B=8 (PASS 3.957e-16).
+* Setup cost: 3.0–3.4 s at B=256 on wallaby (106-volume arena × 18
+  candidates); ~1.5–2 s expected on the node's 37-volume arena. Excluded
+  from the score.
+
+### What was tried / observed that did NOT work
+
+1. Nothing was removed; this round is deliberately additive-only (the r3
+   VERDICT's "add candidates, do not replace structures", third application).
+   The xv candidates remain listed last and are still dominated.
+2. **Wallaby cannot arbitrate cached-vs-NT for the node** — the forced A/B
+   above (NT −35% on wallaby, while the node's r4 pick strings show cached
+   winning there by 20% at B=32) is the cleanest cross-machine store-policy
+   inversion the record has. Do not tune store policy on wallaby, ever.
+
+### Predictions for the node (stated so they can be scored)
+
+* **B=32: the big one.** The mixed pool's arena at B=32 *is* the real regime
+  (arena = batch = 32 volumes, 45.6 MB against 22 MB L3). If the cached+pfin
+  mechanism transfers, `v1-cached-pf1-pfin` is picked and lands **~175–195 µs**
+  (L36_pfa's identical-mechanism cell measured 174.2). If the tuner keeps NT,
+  something about my two-sweep differs from their structure and the pick
+  string will say so.
+* **B=256:** pick `v1-cached-pf1-pfin` or `v1-nt-pf1-pfin` within 3% of each
+  other; either way **~210–230 µs** (pfa's cached cell: 218.9; my NT r4:
+  228.7). Parity with L36_pfa is the target.
+* **B=1/B=4: unchanged** (118–121 / 128–131), picks `v1-cached-pf0/pf1` —
+  the pool at those sizes only gained one candidate (cached-pf1-pfin), which
+  should lose in a 1–4 volume arena and is behind a 3% bar.
+* Setup ≤ 2.5 s in every cell.
+
+### Next
+
+1. **Read the node's B=32/B=256 pick strings first.** If cached-pfin won:
+   the store-policy question is closed for L=36 and the remaining batched gap
+   (if any) vs L36_pfa is structural — diff their phase-2 loop against mine
+   (they run in-place in `out` too; candidate differences are their PFNX
+   depth, their 36×5-site phase-2 prefetcht0 pattern, and plane-scratch
+   handling). If NT-pfin won instead and the cells still trail pfa, ask the
+   monitor for one forced `FFT36_NT=0` B=32 run — that isolates policy from
+   structure in one measurement.
+2. **B=1 software pipelining of two line transforms** (round-1 Next #2,
+   still undone): with the node at 3.89 GHz, B=1's 119 µs = ~463k cycles
+   against a ~241k-cycle single-512-bit-FMA port floor — the front-end/latency
+   headroom is real (~10% was the static estimate) and B=1 is a three-entry
+   race within 1.2%.
+3. **If both batched cells land on cached**, consider retiring the xv bodies
+   and the PW=2 staged-NT machinery next round to halve the candidate count
+   and setup time — but only after the node confirms, not before.

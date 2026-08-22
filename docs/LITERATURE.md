@@ -4,14 +4,16 @@
 forward FFTs on cubes **L = 6, 8, 17, 36**, many volumes batched, single-threaded x86-64,
 AVX2 baseline with AVX-512 on some nodes, no library calls inside the transform.
 
-**What this file is.** An index to the seven literature sections in
-`docs/literature/`, and — more usefully — the synthesis across them: what all seven agree
+**What this file is.** An index to the eight literature sections in
+`docs/literature/`, and — more usefully — the synthesis across them: what they agree
 on, where they contradict each other, and what to build first. Every number here is
 traceable to a section; the sections carry the URLs and the fetch status.
 
-**Read this file, then read §04 and §01 in full before writing a line of code.** Those two
-carry the layout decision and the register budget, which between them determine everything
-else.
+**Read this file, then read §08 §0 and §3.6 below, then §04 and §01 in full before writing a
+line of code.** §04 and §01 carry the layout decision and the register budget, which between them
+determine everything else. §08 carries the hardware you are actually scored on, and it corrects
+two things the earlier sections got wrong for this specific part: the AVX-512 frequency penalty
+(there is none at one active core on a Gold 5218) and the value of L3 blocking (almost none).
 
 ---
 
@@ -26,6 +28,7 @@ else.
 | **05** | `05-memory-hierarchy-and-blocking.md` | I/O complexity (Hong–Kung, cache-oblivious), four/six-step crossovers with Bailey's own measured numbers, transposes, working-set arithmetic for all four sizes at all batch widths, TLB/huge pages, non-temporal stores. |
 | **06** | `06-autotuning-and-search.md` | FFTW's planner, SPIRAL's formula search, ATLAS and the model-driven critique, learned autotuning, and — the load-bearing part — **how to benchmark defensibly** (benchFFT protocol, Intel RDTSC method, minimum-vs-mean statistics). |
 | **07** | `07-register-level-fusion-and-accelerators.md` | What the accelerator world knows: cuFFTDx as a device function, VkFFT's runtime codegen, fused FFT pipelines and their honest accounting. Register-file-vs-L1 arithmetic. Twiddle precision strategy. Complex-multiply error bounds. |
+| **08** | `08-recent-advances.md` | **Recent work, 2015–2026, and the hardware we are actually scored on.** Published single-core bandwidth, latency and cache behaviour of Cascade Lake-SP; Intel's own AVX-512 turbo table for the Xeon Gold 5218; non-temporal stores and Intel's Skylake-Server warning about them; measured line-fill-buffer count and prefetch-instruction choice; 4 KiB store-to-load aliasing; cache-blocking across the batch into L2; the one published measurement of small odd complex-double 3D cubes on one core (2–3× over MKL and FFTW, won by *layout*, not by the kernel); the μ-mode/batched-GEMM formulation; regime-dependent kernel selection mechanisms from the small-GEMM literature; Exo 2, FFTc/MLIR, ducc0's and VkFFT's design decisions read from the source; the 3-FMA lifting rotation. **Corrects §04 §8.2 and closes §4.4 below.** |
 
 Supporting material already in the tree: `docs/SURVEY.md` (installed libraries and hardware),
 `docs/TEXTBOOK_FFT.md` (the Python reference implementation to validate against),
@@ -36,6 +39,18 @@ Supporting material already in the tree: `docs/SURVEY.md` (installed libraries a
 ## 2. The five things all seven sections agree on
 
 Before the per-size table, the consensus. These are not contested anywhere in the corpus.
+
+**§08 confirms all five and adds numbers to three of them.** #2 (vectorise across the batch) now has
+a measured x86 figure: split `DFT_n ⊗ I_ν` kernels 1.3–2× faster than FFTW's in double precision,
+plus a permute-versus-gather measurement of **IPC 0.13 → 2.59, 9.25× speed** (§08 §5.4) — which
+between them close §4.4 below. #3 (instructions, not flops) gains a 2026 confirmation on Sapphire
+Rapids: radix-4 beats radix-8 at every size despite radix-8 needing 20 % fewer flops (§08 §2.1). #5
+(compile-time twiddles) gains a primary source for the 10–15 % positive-constant result and a proof
+that the FMA complex multiply's 2u error bound is *sharp* and cannot be improved by compensation
+(§08 §6.1, §6.7). **§08 also proposes a sixth consensus item that the earlier sections could not
+have reached: on this hardware, the schedule around the codelets is worth more than the codelets.**
+The one published measurement of our exact regime had 1D kernels slower than MKL's and a 3D kernel
+2–3× faster, attributed entirely to layout and loop merging (§08 §2.2).
 
 1. **All four line lengths are codelet territory. No recursion, no planner, no blocking
    inside the line transform.** 6, 8, 17, 36 are all ≤ 64, which is FFTW's own codelet
@@ -86,6 +101,15 @@ Before the per-size table, the consensus. These are not contested anywhere in th
 | padding | optional (Nx=Ny=7, +36%) | **contested — see §4.5** | none needed (17 odd) | **Nx=Ny=37, +5.6% — cheapest and most robust** §04 §7.3 |
 | huge pages | >~1 000 volumes | >~500 volumes | >~100 volumes | **always** §05 §7 |
 | where the win is | FMA + full-width lanes (FFTW reaches only ~19% of FMA peak using a *non-FMA* codelet) §02 §5.3 | AVX-512 register residency; L1 conflict avoidance | **vectorisation, ~2.4× over FFTW and MKL** §02 §6.2 | PFA + pass-count reduction + TLB |
+| **measured on the node, r3, B=1** | 0.220 µs, 1.68× MKL | 0.570 µs, 1.14× MKL | 16.39 µs, 4.99× FFTW | 118.6 µs, 1.37× MKL |
+| **margin over its FP-port floor at the *correct* 2.9 GHz clock** §08 §4.1 | **1.31×** | **1.32×** | **1.32×** | **1.43×** |
+| **arithmetic intensity, flop/B** §08 §7 item 2 | 1.21 | 1.41 | 1.92 | 2.42 |
+| **regime at large batch** (node balance: 4.03 flop/B at DRAM, 2.55 at L3, 0.53 at L2) §08 §7 item 2 | DRAM-bound, but partly L3-served | DRAM-bound, but partly L3-served | **L2-resident per volume — compute-bound** | DRAM-bound at every B ≥ 2 |
+| **SIMD width on the scoring node** §08 §4.1–4.4 | **512-bit** (no frequency penalty at 1 core; 2L=12 of 32 zmm) | **512-bit** (2L=16 spills on 16 ymm, fits 32 zmm) | **512-bit** (register file + 1.7× L2 bandwidth) | **512-bit** throughout (do not mix widths) |
+| **batch tile for the 1 MiB L2** §08 §1.9 | NB ≈ 32 → 216 KiB | NB ≈ 24 → 384 KiB | NB = 2 → 307 KiB | impossible — tile *inside* the volume |
+| **interleave granule** (whole cache lines) §08 §1.10 | 8 volumes | 8 volumes | 8 volumes | 8 volumes |
+| **4 KiB alias exposure** §08 §1.8 | exposed; volume stride repeats a page offset every **32** | exposed; **every volume** (stride 8192 = 2×4096) | exposed; repeats every **256** | exposed; repeats every **4** (stride ≡ 1024) |
+| **round-4 first move** §3.6 | measure the clock, then 512-bit | batch-tile into L2 + both structures as candidates | scan B=1…32 for the real crossover | NT + concurrency, and instrument first |
 
 ### 3.2 L = 6 — priority order
 
@@ -108,6 +132,16 @@ Before the per-size table, the consensus. These are not contested anywhere in th
    tensored with an 8-fold batch of 27-point 3D DFTs, joined by a pure index permutation
    (§03 §5.2). The prettiest decomposition any of the four sizes admits. Benchmark against
    the flat codelet; §03 §9.4 flags it as the single most promising structural idea for L=6.
+
+> **Corrections from §08.** (a) Item 4's register worry is an AVX2 worry only: on the scoring node
+> 2L = 12 of **32** zmm, and §08 §4.1 shows there is **no AVX-512 frequency penalty at one active
+> core on a Gold 5218** (3.9 GHz non-AVX / 2.9 AVX2 / **2.9 AVX-512**, and AVX2 = AVX-512 up to 8
+> cores). `L6_pfa`'s round-1 decision not to write a 512-bit path was reasoned from the opposite
+> premise and should be revisited. (b) The r3 verdict's "L=6 is finished, 1.04× above its port
+> floor" used the 2.30 GHz base clock; at 2.9 GHz the margin is **1.31×** (§08 §4.1). Measure the
+> clock before believing L=6 is done. (c) L=6 is the geometry where §08 §1.3's victim-L3 result
+> matters most: at B=4096 (27 MiB, 1.2× L3) a meaningful share of the traffic is L3-served, which
+> is why NT stores keep losing here (§08 §1.5).
 
 ### 3.3 L = 8 — priority order
 
@@ -134,6 +168,20 @@ Before the per-size table, the consensus. These are not contested anywhere in th
    port-5 `FLIP_RI` on every one.
 5. **Cache-set geometry is the L=8 hazard and it is layout-dependent.** See §4.5 — the two
    sections disagree, and the disagreement matters.
+
+> **Corrections from §08.** (a) Item 3 is settled in favour of option (a): **512-bit, because there
+> is no frequency penalty at one core on this SKU** (§08 §4.1) and 2L = 16 fits 32 zmm with 16
+> spare where it fills 16 ymm exactly. Options (b) and (c) exist as fallbacks, not as the plan.
+> (b) Two page-aligned buffers mean `in` and `out` collide in the memory order buffer's low 12 bits
+> at **every element**, and L=8's volume stride of exactly 8192 B = 2 × 4096 makes the pattern
+> maximally degenerate — every volume starts at the same page offset. L=8 is the most exposed
+> geometry on the board. This is the panel's most likely unexamined stall (§08 §1.8) and one counter
+> settles it.
+> (c) The §4.5 padding question has a one-line production answer worth copying: ducc0 does
+> `if ((dstride & 256) == 0) dstride += 16;` on every scratch stride (§08 §5.5).
+> (d) **The largest single move available at L=8 is batch-tiling into L2** — NB ≈ 24 volumes is
+> 384 KiB, 37 % of the 1 MiB L2, all three axes inside the tile, one stream in and one out
+> (§08 §1.9).
 
 ### 3.4 L = 17 — priority order
 
@@ -184,6 +232,27 @@ vector codelet for 17 and `dft/generic.c` is plain scalar C.
 8. **Build the 16-entry Rader kernel table in extended precision.** VkFFT reports a measurable
    accuracy deficit specifically "in Bluestein's and Rader's algorithms" from low-precision
    twiddles (§07 §5.2); that table's error feeds every output.
+
+> **Corrections and additions from §08.** (a) §4.2's framing — "which of these does the literature
+> favour?" — is wrong: **the field does not agree.** ducc0 uses *neither* Rader nor Bluestein at 17
+> (its dispatch is `if (ip < 110) generic_pass else bluestein`, so 17 takes the generic pass);
+> VkFFT's `fixMinRaderPrimeMult` **and** `fixMinRaderPrimeFFT` defaults are **both exactly 17**,
+> with a documented hedge that direct multiplication can win "for small ones, like 17-23"; cuFFT
+> uses direct-matrix Rader up to prime 127 and switches to Bluestein after 17 in FP32
+> (§08 §5.5, §5.7). Three defensible answers at our one prime — this is the panel's clearest
+> opportunity, not a gap in our reading. (b) McFarlin et al.'s "direct computation preferable up to
+> n ≈ 20", which the corpus cites for the dense kernel, is a **Larrabee** result whose stated
+> mechanism is *broadcast hardware plus FMA* — i.e. it transfers **better to AVX-512 embedded
+> broadcast than to AVX2**, which is a positive for the dense conjugate-symmetric kernel on this
+> node (§08 §3.1). (c) **The batch crossover should be scanned at B = 1, 2, 4, 8, 16, 32.** If the
+> ranking inverts near B = ν = 8 the cause is vectorisability and the fix is a batch-blocked
+> schedule, not a choice of kernel; if it inverts near 256 the cause is capacity. The panel's grid
+> (1, 8, 256, 2048) cannot tell these apart (§08 §3.1). (d) L=17 is the one geometry that is
+> **L2-resident per volume** (157 KiB of 1 MiB) and therefore *compute*-bound: AI 1.92 against an
+> L2 balance of 0.53. Optimise it for instructions, at 512 bits, and use the 1.7× L2 read
+> bandwidth 512-bit loads give you (§08 §1.2, §7.2). (e) The 3-FMA lifting/half-angle rotation
+> (§08 §6.3) is a 25 % instruction cut on every non-trivial twiddle multiply and L=17 is where the
+> twiddles are.
 
 ### 3.5 L = 36 — priority order
 
@@ -236,6 +305,180 @@ vector codelet for 17 and `dft/generic.c` is plain scalar C.
 9. **Do not tune to this node's 256 KiB L2.** L=36 is the size that flips L2 residency between
    Haswell (256 KiB) and Ice Lake/Sapphire Rapids (1–2 MiB). Block to L1 by planes, which is
    safe everywhere (§05 §10.6).
+
+> **Corrections from §08 — item 9 is the one to change.** L1 blocking is *safe* but it now leaves
+> the largest bandwidth step on the machine unused. On the scoring node a single core reads
+> **L2 at 87.3 GB/s, L3 at 18.2 GB/s and DRAM at 11.5 GB/s** (§08 §1.2), and Intel's own
+> optimisation manual recommends "blocking to L2 on Skylake Server microarchitecture if L2 can
+> sustain the application's bandwidth requirements" while Alappat et al. recommend "switching to
+> pure L2 blocking on SKX and CLX architectures" (§08 §1.4). **L3 residency is worth 1.6×; L2
+> residency is worth 7.6×.** Every tile at L=36 should be sized against **1 MiB** (and be a
+> compile-time constant the monitor can halve — wallaby's L2 is 2 MiB, so a tile tuned there is
+> exactly twice too big).
+>
+> Also: (a) two page-aligned buffers mean L=36 is exposed to 4 KiB store-to-load aliasing at
+> **every element** (load `in[i]` against a recent store to `out[i]`), and its volume stride of
+> 746 496 B ≡ 1024 mod 4096 makes every fourth volume start at the same page offset — the
+> second-most degenerate of the four geometries after L=8 (§08 §1.8). Check
+> `ld_blocks_partial.address_alias` before anything else. (b) Item 7's pass-count reduction is
+> right, and §08 §1.9 says why the panel's fusion experiments underdelivered: they tested fusion
+> across an **L1↔L2** boundary (2.6× bandwidth gap, measured payoff ~5 %) rather than across
+> **L2↔DRAM** (7× gap, untested). (c) Item 8's NT-store advice is right and its magnitude is
+> **1.5×, not 4/3**, for a copy-shaped out-of-place kernel — but Intel documents a
+> Skylake-Server-specific core-resource-occupancy regression that can cap per-core NT write
+> bandwidth, which is a real mechanism for three rounds of tuner rejections (§08 §1.5). (d) The
+> cross-volume prefetch schemes that all three L=36 entries built in r3 were aimed one whole
+> volume (1.49 MB) ahead; Mowry's formula puts the distance at ≈**16 cache lines ≈ 1 KiB**, and
+> Cascade Lake has **exactly 10 line fill buffers**, so `prefetcht1` is the only safe hint
+> (§08 §1.6, §1.6b). (e) Read the ducc0 axis-ordering rule — "sort the extraneous dimensions in
+> order of ascending output stride" — and the gemmi datum that a bad 3D axis order costs **9× over
+> a straight copy** (§08 §5.5).
+
+---
+
+### 3.6 Round 4+ priorities: what the plateau suggests trying next
+
+Three rounds converged on row–column with unrolled batch-vectorised codelets and stopped moving.
+§08 §2 searched 2015–2026 for a measured CPU win over that structure and found none — so the
+structure is right. But the plateau is *not* evidence that the problem is solved, for two reasons
+that are both new information:
+
+* **The B=1 floors were computed at the wrong clock.** Intel's turbo table for the Xeon Gold 5218
+  gives **2.9 GHz** at one active core under AVX-512 (and the same 2.9 GHz under AVX2 — the licence
+  levels coincide up to 8 cores). The r3 verdict's floors used the 2.30 GHz non-AVX base. At the
+  right clock every geometry is **1.31–1.43×** above its floor, not 1.04–1.13× (§08 §4.1).
+* **The one published measurement of our exact regime says the kernel is not the lever.** Popovici
+  et al. (IPDPS 2015) built small odd complex-double 3D cubes on a single core, measured **2–3×
+  over MKL and FFTW**, and were explicit that their own 1D kernels were sometimes *slower* than
+  MKL's: "**This shows the impact of the data layout transformations and the loop merging we
+  performed**" (§08 §2.2). The panel has spent three rounds on the half that paper lost on.
+
+**Ranked, per geometry. Each item names the measurement that would confirm or kill it.**
+
+#### L = 6 — measure the clock, then decide whether it is finished
+
+1. **`perf stat -e cycles,ref-cycles` on B=1.** *Monitor action, one job.* Four entries across two
+   geometries have asked for this in writing. It decides whether L=6 has ~4 % of headroom or ~31 %
+   (§08 §4.1). Everything below is conditional on it.
+2. **A 512-bit path, which does not currently exist.** 2L = 12 of 32 zmm; embedded-broadcast
+   twiddle operands cost a load-port slot and no register on Skylake Server; and there is **no
+   frequency penalty at one core**. `L6_pfa`'s analytic argument against 512-bit assumed the
+   penalty (§08 §4.1, §4.2, §4.4).
+3. **Batch-tile into L2 at NB ≈ 32 (216 KiB) and fuse all three axes inside the tile.** At B=4096
+   the panel is *already beating* a pure-DRAM 12 GB/s model, which means a real share of traffic is
+   L3-served (§08 §1.3, §1.12). Raising that share — not cutting DRAM traffic — is the lever, which
+   also explains three rounds of NT-store rejections.
+4. **`prefetcht1` along the batch axis at ~16 cache lines, not `prefetchw` one volume ahead**
+   (§08 §1.6b). The r3 `prefetchw` result (1.41× on wallaby, 1.6 % here) is consistent with a hint
+   issued far beyond the useful distance.
+5. **If the clock measurement shows no headroom, move one of the two L=6 implementers to L=36**,
+   as the r3 verdict already recommends. L=36 has the largest unclaimed margin on the board.
+
+#### L = 8 — the batch tile, the alias check, and both structures as candidates
+
+1. **Batch-tile into L2: NB ≈ 24 volumes = 384 KiB (37 % of 1 MiB), all three axes inside the
+   tile, one long stream in and one out.** This is the single largest structural move available:
+   it caps DRAM traffic at the compulsory 16 KiB/volume regardless of pass count, runs every
+   intermediate pass at 52 B/cy instead of ~7, makes the output stream long enough for NT stores
+   *and* for the hardware streamer to train on, and is the one regime where the corpus's
+   pass-fusion argument has **not** been tested and found wanting (§08 §1.9).
+2. **Check 4 KiB aliasing. L=8's volume stride is exactly 2 × 4096.** `perf stat -e
+   ld_blocks_partial.address_alias`; if it fires, stage through a scratch buffer offset by an odd
+   multiple of 64 B, or separate the load and store phases within an unrolled block (§08 §1.8).
+3. **Ship `L8_batchsimd`'s r2 three-pass LANEX *and* its r3 two-pass LANEX2 as tuner candidates**
+   — the r3 verdict's "single largest guaranteed gain on the board", because both numbers are
+   already measured on this node. Add per-candidate licence warm-up (§08 §4.3) so the tournament
+   is not measuring frequency transitions.
+4. **512-bit, settled.** 2L = 16 fills 16 ymm exactly (measured liveness 19 → guaranteed spills)
+   and fits 32 zmm with 16 spare, at no frequency cost (§08 §4.1, §4.4).
+5. **Interleave granule of 8 volumes** so every vector access is a whole cache line — the
+   condition NT stores and the L2 streamer both require (§08 §1.10).
+6. **Run the free `-DL8R_SCRX=128` A/B** the r3 verdict asked for, and note ducc0's one-line
+   production form of the same idea: `if ((dstride & 256) == 0) dstride += 16;` (§08 §5.5).
+
+#### L = 17 — find the real crossover, then close the overlap gap
+
+1. **Scan B = 1, 2, 4, 8, 16, 32.** The panel's grid (1, 8, 256, 2048) cannot distinguish
+   "the ranking inverts at B ≈ ν = 8 because at B=1 there is no batch to vectorise over" from
+   "it inverts at B ≈ 256 because of capacity". Those have different fixes: a batch-blocked
+   schedule for the dense kernel versus tiling (§08 §3.1). One sweep, and it reframes the geometry.
+2. **Software-pipeline across volumes** — `L17_matrixsimd`'s own named next step, and the r3
+   verdict's 1.39× quantified gap (16.4 µs compute floor against 22.7 µs measured at B=2048).
+   §08 §1.1 says to express it as **several concurrent demand streams**, not as prefetch hints:
+   the ceiling is memory-level parallelism (~10–16 lines in flight), and hints are droppable.
+3. **Treat L=17 as the compute-bound geometry it is.** One volume's input+output is 157 KiB — 15 %
+   of L2 — so the binding bandwidth is 87.3 GB/s (512-bit) or 50.6 (256-bit), not 11.5. AI 1.92
+   against an L2 balance of 0.53. **512-bit, and optimise instructions** (§08 §1.2, §7.2).
+4. **The 3-FMA lifting/half-angle rotation** (`g = −tan(θ/2)`, `d = sin θ`, `|g| ≤ 0.414`): 3 FMAs
+   instead of 4 instructions per constant rotation, no leftover scale, works natively in split
+   layout, and L=17 is where the non-trivial twiddles live. Caveat: r2's 11.9 % op-count cut bought
+   0.8 % of time here, so budget an hour, not a round (§08 §6.3).
+5. **The one genuinely different structure worth a round anywhere: the three-batched-GEMM
+   (μ-mode / Tucker) formulation.** At L=17 the per-axis shape is 17 × 289 × 17, i.e.
+   `(MNK)^{1/3} ≈ 43.7` — inside libxsmm's documented `≤ 64` window and in the bin where libxsmm
+   measured **427 GFlop/s against MKL's 215**. Nobody has published this comparison for a small
+   cube on a CPU (§08 §2.3, §3.6). Hand-written straight-line code only; libxsmm and MKL stay
+   external baselines.
+6. **Do not spend another round on the 17-point op count.** Three rounds of evidence, and §08 §2.1
+   adds a 2026 confirmation that instructions beat flops (radix-4 beating radix-8 on Sapphire
+   Rapids despite 20 % more flops).
+
+#### L = 36 — instrument, then attack traffic and concurrency
+
+1. **Instrument before optimising** — the r3 verdict's demand, unchanged, plus §08's counter list:
+   `cycles,ref-cycles` (the clock), `ld_blocks_partial.address_alias` (L=36 repeats a page offset
+   every 4th volume — **exposed**), `L1D_PEND_MISS.PENDING` and `FB_FULL` (concurrency and fill-buffer
+   pressure), `MEM_LOAD_RETIRED.L3_HIT` (how much the victim L3 is actually serving). And
+   **`L36_pfa` must report its tuner pick** in `fft3d_description()`.
+2. **Re-target every tile at 1 MiB, not 22 MiB.** L3 residency is worth 1.6× on this part; L2
+   residency 7.6× (§08 §1.2, §1.4). One volume is 746 KiB, so the tile must live *inside* the
+   volume — a 36×36×8 slab is 166 KiB, a 36×8 pencil group smaller still. This is the correction
+   to §3.5 item 9.
+3. **NT stores on the final unit-stride write-out only, as a tuner candidate, with the counters
+   above.** Worth **1.5×** of DRAM traffic on a copy-shaped kernel (3:2, not 4:3) — the largest
+   single number on the L=36 board — against a documented Skylake-Server occupancy risk
+   (§08 §1.5). The measured ceiling at B=256 is 186 µs with write-allocate and **124 µs without**,
+   versus 227.5 µs measured.
+4. **Replace prefetch hints with concurrency.** Distance ≈16 cache lines, `prefetcht1` only, and
+   express cross-volume overlap as *interleaved demand streams on distinct 4 KiB pages* rather than
+   droppable hints (§08 §1.1, §1.6, §1.6b). Three entries' cross-volume prefetch schemes were
+   rejected by the node's own tuners in r3; the distance arithmetic says why.
+5. **Check the huge-page and NUMA-balancing state of the node.** A serial load-only stream on
+   Cascade Lake measures a **2× difference** between `THP=always / NUMA balancing off` and the
+   common Ubuntu default `THP=madvise / NUMA balancing on` (§08 §1.7). This is a monitor-side
+   setting that caps what any L=36 kernel can do; `madvise(MADV_HUGEPAGE)` on scratch buffers is
+   the part implementers control.
+6. **Adopt ducc0's axis-ordering rule** — "sort the extraneous dimensions in order of ascending
+   output stride" — and note that gemmi measured a bad 3D axis order costing **9× over a straight
+   copy** at 256³ (§08 §5.5). `L36_pencilfused`'s mode-keyed pass-A variants are the right shape
+   for this already.
+7. **512-bit throughout, and do not mix widths within one `execute()`** (transition cost ~11 µs
+   halt plus a ~680 µs relaxation window; §08 §4.3).
+
+#### Cross-cutting, all four geometries
+
+1. **Verify in the assembly that no address computation multiplies by a runtime value.** A codelet
+   with a compile-time stride measured **1.9× faster than the same codelet with a runtime stride**
+   at N=60 (§08 §2.4). Our `L` and our `L³` batch stride are both compile-time constants; confirm
+   the compiler knows it.
+2. **Store order, not traffic volume.** The single most valuable technique round 3 produced was a
+   write-spreading reorder worth 10.8 % that changed no arithmetic and no traffic. Three
+   independent sources arrive at the same rule (§08 §2.2, §5.5) — apply it at the other three
+   geometries.
+3. **Add candidates, never replace structures**, and give each candidate its own licence warm-up
+   (≥56 000 cycles of its own width) and > 700 µs of timed run, so the tournament measures kernels
+   rather than frequency transitions (§08 §4.3).
+4. **Tune the search, not just the kernel.** For spaces of this size and with this failure rate,
+   dual annealing at small budgets and first-improvement iterated local search at larger ones beat
+   the alternatives, and Bayesian surrogates lose (§08 §5.8).
+5. **Sweep the compiler as well as the flags.** Identical FFT source measured ~12 % faster under
+   Clang than GCC; no compiler wins reliably (GCC fastest on 39 % of loops, ICX 40 %, Clang 21 %);
+   `-mprefer-vector-width=512` must be passed explicitly because 256 is the default for
+   `cascadelake`; and never add `-ffast-math` without a ±0 bit-exactness check — that exact bug
+   broke FFTW 3.3.7 (§08 §5.6).
+6. **Add `perf stat` output to `tryout.sh`.** In the one controlled study of this, adding profiler
+   feedback on top of execution feedback moved kernel-generation success from 62 % to **72 %**
+   (§08 §5.9). The counters are listed in item 1 of the L=36 list.
 
 ---
 
@@ -320,6 +563,16 @@ traffic (large). The corpus's own consensus, if it has one, is Tolmachev's rule 
 the payoff is *the number of avoided passes times the bandwidth gap between the two levels
 involved* — nothing more.
 
+> **SETTLED IN PART by `panel_r3/VERDICT.md` §5, and re-opened in one regime by §08 §1.9.** The r3
+> answer — single-digit percent, sometimes negative, and store *order* worth 18 % where pass count
+> was worth 5 % — stands, and Tolmachev's rule survives with CPU numbers attached. But every panel
+> experiment fused across an **L1↔L2** boundary, where §08 §1.9's measured bandwidth gap is 2.6×.
+> The untested case is **L2↔DRAM**, where the gap is 7× (52 B/cy sustained L2 versus ~7 B/cy
+> single-core DRAM) and where Intel's own manual, Alappat et al. and the L3-Fusion result all
+> independently recommend the construction: **tile the batch so a tile fits L2, then run all three
+> axes inside the tile.** That is not the same experiment the panel ran, and it is the largest
+> untried structural move on the board.
+
 ### 4.4 Split vs interleaved complex: strongly motivated, unproven
 
 §04 recommends split-complex batch-minor across the board and makes a strong case: ideal
@@ -341,6 +594,18 @@ trick makes interleaved strictly *better* at complex vector length 1 (§04 §2.3
 with no batch. We have a batch of thousands, so the trick does not apply — but this is the
 reason the world's most-benchmarked FFT ships interleaved, and it deserves one measurement
 rather than a shrug.
+
+> **CLOSED by §08 §5.4, in the corpus's favour, with three independent sources.** (1) Popovici,
+> Franchetti & Low (IEEE HPEC 2017) measure split/block-interleaved kernels on x86 **in double
+> precision**: `DFT_n ⊗ I_ν` kernels — literally our kernel shape — **1.3 to 2× faster than
+> FFTW's**; 1D codelets 5–15 % better than FFTW and MKL; 2D 10–30 %. Their stated mechanism is
+> §04's: "the split data layout **eliminates permutations**." (2) The FFTc 2.0 work measures what
+> the interleaved layout costs when the compiler handles it — gather/scatter emitted "for each
+> arithmetic step", and replacing it with in-register permutes moves **IPC from 0.13 to 2.59 for
+> 9.25× the speed**. (3) ducc0 ships split (`Cmplx<Tsimd>` with separate `.r`/`.i`). §04's verdict
+> was right; the open question is now only the *granule*, and §08 §1.10 answers that from the cache
+> line: **8 volumes per granule for split complex double**, so every vector access is a whole
+> 64-byte line.
 
 ### 4.5 Padding: does L = 8 need it, and where?
 
@@ -369,6 +634,17 @@ stride never appears in an inner loop) reaches the same place from the other sid
 check `perf stat -e L1-dcache-load-misses`. §04 §7.3 also notes NB = 4 makes odd strides a
 *non-integral* number of lines, which is benign but "more fragile". The 27% memory cost at
 L=8 is not trivial when the whole point is L1 residency.
+
+> **§08 adds a production answer and a second, larger hazard.** ducc0 implements exactly §04's rule
+> as a one-line guard on every scratch stride — `if ((dstride & 256) == 0) dstride += 16;` — and
+> ships a public `make_noncritical()` helper it calls in its own benchmarks (§08 §5.5). Copy that
+> rather than reasoning about it. **And the bigger hazard at L=8 is not cache sets, it is the memory
+> order buffer:** L=8's volume stride is exactly 8192 B = 2 × 4096, so with two page-aligned buffers
+> every load from `in` falsely aliases a recent store to `out` in the low 12 bits, which is a
+> documented re-issue penalty (§08 §1.8). L=8's volume stride of 8192 B = 2 × 4096 makes that
+> pattern maximally degenerate (every volume starts at the same page offset); L=36's stride is
+> ≡ 1024 mod 4096, so every fourth volume does. One counter —
+> `ld_blocks_partial.address_alias` — settles both, and neither has ever been checked.
 
 ### 4.6 Model versus search for the instruction schedule
 
@@ -420,10 +696,14 @@ shuffle-bound — which §03 §9.5 step 6 says the literature predicts you will 
 
 Flagged so nobody wastes time searching:
 
-1. **No published single-node, single-threaded benchmark of small fixed 3D cubes on any
-   algorithm.** §03 §7 states this as the central gap: "there is no published measurement
-   telling you what the fastest 6³/8³/17³/36³ complex-double kernel looks like. You are in
-   genuinely unmeasured territory."
+1. ~~**No published single-node, single-threaded benchmark of small fixed 3D cubes on any
+   algorithm.**~~ **PARTLY CLOSED by §08 §2.2.** Popovici, Russell, Wilkinson, Skylaris, Kelly &
+   Franchetti (IPDPS 2015) measured **odd cubes of edge length 7–119, complex double, single core**,
+   in both split and interleaved layouts, against **MKL 11.0.0 and FFTW 3.3.4**, and report
+   "typically a factor of **2 to 3**" (abstract: averaging 3×). The specific cubes 6/8/17/36 remain
+   unmeasured, but the *regime* is not virgin territory — and the paper's own diagnosis redirects
+   our effort: their 1D kernels were sometimes **slower** than MKL's and the 3D kernel still won,
+   because of "the data layout transformations and the loop merging we performed". See §3.6.
 2. **No 3D analogue of Duhamel & Vetterli's Tables 4/5** (per-output-point op counts for
    complex data). Every 3D vector-radix figure in §03 is either the textbook formula or an
    extrapolation from the 2D 8×8 row, and is labelled as such.
@@ -434,7 +714,17 @@ Flagged so nobody wastes time searching:
    FFTW's vector-recursion results are the nearest evidence and they are for large 1D and 2D
    transforms (§06, sources searched for and not found). §06 §10.1 calls this "our largest
    untapped search axis, and the literature only gestures at it."
-6. **No AVX-512 measurement anywhere in this corpus.** Every SIMD number in §02 is an AVX2
+6. ~~**No AVX-512 measurement anywhere in this corpus.**~~ **CLOSED, and the conclusion is
+   inverted — see §08 §1.2 and §4.1 before reading the rest of this item.** Intel's own turbo table
+   for the **Xeon Gold 5218** (Specification Update 338848-028US, Figures 1–6) gives, at **one
+   active core**: non-AVX **3.9 GHz**, AVX2 **2.9 GHz**, AVX-512 **2.9 GHz** — *identical* from 1 to
+   8 active cores. The Gold 5120's 1.6 GHz figure quoted below is a **9+-core** number and does not
+   describe a single-threaded run on an exclusive node. Moreover the Gold 5218 has **one** 512-bit
+   FMA unit, so 512-bit and 256-bit code have *identical* peak FP throughput — meaning 512-bit is
+   strictly preferable on this part (half the instructions, 32 registers instead of 16, 2× L1 and
+   1.7× L2 load bandwidth, free embedded broadcast) at **zero** frequency cost. Published
+   single-core bandwidths for this microarchitecture are in §08 §1.2. The historical text follows.
+   Every SIMD number in §02 is an AVX2
    number on the Haswell login node. The AVX-512 nodes will shift the L=6/L=8 balance
    materially (§02 §9, gap 5) — and per §04 §8.1/§8.2 the shift is not simply "2× wider":
    the 512-bit port scheme moves FMAs onto ports 0 and 5, some Skylake SKUs have only one
@@ -451,6 +741,15 @@ Flagged so nobody wastes time searching:
 
 Batched small complex-double cubes, single-threaded x86-64, AVX2/AVX-512. Reasoning given for
 each; the corpus's own measurements where they exist.
+
+> **Read §08 §0 first.** That list is the same exercise done against the *measured* state of the
+> board after three rounds and against published data for the exact scoring part, and where the two
+> disagree §08 is newer. In particular: item 1 below is confirmed and now has a measured x86
+> double-precision number (§08 §5.4); the AVX-512 caution threaded through Tiers 1–3 is wrong for
+> this SKU at one active core (§08 §4.1); "padding to kill cache-set conflicts" (item 7) should be
+> read alongside the 4 KiB-aliasing hazard, which is larger and unexamined (§08 §1.8); and the one
+> genuinely new Tier-1-sized item is **cache-blocking across the batch into the 1 MiB L2**
+> (§08 §1.9), which no section of the earlier corpus proposes.
 
 **Tier 1 — do these first; they are worth multiples, not percentages.**
 
@@ -543,7 +842,19 @@ each; the corpus's own measurements where they exist.
 
 ## 6. Citation health
 
-**Volume.** Roughly 7 600 lines across the seven sections, carrying **116 distinct URLs**.
+**§08 (added after round 3).** Roughly 3 400 lines carrying **133 numbered source entries**, every
+one fetched in the session that produced it, with a separate ledger of ~25 sources that could not be
+fetched and the specific claims that therefore remain unverified (§08 §8.2). It is the only section
+whose primary sources are predominantly **2015–2026** and the only one whose hardware claims are
+about the Cascade Lake-SP part the panel is actually scored on. Its §8.3 tabulates, with both sides
+cited, the ten places where it contradicts or supersedes an earlier section — the largest being
+§04 §8.2's AVX-512 downclocking figure (wrong SKU and wrong core count for our workload), §05
+§10.6's "block to L1, which is safe everywhere" (safe but now leaves 7.6× on the table), and §03 §7's
+"genuinely unmeasured territory" (partly measured, and the measurement redirects our effort). It also
+carries its own unsourced-notes section (§08 §7) keeping derived arithmetic separate from cited
+material, in the style §02 §8 and §03 §9 established.
+
+**Volume.** Roughly 7 600 lines across the original seven sections, carrying **116 distinct URLs**.
 Counting bibliography entries: about **100 source-references marked fetched-and-read**
 (with substantial and deliberate overlap — Frigo PLDI'99, Frigo & Johnson 2005, Johnson &
 Frigo 2008, Burrus's *Fast Fourier Transforms*, Duhamel & Vetterli 1990, Bailey 1990,
@@ -600,7 +911,21 @@ on the machine rather than from a document.
   canonical 17-point module), Blake/Witten/Cree 2013 (the only published CPU library built on
   runtime code specialisation — the nearest prior art to this entire project), and Sansone &
   Cococcioni 2023 (the only study of exactly §04's layout question under AVX-512). All three
-  returned 403 from every route tried.
+  returned 403 from every route tried. **Two independent research passes retried all three while
+  producing §08 and failed again.** Note however that Sansone & Cococcioni is no longer
+  load-bearing: §08 §5.4 answers the layout question with three other fetched sources, one of them
+  a direct x86 double-precision measurement of our exact kernel shape.
+
+- **§08's own weakest points, stated so they are not over-read.** (a) Its central AVX-512 result
+  rests on an Intel *specification* table, not a measurement, and it flags that the Gold 5218's
+  2.9 GHz AVX turbo is anomalously low next to its sibling 5220's 3.8 GHz — one `perf stat -e
+  cycles,ref-cycles` on the node would make all of §08 §4 measured rather than inferred, and that
+  measurement has not been taken. (b) Its per-cycle FMA-throughput table is a *composition* of four
+  verified documents, not a single source. (c) Several batched-transform numbers it relies on are
+  fp32 and/or multi-threaded (Zlateski et al., Gelashvili et al.) and are flagged as such in place.
+  (d) Two of the §6 sources are 2026 preprints, one of which appears to mis-attribute its central
+  construction; §08 §7 note 9 says so and rests the recommendations on the peer-reviewed classics
+  behind them instead.
 - **The single largest evidential gap is not a citation problem at all:** there is no published
   measurement of a small fixed 3D complex-double cube on a single CPU core, by anyone, on any
   algorithm (§03 §7, §07 gap 7). The corpus is honest about this. It means the ranking in §5

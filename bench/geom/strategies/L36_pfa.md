@@ -728,3 +728,169 @@ worth it — wallaby's pick is not the scored pick.)
    the z-subloop staged transposes are the only levers left (r2 Next 1).
 3. The forced-variant control run at B=32/B=256 the verdict scheduled needs
    only `FFT36_MODE`/`FFT36_PF`/`FFT36_PW` env vars now — no recompile.
+
+---
+
+## Round panel_r5
+
+### Where round 4 stood, and what this round is
+
+Node, panel_r4: **first at B=32 (174.226 µs, −20.2%, the round's largest move)
+and B=256 (218.899, −3.8%)**; second at B=1 (121.866 vs mixedradix 119.021,
+itself +1.5% over my r3 121.9→120.0); third at B=4 (132.347, a real +2.4%
+regression over r3's 129.242 that the verdict attributes to the per-plane
+refactor — same pick string, 0.5% spread). The verdict's L=36 priority was to
+*explain* the B=32 win. The pick strings in `results/panel_r4/c_L36_pfa_*.json`
+already answer most of it: **the node chose `pw=4 mode=inplace pf=1` at BOTH
+B=32 and B=256** — every scratch, scratch+NT and pipe candidate lost on the
+node, in both streaming cells. r3's invisible config was (by its own record's
+prediction) scratch+NT+pf, so the 20% at B=32 is mostly the *mode moving to
+inplace*, which only became possible when r4's hysteresis ranked inplace
+simplest. The r4 pipe machinery: built, gated, and rejected by the node
+exactly as the tournament is designed to do.
+
+That reading exposes the round's target. In INPLACE mode phase 1 stores to a
+**cold `out` volume**: at streaming batch sizes every one of the 11 664
+64-byte lines (746 KB) costs a demand read-for-ownership from DRAM that
+nothing overlaps — the read stream is paced by PFIN since r3, but the write
+stream has never been prefetched. Meanwhile L6_unrolled's r3 headline
+(adopted by L6_pfa in r4, and *selected by the node* at every DRAM batch size
+at L=6) is precisely this fix: `__builtin_prefetch(p,1,3)` emits `prefetchw`,
+acquiring the line exclusive ahead of the store while keeping the
+normal-store shape this node demonstrably prefers over NT (it has now
+rejected NT at L=6, L=8 and L=36).
+
+### Technique (round 5 delta) — no arithmetic change anywhere
+
+1. **`pf=2`, write-intent prefetch, as a third pf level in the tuner.**
+   Two mechanisms, each attached to the pass whose normal stores hit cold
+   lines, so the level means something in every mode that has it:
+   * **M_INPLACE (`PFWMID`)**: phase 1 paces a write-intent cursor over the
+     mid==out store stream with the *same pacing arithmetic as PFIN* (18
+     lines per loop iteration, 2·NVR iterations per plane = exactly one
+     plane's worth per plane processed), at distance `FFT36_PFWD` = 2592
+     doubles = one 20.25 KB plane. Lead per line: 18–27 iterations
+     (0.5–1.5 planes ≈ 1.5–4 µs at node speed) — enough to cover a DRAM RFO,
+     short enough that L2 (1 MB = 50 planes) never evicts a line between
+     prefetchw and store.
+   * **M_SCRATCH (`PFW36`)**: phase 2 write-prefetches its 36 out-streams
+     one 64-B line ahead of the tile being stored, mirroring PF36 on the
+     read side (out is the cold stream in scratch mode; S is warm).
+   * NT and PIPE modes gain nothing (NT stores do not RFO), so pf=2 is not
+     instantiated for them: candidate count 16 → 20 per tournament, all
+     still gated at 1e-13 vs the reference before eligibility.
+2. **Per-plane functions inlined away.** `phase1_plane`/`phase2_yplane` are
+   now `always_inline`, so the non-pipe paths compile back to r4-r3's
+   monolithic loop bodies (36×2 calls/volume with a 20 KB stack frame each
+   are gone) while M_PIPE keeps its per-plane interleaving. This is the
+   direct response to the verdict naming the r4 refactor as the only
+   candidate cause of my +2.4% B=4 node regression.
+
+Cost accounting for pf=2: 11 664 `prefetchw`/volume in phase 1 (inplace) or
+11 664/volume in phase 2 (scratch, 36 per tile × 324 tiles) — ~4% extra µops
+on otherwise idle store-port slots, zero flops. Knobs for the monitor:
+`FFT36_PF=2` forces it, `FFT36_PFWD` moves the phase-1 write distance.
+
+### Attribution
+
+* **`prefetchw` on the cold output stream: L6_unrolled round panel_r3**
+  (their `fused_pfw`, −29% at DRAM sizes, "first positive prefetchw datum in
+  the corpus"), **as re-proven by L6_pfa in r4** (adopted it, won B=4096) and
+  by the node's own picks (prefetchw variants selected at all L=6 DRAM
+  cells). Their cache-resident warning — pfw was **17% WORSE** at L3-resident
+  sizes on wallaby — is respected structurally: pf=2 is a gated candidate,
+  never a default, and the measurements below confirm the tuner rejects it at
+  B=1/B=4 exactly as their record predicts.
+* The read-side pacing arithmetic that PFWMID reuses is my own r3 PFIN.
+* "Add candidates, never replace structures" (r3 verdict) applied again: all
+  r4 candidates survive unchanged; pf=2 is purely additive.
+
+### Operation count
+
+Unchanged: 248 FMA-port vector ops per 36-point line over PW lanes, 241 056
+per volume at PW=4. Verified under the monitor's flags
+(`-O3 -march=cascadelake -std=gnu11`): builds clean; disassembly carries 126
+`prefetchw` sites alongside the r4 t0/t1 population (288/174); bare `-O2`
+and Haswell `-march=native` also build clean (mixedradix's r4 latent-break
+lesson checked against).
+
+### What was measured (wallaby, Gold 6448Y — toggling fast/slow ~2× windows
+all session, like r2; in-arena numbers are back-to-back and comparable,
+cross-run deltas are not unless the window is quiet)
+
+End-to-end, driver min; rel_l2 vs numpy 3.644–3.654e-16 at B=1/4/32/256;
+bit-identical re-runs; AVX2-only build verified end-to-end on wombat
+(PASS 3.651e-16 at B=4, bit-identical):
+
+| B | end-to-end µs/vol | pick | window |
+|---|---|---|---|
+| 1 | **51.4** | pw4, inplace, pf=0 | fast (= r4's 51.2: nothing regressed) |
+| 4 | **80.4** (min) | pw4, inplace, pf=0 | noisy, sd 17% — not comparable to r4's 74.6 |
+| 32 | **71.4** | pw4, inplace, **pf=2** | quiet, sd 0.04% (r4 same host: 83.0 → **−14%**) |
+| 256 | **101.6** | pw4, scratch, **pf=2** | sd 0.6% (r4: 107.6 → −5.6%); MKL same window 197.2 → 1.94× |
+
+In-arena (one tournament each, back-to-back, the load-immune comparison):
+
+* **B=256**: scratch-pf2 **84.8** vs scratch-pf1 97.7 (**−13%**);
+  inplace-pf2 **90.5** vs inplace-pf1 156.6 (**−42%** — the phase-1 RFO was
+  indeed the dominant exposed cost of the mode the node runs); pw2-inplace-pf2
+  97.7 vs pw2-inplace-pf1 172.7. Every pf=2 candidate beats its pf=1 twin.
+* **B=32**: inplace-pf2 **70.1** vs inplace-pf1 75.0 (−6.5%); scratch-pf2
+  71.7 vs scratch-pf1 91.6.
+* **B=1**: inplace-pf2 117.4 vs inplace-pf0 104.2 (+13%, cache-resident, as
+  L6 warned) — tuner keeps pf=0. **B=4**: inplace-pf2 138.7 vs pf0 124.9 —
+  rejected likewise. The hysteresis (unchanged, 3%) has nothing to do at
+  either end: pf=2's wins and losses are all ≥6%.
+
+### What was tried and did NOT work — with the number that killed it
+
+1. **pf=2 at cache-resident batch (B=1/B=4)**: +13% and +11% in-arena (above).
+   Not a surprise — L6_unrolled measured +17% in the same regime — but now
+   confirmed at L=36: prefetchw on lines that are already in cache is pure
+   µop tax plus L1 churn. The candidate structure (tournament-gated, never
+   default) is what makes it safe to carry.
+2. **Isolating the r4 per-plane call overhead on wallaby**: not resolvable
+   this session — the host toggled 2× windows and the effect is ≤2.4% (node).
+   The inline change is shipped on the verdict's attribution, is zero-risk
+   (same address streams, verified bit-identical output at every batch), and
+   the node's B=4 cell will score it.
+3. Nothing else was touched. Deliberately narrow: one new mechanism, one
+   restoration.
+
+### Node predictions (stated so they can be scored)
+
+* **B=256: 190–210 µs** (from 218.9). The node's inplace-pf1 has ~119 µs/vol
+  of un-overlapped memory time (r2 verdict arithmetic still holds) of which
+  the 746 KB RFO stream is roughly a third; wallaby's in-arena said −13/−42%,
+  the node has slower DRAM (more latency to hide — bigger prefetch upside)
+  but a lower bandwidth ceiling (~124 µs floor). Pick: inplace-pf2 or
+  scratch-pf2 — wallaby chose scratch-pf2, but the node has preferred
+  inplace in both streaming cells and inplace-pf2's RFO removal is the
+  larger relative gain there.
+* **B=32: 158–172 µs** (from 174.2), pick inplace-pf2, by the same mechanism
+  at the −6.5% in-arena scale.
+* **B=1: 119–122** (pick inplace-pf0, pf=2 correctly rejected); **B=4:
+  128–132** — if the inline restoration recovers the refactor cost, B=4
+  returns to ~129 and B=1 shaves ~1 µs; if B=4 stays at 132 the refactor
+  attribution was wrong and the cause is elsewhere (worth one forced
+  `FFT36_MODE=inplace FFT36_PF=0` control against the r3 binary if the
+  monitor keeps them).
+* If the node picks scratch-pf2 at B=256 while inplace-pf2 wins B=32, that
+  is the L2-residency crossover (S + out working set vs 1 MB) moving with
+  batch size, and it is real information, not tuner noise.
+
+### Next
+
+1. **`FFT36_PFWD` sweep on the node** (1296 / 2592 / 5184): the 2592 default
+   is pacing arithmetic, not measurement — wallaby's windows were too noisy
+   to resolve it. One env-var A/B per value at B=256.
+2. If B=256 lands ≤195, the batched story is within ~1.5× of the 124 µs
+   bandwidth floor and the marginal return drops; move to B=1, where the
+   only levers left are arithmetic: the 88→80 DFT9 instruction gap via
+   transcribing genfft's actual n1_9 DAG into interleaved-lane form (~3%,
+   three hand attempts already failed in r1 — do not hand-derive a fourth),
+   and the z-subloop staged transposes (r2 Next 1b, still unmeasured).
+3. If pf=2 is rejected on the node everywhere despite the wallaby margins,
+   measure whether `prefetchw` on Cascade Lake demotes to a plain prefetch
+   (it is PRFCHW, not 3DNOW — it should not), e.g. one forced
+   `FFT36_PF=2` vs `FFT36_PF=1` pair at B=256 settles it.

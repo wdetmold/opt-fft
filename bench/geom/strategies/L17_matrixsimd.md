@@ -856,3 +856,171 @@ pipelining; pipelining is what won B=256. AVX2 host (Haswell): PASS
 3. If a future round changes the interleave or insertion points: it is
    scheduling-only, but **cmp anyway** (see item 5 above for how to do it
    without fooling yourself).
+
+---
+
+## Round panel_r5 (2026-08-21)
+
+### Standing after round panel_r4
+
+Swept all four L=17 cells again on the node (B=1 16.431, B=8 18.008, B=256
+21.626, B=2048 22.290 µs), 3.77–4.97× the best library. The node's picks:
+B=1/B=8 = 512-bit pinned sines X-last (pc flip-flopped between processes,
+bit-identical); B=256 = X-first pf=0 in two processes, **pipelined in one**;
+B=2048 = X-first pf=0 in all three. So of r4's three new levers the node took
+pipelining once, NT never — the r4 VERDICT's headline for the panel was that
+five cross-volume pipelining schemes were built and the node selected none in
+any cell (mine was the closest to an exception). Net round-over-round: B=2048
+−1.8%, everything else flat. Meanwhile **L17_rader's mixed-width ymm-tail
+("512t") was picked by the node in all 12 process-cells and moved them −4.1%
+(B=1) to −5.2% (B=2048)** — the first confirmed port-level lever at this
+geometry, and it transfers directly to this entry's structure.
+
+### What changed (two things)
+
+1. **Mixed-width tail chunks** (`l17_execm_xl/xlp/xf/pipe`, FORCE 38–41,
+   tuner candidates 32–35). *Adopted from L17_rader round panel_r4, with
+   attribution.* The Gold 5218 has ONE fused 512-bit FMA unit but TWO 256-bit
+   FMA ports, so a ymm chunk retires its 148 FP ops in ~74 cycles where a zmm
+   chunk needs ~148. A 17-long free index therefore costs 4 zmm + 1 ymm tail
+   (offsets 0,4,8,12 + 15; one line recomputed) = ~4.5 zmm-equivalents,
+   instead of 5 zmm (0,4,8,12,13; three lines recomputed). The X pass gets
+   72 zmm + 1 ymm at 287. Implementation: the mixed execs live in the main
+   body after both template passes and call `chunk17n_w4` and `chunk17n_w2`
+   from the same function — the zmm K set is asm-pinned as before, the ymm
+   tail runs the same pinned code path with its own unpinned Q set (pinning
+   both sets would hold 16 of 32 registers and make the zmm kernel spill; the
+   Q set spilling to stack instead costs the tail chunk a few reloads, visible
+   as 64 stack refs vs 27 in the pure exec). The zmm group loop is kept
+   rolled with an **asm-opaque bound** (L17_rader r4: gcc 11 ignores
+   `#pragma GCC unroll 1` around an always_inline callee). Four variants:
+   X-last pc=0/pc=1 (class B), X-first pc=0 and X-first pipelined (class D).
+
+2. **Sustained-clock probe in the description string** — the monitor's r4 ask
+   for L=17. Four independent latency-4 FMA chains issue exactly 1 FMA/cycle:
+   dense enough in heavy ops to hold the width's licence clock, and
+   latency-bound rather than unit-bound on 1- and 2-FMA parts alike, so
+   cycles = 4N and clk = 4N/elapsed (assumes FMA latency 4: true on
+   SKX/CLX/ICX/SPR, 25% low on Haswell, which is not scored). Best of 3 reps
+   of ~1 ms, first rep absorbs the licence transition; runs once at the end
+   of create(). `fft3d_description()` now ends with
+   `clk512/256=X.XX/Y.YY GHz`, so the r5 leaderboard JSONs will carry the
+   node's actual 512-bit vs 256-bit clocks — the number the whole
+   width-tuning story has been inferred around since r1. Wallaby measures
+   4.10/4.10 GHz (Gold 6448Y: no 512-bit downclock, as the brief says).
+
+### Operation count
+
+Per chunk unchanged (148 vector FP ops). Per volume the chunk mix changes:
+pure zmm = 243 chunks = 35 964 zmm-op-slots; mixed = **208 zmm + 35 ymm**
+chunks. Node-cycle floor at 1 zmm-FMA/cycle, ymm at 2/cycle:
+208×148 + 35×74 = **33 374 cycles = 14.51 µs** at 2.30 GHz, against the pure
+512-bit floor of 35 964 cycles = 15.64 µs (−7.2%). Line-slot accounting: Y/Z
+now waste 1 recomputed line per 17 instead of 3 (18 slots for 17 lines), X
+wastes 1 per 289; the ideal no-waste floor is 32.1k cycles, so the mixed
+kernel sits 4% above ideal — the lane tax that r1 called structural is now
+almost entirely paid off *on the node's port structure* (on a 2-FMA-unit
+machine the mix is exactly FP-neutral and only the instruction count grows).
+
+### Bit-classes: verified, and how
+
+All four mixed variants were cmp-verified on **full output files** on wallaby
+before being added to the selection classes: F38, F39 == F20 (exec14_w4,
+class B rep) at B=8; F40, F41 == F21 (exec15_w4, class D rep) at B=256.
+Dedicated per-batch input files (in8/in256), not tryout's recycled in.bin
+(r4 item 5). So the per-lane arithmetic of the w2 instantiation contracts
+identically to w4 under this gcc — as it did for L17_rader — and the tuner
+may select mixed vs pure freely within each class. Caveat for the record:
+bit-identity is a codegen artifact verified on wallaby's -march=native
+(SPR); the node compiles -march=native (CLX). r4's selD carried exactly the
+same exposure and held on the node (the B=1 pick flipped between processes
+with correctness JSONs identical to the last ULP), so the risk is accepted,
+not ignored.
+
+### What was measured — wallaby (Gold 6448Y, shared, noisy again: sd up to
+28% within runs; min-across-runs is the statistic)
+
+Forced, per transform, min of 3 same-window reps:
+
+| case | pure (F20/F21) | mixed (F38/F40) | mixed pipelined (F41) |
+|---|---|---|---|
+| B=1 X-last | **8.96** | 9.26 (+3.3%) | — |
+| B=256 X-first | 9.89 | 9.99 | **9.35** |
+
+Exactly the expected sign: on TWO 512-bit FMA units the mix is FP-neutral
+and pays ~750 extra static instructions (1906–1987 per exec vs 1163–1175
+pure; pipe 3059, all within L1i), so wallaby prefers pure and **the mixed
+variants are a pure node bet, shipped as tuner candidates** — same shape as
+L17_rader's r4 bet, which the node then took everywhere.
+
+Autotuned end-to-end (shipping config), per transform, best of runs, all
+PASS rel_l2 = 3.226e-16 … 3.259e-16 and bit-repeatable across processes:
+
+| case | this round | r4 same machine |
+|---|---|---|
+| B=1 | **8.64 µs** | 9.76 |
+| B=8 | **8.96 µs/t** | 10.04 |
+| B=256 | **9.14 µs/t** | 9.66 |
+| B=2048 | **13.22 µs/t** | 13.45 |
+
+(Deltas vs r4 are mostly machine-mood, not code: the B=1 path is unchanged
+when the tuner picks pure. In one heavily contended window the B=1 tuner
+table ranked everything ~2× slow and kept mixed C-parked at 16.22 — plan-time
+in-process tuning correctly tracks whatever conditions the process actually
+has.) AVX2 host (Haswell): PASS 3.255e-16, repeatable, 23.4 µs/t at B=8 —
+the emulated-zmm + real-ymm mix compiles and runs correctly there too.
+
+### What was tried / observed that did NOT work
+
+1. **Mixed tail on wallaby at B=1: +3.3% (9.26 vs 8.96 forced).** Not a
+   failure — the predicted sign on a 2-FMA-unit part — but recorded so
+   nobody reads wallaby numbers and deletes the variants. Only the node can
+   confirm the −7% prediction; L17_rader's node data says it will.
+2. **Pinning both K (zmm) and Q (ymm) constant sets — rejected at design
+   time, not measured:** 16 of 32 registers held across the whole execute
+   would guarantee spills in the zmm kernel (r1 item 2: 25 live vectors →
+   342–805 stack refs). The Q set spills ~37 extra stack refs instead, on
+   1 chunk in 5.
+3. **An xmm (WC=1) tail instead of ymm — rejected by arithmetic, not built:**
+   a WC=1 chunk still costs 148 FP ops for ONE line = 74 cycles/line on the
+   node, exactly what the ymm tail pays for two lines (one wasted). Equal
+   cycles, one more kernel instantiation in L1i. The ymm tail is optimal at
+   the chunk level; the remaining 4% over the no-waste floor is not
+   addressable by width mixing.
+4. **The `#pragma GCC unroll 1` trap re-confirmed second-hand:** the mixed
+   group loop uses an asm-opaque bound from the start (L17_rader r4 item 2);
+   the 4-copy unroll it prevents would have put ~1000 extra instructions
+   into each exec.
+
+### Expectations for the node
+
+* B=1/B=8: if the tuner picks mixed (it should — L17_rader's kernel, with
+  worse lane economics than mine, gained 4.1% from the same trick), the
+  port-floor argument predicts 16.43 → **~15.3 µs** at B=1 (16.43 × 33374 /
+  35964 = 15.25, if B=1 is still purely FMA-port-bound) and B=8 ~16.7.
+  The pick string will say `512-bit+ymm tail`.
+* B=256/B=2048: the compute floor drops ~1.1 µs; the memory-bound overhead
+  on top is untouched, so expect ~20.5 / ~21.2 µs if the streaming picks go
+  mixed (plain or pipelined).
+* The clk512/256 numbers in the description strings are the round's real
+  deliverable for the panel: they close LITERATURE.md §4.8 gap 6 with a
+  measured licence-clock pair on the scoring part, and they price every
+  future width decision at L=17 (and L=8/L=36, whose implementers should
+  read them).
+
+### Next
+
+1. Read the node's picks and the clk512/256 pair. If mixed won B=1 at
+   ~15.3, B=1 is within ~5% of the new 14.5 µs floor and the lane tax is
+   closed; the only remaining B=1 lever would be fewer FP ops per line,
+   which r2/r3 closed (the −12% nested split bought 1.4%). Declare B=1 done.
+2. If mixed also won the batch cells, the gap to the ~15 µs batched floor is
+   pure memory scheduling again: the next candidate is deepening the
+   pipeline (X chunks of volume b+1 issued TWO planes ahead), which stays in
+   class D and was the r4 VERDICT's named move before it de-prioritised
+   pipelining panel-wide. Read the B=2048 delta first.
+3. If the node's clk256 comes back well above clk512 (a real licence gap),
+   re-examine the 256-bit X-first candidates at batch with the measured
+   ratio in hand — the r3 observation that L17_winograd's node tuner picked
+   256-bit in batched regimes has never been explained, and the clock pair
+   either explains it or rules it out.

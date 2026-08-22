@@ -814,3 +814,167 @@ copy-interleaved-into-passB schedule: this file, this round.
 4. **B=1** remains a three-way tie 13% above the port floor; the only untried
    structural lever is software-pipelining two line-groups (mixedradix r1
    item 2). Somebody should finally measure it, even to kill it.
+
+---
+
+## Round panel_r5
+
+### Where round r4 landed, and the diagnosis
+
+Node (Gold 5218, panel_r4): third at B=1 (122.5 vs mixedradix 119.0), third at
+B=4 (132.4 vs 129.9 — lost the cell r3 held), **third at B=32 (219.6 vs
+L36_pfa's 174.2, −26%)** and third at B=256 (242.2 vs pfa's 218.9, and a real
++2.3% regression against my own r3 with the same `scratch+nt` pick). The
+r4 headline machinery (PIPE/SEQNT/PIPESEQ) was selected by the node tuner in
+**zero cells** — the verdict promoted this file explicitly as the round's
+*instructive failure*.
+
+The decisive information in the r4 data is not my regression, it is **how
+L36_pfa won both streaming cells: `pw=4 mode=inplace pf=1`** — no scratch, no
+NT stores, no pipeline. Sequential pass A directly into `out`, strided pass in
+place on `out` with plain cached stores (RFO and all), one-line-ahead prefetch
+on the 36 strided streams, paced software prefetch of the `in` read stream,
+and ~62 KB pre-coverage of the *next* volume's input. The node rejected every
+NT variant on the board (also L8: `avx512-3p-pfs`, plain stores, won both
+streaming cells). Meanwhile MY tuner could never discover this: my INPLACE
+(mode 0) is hardwired to the y-first pass A, whose 36 stride-576B load streams
+on DRAM-cold input are this file's own documented 2× loss (101 vs 58 µs/vol,
+r3). So at B≥32 my candidate set contained *no viable in-place option at all*
+— the structural reason the tuner fell back to `scratch+nt` and lost by 26%.
+
+### Technique (round r5): mode 7 ISTREAM + two tuner protocol fixes
+
+Line kernel, both widths, modes 0–6, INPLACE/B=1 path: all byte-identical to
+r4. Three changes, all additive:
+
+1. **Mode 7 ISTREAM** (adopted from **L36_pfa r4**, their node-winning
+   `inplace pf=1` configuration, translated onto my kernels — stated plainly:
+   this is the round's headline borrow). Per volume: `passA_plane` (z-first
+   transpose-on-load, sequential cold reads, plane-ahead T1 prefetch) writes
+   straight into `out`; then `passB_cached` runs the x-transform **in place
+   on `out`** (PFA36 loads a whole line group before its first store, the
+   same property modes 0/5/6 already rely on), with its existing
+   one-line-ahead prefetch on the 36 strided read streams, plus **3 lines of
+   the next volume's input prefetched per line group** (T1; 324 groups × 3
+   lines ≈ 62 KB at PW=4 — L36_pfa's PFNX trick, so the next volume's pass A
+   never starts cold). No new kernels: the mode is ~10 lines of dispatch.
+   Admitted at every batch size (not NT-gated). DRAM traffic per volume =
+   read `in` + RFO `out` + write `out` ≈ 2.2 MB against scratch+nt's
+   nominal 1.5 MB — the node's r4 verdict is that the *order* wins over the
+   volume: 36-stream strided NT is a row-buffer-thrash pattern, and cached
+   stores let the L2/LLC absorb and re-order the drain.
+
+2. **Self-warming tuner measurements** (new, this file). Found while
+   validating mode 7: with `inner=1` at large tb, each candidate's in-arena
+   measurement inherits the *previous* candidate's cache state. istream sits
+   right after pipeseq in the rotation; pipeseq ends with an NT sweep that
+   flushes `dout`, so istream was charged full RFO misses its own steady
+   state never sees — **167.4 µs/vol in-arena vs 89.8 end-to-end at B=32
+   (pw4, wallaby)**, an 86% phantom penalty that would have buried the new
+   candidate on the node too. Fix: one untimed exec of the candidate before
+   each timed rep (tuner cost ×2, still unscored ~1 s at B=256). After the
+   fix: istream 90.2 in-arena = its end-to-end number. *Rule for the record:
+   an interleaved-rounds tournament is only fair if every candidate is timed
+   from its own steady-state cache; NT-mode candidates poison whoever runs
+   next.*
+
+3. **3% simplest-wins hysteresis** (adopted from **L36_pfa r4**,
+   node-validated): among correct candidates within 3% of the best in-arena
+   time, install the structurally simplest mode (inplace < istream < scratch
+   < nt < seqnt < xv < pipe < pipeseq); at equal mode keep the faster width
+   (width is not a complexity axis — on the node's single 512-bit FMA unit
+   the two widths can genuinely tie, and B=1 is decided by ~3%).
+
+### Operation count
+
+Unchanged: 248 FMA-port ops + 49 port-5 shuffles per 36-point line over PW
+lanes; 241k FMA-port vector ops/volume at PW=4. Recomputed floor with the
+r4 verdict's measured 3.89 GHz sustained clock (not 2.30): **~62 µs/volume**
+on one 512-bit FMA pipe — B=1's 122.5 is 2.0× the floor, not 1.16×; the whole
+panel has more B=1 headroom than every prior record assumed. Mode 7 adds 972
+prefetch µops per volume and zero FP.
+
+### What was measured (wallaby, Gold 6448Y; rel_l2 3.65–3.84e-16 and
+bit-identical re-runs on every run; µs per transform, driver min)
+
+Calibration A/B — my mode 7 vs the actual node winner, **L36_pfa r4 exemplar
+forced to `inplace pf=1`**, built privately from `exemplars/panel_r4/`, same
+windows, B=256: **pfa 157.1, mine 156.6** (and 40088 vs 40219 µs/call in the
+adjacent window — parity). The translation is faithful; on the node their
+config measured 218.9 (B=256) and 174.2 (B=32), which is where mode 7 should
+land.
+
+Forced end-to-end, pw4, same window: B=256 mode 0 (inplace y-first) 184.6 vs
+**mode 7 161.2** (−13% — the z-first pass A on cold input, again); B=32
+mode 0 88.1 vs mode 7 89.8 (parity — B=32's 46 MB is L3-marginal on wallaby,
+so the cold-read order cannot matter here; it matters on the node's 22 MB L3).
+Same-window NT ladder at B=256/pw4 for context: mode 2 114.3, mode 6
+(pipeseq) 98.9, mode 7 156.6 — wallaby still loves NT, exactly as in r4, and
+the node demonstrably does not; both stay in the candidate set and the node's
+own (now self-warming) tournament decides.
+
+In-arena tables after the self-warming fix (B=32/pw4): inplace 102.1, scratch
+78.1, nt 101.5, seqnt 91.7, pipeseq 93.2, **istream 90.2**; wallaby's tuner
+picks scratch — legitimate *on wallaby*, where the 64-volume arena half-fits
+the 60 MB L3 (the documented r3/r4 arena artifact; on the node the same arena
+is 4.4× L3 and streams).
+
+Auto-tuned full runs (all PASS, bit-repeatable): B=1 **51.45** (best this
+file has ever recorded on wallaby; INPLACE path untouched), B=4 72.7 (fast
+window; 81.4 in a 25%-sd window), B=32 72.5–76.7, B=256 105.0–106.4. AVX2
+path verified end-to-end on the Haswell login node (B=2, 3.646e-16, PASS,
+repeatable); clean builds under `-march=cascadelake` and bare `-O2`.
+
+### What was tried and did NOT work — with the number that killed it
+
+1. **Trusting the r4 tuner protocol for the new candidate.** In-arena istream
+   read 167.4 µs/vol at B=32 against a true 89.8 — not noise but a
+   deterministic predecessor-state bias (it ran after pipeseq's NT flush).
+   Any conclusions drawn from earlier in-arena tables where a candidate
+   followed an NT mode carry this taint; the r4 in-arena ranking that
+   preferred scratch-cached over istream-like shapes is exactly the artifact.
+   Fixed by self-warming (above), verified: 167.4 → 90.2 = end-to-end.
+2. **Nothing else was touched.** B=1/B=4 paths ship byte-identical; modes
+   3–6 remain as candidates (add-don't-replace, r3 verdict) but the r4 node
+   data says they will not be picked, and that is fine — mode 7 is the bet.
+
+### Attribution summary
+
+ISTREAM structure (in-place streaming two-pass with cached stores + paced
+input coverage) and the PFNX next-volume pre-coverage: **L36_pfa r4** (their
+node-winning `inplace pf=1`; originally the in-place discipline is
+**L36_mixedradix r1**). 3% simplest-wins hysteresis: **L36_pfa r4**. The
+self-warming tournament fix and the predecessor-poisoning diagnosis: this
+file, this round. Clock re-derivation input (3.89 GHz probe): **L6_unrolled
+r4** via the r4 VERDICT §5.
+
+### Predictions for the node (stated so they can be scored)
+
+* Picks: B=1 pw4 inplace (unchanged), B=4 pw4 inplace, **B=32 pw4 istream,
+  B=256 pw4 istream** (istream should beat scratch+nt by ≫3% there, as
+  pfa's identical structure did by 26% and 10%).
+* B=32: **170–185 µs** (pfa's same-structure 174.2 ± my pass-A/pacing
+  differences). B=256: **210–225** (their 218.9 ±). B=1: 119–124 and B=4:
+  128–133 (untouched paths, spread only; the hysteresis may flip B=4 pw4→pw2
+  only if they truly tie, costing ≤3% by construction).
+* If the node still picks scratch+nt at B=32/256, the self-warming fix
+  changed the in-arena ranking in the wrong direction on that machine and I
+  want the forced `FFT36PF_FORCE_MODE=7` number the monitor can take.
+
+### Next
+
+1. **If istream lands as predicted**, the remaining streaming gap to the
+   ~124 µs traffic ceiling is the RFO on `out`: try a *paced* `prefetchw`
+   (write-intent, L36_pfa's r4 verdict shows L6's prefetchw was the one
+   prefetch the node ever picked) on pass A's `out` stores in istream mode —
+   it converts the RFO stall into a prefetched-exclusive line without
+   changing store order.
+2. **B=1 is 2.0× the recomputed 62 µs floor** (3.89 GHz, single 512-bit FMA).
+   The untried lever remains software-pipelining two line-groups so DFT3
+   latency chains overlap across groups (mixedradix r1 item 2, still nobody
+   has measured it, four rounds later). At 2× the floor this is now the
+   largest identified prize on the whole L=36 board and it is compute-side,
+   so wallaby CAN model it — do it first thing next round.
+3. **B=4 regime**: mixedradix holds it (129.9 vs my 132.4). Both entries run
+   inplace there; the difference is inside the small-batch pass A. Diff their
+   plane pass against mode 0's y-first order before spending a round.

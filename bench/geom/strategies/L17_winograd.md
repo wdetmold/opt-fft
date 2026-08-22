@@ -795,3 +795,181 @@ always_inline makes it moot); `-DL17_DENSE_KERNEL` build still compiles.
    impossible (the driver hands interleaved data), but the deinterleave can
    move from 2 shuffles/2 loads to masked/blend forms; expected small. Do it
    only if matrixsimd stalls too.
+
+---
+
+## Round panel_r5 (2026-08-21)
+
+Node standings going in (panel_r4): **3rd at B=1** (18.325 vs L17_matrixsimd
+16.431 and L17_rader 17.742 -- rader passed me in every cell with its
+mixed-width zmm+ymm tail, the round's one confirmed node win), 3rd at B=8
+(19.628), 2nd at B=256 (24.032) and B=2048 (24.221). My r4 delta, the
+software-pipelined p4/p8 variants, was selected by the node in **zero cells**
+(picks: a8 at B=1, f4 at B=8/256/2048) -- the fifth of five cross-volume
+pipelining schemes the r4 panel built that the node rejected, and the r4
+VERDICT (section 5-6) says to stop building them. What the VERDICT settled
+instead, and what this round acts on:
+
+* The node's sustained **AVX2 clock is 3.89 GHz, not 2.30** (L6_unrolled's
+  probe); every cycle model in this record was off by 1.69x. Nobody has
+  measured the node's **AVX-512 licence clock**, and the monitor's named
+  L=17 move is to extend the probe to both widths and report it through the
+  description strings.
+* The Gold 5218's **single 512-bit FMA unit is confirmed and exploitable**
+  (rader's ymm-tail win, +2.5-5.2%): a zmm kernel casts a ~296-cycle FP
+  shadow per group on the node against 148 on wallaby.
+* Three rounds of my own node numbers say B=1 is **insensitive to everything
+  I have tried** (a8/c8/f8 all 18.2-18.3): at ~2.3 GHz that is ~42k cycles
+  against my 32k-cycle FP floor (the lowest floor of the three entries: 108
+  zmm groups x 296), i.e. **~10k cycles/volume of exposed non-FP time**,
+  while matrixsimd sits at 1.05x its own floor. My r1 decomposition already
+  located it: the per-group transpose+store network barely overlaps the FMAs
+  (600+ uops/group is ~3x the ROB), and the next group's L2 loads stall the
+  kernel head.
+
+### What changed (two things, both additive; nothing replaced)
+
+1. **Deferred-transpose variants d8/e8 (tuner indices 10/11, NVAR 10->12).**
+   Same three-pass a8/b8 structure, arithmetic, loads and store addresses --
+   but each group's transposed store (~120 port-5/port-4 uops that previously
+   serialised at the group tail) is executed one iteration LATE, from a
+   4.4 KB stack staging ping-pong, textually between the NEXT group's loads
+   and its kernel. On a 1-FMA-unit part the drain sits inside the 296-cycle
+   FP shadow and the L2-load-latency window instead of after them. Cost: 34
+   staging stores + 34 staging loads per group, L1-resident. d8 = kernel A
+   (the node's own B=1 pick in r3 and r4); e8 = kernel B (wallaby's preferred
+   schedule, so wallaby measures the deferral delta cleanly). Staged doubles
+   round-trip through memory exactly, the kernel and per-lane store addresses
+   are unchanged, and only stores to disjoint addresses are reordered, so
+   **d8/e8 are bit-identical to a8/b8 by construction** -- verified by cmp on
+   full outputs at B=1 and B=64 on wallaby (d8 == e8 == a8 == b8 == f8), plus
+   identical rel_l2 AND rel_max digits at every batch tried. This is my r1
+   item 8 (deferred store, +3% on Haswell at w=4) rebuilt for a machine whose
+   FP shadow is 4x longer; it generalises L8_radix8's r3 "make stores
+   sequential even at the cost of an extra L1 round trip" to "make them
+   LATE," which no L=17 entry has tried.
+2. **Dual-width sustained-clock probe in fft3d_create(), reported via
+   fft3d_description()** -- the monitor's r4 ask, design borrowed from
+   L6_unrolled and extended: four independent serially-dependent FMA chains
+   per width (latency 4 each on CLX/SPR), issuing 4 FMAs per 4 cycles --
+   exactly saturating a single-FMA-unit part so the heavy licence is
+   genuinely engaged, while staying latency-bound on a two-unit part; either
+   way cycles = 4n, clk = 4n/t. ~2 ms per width, unscored, run after the
+   tuner has warmed the core, 256-bit before 512-bit so licence dwell cannot
+   leak backwards. An empty asm keeps gcc's SLP vectorizer from fusing the
+   four 256-bit chains into two 512-bit ones. Every L=17 leaderboard JSON for
+   this entry now carries e.g. `var=f8, pf=0, clk256=4.10GHz, clk512=4.10GHz`.
+   **The node's clk512 will be the first AVX-512 licence-clock measurement in
+   the corpus (LITERATURE.md section 4.8 gap 6).** Caveat: FMA latency is 5 on
+   Haswell, so the AVX2 dev host reads 20% low; node and wallaby are latency-4.
+
+   Probe validation on wallaby, which doubles as a finding: it read
+   **2.10 GHz in a contended window and 4.10 GHz in an idle one, at both
+   widths** -- exactly the Gold 6448Y's base and max-turbo clocks, and
+   directly confirms SPR applies no AVX-512 licence downclock. So wallaby's
+   session-to-session swings (my r3/r4 "sd up to 34%" complaints, and
+   matrixsimd's "clock bimodal" note) are a provable 1.95x CLOCK swing, not
+   cache noise. The probe makes the windows visible from now on.
+
+   Tuner bookkeeping: stage 1 now times all single-volume variants including
+   d8/e8 (still skipping p4/p8, which degenerate to f4/f8 at nv=1); stage 2
+   ranges over all 12 x {pf on,off} with the pf column skipped only for
+   p4/p8; run_vols dispatches variant>=10 through one_volume (the pipelined
+   early-exit is now ==8||==9). Plan time at B=2048: 1.26 s (r4: 0.97).
+
+### Operation count
+
+Unchanged: 296 FP instructions / 488 flops per 17-point transform, 3x289
+kernels per volume. d8/e8 move no arithmetic; they add 34+34 L1 staging
+stores/loads per group and move ~120 uops one group later in time.
+
+### What was measured (wallaby, Gold 6448Y, gcc 11.4, panel flags; the probe
+now proves the machine swings 2.10 <-> 4.10 GHz between sessions, so only
+same-window A/Bs are quoted)
+
+One clean 4.10 GHz window, forced, B=1 (min over ~20 samples each):
+
+| variant | per transform | vs its base |
+|---|---|---|
+| f8 | 9.316 us | (autotune pick, unchanged) |
+| b8 | 9.716 us | -- |
+| a8 | 9.727 us | -- |
+| d8 | 10.772 us | **+10.7% vs a8** |
+| e8 | 10.801 us | **+11.2% vs b8** |
+
+So on a TWO-FMA-unit machine the deferral is a ~10% loss -- the 148-cycle FP
+shadow is too short to hide the drain plus the staging traffic. This is the
+expected sign and it is exactly rader's mixed-width situation inverted:
+**wallaby cannot confirm the mechanism this variant bets on; only the node's
+one-FMA-unit shadow can.** It ships as a pure tuner candidate -- if the port
+arithmetic is wrong the node declines it and nothing is lost (the r3/r4
+"add candidates, never replace" rule).
+
+Autotuned, full tryout: B=1 9.31-10.23 us across windows (pick f8), B=8
+9.46 us/t (f8, idle window), B=256 11.21 us/t (ties my best-ever wallaby
+number), B=2048 21.1 us/t (f8 pf=0; contended session, r4 measured 18.4 in a
+clean one). Correctness: rel_l2 = 3.256e-16 ... 3.269e-16 at
+B in {1,8,64,256,2048}, PASS and bit-repeatable everywhere; forced p8 and d8
+paths exercised at B=64 (the dispatch edits); AVX2 host (wombat) verified end
+to end, PASS 3.256e-16, repeatable; `-Wall -Wextra` clean (only the
+pre-existing ABI notes); `-DL17_DENSE_KERNEL` build still compiles.
+
+### What was tried and did NOT work -- with the number that killed it
+
+1. **The deferral on a two-FMA-unit machine: +10.7%/+11.2%** (table above).
+   Not a surprise, but now it is a number: do not enable d/e-style deferral
+   where the FP shadow is short.
+2. **A cross-window A/B artifact worth recording so nobody repeats it: a8
+   measured 19.069 us with sd 0.10% in one window and 9.727 us in another.**
+   The tight sd made the slow number look trustworthy; it was a 2.10 GHz
+   window, and my first d8-vs-a8 comparison (10.56 vs 19.07, "-45%!") was
+   pure clock artifact. Same-binary, same-window re-measurement collapsed it
+   to +10%. With the probe in the description string, any suspicious wallaby
+   number can now be tagged with the clock it ran at. r1-r4's wallaby tables
+   (including my own) should be read with this in mind.
+3. Not retried, per standing dead-end lists: everything in r1-r4 (arithmetic
+   splits, NT stores, same-volume prefetch, t-ordered schedules, more
+   cross-volume pipelining -- the r4 VERDICT explicitly closes that last one).
+
+### Borrowed from other entries (attribution)
+
+* **L6_unrolled**: the FMA-latency-chain clock probe (its r4 shipping probe;
+  the r4 VERDICT section 5a result). Extended here to dual width with
+  licence-saturating parallel chains and SLP-defeating asm.
+* **L17_rader**: the one-FMA-unit port-shadow arithmetic that motivates d8/e8
+  (its confirmed r4 mixed-width result is the only direct evidence the node
+  behaves as the shadow model predicts), and the "wallaby cannot confirm a
+  node bet -- ship it as a tuner candidate" pattern.
+* **Monitor (r4 VERDICT)**: the clock-probe ask itself, the 3.89 GHz AVX2
+  datum, and the stop-pipelining directive that kept this round narrow.
+
+### Expectations for the node, and what to read off the next leaderboard
+
+* **Read clk256/clk512 out of any L17_winograd description first.** clk256
+  should reproduce ~3.89; clk512 is the corpus's first AVX-512 licence-clock
+  number on this part. It arbitrates directly: my B=1 = 18.3 us is 42.1k
+  cycles at 2.30 GHz (1.32x my floor, stall story) but only ~33k at 1.8 GHz
+  (1.03x, clock story).
+* **B=1/B=8: does the tuner pick d8?** If yes and B=1 lands ~15.5-17, the
+  group-boundary stall is real and was worth ~1-3 us; d4, a deferred fused
+  f8, and deeper (2-group) deferral are the follow-ups. If the node keeps a8
+  at ~18.3 AND clk512 reads ~2.0-2.3, then B=1 is licence-clock/port-bound
+  and arithmetic-closed at 512 bits -- in which case the interesting fork is
+  256-bit: at a confirmed 3.89 GHz AVX2 clock my w4 FP floor is 32k cycles =
+  8.2 us, and the only thing keeping w4 out (r1: the 337-load/group wall at
+  16 registers) is addressable with kernel C's register-resident constants
+  under AVX512VL's ymm16-31 (89 loads/group) -- that becomes the round-6
+  headline move.
+* **B=256/2048: expect f4 pf=0 again** (d8/e8 should not matter where DRAM
+  dominates; they compete anyway at zero cost). The gap to matrixsimd there
+  (2.4/1.9 us) is write-side per its r4 record; do not chase it until the
+  B=1 fork above is read.
+
+### Next (in order)
+
+1. Read the node's picks and the two clocks; branch per the fork above.
+2. If d8 confirms: d4 (same deferral, w4, kernel B), deferral inside the
+   fused f8 fill/drain loops, and 2-group depth -- each a one-macro change.
+3. If the clock story confirms: c4-lite at w4 (re-broadcast the 8 sine
+   constants between kernel halves, r2 item 1's structural fix) targeting the
+   8.2 us w4 floor at 3.89 GHz.

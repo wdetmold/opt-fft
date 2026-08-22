@@ -757,3 +757,153 @@ wins the node's streaming cells is the round's real experiment; both are candida
    lost after this round.
 4. The `perf stat -e cycles,ref-cycles` clock question (r3 Next item 2) is still open
    and still owned by the monitor; it bounds what B=1 work is worth doing at all.
+
+---
+
+## Round panel_r5
+
+### Where round 4 left me (node numbers, panel_r4)
+
+B=1 **0.570 — tied first** with L8_radix8 (fusedaxes 0.579, MKL 0.654); LANEX2/plain,
+3/3 picks, exactly as designed.  Every batched cell lost: B=64 **0.665 — second**
+(fusedaxes 0.623 with plain/no-pf), B=2048 **1.215 — second** (radix8 1.136), B=16384
+**1.642 — third** (radix8 1.418, fusedaxes 1.585).  My node picks (r4 t_*.json):
+B=64 LANEX2/2S + nt0 + **burst t0** (the pick flipped 2/2S between runs, cost ≈ spread);
+B=2048 and B=16384 **LANEX3 + nt0 + burst t0, 3/3** — the tuner correctly abandoned the
+NT default I shipped (so "NT loses on this node's streaming cells" is now MY OWN tuner's
+measured verdict too, not just radix8's r3 reading), but the only prefetch shapes I gave
+it were burst t0 / burst t1 / none.  Meanwhile L8_radix8 won both streaming cells with
+`avx512-3p-pfs` = **spread prefetch + plain stores** (their kernel is isomorphic to my
+LANEX3 — the VERDICT §3c even shows our outputs are bit-identical), 3/3 picks, beating
+their own burst-plain candidate on the node itself.  So the whole streaming gap
+(1.215 vs 1.136, 1.642 vs 1.418) is attributable to ONE variable: prefetch placement.
+The VERDICT's promotion note says my instructive datum was that shipping r2's winning
+config as default still landed 5.5% short at B=16384 — the residue was never the store
+policy, it was the 16-line prefetch bursts stalling the pass-1 demand loads.
+
+### What changed this round (one mechanism + the plumbing it needs)
+
+**1. SPREAD prefetch — borrowed from L8_radix8 round 4, including the fill-buffer
+rationale from their record.**  A new plan-time prefetch mode `PF_S0`: the same 128
+cache lines of volume v+1 are issued a few per loop iteration across the WHOLE volume
+instead of a 16-line plane burst at the top of each pass-A/pass-1 iteration —
+LANEX3: 6/5/5 lines per iteration of passes 1/2/3 (48+40+40, each line exactly once,
+radix8's exact schedule); LANEX2/LANEX2S: 8 lines per iteration of both passes (64+64).
+~1 prefetch per 10–12 cycles, never competing with the transposing load's own 16 demand
+loads or with an NT drain for fill buffers.  Verified in the cascadelake asm: the
+PF_LINES bundles are fully unrolled (6/5/5 and 8/8 static `prefetcht0` per rolled pass
+iteration), zero spills in all 15 runners.
+
+**2. Runner set restructured: burst+NT deleted, t1 deleted.**  Per structure the
+compiled runners are now plain × {none, burst t0, spread t0} and NT × {none, spread t0}
+(15 total, same count as r4).  Burst+NT is the documented fill-buffer clog (radix8 r4);
+t1 was never picked by the node tuner in any cell in rounds 3–4.
+
+**3. Regime-gated candidate sets (gate idea from radix8 r4) with an L3-relative gate.**
+`sysconf(_SC_LEVEL3_CACHE_SIZE)` (fallback 22 MiB); NT candidates only when
+in+out > 0.9×L3.  B=1: three structures plain (default LANEX2, node-verified twice).
+Mid batch (B=64 cell): {L2S,L2,L3} × spread + LANEX2/burst (my r4 node config) +
+{L2S,L2,L3} × none (fusedaxes' winning B=64 policy) — 7 candidates, default LANEX2S/spread.
+Streaming: LANEX3+plain+spread (default — the twin of radix8's node winner),
+LANEX3+plain+burst (my r4 incumbent, 1.215/1.642), L2S/L2+plain+spread,
+LANEX3/L2S+NT+spread, LANEX3+NT+none — 7 candidates.  On the node no scored cell sits
+in the excluded 0.25–0.9×L3 band (B=64 = 0.045×L3, B=2048 = 1.45×L3).
+
+**4. Tuner arena machine-relative: 4×L3 of volumes clamped [4096, 8192]** (radix8 r4,
+who took it from fusedaxes r3) — 5632 on the node, 8192 on wallaby — so the streaming
+policy is tuned on a faithful ≥4×L3 stream on both machines (my old fixed 4096 was only
+1.07×L3 on wallaby).
+
+**5. Defaults are all plain-store now**: B=1 LANEX2/plain (0.570 twice-verified),
+mid LANEX2S/plain/spread, streaming LANEX3/plain/spread.  NT is a candidate, never a
+default — three consecutive rounds of node evidence against it (my r4 picks, radix8's
+r4 picks, and the r4 VERDICT's "the NT variant lost again").
+
+Arithmetic, transposes, interleaves, scratch layout: untouched.  1248 vector FP +
+896 shuffles per volume (LANEX2/2S: 256+256 mem ops, LANEX3: 384+384); the spread
+runners issue the identical 128 prefetcht0 uops per volume, only distributed.
+
+### What was measured (wallaby, Xeon Gold 6448Y SPR, fast-state min over repeated runs;
+the 2× bimodality documented since r2 is still present)
+
+| B | r4 code | this round | wallaby tuner pick | notes |
+|---|---|---|---|---|
+| 1 | 0.305 µs | **0.305** | LANEX2 plain | byte-identical path |
+| 64 | 0.306 | **0.306** | LANEX3 nt0/**s0** | in-tuner: L3/s0 0.597 < L3/none 0.613 < L2S/s0 0.626 |
+| 2048 (0.53×L3 → mid set here) | 0.442 | 0.451 | LANEX2 nt0/t0 (0.806 vs s0 0.821) | wallaby-only regime, see below |
+| 5632 (1.47×L3, node-B2048 analog) | 0.438 | **0.429** | LANEX3 **nt1/s0** (0.440; nt1/none 0.485, L2S nt1/s0 0.455) | spread worth 9% on top of NT here |
+| 16384 (4.4×L3) | 0.597 | **0.597** | LANEX3 nt1/s0 (0.643; nt1/none 0.802, plain 1.2–1.36) | |
+
+Correctness: rel_l2 = 1.32–1.92e-16 (tolerance 1e-12) at B = 1, 3, 7, 17, 64, 2048,
+5632, 16384; bit-identical re-runs everywhere.  All new runner combinations forced and
+PASSed individually (each structure × spread, NT+spread for all three, burst for L3).
+`-DL8_EMU8`, AVX2 (wombat) and `-DL8_SCALAR` builds PASS.  Warning-free under
+`-Wall -Wextra`; cascadelake asm audit: 0 spills in all 15 runners.
+
+### What this round's wallaby numbers do and do not say
+
+* **Wallaby's plain column prefers BURST over spread** (L3: t0 0.884 vs s0 0.985 at
+  B=5632; t0 1.200 vs s0 1.347 at B=16384) — the opposite sign to radix8's r4 node
+  tuner, which picked spread-plain over burst-plain 3/3 in both streaming cells and won
+  them with it.  Yet under NT, wallaby says spread ≫ none (0.440 vs 0.485).  So
+  "spread-plain beats burst-plain" is a NODE fact (measured there by radix8's tuner, on
+  a kernel bit-identical to mine), not a universal one — one more entry for the
+  store-order/prefetch family of results that do not transfer toward wallaby.  Both
+  shapes are candidates and the node's own tournament decides; the default (spread) is
+  the node-verified side, hysteresis 3%.
+* Wallaby's B=2048 sits in the mid set by the 0.9×L3 gate (0.53×L3 there), so it never
+  sees NT candidates on the dev machine — same accepted trade as radix8 r4: on the node
+  that cell is 1.45×L3 and gets the full streaming set.
+
+### What was tried and did NOT work
+
+1. Nothing new failed this round; it was deliberately a single-mechanism round.  The
+   near-miss worth recording is above: my spread-plain does NOT win on wallaby's plain
+   column, so if the node pick comes back burst-plain (i.e. radix8's result does not
+   reproduce under my pass structure), the difference to chase is that LANEX3's pass 2
+   is pure L1 compute with idle load ports — radix8's r4 "Next" suggested issuing ALL
+   spread prefetches from pass 2; that variant is unbuilt.
+2. Not retried, per the records: everything in the r1–r4 failure lists (burst+NT —
+   radix8 r4's clog; separate shuffle-only output pass; interleaved-complex lanes;
+   in-lane butterflies; gather; batch-in-lanes; double-buffered scratch; cross-volume
+   software pipelining — five schemes built panel-wide in r4, zero selected by the node).
+
+### Borrowed / lent
+
+* **L8_radix8 r4**: the spread prefetch schedule (6/5/5 across the three passes), the
+  burst+NT fill-buffer clog (their candidate deletion, adopted as a runner deletion),
+  the L3-relative candidate gate, and the 4×L3 arena clamp.  Their node win on an
+  isomorphic kernel is the entire justification for this round's default.
+* **L8_fusedaxes** (via radix8): the original compute-embedded prefetch idea and the
+  arena cap; their plain/no-pf B=64 win is why no-pf is a mid-set candidate.
+* For others: the burst-vs-spread sign INVERTS between wallaby and the node in the
+  plain-store column (numbers above) — do not tune prefetch placement for plain stores
+  on wallaby; and the L2/L2S/L3 structure choice at B=64 keeps flip-flopping within
+  ~2% on both machines, so treat any single B=64 structure pick as noise.
+
+### Prediction for the node
+
+* B=1 **0.570 stands** (byte-identical path, protected default).
+* B=64: spread replaces burst in the pick; radix8's r4 evidence says placement is worth
+  little at cache residency, fusedaxes' 0.623 is the target.  Expect **0.62–0.66**;
+  structure pick uncertain (2/2S/3 within noise everywhere).
+* B=2048: default = the exact winning configuration of the cell (radix8's 1.136 was
+  spread+plain on bit-identical arithmetic; my r4 burst+plain measured 1.215).  Expect
+  **1.13–1.18**; anything above 1.20 means my pass structure interacts with spread
+  differently than radix8's and the pass-2-only placement is the next experiment.
+* B=16384: same argument, target **1.42–1.50** (radix8 1.418; my burst 1.642).
+
+### Next
+
+1. Read the node's streaming picks: if spread-plain is picked and ≈1.14/1.42, the
+   burst→spread attribution is confirmed on my structure and the L=8 batched story is
+   at the radix8 frontier; the remaining ~4% to the 1.365 bandwidth floor at B=16384 is
+   read-side scheduling (pass-2-only prefetch placement, unbuilt).
+2. If the node keeps burst-plain: the wallaby inversion transferred, radix8's win is
+   specific to their pass structure, and the pass-2-only variant is the cheap next probe.
+3. B=64 remains structural (fusedaxes' 256+256 single-fused-pass at 0.623); if this
+   round's spread does not close it, the honest move next round is adopting their fused
+   shape as a fourth structure — a rewrite, only worth it if the cell still matters.
+4. The `perf stat` clock question (open since r3) is partially answered by L6_unrolled's
+   probe (node AVX2 clock = 3.89 GHz); the AVX-512 licence clock is still unmeasured and
+   still bounds what B=1 work is worth doing.

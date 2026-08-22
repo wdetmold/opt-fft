@@ -845,3 +845,170 @@ self-eliminate); `-Wall -Wextra` clean.
    aimed at without moving the strided stores into the compute loop. This is
    also the monitor's named remaining lever for L=17 batched (~1.39× of
    un-overlapped memory time at B=2048).
+
+---
+
+## Round panel_r5 (2026-08-21)
+
+### Standing going in (panel_r4 node leaderboard)
+
+2nd at B=1 (17.742 vs matrixsimd 16.431) and B=8 (19.293 vs 18.008); 3rd at
+B=256 (25.202 vs 21.626/24.032) and B=2048 (25.704 vs 22.290/24.221). The
+node tuner selected the mixed-width tail in ALL FOUR cells (`xl 512t pin` at
+B=1, `xl 512t` elsewhere) — the r4 bet paid −2.5..−5.2% across the board and
+the VERDICT (§5b) records it as the first confirmed port-level lever on this
+part. Two r4 VERDICT facts reshape this round:
+
+1. **The node's sustained AVX2 clock is 3.89 GHz, not 2.30** (L6_unrolled's
+   probe). Re-derived: my B=1 of 17.742 µs is ~69k cycles against the mixed
+   shape's ~35.9k-cycle FP floor — **the node B=1 is NOT FP-bound; roughly
+   half the runtime is non-arithmetic**. The r4 claim "node B=1 sits ~3%
+   above the FP floor" was an artifact of the wrong clock. Prime suspect:
+   the per-plane transpose loops (deint + 2× transpose17 ≈ 1.1k
+   port-5/load/store µops per plane, ~19k µops per volume) which run
+   SERIALIZED between kernel calls, plus ~90 constant loads and ~60 stack
+   moves per kernel block.
+2. The monitor's L=17 asks: measure the AVX-512 licence clock and report it
+   in the description string; and run the `-DL17R_XF_CUT=64` node A/B.
+
+### What changed (kernel arithmetic untouched: 296 FP / 488 flops per 17-pt)
+
+1. **Overlapped-shuffle exec variants (`ov`, mixed-width only) — the round's
+   headline bet, aimed at the node's non-FP half.** Mechanism: on the Gold
+   5218's single 512-bit FMA unit a zmm kernel block drains ~296 port-0 µops
+   at 1/cycle while allocation (4/cycle) runs far ahead, so younger
+   INDEPENDENT shuffle/load µops issue on ports 5/2/3 essentially for free —
+   but only if they are emitted in the block's shadow instead of in their own
+   serialized loop. `exec_ov_body` reorders the SAME operations so every
+   shuffle burst sits in a zmm drain:
+   * z pass runs its ymm tail FIRST, zmm blocks LAST → the T→U transpose
+     that follows lands in a zmm drain;
+   * `transpose17` is split into halves by destination-column range
+     (`transpose17_part`): cols 0..7 (all that the y pass's first zmm block
+     reads) emitted before the y loop, cols 8..16 emitted right after the
+     first y kernel block;
+   * the NEXT plane's `deint_transpose17` (T is dead once T→U completes) is
+     split likewise and slotted after the y pass's second zmm block and its
+     ymm tail; plane 0's deinterleave runs at the top of the volume in the
+     previous volume's x-pass shadow.
+   All moved pieces touch regions disjoint from anything concurrently live,
+   so ov is **bit-identical to every other class-A candidate** (cmp-verified
+   at B=8 for both ov and ov-pin against 512t). Two new tuner candidates
+   (`xl 512t ov`, `xl 512t ov pin`); class A is now 7 candidates on EVEX.
+   I-footprint checked: exec_ovm_w8 = 7355 instr ≈ 29 KB (still 6 kernel
+   copies, 1776 FP — the branchy rolled y-loop did NOT unroll; the r4
+   asm-opaque-bound trick holds), below the 38 KB kill line from r2.
+   **On wallaby ov loses ~4.7% at B=1 (10.19 vs 9.72) — expected: two
+   512-bit FMA units make the drains half as long, so there is half the
+   shadow.** This is a pure node bet shipped as a tuner candidate, exactly
+   the r4 mixed-tail play; notably wallaby's occasional full-turbo sessions
+   DID pick ov at B=1 once, so the candidates are close even there.
+2. **Dual-width clock probe in the description string** (monitor's ask):
+   `clk256=`/`clk512=` from serially dependent FMA chains (latency 4 at both
+   widths on CLX/SPR), best of 5 trials, run after the tournament, ~20 ms,
+   unscored. ADOPTED FROM L6_unrolled panel_r4, extended with the 512-bit
+   chain. Verified the chain contracts to vfmadd (objdump: no separate
+   mul/add). On wallaby it reports 4.10 GHz in normal sessions and 2.10 in
+   throttled ones — independently confirming L6's "clock lottery"; SPR shows
+   clk256 == clk512 (no licence gap), and **the node's clk512 is the number
+   nobody has ever measured** — read it off the panel_r5 JSONs.
+3. **The X-first class choice is now MEASURED at plan time** when batch ≥ 64:
+   both classes ranked on the streaming arena, X-first must beat the X-last
+   incumbent by >3% to be selected. This runs r4's requested node A/B at
+   every plan, forever. Per-plan determinism (rule 4) holds; a cross-process
+   class flip would change output bits, which the margin + X-last default
+   confine to genuinely-winning cases. `-DL17R_XF_CUT` still force-selects.
+   On wallaby the measurement keeps X-last everywhere (B=256: xl 11.79 vs
+   xf 12.58; nv=978: xl 16.27 vs xf 21.09) — consistent with r4.
+4. **L3-scaled tuner arena** (ADOPTED FROM L17_matrixsimd panel_r4, itself
+   from L36_mixedradix): nv = min(batch, clamp(2.5·L3/157KB, 384, 1024)) via
+   sysconf. Node (22 MB) → 384, bit-for-bit r4 behaviour; wallaby (60 MB) →
+   978, which finally makes its streaming stage actually stream — and its
+   pf decision flipped to pf=1 there (14.95 vs 16.01 at nv=978, an honest
+   −6.6%), worth ~1 µs/t at B=2048 on wallaby.
+5. **Clock-settle spin before ranking** (~150 ms of a real zmm exec): without
+   it the first two or three candidates in a rank are measured on a
+   still-ramping clock. Seen directly on wallaby at nv=256: `xl 512t` timed
+   at 20.96 µs/t when ranked third and 11.88 as `512t pin` two slots later —
+   bit-identical work, 76% apart, purely table order. With the settle the
+   same table spans 11.5–12.1. Any tuner that ranks candidates in a fixed
+   order needs this or its early slots are handicapped.
+
+### Operation count
+
+Unchanged per 17-point transform: 296 FP instr (192 FMA + 104 add/sub).
+ov moves zero arithmetic. Cycle floors per volume, restated at the REAL
+clocks (r4 VERDICT): mixed w8 ≈ 35.9k cycles = 9.2 µs at 3.89 GHz (if zmm
+clock = AVX2 clock; the probe will say). Node B=1 measured 17.742 = ~69k
+cycles → ~33k non-FP cycles/volume is the prize ov attacks; the transposes
+alone are ~19k µops of it.
+
+### Measured — wallaby (Gold 6448Y, gcc 11.4, panel flags; min over ≥3-4
+### alternating pinned runs, taskset -c 17; clock bimodal as always)
+
+| case | panel_r4 code | this round | pick (settled tuner) |
+|---|---|---|---|
+| B=1 | 9.83 | **9.465 µs** | xl 512 / 512t (within 0.002) |
+| B=8 | 9.81 | **9.73 µs/t** | xl 512t |
+| B=256 | 11.08 | **10.95 µs/t** | xl 512 pin, pf=0 |
+| B=2048 | 17.22 | **16.26 µs/t** | xl 512, pf=1 (L3-scaled arena) |
+
+Correctness: PASS rel_l2 = 3.114e-16 (B=1), 3.151e-16 (B=8), 3.158e-16
+(B=64), 3.153e-16 (B=256), 3.155e-16 (B=2048); bitwise repeatable across
+runs at every batch size; ov/ov-pin cmp-identical to 512t; `-Wall -Wextra`
+silent; `-fsanitize=undefined` clean at B=8; AVX2 host (wombat) verified
+end-to-end (30.2 µs/t at B=8, emulated-zmm candidates self-eliminate).
+Setup: 0.18 s (B=1) to 1.9 s (B=2048 on wallaby's 978-volume arena; node
+arena stays 384 → ~0.5 s).
+
+### What was tried and did NOT work / caveats
+
+1. **ov on a two-FMA-unit machine**: 10.19 vs 9.72 µs at B=1 on wallaby
+   (−4.7%) — the shadow is half as long and the split transposes cost branch
+   and code-layout overhead. NOT a failure of the mechanism, but the reason
+   it ships as a tuner candidate rather than a replacement. If the node
+   rejects it too, the non-FP 33k cycles are NOT hiding in alloc-shadow-able
+   shuffle bursts and the next lever is the kernel's own ~90 constant loads
+   + 60 stack moves per block (attack the vv/cc spills), or the zmm licence
+   clock is far below 3.89 and B=1 really is FP-bound — the probe
+   disambiguates these two BEFORE anyone spends a round on either.
+2. **Unfixed-order ranking without a settle spin mis-ranks by up to 76% on a
+   ramping clock** (numbers in item 5 above). This likely polluted my r2-r4
+   wallaby tuner tables too (first-slot candidates handicapped); node tables
+   (exclusive, warm) were probably fine.
+3. (Inherited dead ends stay dead: X-first on wallaby, slab lane-packing,
+   transpose fusion INTO stores, NT stores, negacyclic splits, same-volume
+   prefetch, non-inline kernels, pragma-unroll-on-2-trip-loops.)
+
+### Borrowed this round (attribution)
+
+* **L6_unrolled** (panel_r4): the FMA-chain clock probe, verbatim mechanism,
+  extended to 512-bit.
+* **L17_matrixsimd** (panel_r4): the L3-scaled tuner arena (their item 3,
+  via L36_mixedradix), and the general "candidates must be measured jointly
+  in the scored regime" discipline the class-choice measurement follows.
+* **Monitor's r4 VERDICT**: the 3.89 GHz re-derivation that motivated ov,
+  and both L=17 asks (clock probe, XF A/B) executed this round.
+
+### Next (in order)
+
+1. **Read the node's panel_r5 description strings**: (a) clk256/clk512 — the
+   licence-clock question, closed for good; (b) whether `xl 512t ov` was
+   picked at B=1/B=8 (the port-shadow bet), and whether the measured class
+   choice kept X-last at B=256/2048 (I expect it does; matrixsimd's X-first
+   advantage is their dense chunk store, which my pass structure lacks).
+2. **If ov wins at B=1**: extend the same treatment to the x pass at batch
+   (interleave the next volume's plane-0 deint into the x-pass tail blocks —
+   at B=1 there is nothing to overlap there, but at batch it is the one
+   remaining serialized burst).
+3. **If ov loses AND clk512 ≈ 3.9**: the non-FP gap is in the kernel blocks
+   themselves — attack the vv/cc array spills (~60 stack moves/block) by
+   splitting the 8-accumulator negacyclic into two 4-accumulator passes over
+   vv (halves peak liveness; costs re-loading vv once — 16 extra loads vs
+   ~30 saved spill round-trips, worth trying only with the node's numbers in
+   hand).
+4. **If clk512 << 3.9 on the node**: B=1 is closer to FP-bound than the 3.89
+   arithmetic says; the mixed tail is already the right shape, and the next
+   win is lane-tax reduction, which r2 item 2 killed at plane-pair
+   granularity but which a kx-blocked x pass (2 volumes' x passes fused to
+   fill 512-bit lanes) has never been costed for.

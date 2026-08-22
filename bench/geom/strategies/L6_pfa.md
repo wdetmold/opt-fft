@@ -614,3 +614,145 @@ Setup ≤1.2 s at B=32768 (21 candidates × 7 rounds), unscored.
 3. If B=32768 lands ≈0.563 for both entries, L=6 really is finished (both entries at
    the compulsory-traffic floor with the same kernel set); the panel should follow the
    r3 VERDICT and move one L=6 implementer to L=36.
+
+---
+
+## Round panel_r5 (2026-08-21, dev machine = wallaby, Sapphire Rapids Gold 6448Y)
+
+### Where round panel_r4 landed (node), and the fact that reopens B=1
+
+B=1 0.219 (dead heat with L6_unrolled's 0.219), B=64 0.222 vs their 0.214 (the same
+~4% same-shape gap, third round running), B=4096 **0.387 — took the cell**, B=32768
+0.570 vs 0.566 (tie within spread). Node picks, stable ×3: `fused` / `fused_pf` /
+`fused_pf` / `fused_pfw`. Two r4 predictions resolved negative and are now closed:
+**W at B=64 did not transfer to the node** (wallaby's 1.7× RFO win at L2-resident
+sizes; the node stayed `fused_pf`, so the demand-RFO mechanism is SPR-specific or the
+node's smaller L1 eats the benefit), and NT lost on the node a fourth round. I was
+**not promoted** in r4 — judged a near-duplicate of L6_unrolled (same codelet, same
+variant taxonomy, a round spent adopting their prefetch).
+
+The round-changing datum is L6_unrolled's clock probe: **the node runs 3.89 GHz, not
+2.30**. So B=1's 0.219 µs is **852 cycles against the 486-cycle FP-port floor — 43%
+of B=1 runtime is not FP-bound and unexplained**, and the VERDICT reopened the
+geometry with exactly that assignment. Meanwhile wallaby (4.10 GHz, a 5% clock
+difference) runs the same kernels at ~470-520 cycles: the 1.9× machine gap at L=6 is
+per-cycle throughput, not clock.
+
+### The hypothesis this round is built on (mine; stated so the node can falsify it)
+
+What differs 1.7× per-cycle between CLX and SPR for an L1-resident straight-line
+kernel? Not FP width, not ports (both 2×256-bit FMA effectively), not DSB fit (the
+rolled kernels are ~2.5 KB/volume, comfortably DSB-resident on both). The largest
+relevant deltas are the **out-of-order window: ROB 224 vs 512 uops, RS 97 vs 205**.
+My fused kernel's plane body is ~195 uops with a serial spine (18 loads → 3 y-DFT6V
+→ transpose → z-DFT6V → transpose → store, depth ≈45 cycles): on CLX barely one
+plane fits the window, so plane x+1's independent work cannot overlap plane x's
+z-tail, and the kernel degrades toward latency-bound; SPR holds ~2.6 planes and sits
+at the FP floor. If that is right, the fix is not fewer uops but **more independent
+work per window slot and earlier program-order entry of the next plane**.
+
+### What changed (all candidate additions; arithmetic untouched, still 4752 flops / 972 ymm FP per volume)
+
+1. **`_u2` kernels — every strided pass unrolled ×2** with two independent DFT6V
+   chains per iteration, program order loads-loads-codelets-stores so the scheduler
+   sees ~40 independent FP ops per iteration. Shapes: `3pass_u2`, `fused_u2` (u2
+   x-pass + register-fused y/z), each × {plain, pfT0, pfT0+W}.
+2. **`fused_sp` — software-pipelined fused stage** (the round's real idea): plane
+   registers double-buffered (P for even x, Q for odd), and the NEXT plane's 18
+   loads + 3 y-DFT6Vs interleaved by thirds into the CURRENT plane's z-chunks, so
+   plane x+1 enters the ROB ~130 uops earlier than the sequential form allows.
+   Register budget: CUR drains 18→12→6 as NXT fills 6→12→18; peak ~30 live ymm.
+   Cross-compiled at `-march=cascadelake`: **0 stack references, 653 ymm16–31 uses —
+   spill-free on the 32 evex registers.** × {plain, pfT0, pfT0+W}.
+3. **`fused_sp2` — the same pipeline with the plane-pair loop kept rolled.**
+   `fused_sp` fully unrolls to ~8.9 KB/volume ≈ 1700 instructions, which overflows
+   the node's ~1.5K-uop DSB and would put it on 16 B/cycle legacy decode — a
+   confound that could sink the window experiment for a front-end reason. sp2 rolls
+   planes 0–3 into a 2-iteration loop (body ~450 insns, above gcc's complete-peel
+   limit, so it stays rolled) → ~5.5–6.4 KB total, DSB-resident. **The sp-vs-sp2
+   race on the node is a direct measurement of whether straight-line code footprint
+   matters there — new information for every geometry, since all the big entries
+   ship multi-KB unrolled kernels.** × {plain, pfT0, pfT0+W}.
+4. **Grid pruned from 21 to 22 net** (10 kept + 12 new): dropped every variant the
+   node never picked in three rounds of stable pick-reporting — `3pass_ip_pf/pfw`,
+   both `_pft1` (non-W), both `_w`-only, `3pass_pft1w`, and 4 of 6 NT kernels
+   (kept `3pass_nt`, `3pass_nt_pf` as the NT representatives; NT is 0-for-4 rounds
+   on the node). Kept `fused_pft1w` as the only T1 representative (won my wallaby
+   B=32768 race twice). Safest-first order and the 1.5% takeover margin unchanged.
+
+### What was measured (wallaby; race tables = the trustworthy statistic, turbo invocations)
+
+B=1 (all 22 candidates within 2%, as expected on a 512-ROB machine — the u2/sp
+mechanisms target CLX, wallaby cannot confirm or deny them at B=1):
+3pass 0.1262, 3pass_ip 0.1258, fused 0.1277, fused_sp 0.1258, fused_sp2 0.1270,
+fused_u2 0.1279; chosen `3pass` (safest-first, everything inside margin). Driver
+0.129 µs, sd 1.4%.
+
+**B=64: `fused_sp` won outright — 0.1283 vs fused 0.1310 (−2.1%), fused_sp_pf
+0.1275 best in table** — the first same-clock, same-process evidence that the plane
+pipeline is a real steady-state gain even on the wide machine. Driver 8.174 µs/call
+= 0.1277 µs/vol. This is the exact cell where the node has me 4% behind three
+rounds running.
+
+B=4096: 3pass_nt_pf chosen (wallaby DRAM regime; irrelevant to the node, which
+rejects NT). B=32768: 3pass_nt_pf 0.2067 chosen; **in the normal-store rows the
+node actually picks from: fused_pft1w 0.3109, fused_sp_pfw 0.3119, fused_sp2_pfw
+0.3124, fused_pfw 0.3135** — sp/sp2 at the front but inside noise.
+
+Correctness: rel L2 2.24–2.43e-16 at B ∈ {1, 3, 8, 64, 4096, 32768}, all PASS,
+bit-identical across re-runs. All 22 candidates pass the plan-time gate. Setup
+≤1.45 s at B=32768 (unscored).
+
+### Node predictions (falsifiable via the `variant=` strings)
+
+* **B=1: if the window hypothesis is right, `fused_sp` or `fused_sp2` takes the cell
+  and it moves toward 700–750 cycles ≈ 0.18–0.19 µs.** If sp2 wins but sp loses,
+  the DSB-footprint confound was real (record that for every geometry). If neither
+  is picked and B=1 stays 0.219, the window theory is wrong at this size and the
+  remaining suspects are load/store-buffer occupancy or something only `perf stat`
+  can see — I then second the monitor's offer to counter-profile B=1.
+* B=64: `fused_sp[_pf]`, and the cell finally closes toward 0.214 or below.
+* B=4096: `fused_pf` or `fused_sp_pf`, ≈0.387.
+* B=32768: `fused_pfw`-family incl. possibly `fused_sp_pfw`, ≈0.563–0.570 (the
+  compulsory-traffic floor; no mechanism in this round should move it).
+
+### What was tried and did NOT work (with the number)
+
+1. **`_u2` on wallaby is neutral-to-negative in every cell** (B=64: 3pass_u2 0.1444
+   vs 3pass 0.1550 — helps the 3pass shape, but fused_u2 0.1315 vs fused 0.1310 —
+   nothing; B=32768 fused_u2_pfw 0.3144 vs fused_pfw 0.3135). Expected on a 512-ROB
+   machine; kept because the mechanism targets CLX and costs only race time. If the
+   node also rejects every `_u2`, drop the class next round.
+2. **W-only and pfT1-without-W variants**: not re-raced — killed by three rounds of
+   node pick-reporting (never selected), per the "don't rediscover documented dead
+   ends" rule. Same for NT beyond two representatives (0-for-4 rounds on the node).
+3. Consciously skipped: L6_unrolled's split-store `_s` shapes — their own r4 node
+   data (12 invocations, never picked at any batch size, B=1 stayed `fused`) says
+   the mechanism is SPR-specific (2 store ports vs CLX's 1); adding my own copies
+   would rediscover their negative. Also skipped: any 512-bit path (round-1 analysis
+   stands — 1 FMA unit on the Gold 5218) and MADV_HUGEPAGE (my r2, kernel 5.15).
+
+### Borrowed / lent
+
+Borrowed this round: the node-clock fact (3.89 GHz) and the DSB-size framing come
+from L6_unrolled's r4 clock probe and the r4 VERDICT §5a. The `fused_sp` plane
+pipeline, the `_u2` interleave, and the sp-vs-sp2 DSB experiment are mine. Lendable:
+the double-buffered-plane pipeline applies to any register-resident fused stage
+(L8_fusedaxes' single fused pass is the obvious candidate — their plane body is
+larger than mine, so their window pressure on CLX is worse), and the sp-vs-sp2
+comparison will say whether multi-KB unrolled kernels pay a decode tax on the node.
+
+### Next
+
+1. **Read the r5 `variant=` strings against the predictions above.** The B=1 cell is
+   the experiment; the B=64 cell is the payoff. If `fused_sp*` wins either, propagate
+   the pattern to L8_fusedaxes' record.
+2. If sp wins B=64 but not B=1, the boundary overhead at B=1 is call/loop-entry
+   effects, not the window — measure a B=1-specialized entry point (no batch loop,
+   no indirect-call double dispatch) before concluding anything.
+3. If the node rejects everything again and B=1 stays 852 cycles, stop guessing:
+   ask the monitor for `perf stat -e uops_issued.any,cycle_activity.stalls_total,
+   resource_stalls.rob,resource_stalls.rs` on a forced `fused` vs `fused_sp` B=1
+   run. One measurement ends a three-round argument.
+4. The B=32768 cell is at the compulsory-traffic floor for both entries; do not
+   spend another round there.
