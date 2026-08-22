@@ -501,3 +501,196 @@ pfnx on the 2-lane path), 97–101 µs/vol.
 3. B=1 remains a tie decided by window luck; the half-plane phase-1 split
    only pays at T=32 (analysis in r2, unchanged).  Build it only if r3's
    node B=1 pick lands on T=32.
+
+## Round mt_r4
+
+### Where r3 landed on the node, and the diagnosis
+
+Node (Gold 5218, mt_r3 scored): B=1 **58.798 µs, 2nd by 1.04x** (pfa's
+mtf-t23 56.569); B=16 **15.305 µs/vol, 2nd by 1.04x** (pfa's mtf-blk
+14.742); B=256 **47.687 µs/vol, LOST 1.78x** (pfa's omtn-pfi 26.763).
+The round's instrument triple did exactly what it was built to do:
+
+1. **My gov read fr=0 in all three processes** (`gov{nb=1,fr0=0,fr=0}`):
+   under my spinning pool the caller's pages never moved and the cell sat
+   at the socket-0 ~64 GB/s ceiling (arena 50.4-53.5, driver 47.7 --
+   arena honest, regime wrong).  My r3 prediction pre-registered exactly
+   this outcome and its number (44-50 µs/vol).
+2. **pfa's gov read i=16/16, o=16/16** at the same cell: under their omtn
+   -- the SAME static-block NT-staged decomposition, dispatched by one
+   `#pragma omp parallel` per execute with their pool NAPPED -- the pages
+   DID spread mid-run and the cell settled at ~108 GB/s.  Same node, same
+   hour, same decomposition shape, same kernel family: the dispatch/
+   process-state is the whole 1.78x.
+3. The VERDICT (S3.3/S4.4) has independent evidence for the mechanism:
+   L17_matrixsimd's own probe read clk512=2.29 GHz in its spin-pool
+   process vs 2.89 in L17_winograd's OMP process, and the round's two
+   biggest regressions both implicate live spinners.
+
+I also ran the VERDICT-ordered five-minute check for pfa's 16-mod-64 `Pt`
+misalignment in my own scratch: **negative** -- plane at block offset 0,
+plane2 at 37440 B, mid at 69888 B, plane rows at 832 B pitch, all = 0 mod
+64.  My r4 is therefore all dispatch, not alignment.
+
+### What changed (serial kernel untouched, fourth round running; zero new FP)
+
+1. **New mode `vno`** -- BORROWED from **L45_pfa mt_r3's omtn**, the node
+   B=256 winner: the existing vns static-block NT-staged work (private
+   NUMA-local mid volume, one linear NT burst to `out`, per-thread
+   sfence), dispatched by ONE OMP parallel region per execute instead of
+   the spin pool.  ctx[t] is still first-touched by pool worker t pinned
+   to the CPU OMP thread t reports under close/cores, so scratch
+   placement is identical under either dispatch.  vno rows LEAD the deep-
+   streaming pool (earliest-wins hysteresis): the create-time arena races
+   both forms in the pre-settled regime where they tie (measured: 20.2 vs
+   20.2 µs/vol at equal mechanism, same window), and only the OMP form
+   has node evidence of settling -- pfa's S6 rule, their measured twins.
+   vns32/vnt32 rows stay fielded as the pool-dispatch controls.
+2. **Pool NAP machinery** -- pfa's mutex+condvar nap with their counted
+   quiesce (an OMP team never timeshares with a still-spinning worker),
+   EXTENDED per-thread: mt_run sets a nap policy "nap all tids >= lo"
+   every call (steady state = one integer compare).  vno naps the whole
+   pool for the plan's life; pool picks with T < 32 nap the unused
+   workers (B=1's grp T=23 pick used to leave 9 spinners dragging the
+   all-core clock per S4.4); the serial row runs on idle cores.  A napped
+   worker sleeps through generations it is excluded from, so on wake it
+   resyncs its local generation under the mutex BEFORE the quiesce lets
+   main publish another job (the one subtlety my per-thread variant adds
+   over pfa's all-or-nothing form).
+3. **New mechanism m11 "pfi"** -- pfa's FINE-paced input prefetch,
+   transcribed: the next plane's 508 lines issued as 2*NGRP small bursts
+   (24 lines at PW=4, 12 at PW=2) spread across BOTH phase-1 subpass
+   group loops, instead of my old 12 bursts of 43 in the z pass only.
+   The node convicted my coarse pacing in r2 (vnt-m0 52.2 vs -pf 56.8);
+   pfa's fine pacing WON the settled regime (pfi 27.8 vs pf0 29.8).  My
+   r3 next-round note ordered exactly this rebuild.
+4. **B=1 pool reordered**: T=23 now leads.  The node arena ranked
+   grp1x23 fastest in every r1/r3 process (56.8 vs the T=32 incumbent's
+   57.9 in r3) but incumbent-first 3% hysteresis kept T=32; pfa won the
+   cell at the T=23 level three rounds running.  Dropped grp1x8 (106.6,
+   dead three rounds) and grp1x32-v2 (65.6).  Plus the partial nap above.
+5. **B=16 (small-streaming) pool rebuilt**: the r3 node picks
+   (grp16x2-v1-ppnx/pp) stay incumbents; behind them a G sweep --
+   grp4x8 (4 volumes in flight = 11.1 MiB, the one that FITS the node's
+   22 MiB L3), grp2x16, grp1x32 (pfa's whole-team-per-volume mtf-blk
+   analog) -- for the node's arena to price.  vns16/vnt rows dropped from
+   this cell (57.3-66.7 vs 15.2 in every r3 node table).
+6. Env: FFT45_MODE=5 forces vno, FFT45_MECH up to 11 (pfi); gov scan now
+   covers modes 3/4/5.
+
+### Bit class (still one)
+
+vno reassigns nothing arithmetically (same static blocks, same per-volume
+schedule, same NT flush as vns; only the dispatcher changes); nap is pure
+scheduling; pfi is prefetch-only.  Evidence: create()-gate at 1e-13
+passed for every candidate in every cell on wallaby AND wombat; rel_l2
+4.050-4.065e-16 at B=1/2/4/16/32/64/256 (identical to r1/r2/r3/phase 1);
+driver two-run cmp bit-identical everywhere including the vno pick at
+B=256 and forced vno-v0 on the AVX2 host.
+
+### Operation count
+
+Serial arithmetic unchanged: 514,968 zmm FMA-port ops + 90 xmm tail lines
+per volume.  vno = vns traffic exactly (2 compulsory caller-buffer passes
+per volume); it trades the pool's ~0.3 µs dispatch for one GOMP region
+(6-8 µs per L23's measurement, 0.05% of a 12 ms B=256 call).  pfi issues
+<= 528 T1 prefetch lines per volume phase 1 (same count as m6, smaller
+bursts), zero FP.  Nap costs one integer compare per execute in steady
+state and nothing during the timed region.
+
+### Measured (wallaby, Gold 6448Y, 32 threads; dev numbers, relative only)
+
+| cell | mt_r4 | mt_r3 same host | pick |
+|---|---|---|---|
+| B=1   | 35.5-39.1 µs, PASS, repeatable | 35.4 | grp T=23/16 v1 (reordered pool) |
+| B=16  | 235.4 µs = 14.7 µs/vol, PASS | 244.9 = 15.3 | grp16x2 (cached pool here) |
+| B=64  | 1132.3 µs = 17.7 µs/vol, PASS | 1114.9 = 17.4 | vno (window-equivalent) |
+| B=256 | **4411.7 µs = 17.2 µs/vol**, PASS, repeatable | 4479-4627 = 17.5-18.1 | **vno32-v2-pfi** |
+
+Same-window forced A/B at B=256, three rounds, order stable in all three:
+vno32-v2-pfi **4408-4481 µs** (17.2-17.5 µs/vol), vno32-v2-pfnx 4526-4634
+(+2.6%), vno32-v2-nx 5166-5191 (+17%), vns32-v2-nx 5165-5204 (pool
+control -- the twins TIE at equal mechanism on this one-socket host,
+exactly as pfa measured; the dispatch A/B is decided on the node or not
+at all), vno32-v2-m0 5362-5460 (+22%).  In-arena (nv=128): vno-pfi 17.31,
+vno-pfnx 17.29, vns-nx 17.71, vnt-m0 17.89, vno-nx 19.91, vno-m0 20.73,
+vno16-nx 32.4 (expected on one socket; it is a node probe).  Reading:
+**fine-paced pfi is worth -15% vs nx and -18% vs m0 on wallaby's DDR5**,
+recovering everything my coarse pfin lost and more.  wombat (AVX2): B=4
+autotuned PASS 64.3 µs/vol; B=32 autotuned PASS 74.2 µs/vol; forced
+vno32-v0-pfi at B=32 PASS (exercises the OMP region + nt_flush_256 + the
+2-lane pfi path).  Setup 0.1-1.1 s.
+
+### What did NOT work / refuted, with numbers
+
+* **My grp1x32 transcription of pfa's B=16-winning mtf-blk is refuted on
+  wallaby**: same-window forced A/B at B=16 read grp1x32-v1-pp at
+  579-746 µs/call (36-47 µs/vol) vs grp16x2-pp at 181-221 (11.3-13.8) --
+  3x, in the cached regime where pfa's mtf ties their g2.  Cause, by
+  inspection: my phase 1 splits 45 PLANES over the members (2:1
+  imbalanced at G=32) where their mtf splits 540 (plane, lane-group)
+  units.  The class is right (their node 14.74 proves it), my granularity
+  is too coarse for it.  Fielded at the tail of the node pool anyway
+  (the node's streaming regime is qualitatively different and the rows
+  are cheap), but the honest fix is unit-granularity phase-1 range
+  kernels, which is next round's item if B=16 is still lost.
+* **grp4x8 / grp2x16 lose on wallaby** (251-288 / 315-361 µs vs G2's
+  181-221, same window) -- expected: wallaby's 60 MiB L3 never asks the
+  volumes-in-flight question.  They are node probes; r1's B=256 version
+  of this lesson said the same ("none of those verdicts transfer").
+* **pfnx vs pfi at B=256**: statistically tied in-arena (17.29 vs 17.31),
+  pfi won all three same-window driver rounds by 2.6%.  Both fielded;
+  pfi leads.
+* **Wallaby window lottery, seventh appearance**: one B=1 arena window
+  read every candidate 2-3x slow (grp1x23 81.8, T=16 77.9) minutes from
+  a window reading the driver at 35.5 µs.  Same binary.  Nothing new to
+  fix; recorded so nobody reads one wallaby table as a ranking.
+* Nothing failed correctness at any point: vno, the nap protocol, pfi on
+  all three widths, and both ISA paths passed the gate, numpy, and the
+  two-run cmp on the first successful build.
+
+### Borrowed this round (attributions)
+
+* **L45_pfa mt_r3** (the round's core): the omtn OMP-region dispatch with
+  the pool napped, including the nap_on counted-quiesce discipline and
+  the rank-the-OMP-twin-first pool ordering; the fine-paced pfi input
+  prefetch (m11 transcribes their 22-line-burst pacing); and their gov
+  i=16/16 reading, which is the direct node evidence this round bets on.
+* **L13_rader mt_r2 (intent) / L45_pfa mt_r3 (implementation)**: the
+  pool-nap idea lineage; my per-thread nap-above-T variant extends it.
+* **mt_r3 VERDICT**: S3.3/S4.4 (idle spinners drag the all-core clock --
+  the reason the nap is per-thread, not just for OMP picks), the ordered
+  Pt-alignment check (run: negative), and S6's "make the right class the
+  incumbent" applied to both streaming pools.
+
+### Node predictions (pre-registered, falsifiable)
+
+* **B=256**: pick vno32-v2-pfi (or -pfnx within noise).  If the omtn
+  mechanism transfers to my kernel, gov reads i/o spreading toward 16/16
+  during the loop and the cell lands **26-31 µs/vol**, closing most or
+  all of the 1.78x (pfa's same-shape number is 26.8; my pfi and their
+  pfi are now the same mechanism).  If gov stays fr=0 under a NAPPED
+  pool and a sleeping GOMP team, the spinner hypothesis is falsified for
+  my process and the residual is something else in their runtime setup;
+  the twins table (vno vs vns rows, same window, published in the
+  description) will say which half of the change mattered.
+* **B=16**: grp16x2-ppnx/pp retained unless the G sweep inverts on the
+  node's L3; **14.5-15.5 µs/vol** (the pfi/nap changes barely touch this
+  cell).  If grp4x8 or grp1x32 wins the arena there, the volumes-in-
+  flight lever is confirmed and r5 builds unit-granularity fused ranges.
+* **B=1**: pick grp1x23-v1-m0 (reorder makes the three-round arena
+  favourite installable), 9 workers napped; **55.5-57.5 µs** -- the tie
+  broken by ~1-2% of hysteresis correction plus whatever the nap buys.
+
+### Next round
+
+1. Read gov and the twins table at B=256 first: vno vs vns rows in the
+   same node arena, and the driver pick's settled number.  If vno settled
+   and won, retire the vns/vnt pool rows and consider the weighted
+   socket-0-heavy partition on top of the spread regime.
+2. If B=16 is still second: build unit-granularity phase-1 ranges (the
+   (plane, group) work list pfa's mtf uses), which also unlocks an honest
+   whole-team-per-volume row and the B=1 T=32 case in one change.
+3. If B=1's nap+reorder did not close the 0.6-2%: the remaining levers
+   are the half-plane hp split (pfa's B=1 arena had hp beating rr in
+   every window) at T=32, or accepting the tie.

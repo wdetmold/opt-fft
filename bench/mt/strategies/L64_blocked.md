@@ -450,3 +450,171 @@ and the three rows it displaces are exactly the ones the node priced at
    schedule(dynamic) on 64-unit loops, nth=16 at batched cells (node 3/3),
    dyn in the default pool (node 3/3 + verdict instruction), cross-window
    wallaby comparisons.
+
+## Round mt_r4
+
+### Where the node left me (mt_r3 scored)
+
+B=1 **WON**, 128.7 µs vs rival 136.3, mkl 152.8 (pick `S nth=16 cached pf0`
+again; the 127.0 → 128.7 drift is noise).  B=128 **WON**, 73.7 µs/vol vs
+rival 142.3, fftw3_patient 178.1 — the mt_r3 incumbent policy repaid itself
+in one round (90.5 → 73.7, a 1.23× improvement, 113.8 GB/s), though the cell
+still carried a 23.8% spread: 2/3 processes shipped the incumbent (9435/9445
+µs/call) and 1/3 shipped a `G=16 sb1 nt pf6` arena upset at 11686 — G=16 has
+now shipped three node processes across mt_r2/r3 (135.6, 128.6, 91.3 µs/vol)
+and lost to the G=8 shape every time.  B=8 **LOST to mkl**, 77.1 vs 72.4
+µs/vol (0.94×, sd 0.2% both sides, "fully real, no statistical escape") —
+the panel's only genuine library loss, pick `G=4 nth=32 sb=1 cached pf=6` in
+all three processes.  The verdict names my route verbatim: *"the
+gang-internal all-to-all where each lane reads 3/4 of its second-pass input
+from sibling lanes — is still the route"* — which is my own mt_r3 "Next"
+item 2, now executed.
+
+### What changed (schedule/layout of scratch traffic only; arithmetic,
+### twiddles, padding, engines untouched — one bit class, verified below)
+
+1. **kb=1 — compact slab buffer, the named all-to-all fix.**  The fused
+   pass-2+3 x-FFT now (optionally) writes its result into a per-thread
+   68-KB odd-line-padded buffer KB (row = one z-line, stride 17 lines, in
+   the tail of the thread's own NUMA-local slot) instead of IN PLACE back
+   into the group-shared SC, and the z-line stage reads KB back
+   sequentially.  What this buys: **SC becomes read-only in pass 2+3**, so
+   the (gsz−1)/gsz of slab lines each lane reads from sibling lanes'
+   pass-1 writes need no RFO/ownership transfer and are never re-dirtied;
+   SC is swept twice per volume instead of four times (the 4.46-MB
+   writeback sweep and its re-read move into a 68-KB L2-resident buffer);
+   and the z-line loads walk 1088-B-sequential KB rows instead of
+   revisiting the slab at the 69.7-KB SCXS stride.  The stored/loaded
+   values are identical, so kb stays inside the one bit class (verified:
+   `cmp` bit-identical kb0-vs-kb1 at B=8 and eng1-kb1-vs-eng0-kb0 at B=1).
+   kb is NOT a pool row — the pick-lottery surface does not grow.  It is
+   decided by a create-time A/B **on the picked candidate** (the pro
+   protocol), gated on its own interlock check against the independent
+   st=0 reference and a >1% win, in-place on ties; `FFT64B_KB=0|1` forces
+   (still correctness-gated).
+2. **G=16 leaves the default pool at batch ≥ 32** (three node processes,
+   three losses, see above; the arena keeps over-pricing 2-thread groups
+   at streaming cells).  Still generated when `FFT64B_G=16` asks.
+3. **pf=6 joins eng=2 at sb=0.**  The node's B=8 pick carries slabpf, but
+   G=8 at B=8 (one volume per group, so sb rows are correctly not
+   generated) had only ever raced pf0/pf1/pf8 — the G=8+slabpf combination
+   never existed.  +6 rows at B=8, +6 at B=128.
+4. **The sb=1 trailing barrier of a group's last volume is skipped** (no
+   next pass-1 to guard; the parallel-region join orders everything; bn is
+   group-uniform so all members take the same branch).  1 of 4 barriers
+   gone at B=8/G=4.  Adopted from L64_radix8 mt_r3 change 4.
+
+### Operation count
+
+Arithmetic unchanged: ~1.6M FMA-port vector ops + 328K shuffles per volume;
+kb adds ZERO FP work and zero instructions in the arithmetic path (same
+FFT64S macro, different store target).  Traffic: kb=1 removes one full
+4.46-MB SC write sweep + one 4.46-MB strided SC re-read per volume from the
+L3/cross-core domain, replacing both with a 68-KB thread-local buffer that
+recirculates in L2 (write + read per ky slab, 64×/volume).  Sync: −1 spin
+barrier per group per call at sb=1.
+
+### Measured (wallaby, Xeon 6448Y, 32 threads = one socket; one window,
+### same-window comparisons only)
+
+Driver-level minima: **B=1 59.1–61.9 µs** (pick `S nth=32 nt pf0 kb=1`),
+**B=8 326.0–338.1/8 = 40.8–42.3 µs/vol** (pick `G=8 sb0 cached pf1 kb=1`;
+best number this kernel has ever posted on wallaby, prior best 41.4 mt_r1),
+**B=128 6650–6774/128 = 52.0–52.9 µs/vol** (incumbent `G=8 sb1 nt pf6` +
+kb=1; mt_r3 band was 53.9–57.5).  PASS rel_l2 = 4.460–4.462e-16 at
+B=1/8/128, repeatable (bit-identical) everywhere.
+
+The kb A/B, in-arena, same window — the round's result:
+
+| cell / shape | in-place | kb=1 | delta |
+|---|---|---|---|
+| B=1, eng=1 S nth=32 (all-to-all = 31/32 sibling lines) | 71.6 | **61.2** | **−14.5%** |
+| B=128, incumbent G=8 sb1 nt pf6 | 53.0 | **46.3** | **−12.6%** |
+| B=8, forced node shape G=4 sb1 cached pf6 | 53.1 | **47.6** | **−10.4%** |
+| B=8, wallaby pick G=8 sb0 cached pf1 | 43.0 | **42.5** | −1.2% |
+
+The gradient is exactly the all-to-all model's prediction: the win grows
+with lanes-per-volume (gsz 32 → 8 → 4 → 4-with-own-volume), because that is
+the fraction of the slab a lane pulls from siblings.  The node's B=8 shape
+(gsz=8, all traffic through socket-0 controllers) sits in the steep part —
+if even half the in-arena −10.4% transfers to the driver, the 6.6% mkl gap
+closes.  Parallel efficiency vs phase-1 wallaby single-thread: B=1
+522.9/59.1 = 8.8× (28%); B=8 568.0/40.8 = 13.9× (44%); B=128 683.3/52.0 =
+13.1× (41%).
+
+### What was tried and did NOT work
+
+* Nothing failed correctness, and nothing regressed on wallaby this round.
+* pf=6 (slabpf) still loses on wallaby everywhere it is raced (B=8 G=8:
+  45.4 pf6 vs 41.9 pf1 cached; G=4 nt: 53.4 vs 46.0 pf0) — as in every
+  round since mt_r1: SPR's prefetchers cover the slab walk.  Not evidence
+  about the node, whose picks carry pf6 at every batched cell; the rows
+  exist for the node.
+* Noted risk, not a measured loss: kb=1 adds ~68 KB/thread of L2 footprint
+  (competing with the pass-2+3 line working set).  On wallaby's 2-MB-L2
+  cores it is free; the node's Cascade Lake L2 is 1 MB.  The A/B runs on
+  the node's own arena, so if the footprint inverts the sign there, the
+  in-place path ships — that is what the 1%-bar A/B is for.
+
+### Borrowed from other entries
+
+* **mt_r3 VERDICT §6**: the named route itself ("the gang-internal
+  all-to-all ... is still the route") — kb=1 is that instruction executed
+  as a layout change rather than a decomposition change (the transpose's
+  data motion is irreducible; what kb removes is the ownership churn and
+  the two redundant SC sweeps, which are not).
+* **L64_radix8 mt_r3, change 4**: dropping the trailing gang barrier of
+  each gang's last volume (their legacy-gang form) → my sb=1 last-volume
+  barrier skip.
+* **L64_radix8 mt_r2 (standing)**: the B=128 incumbent shape stays their
+  node-proven `gang-T32-g4-nt+slabpf1` = my `G=8 static sb=1 nt pf=6`; the
+  kb A/B rides on top of whatever the incumbent rule ships.
+* Their mt_r3 negative (p1pf costs −27% when forced in loaded 16-lane
+  gangs on wallaby) is noted; my pf axis already races p1 on/off per cell,
+  and my node picks at batch have been pf6-without-p1 for two rounds.
+
+### Node predictions (Gold 5218, 2×16, 22-MB L3/socket, DDR4)
+
+* **B=8, the cell this round is about**: the pick should repeat `G=4 sb1
+  cached pf6` (its pool is unchanged apart from strictly-additive rows)
+  with kb decided by the on-node A/B.  The in-arena kb win at that exact
+  shape is −10.4% on wallaby; on the node the all-to-all crosses 1-MB L2s
+  instead of 2-MB, which raises the sibling-pull cost kb removes — but the
+  68-KB KB footprint also bites harder.  If kb transfers at even half
+  strength, 77.1 → ~73 and the mkl gap (72.4) is a coin flip; band
+  70–78 µs/vol.  If the node A/B says kb=0, the B=8 story is unchanged and
+  the record gains the important negative: the all-to-all residual is NOT
+  ownership churn, and next round goes at the decomposition itself.
+* **B=128**: the incumbent + kb should ship in ≥2/3 processes; the G=16
+  lottery cannot recur (rows gone).  Incumbent kb A/B was −12.6% on
+  wallaby; band 62–74 µs/vol if it transfers, 70–76 if not.
+* **B=1**: pick repeats `S nth=16 cached pf0`; kb A/B runs on it (S
+  nth=32's wallaby A/B was −14.5%; nth=16 halves the sibling fraction to
+  15/16 — similar regime).  Band 110–129 µs.
+* Monitor asks, in cost order: (1) `FFT64B_VERBOSE=1` once per B — the
+  table now prints the kb A/B line (`kb A/B inplace X / kb Y`) next to the
+  pick; (2) if B=8 still loses to mkl WITH kb=1 shipped, one forced
+  `FFT64B_KB=0` run isolates kb's driver-level effect at the scored cell;
+  (3) standing controls unchanged (`FFT64B_ST=0` fingerprint, `FFT64B_DYN`,
+  `FFT64B_NTH=16`, `FFT64B_G=16`, `FFT64B_NOHP`).
+
+### Next
+
+1. Read the node's kb A/B lines at all three cells — this round's changes
+   are one experiment with three replicates at different all-to-all
+   fractions, and the A/B line makes the mechanism legible per cell.
+2. If B=8 closes to within ~2% of mkl but does not flip: the remaining
+   lever is pass-1 store placement — with kb=1, SC is written once and read
+   (gsz−1)/gsz remotely; writing each ky-slab COLUMN to the slot of the
+   thread that will pass-23 it (a permuted SC layout, same values, same bit
+   class) would make the pass-23 reads mostly slot-local.  That is one
+   round of work and only pays if the node shows the residual is still
+   line transport, not controller bandwidth.
+3. If B=128's spread is now <5% with the incumbent shipping 3/3, consider
+   retiring the incumbent override in favour of the (then-proven) arena —
+   only with node evidence, not before.
+4. Standing dead list (mt): 32-wide central spin barrier, eng=3 at B≥128,
+   schedule(dynamic) on 64-unit loops, nth=16 at batched cells (node 3/3),
+   dyn in the default pool (node 3/3 + verdict), G=16 at batch ≥ 32 (node
+   3/3 across two rounds, removed this round), cross-window wallaby
+   comparisons.

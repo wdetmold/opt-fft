@@ -1,6 +1,35 @@
-/* MULTICORE (rounds mt_r1 + mt_r2 + mt_r3)
- * -----------------------------------------
- * mt_r3 (this round): RE-RACE ON THE REAL BUFFERS.  The mt_r2 node runs
+/* MULTICORE (rounds mt_r1 + mt_r2 + mt_r3 + mt_r4)
+ * --------------------------------------------------
+ * mt_r4 (this round): PIN WIDE AT DEEP-STREAMING CELLS; DWELL, DON'T RACE.
+ * The mt_r3 node runs settled it: at B=65536 the plan race, the re-race and
+ * the scored run all read ~84-88 GB/s-equivalent for EVERY (kernel, T) --
+ * T=16 and T=32 tied at 87.7 GB/s -- yet mt_r2's r1 process had the SAME
+ * binary family sustain fused NT T=32 at 39.4 ns/vol (200 GB/s regime,
+ * median == min for the whole process), and L6_unrolled's mt_r2 sustained
+ * 34.6 ns 3/3 with 3pass NT T=32.  fr=0 everywhere (mt_r3 VERDICT s5): the
+ * caller's pages never move, so the fast regime is NOT page placement; it
+ * behaves like machine/process state that only materialises under SUSTAINED
+ * wide streaming (fftw3_patient's own samples alternate 4.3/8.0 ms modes in
+ * one process).  A cold ~5 ms re-race slice can never see it, and shipping
+ * T=16 on a tied reading locks it out for the whole scored run -- exactly
+ * what my mt_r3 did (shipped T=16 in 2/3, scored 78.8 ns stable).  So, per
+ * the VERDICT's refined rule ("at DRAM-bound cells, install from the
+ * working set and don't race at all" -- every entry that did this killed
+ * its lottery) and ADOPTING L36_mixedradix mt_r3's pin+dwell recipe (their
+ * v1-vol32-sntp pin + 3 s create-time dwell delivered 150.9 GB/s in ALL
+ * THREE processes, the project's best streaming number): when the caller
+ * working set exceeds 192 MiB (past aggregate cache on node and wallaby),
+ * create() SKIPS the 2D tournament and installs 3pass_pf_nt_xa_d2 at
+ * T=tmax (the shape that owns the node's fast-regime record, 34.7 vs my
+ * fused NT's 39.4), then dwells ~3 s in exactly that config so the driver
+ * inherits a process in the wide-streaming steady state.  The first-execute
+ * re-race survives but is REDUCED to the two NT rows at T=tmax only (kernel
+ * shape may be re-priced on the real buffers; team width may not), and it
+ * dwells 0.5 s wide on the real buffers before timing.  Team-width racing
+ * at deep cells is deleted per the VERDICT's L=6 order ("the team-width
+ * question at L=6 is closed -- delete the shrink race there").
+ *
+ * mt_r3: RE-RACE ON THE REAL BUFFERS.  The mt_r2 node runs
  * proved the plan race's own arena can sit in a different NUMA/page regime
  * than the buffers the driver hands execute(): the same (fused_pf_nt_xa_d2,
  * T=32) config raced 57.5 ns/vol in-arena and scored 39.4 on the real
@@ -763,6 +792,10 @@ struct fft3d_plan {
     double rr_m[2];
     const char *rr_nm[2];
     int  rr_T[8];
+    /* deep-streaming pin (round mt_r4): nonzero when the caller working set
+     * exceeds aggregate cache and the wide NT config was installed without a
+     * team-width race; gates the create-time and re-race dwells. */
+    int  deep;
 };
 
 /* 4K-aliasing defence (adopted from L6_unrolled round 1: +22% at B=1 for an
@@ -1572,7 +1605,53 @@ fft3d_plan *fft3d_create(int L, int batch)
             mtpool = l6_pool_create(p, tmax, omp_sets);
         int rdisp_pool = (mtpool != NULL);
 
-        if (a && b && nTu > 0) {
+        /* ---- deep-streaming pin (round mt_r4, see header): when the REAL
+         * working set (in + out) exceeds 192 MiB -- past aggregate cache on
+         * both machines (node 2 L3s + 32 L2s ~ 76 MiB, wallaby ~124 MiB) --
+         * install 3pass_pf_nt_xa_d2 at T=tmax directly instead of running
+         * the 2D tournament.  Node evidence: in the fast (sustained-wide)
+         * regime this shape holds the cell record (L6_unrolled mt_r2, 34.7
+         * ns/vol 3/3) and my fused NT T=32 ran 39.4; in the slow regime
+         * EVERYTHING ties at ~84-88 ns (my mt_r3 re-race), so the pin costs
+         * nothing there and removes the T=16 lockout that scored 78.8-81.3.
+         * The fused NT twin stays as the re-race rival (kernel shape may be
+         * re-priced on the real buffers at T=tmax; team width may not). ---- */
+        int deep = ((long)batch * (long)(2 * VOLD)
+                    * (long)sizeof(double)) >= (192L << 20);
+        int pin = -1, riv = -1;
+        if (deep) {
+            for (int c = 0; c < NMT; ++c) {
+                if (mtc[c].k == k_3p_pf_nt_xa_d2 && okm[c]) pin = c;
+                if (mtc[c].k == k_fu_pf_nt_xa_d2 && okm[c]) riv = c;
+            }
+            if (pin < 0) { pin = riv; riv = -1; }
+        }
+        int pinned = (deep && pin >= 0 && a && b && tmax > 1);
+
+        if (pinned) {
+            ck = pin; cT = tmax;
+            p->deep = 1;
+            /* T=1 reference for the efficiency report: one warm + one timed */
+            l6_race_run(p, mtpool, mtc[pin].k, mtc[pin].fence, 1, a, b, nb);
+            double t0 = now_s();
+            l6_race_run(p, mtpool, mtc[pin].k, mtc[pin].fence, 1, a, b, nb);
+            t1c = (now_s() - t0) / (double)nb * 1e6;
+            /* re-race candidates: pinned row is the incumbent at margin 0,
+             * fused NT challenges at its own margin, single wide column */
+            p->rr_k[0] = mtc[pin].k;  p->rr_f[0] = mtc[pin].fence;
+            p->rr_m[0] = 0.0;         p->rr_nm[0] = mtc[pin].nm;
+            p->rr_nk = 1;
+            if (riv >= 0) {
+                p->rr_k[1] = mtc[riv].k;   p->rr_f[1] = mtc[riv].fence;
+                p->rr_m[1] = mtc[riv].mar; p->rr_nm[1] = mtc[riv].nm;
+                p->rr_nk = 2;
+            }
+            p->rr_T[0] = tmax; p->rr_nT = 1;
+            if (l6_verbose())
+                fprintf(stderr, "L6_pfa mt: DEEP PIN %s T=%d (no team race; "
+                        "rival %s at T=%d only)\n", mtc[pin].nm, tmax,
+                        riv >= 0 ? mtc[riv].nm : "none", tmax);
+        } else if (a && b && nTu > 0) {
             /* settle spin: ~100 ms of dense ymm FMA so calibration and round
              * 0 are not ranked on a ramping clock (phase-1 discipline) */
             double ts0 = now_s();
@@ -1821,6 +1900,7 @@ fft3d_plan *fft3d_create(int L, int batch)
             if (!good) {                 /* the kernel itself is gate-proven */
                 p->nthreads = 1;
                 p->rr_nk = 0;
+                p->deep = 0;
                 if (p->use_pool) {
                     l6_pool_destroy((l6_pool *)p->pool);
                     p->pool = NULL; p->use_pool = 0;
@@ -1829,8 +1909,15 @@ fft3d_plan *fft3d_create(int L, int batch)
         }
 
         /* steady-state tail: hand the driver the pool, licence and caches in
-         * the CHOSEN configuration's own state (phase-1 lesson, threaded) */
+         * the CHOSEN configuration's own state (phase-1 lesson, threaded).
+         * At deep-pinned cells this is a ~3 s WIDE-STREAMING DWELL (ADOPTED
+         * FROM L36_mixedradix mt_r3, who adopted the dwell diagnosis from
+         * L36_pencilfused mt_r2): their pin + 3 s dwell is the only recipe
+         * that has delivered >150 GB/s in all three node processes.  Setup
+         * time is unscored; the driver inherits a process that has been
+         * streaming wide for seconds when the warmup begins. */
         if (a && b) {
+            double dwell = p->deep ? 3.0 : 3e-3;
             double tt0 = now_s();
             do {
                 if (p->use_pool)
@@ -1838,17 +1925,18 @@ fft3d_plan *fft3d_create(int L, int batch)
                                 p->nthreads, a, b, nb);
                 else
                     l6_run_cfg(p, p->run, p->fence, p->nthreads, a, b, nb);
-            } while (now_s() - tt0 < 3e-3);
+            } while (now_s() - tt0 < dwell);
         }
 
         snprintf(l6_desc, sizeof l6_desc,
                  "Good-Thomas PFA 2x3 per axis, no twiddles, 2 cplx/ymm; mt "
                  "batch-split, per-thread NUMA scratch, 2D-raced@%s (%d "
-                 "kernels x T<=%d); variant=%s%s T=%d disp=%s fork=%.2fus "
+                 "kernels x T<=%d); variant=%s%s T=%d disp=%s pin=%d "
+                 "fork=%.2fus "
                  "raceT1=%.4f raceBest=%.4f omp=%.4f pool=%.4fus/vol",
                  rdisp_pool ? "pool" : "omp",
                  (int)NMT, tmax, p->chosen, forcedmt ? "!" : "", p->nthreads,
-                 p->use_pool ? "pool" : "omp", fork_us, t1c, tbc,
+                 p->use_pool ? "pool" : "omp", p->deep, fork_us, t1c, tbc,
                  t_omp > 0.0 ? t_omp / (double)nb * 1e6 : 0.0,
                  t_pool > 0.0 ? t_pool / (double)nb * 1e6 : 0.0);
         if (l6_verbose())
@@ -1900,6 +1988,20 @@ static void l6_mt_rerace(fft3d_plan *p, const double *in, double *out)
     double bt[16];
     long reps[16];
     for (int i = 0; i < nk * nT; ++i) { bt[i] = 1e30; reps[i] = 1; }
+    /* deep-pinned cells (mt_r4): dwell ~0.5 s in the shipped wide config on
+     * the REAL buffers before timing anything, so both NT rows are priced in
+     * the sustained-wide-streaming state the scored loop will run in, not in
+     * the cold state a first call sees.  Still inside the driver's discarded
+     * warmup; costs the measurement nothing. */
+    if (p->deep) {
+        double td = now_s();
+        do {
+            if (p->nthreads > 1 && pl)
+                l6_run_pool(pl, p->run, p->fence, p->nthreads, in, out, nb);
+            else
+                l6_run_cfg(p, p->run, p->fence, p->nthreads, in, out, nb);
+        } while (now_s() - td < 0.5);
+    }
     /* round 0 warms each config and calibrates reps (~0.5 ms slices);
      * rounds 1..3 are timed round-robin, per-config minimum */
     for (int round = 0; round < 4; ++round)

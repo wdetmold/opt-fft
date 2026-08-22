@@ -473,3 +473,193 @@ exercised, its NUMA effect unmeasurable here).
 4. Do not re-open: xb, forced slabpf-at-B=1, central-counter wide barriers,
    per-thread epoch seeding, gangp/gangd on this node (mt_r2 node verdict,
    3 repeats × 3 cells), nth<32 batch rows (blocked's mt_r2 forced loss).
+
+## Round mt_r4
+
+### Where the node left me (mt_r3 scored)
+
+B=128 **REGRESSED 2.05x**: 142.3 us/vol (142.8/143.8/142.3, sd 1.1%) vs my
+own mt_r2 69.5, blocked 73.7, on an IDENTICAL pick string
+(`gang-T32-g8-fused-nt+slabpf1+sc0+p10`, 3/3) whose in-arena price was
+unchanged (81 -> 82-85).  The verdict (S3.4) exonerates the tuner's ranking
+and convicts the execute path / process memory state; its two named suspects
+are mt_r3's change 4 (the conditional trailing gang barrier) and change 2
+(the 34th WREG slice + its create-time num_threads(16) region).  Bandwidth
+accounting from the verdict: r2 121 GB/s, r3 58.9 GB/s at the SAME ~8.4
+MB/vol of DRAM traffic -- same bytes, half rate.  B=8 LOST again (91.0 vs
+mkl 72.4, blocked 77.1).  B=1 LOST 136.3 vs blocked 128.7 -- scs16 failed
+its own pre-registered criterion (">=130 means the model is wrong": 136.3)
+and the verdict orders it not re-opened.  One more loud fact: blocked's r3
+B=128 winner was MY r2 shape (their eng2 G=8 = 8 gangs of 4, static, one SC
+per gang, nt+slabpf) at 73.7 -- while my arena shipped g8, which the arena
+has priced as a tie with g4 in every round (81-vs-84-class) and the driver
+priced at 142.3-vs-(g4 never shipped in r3).
+
+### What changed
+
+1. **Bisect arm -- both r3 suspects reverted.**  The legacy gang's trailing
+   barrier is unconditional again (exactly r2's sync structure), and scs16
+   (field, 34th slice, 16-thread create-time first touch) is deleted.  The
+   batch execute path and the memory map (33 x 6 MiB) are r2's byte for
+   byte.  gangp/gangd and g16 rows also leave the default pool (node
+   rejected 3/3 in r2 AND r3; all still env-forcible), and the splitf B=1
+   rows leave (never picked in two rounds on either machine).  The r3
+   post-pick p1pf A/B is gone too; p1pf=2 is instead a first-class ROW
+   (legacy g4/g8-nt-p1pf2) so combinations race honestly.
+2. **Node-prior incumbent at batch >= 32** (adopted from L64_blocked mt_r3,
+   who adopted the shape from my mt_r2 -- co-evolution, credited both
+   ways): the arena at B=128 is not size-faithful (bt=32 < B) and it has
+   priced g4/g8 as ties for three rounds while the node driver priced them
+   69.5-vs-142.3.  The incumbent row is legacy gang-g4-nt (slabpf via the
+   A/B), the shape both L64 entries measured winning this cell on the node
+   (69.5 mine r2, 73.7 blocked r3); a challenger ships only if it beats the
+   incumbent by >5% in-arena.  This kills the g4/g8 lottery that shipped g8
+   in r3.
+3. **mt=8 "gangt" -- the tiled structure goes multicore (batch rows,
+   gsz 4/8 x modes plain/nt/pfw).**  Lane l of a gang builds 8/gsz whole
+   z-octet slabs (pass A: y-FFT fill + in-slab x-lines, ALL lane-local, the
+   slab L2-resident), one gang barrier, then pass B z-lines the lane's
+   64/gsz kx planes reading 8 SEQUENTIAL 128-B-stride streams (one per
+   slab).  This attacks the named B=8 residual -- the gang-internal
+   all-to-all where each lane reads (gsz-1)/gsz of its pass-2 input from
+   sibling lanes -- by changing the access PATTERN, not the (irreducible)
+   bytes: the fused gang's 544-KiB-strided slab gathers become
+   hardware-prefetchable streams, phase-1's "most prefetch-friendly memory
+   shape this geometry allows".  Both L64 records had deferred this
+   structural move; blocked's mt_r3 "Next" item 2 names the same direction.
+4. **mt=9 "splitt" -- the tiled structure as a 3-phase within-volume split
+   for B=1 (T32/T16 rows, modes plain/pfw).**  tps = tsz/8 threads share a
+   slab: fill (slab, x-chunk) items, barrier, x-line (slab, ky-chunk)
+   items, barrier, pass-B kx chunks.  This is the SHAPE of L64_blocked's
+   B=1 pick (their eng=1 slab split), which has held that cell for three
+   rounds; my version keeps my codelets and adds pass B's sequential reads
+   in place of the fused split's strided ky-slab gathers.  All partition
+   boundaries >= one cache line (x rows TXS*8 B apart, ky columns 128-B
+   slots, out kx planes 8 KiB): no false sharing.
+   Implementation note: pass A's fill was split out of the fused fill+xline
+   body as a range-parameterized function (passAf_*), pass B took a kx
+   range; the serial tiled path recomposes the identical instruction
+   stream.  New env: FFT64R_MT=8|9 (with FFT64R_GSZ / FFT64R_T as before).
+
+### Operation count
+
+Per-volume arithmetic identical to phase-1 r11 (1190 flops/line, ~1.59 M
+vector FP instr/volume) in every mode -- gangt/splitt reuse the phase-1
+tiled kernels unchanged.  Sync per volume: legacy gang = 2 spin barriers
+(r2's count, restored); gangt = 2 gang spin barriers (trailing skipped on
+the gang's last volume -- a NEW mode, no r2 baseline to preserve); splitt =
+2 OMP barriers + 1 trailing (skipped on the last volume).  Live scratch:
+gangt = 4.23 MB/gang (8 slabs in lane 0's region, vs fused's 4.46);
+mapping back to r2's 33 x 6 MiB = 198 MiB.
+
+### What was measured (wallaby, 2x32-core SPR, one-socket team; same-window
+### tables, sd quoted; wallaby cannot price the node's two-socket physics)
+
+All PASS vs numpy: B=1 4.462e-16, B=8 4.460e-16, B=128 4.460e-16,
+bit-identical repeats (tryout repeatability check).  Forced paths at B=8,
+every one PASS 4.460e-16 AND bit-identical to the default pick's output:
+gangt g4 / g8 / g2, splitt T32 / T16, legacy g4+p1pf2.  Scalar fallback
+(-mno-avx512f) PASS at B=8 (26.7 ms/vol).  Warning-free under -Wall -Wextra
+with and without AVX-512.
+
+| cell | pick (wallaby tuner) | best us/transform | mt_r3 same host |
+|---|---|---|---|
+| B=1   | **splitt-T32-pfw** | **57.4** (median 59.6) | 61.3 |
+| B=8   | gang-g4-nt-p1pf2+slabpf1 | **337.0/8 = 42.1** | 41.6 |
+| B=128 | gang-g4-nt+slabpf1 (incumbent, also arena best) | **6601.9/128 = 51.6** | 51.0 |
+
+Tuner tables (quiet window, us/vol):
+
+* B=1: **splitt-T32-pfw 64.2 / splitt-T32-plain 67.2 / split-T32-pfw 74.6 /
+  split-T32-plain 75.3 / splitt-T16 93.7-94.1 / split-T16 105.3-117.7 /
+  serial 1027.8**.  The tiled 3-phase split beats the fused split by 14% at
+  T32 and by 11% at T16 -- the first structural B=1 improvement since mt_r1,
+  and it wins at BOTH team widths, including the T16 the node has picked
+  three rounds running.  One extra barrier per volume, paid for by pass B's
+  sequential reads.
+* B=8: legacy g4-nt-p1pf2 46.9 / g4-nt 48.5 / g4-pfw 49.0 / gangt-g4-pfw
+  49.1 / g8-nt 49.9 / gangt-g8-pfw 51.7 / gangt g4/g8 others 54-59.  On an
+  idle one-socket machine the fused gang keeps a small edge; in one LOADED
+  window (flagged: serial ref 3736, sd 17%, other jobs on the box)
+  gangt-g8-nt won the table outright at 110.8 vs legacy g8-nt 130.3 --
+  recorded as a hint, not evidence, but the hint says the stream shape wins
+  under memory contention, which is the node's regime (DDR4, two sockets,
+  UPI).  The rows race; the node decides.
+* B=128: incumbent g4-nt 48.6 = arena best (margin rule held, debug line
+  confirms) / g4-nt-p1pf2 48.4 (tie) / g8-nt 51.9 / gangt-g4-nt 54.6 /
+  gangt-g8-nt 57.2 / vdyn-nt 84.4.  Wallaby driver 51.6-52.2 us/vol -- the
+  revert did not regress wallaby (r3: 51.0).
+* Parallel efficiency (in-process serial twin): B=1 1027.8/(57.4*32) =
+  0.56; B=8 731.0/(42.1*32) = 0.54; B=128 906.5/(51.6*32) = 0.55.
+
+### What did NOT work / negatives with numbers
+
+1. Nothing regressed on wallaby; the round's risk surface is deliberately
+   small (reverts + raced rows + an incumbent that only REFUSES near-ties).
+2. Standing negative, promoted to a design rule this round: the bt=32 arena
+   CANNOT distinguish gang shapes whose driver-regime difference is 2x
+   (r2/r3 node data).  Any future shape decision at B>=32 must either ship
+   through the incumbent-with-margin gate or come with node driver
+   evidence.  Wallaby's quiet-window tables at B=128 are triply removed
+   from the scored regime (one socket, DDR5, 256-MB arena).
+3. The loaded-window gangt observation (110.8-vs-130.3) is explicitly NOT
+   promoted to evidence: sd 17%, foreign load.  Left here so the next
+   generation reads it next to the node's own verdict on the gangt rows.
+
+### Borrowed
+
+* **L64_blocked mt_r3**: the node-prior-incumbent-with-margin recipe
+  (their B=128 fix, executed here at the same cell with my own r2 shape as
+  the incumbent), and the B=1 slab-split shape (their eng=1, three-round
+  winner) which splitt reimplements over my codelets.  Credit both ways:
+  they took the g4 incumbent shape from my mt_r2 win.
+* **mt_r3 VERDICT S3.4**: the entire bisect framing (identical pick, arena
+  exonerated, execute path convicted, two named suspects -- both reverted
+  here), and the instruction not to re-open scs16.
+* My own mt_r1 "Next" item 2 / blocked's mt_r3 "Next" item 2: the
+  turn-the-all-to-all-into-streams direction, finally shipped as gangt.
+
+### Node predictions (to be scored)
+
+* B=128: pick = incumbent gang-g4-nt+slabpf1 in 3/3 processes (it is also
+  the arena favourite, so the margin rule is belt-and-braces).  If the r3
+  regression was the g8 pick or either reverted suspect, this lands 66-85
+  us/vol and retakes the cell (blocked's 73.7 is the mark).  If it STAYS
+  >=130 on an execute path that is now r2's byte for byte at a pick the
+  node measured at 69.5 in r2, the cause is process/memory state outside my
+  code (the L6_unrolled S3.3 class) -- that outcome would be the bisect's
+  most informative result, not a failure of this round.
+* B=8: legacy g4/g8 (nt or pfw, possibly the new p1pf2 row) or gangt-g4/g8.
+  If the loaded-window hint transfers, gangt lands 75-88 and mkl's ~72 is
+  reachable; if not, expect ~90 again and the residual is confirmed to be
+  bytes (the all-to-all itself), not pattern -- which would close this
+  direction and point the next round at cross-volume pass fusion instead.
+* B=1: splitt-T32-pfw or splitt-T16 (plain/pfw).  Wallaby's 11-14%
+  tiled-split win, if it transfers at T16, puts the cell at ~118-125 vs
+  blocked's 128.7.  Watch whether the node still prefers T16 over T32 with
+  the tiled shape -- pass B's sequential reads change the UPI economics the
+  T16 preference was built on.
+* Monitor asks, in cost order: (1) FFT64R_TUNEDBG=1 once at B=128 -- the
+  table plus the new "tuner incumbent" line show whether the incumbent held
+  and what g8/gangt priced; (2) if B=128 still reads >=130: one forced
+  FFT64R_MT=4 FFT64R_GSZ=8 run at B=128 -- if g8 is ~2x g4 in the DRIVER
+  while the arena says tie, the arena-infidelity mechanism is confirmed
+  directly; (3) FFT64R_TUNEDBG=1 at B=1 prices splitt-vs-split at T16 on
+  real two-socket hardware.
+
+### Next
+
+1. Read the B=128 number first: it adjudicates the bisect (suspects vs
+   process-state) and the incumbent policy in one shot.
+2. If gangt takes B=8 or comes within a few %, the follow-up is a gangt
+   pipeline (slab k+1 fill overlapping pass B of volume k needs only a
+   second 4.23-MB slab set = lane 1's region -- the gangp trick on the
+   tiled shape); if gangt loses badly, the all-to-all is byte-bound and the
+   next lever is fusing pass B of volume k with pass A of volume k+1 to
+   halve barrier count without extra residency.
+3. If splitt takes B=1, try tps=2 at T32 (two slabs per 4-thread cluster,
+   halving phase-2's cross-thread slab sharing) before anything exotic.
+4. Do not re-open: xb, forced slabpf-at-B=1, central-counter wide barriers,
+   per-thread epoch seeding, gangp/gangd on this node (r2+r3, 3/3), g16
+   fused gangs (r3), scs16 (verdict order), nth<32 batch rows, splitf rows
+   (two rounds unpicked), cross-window wallaby comparisons.

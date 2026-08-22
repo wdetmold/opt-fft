@@ -539,3 +539,162 @@ compiles clean without OpenMP (o-mtn rows compile out).
 2. If hp took node B=1, extend it to B≤4 and retire t23; if rr held,
    delete hp per its exit above.
 3. If g2-pfw holds B=16, leave it alone permanently.
+
+## Round mt_r4
+
+### Where mt_r3 landed on the node (what this round attacks)
+
+Node (p55n3, Gold 5218): ALL THREE CELLS WON.  B=1 **56.569 µs** (picks
+t23/bpf/rr across the three processes — the fused rows are within 1.5%
+of each other in-arena; rival 58.798); B=16 **14.742 µs/vol** (picks
+mtf-blk/blk/bpf — the fused class took the cell BACK from g2: blk
+15.5/16.0/15.9 vs g2-pfw 18.6/17.1/16.7 in-arena; B=16 is
+aggregate-cache-resident on the node, 44.5 of 76 MB, so the Pt fix paid
+where per-volume cache work dominates); B=256 **26.763 µs/vol**
+(omtn-pfi 3/3, in-arena omtn-pfi 27.8/44.9/27.7 vs mtn-pfi
+27.8/44.9/27.5 — the r2 1.69× regression fully repaired, 64.2 → 109.0
+GB/s, beating even r1's 26.897).  Verdict findings that matter here:
+(1) the dispatch A/B came back a TIE — the twins are inseparable
+in-arena AND the driver delivered with the OMP form, so the r2
+regression is now attributed to the 16-mod-64 Pt bug, not the spin
+pool; (2) the gov line read i=16/16, o=16/16 at B=256 (caller pages
+split across sockets — both memory controllers serve the streams) and
+i=32/0 at B=1/B=16; (3) the VERDICT's panel-wide directive: the
+L2-tile construction (per-thread scratch tile, all three axes inside,
+in read once, out written once) moved L=36 to 150.9 GB/s while I hold
+109.0 on the same node — and NT-vs-plain stores is measured
+second-order (L17_winograd reaches 129 with nt=0); the avoided PASSES
+times the bandwidth gap of the levels actually spanned is what pays.
+
+### What changed (serial kernel untouched, fifth round running)
+
+1. **REVIVED mts — staged-tile NT phase 2 — with a page-aligned tile
+   buffer**, as pool row `mts-pfi` + OMP twin `omts-pfi` (new MT_T
+   class), both ranked BEHIND the four mtn/omtn incumbents so the
+   reopened mechanism must beat them by >3% to install.  Reopening a
+   pre-registered exit needs cause, so here it is, plainly: the r2 race
+   that killed mts ran with Tb at byte offset 16 mod 64 (the same
+   self-inflicted alignment bug as Pt — r2's own footnote admits it),
+   so every hot tile-buffer store AND every segment-flush read split a
+   cache line on CLX, inside the broken 64 GB/s regime — and mts still
+   came within 4% (mts-pfi 44.1–46.3 vs mtn-pfi 42.4–45.8).  It has
+   never been raced aligned in the repaired 109 GB/s regime.  What it
+   deletes against mtn, per volume: phase 2's in-place write of M
+   (1.46 MB) and the linear ntcopy's re-read of M (1.46 MB) — ~2.9 MB
+   of L2↔L3 mesh traffic on a node where M (1.46 MB) exceeds the 1 MiB
+   L2 and 16 threads × 1.46 MB exceeds one socket's 22 MB L3, replaced
+   by the same passes through a 45 KiB L1/L2-hot Tb (45 rows × 1 KiB,
+   64B-clean).  This is the verdict's §4.3 avoided-passes rule applied
+   at the ONE level L=45 can still avoid a pass: M itself cannot
+   shrink below the volume (the x pass needs all 45 planes), so the
+   1.46 MB tile floor stands and the passes over it are the lever.
+   Cost: segment head/tail peels are regular stores, ~6% of out pays
+   RFO at TBK=16 (out's 16 B per-plane phase rotation, PLND·8 mod 64 =
+   16).  Bit-identical output (same values, same places); pfi form
+   only (pfin+PFNX — pfi beat pf0 in every NT race at the node's
+   streaming cell, r1–r3, 6/6 processes).
+2. **Per-thread scratch block is now [M | Pt | Tb], each page-aligned**
+   (M page-padded, Pt page-padded, Tb appended) — no buffer in this
+   file is ever again at 16 mod 64.
+3. **DELETED mtf-hp per its pre-registered exit**: node B=1 in-arena hp
+   59.7/59.0/59.4 vs t23 56.8/57.0/57.5 and rr 58.3–60.1 — the
+   subpass-split never beat an incumbent in any process (its win
+   condition was ">3% over rr").  With it go p1z_unit/p1y_unit, the
+   shared Ph slot arena, and pf code 4 (mechanism preserved in
+   impl_3/L45_pfa.c).  B=1 keeps rr/blk/bpf/t23 unchanged — the cell
+   is won and the fused rows are separated only by window noise.
+4. **Nothing else touched**: B=16 mechanism unchanged (won), g2 rows
+   kept (they held B=16 in r2 and stay the pair-regime hedge), tuner /
+   arena / governor / env forcing unchanged except FFT45_MT adds 't'
+   (mts class) and FFT45_PF 8 = mts-pfi (pool), 9 = omts-pfi (OMP);
+   pf 4 retired.  Candidate count 18 → 19.
+
+### Operation count
+
+Per volume unchanged: 1497 zmm codelet calls × 344 = 514,968 zmm
+FMA-port ops + 90 xmm tail lines.  mts writes the same 182,250 doubles
+of out non-temporally in 45×~32 aligned segments per volume instead of
+one linear burst (same NT store count, ~6% of out re-acquired as
+boundary-line RFOs) and deletes the 2.9 MB/vol M rewrite+reread that
+mtn pays; Tb adds 2.9 MB/vol of L1/L2-hot traffic through a 45 KiB
+buffer.  Sync unchanged (one dispatch + join, or one OMP region).
+
+### Measured (wallaby, Gold 6448Y SPR, 32 threads close/cores; first
+### window mid-grade, second quiet — quiet-window numbers quoted)
+
+| case | mt_r3 | mt_r4 | pick | note |
+|---|---|---|---|---|
+| B=1   | 29.5–38.1 µs (window-bound) | **44.1 µs** (sd 0.4%; noisy window 56.8 sd 15%) | mtf-t23 | window magnitudes not comparable across sessions; within-window t23 70.5 vs blk 85.2 |
+| B=16  | 12.5–14.4 µs/vol | **13.0 µs/vol** (207.8 µs/call) | g2-pfw (13.4 vs bpf 14.1 in-arena) | unchanged mechanism |
+| B=256 | 16.65–16.8 µs/vol | **16.9 µs/vol** (4316.7 µs/call) | omtn-pfi (17.1, mtn-pfi 16.9, ≤3% → rank routes to OMP twin) | mts-pfi 18.9, omts-pfi 19.7 in-arena |
+
+Correctness: PASS rel_l2 = 3.99–4.00e-16 at B = 1, 2, 3, 4, 16, 256
+(identical to phase 1 — same arithmetic), bit-identical repeatability
+everywhere; forced FFT45_MT=t verified at B=2, 3, 256 (picked
+omts-pfi/mts-pfi, PASS, driver 20.8 µs/vol at B=256); wombat (AVX2,
+pw2 path) PASS B=4 at 36.5 µs/vol; compiles clean without OpenMP
+(omtn/omts rows compile out).
+
+**mts on wallaby loses by ~12% (18.9 vs 16.9), exactly as
+pre-registered** — M fits wallaby's 2 MiB L2, so the deleted M passes
+were already nearly free there and the 45-segment flush costs more
+than one linear burst (r2 measured the same 18.3-vs-16.8 shape).
+Wallaby CANNOT confirm this round's bet; the node's 1 MiB L2 + 22 MB
+L3 is the regime the mechanism targets, and the create()-time arena
+runs on the node.  The r2 handicap is gone: this time Tb is
+page-aligned, and the r3 Pt fix means both sides race clean.
+
+### What did NOT work / what was not done, with numbers
+
+1. Nothing failed outright this round (the round was one revival + one
+   pre-registered deletion).  The one number that could have gone
+   better: aligned Tb did NOT close the wallaby gap (18.9 vs 16.9,
+   ~12%, vs misaligned r2's 18.3 vs 16.8, ~9%) — on SPR the split-line
+   handicap was invisible, so alignment bought nothing THERE, as the
+   r3 Pt experience predicted.  The node is the discriminator.
+2. Wallaby B=1 windows again spanned 44.1–56.8 µs across identical
+   binaries (sd 0.4% vs 15%) — the r2/r3 warning stands; only
+   within-window ordering was used.
+
+### Borrowed this round (attributions)
+
+* **mt_r3 VERDICT §4.3** (via L36_pencilfused mt_r3 and L36_mixedradix
+  mt_r2/r3, the 137.5/150.9 GB/s entries): the avoided-passes framing —
+  count the passes over the level the tile spans, not the store
+  discipline.  Their construction (all three axes inside an L2-resident
+  per-thread tile, in read once, out written once) is what mts
+  approximates at a geometry whose tile floor (1.46 MB) exceeds L2:
+  the floor can't move, so the passes over it are what I deleted.
+* **My own impl_2 (mt_r2)**: phase2_nts/vols_nts ported verbatim, then
+  fixed (page-aligned Tb).
+* **L17_rader mt_r3** (negative result reused): NT vs plain at a
+  streaming cell is second-order once the tile is right — which is why
+  this round changes pass COUNT, not store flavor.
+
+### Node predictions (pre-registered)
+
+* **B=256**: if the M-traffic theory is right, the node arena prices
+  mts-pfi/omts-pfi at **21–25 µs/vol** against the omtn-pfi incumbent's
+  ~27.8 and the driver lands **21–25**; the win condition is >3% (rank
+  is behind the incumbents).  EXIT: if the aligned mts twins land
+  within 3% of mtn-pfi on the node arena, the theory is dead on CLX
+  and mts exits permanently — no third revival.
+* **B=1**: unchanged mechanism minus one dead candidate → **56–58 µs**
+  (hp's absence changes nothing: it never won a process).
+* **B=16**: unchanged mechanism → **14.2–15.5 µs/vol**; if the cell is
+  again cache-resident, mts should take no pick there (NT bypasses a
+  working L3 — r1's mtf-nt lesson) and that is fine.
+
+### Next round
+
+1. Read the node B=256 pick and the mts-vs-mtn arena spread first; act
+   per the pre-registered exit above.  If mts installs, the follow-ups
+   are TBK=32 (halves the ~6% peel RFO) and a PF45-on-M-streams twin
+   (M is L3-resident on the node during phase 2; poking L3-resident
+   lines is a tax on wallaby but unpriced on CLX).
+2. If B=16 flips back to g2, nothing to do (both classes stay); if
+   mtf holds a third time, consider deleting g2-pf0 (g2-pfw beat it
+   6/6 node processes) to slim the arena.
+3. B=1 is structurally saturated at ~57 (fused rows within 1.5%, hp
+   refuted, t23-vs-32 within noise): do not spend another round there
+   unless the rival moves.

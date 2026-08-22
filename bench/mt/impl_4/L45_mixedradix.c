@@ -1164,24 +1164,28 @@ fft3d_plan *fft3d_create(int L, int batch)
              * B<=24 cached).  mt_r4: L45_pfa took the cell (14.74 vs my
              * grp16x2's 15.31) with mtf-blk = the WHOLE team on one volume
              * at a time, contiguous unit blocks, pipelined across volumes
-             * -- which is exactly my grp shape at G=T: one volume in
-             * flight (2.9 MiB, L3-resident phase1->phase2 reuse), one
-             * barrier per volume amortised by cross-volume overlap.  Their
-             * class led their arena by 17% (15.5 vs g2's 18.6); mine never
-             * fielded G>2 here.  grp1x32 rows LEAD (VERDICT S6: make the
-             * right class the incumbent); the r3 node picks (grp16x2
-             * ppnx/pp) stay as controls; G=16/8 bracket the volumes-in-
-             * flight lever; one v2 width probe.  vns/vnt stay out: NT
+             * -- which is my grp shape at G=T: one volume in flight
+             * (2.9 MiB, L3-resident phase1->phase2 reuse).  BUT my
+             * transcription of it is coarser than theirs -- my phase 1
+             * splits 45 PLANES over the members (2:1 imbalanced at G=32)
+             * where their mtf splits 540 (plane, lane-group) units -- and
+             * the wallaby same-window A/B read my grp1x32 at 36.2 us/vol
+             * against grp16x2's 12.5 in the cached regime where their
+             * class ties g2.  So the r3 node picks stay the incumbents,
+             * and the G sweep (G=8: 4 volumes in flight = 11 MiB, the one
+             * that FITS the node's 22 MiB L3; G=16; G=32) is fielded
+             * behind them for the node's streaming arena to price -- the
+             * volumes-in-flight lever is the cell's open question and
+             * wallaby's 60 MiB L3 cannot ask it.  vns/vnt stay out: NT
              * bypasses an L3 doing useful work here (57.3-66.7 vs 15.2 in
              * every r3 node table). */
-            ADD(2, 32, 32, 1, 1);
-            ADD(2, 32, 32, 1, 0);
-            ADD(2, 32, 32, 1, 8);
             ADD(2, 32,  2, 1, 8);
             ADD(2, 32,  2, 1, 1);
-            ADD(2, 32, 16, 1, 1);
             ADD(2, 32,  8, 1, 1);
-            ADD(2, 32, 32, 2, 1);
+            ADD(2, 32,  8, 1, 8);
+            ADD(2, 32, 16, 1, 1);
+            ADD(2, 32, 32, 1, 1);
+            ADD(2, 32, 32, 1, 0);
         } else {
             /* deep streaming (node B=256).  mt_r4 is built around the r3
              * result at this cell: my vns (spin pool) delivered 47.7 with

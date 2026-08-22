@@ -422,3 +422,164 @@ instrument's real reading comes on the two-socket node.
    `fr=` now measures instead of guesses.
 4. If `fused_nt_pf` takes zero node picks again this round, delete it and
    declare 3pass the settled NT shape at L=6 (r10 rule).
+
+## Round mt_r4
+
+### Where I stood
+
+mt_r3 node: B=1 0.221 µs (2nd, L6_pfa 0.211 — a ~5% process-luck band both
+entries have wandered inside for three rounds); B=4096 9.42 ns/vol (2nd by
+2%, flat vs r2); B=65536 **96.0 ns/vol (6290 µs) — a 2.77× regression from
+my own mt_r2 2269 µs**, the largest in either multicore round, all three
+processes within 0.1%, on an identical pick string (`3pass_nt_pf nthr=32
+disp=omp`), a byte-identical `l6_mt_call`, and `fr=0/0`. It cost the panel
+the L=6 B=65536 cell (0.84× vs fftw3_patient's min). The mt_r3 VERDICT
+(§3.3) laid out the evidence and left two suspects: **(a) the mt_r3 race
+pool — 31 spinning workers alive across the multi-second tournament**
+(independent corroboration: L17_matrixsimd's spin-pool process read
+clk512=2.29 GHz vs L17_winograd's 2.89 running the same engine, §4.4;
+L17_rader gained 1.71× moving pool→OMP at streaming cells; L36_pfa napped
+its workers "because they drag the all-core clock"), and (b) code layout
+from the four-kernel prune. It also convicted my instrument: the arena
+raced 53.1 ns/vol for a cell the driver ran at 96.0 (1.81× off), where the
+mt_r2 arena was 0.95× — "the round both slowed the code down and blinded
+the instrument that would have caught it."
+
+### What changed
+
+1. **Streaming cells (real working set > 128 MiB) now INSTALL
+   DETERMINISTICALLY**: no race arena, no tournament, no team race, no
+   dispatch race, and **no spin pool is ever created in the plan** —
+   suspect (a) is removed by construction at the cell it bit. Installed
+   config: `3pass_nt_pf, T=tmax, disp=omp` — the exact strings that
+   delivered 2269 µs / 199.6 GB/s in mt_r2. `disp=omp` is installed rather
+   than raced because `od` has read pool≈omp at this cell three rounds
+   running (36.6/36.5, 30.7/30.5, 53.2/53.1 ns — never past the 2% keep
+   margin). This is also the round's panel-wide finding (VERDICT §5 net
+   effect: "at DRAM-bound cells, install from the working set and don't
+   race at all" — every entry that did so killed its lottery). Setup at
+   B=65536: 2.6 s → **0.004–0.007 s** (no 904 MiB arena, no pool, no
+   multi-second race).
+2. **First-execute re-race ON THE CALLER'S BUFFERS** (`l6_exre`, ADOPTED
+   FROM **L6_pfa mt_r3**, their round's payload — node-confirmed there:
+   their exre overturned flattened plan races and shipped T=16/T=32
+   configs all within 0.2% at 87.7 GB/s while my arena-raced T=32 pick
+   delivered 72.0). At the first threaded execute — unscored under the
+   harness's min-of-samples statistic — the installed config races
+   {3pass_nt_pf, fused_nt_pf, 3pass_pfw, fused_zp_pfw} × T ∈ {16,24,32}
+   on the real `in`/`out` through the shipped OMP dispatch: the exact
+   buffers, page placement, and process state the score is taken in.
+   Margins: narrower-T of the incumbent kernel needs >2%, a different
+   kernel >2.5%; T=32 stays incumbent at a tie (only a wide team can use —
+   or, via remote hint faults, ever trigger — an AutoNUMA-spread page
+   regime, and L6_pfa's node data says a tie costs ≤0.2% in the fr=0
+   regime). Every trial computes the full correct transform over the whole
+   batch; a final winner run leaves `out` holding the shipped config's
+   bits, so output is identical from execute 1 onward. ~1 s time budget,
+   incumbent-kernel/widest-T cells first. Result rides the description as
+   `exre=<kernel>,T=<n> <ns/vol> (plan <kernel>,T=<n>)`; `rd=det` marks
+   the deterministic install. Forced picks (`L6_FORCE`/`L6_FORCE_T`) skip
+   the re-race — an A/B stays forced (verified: `variant=fused_zp_pfw!
+   nthr=16!` with no exre string).
+   Why this closes the blindness class: the kernel/T decision is now made
+   in the scored regime by construction — there is no arena whose page
+   state can lie. The two regular-store rows (3pass_pfw, fused_zp_pfw)
+   are there because NT-vs-regular was only ever settled in arena races;
+   if the fr=0 node regime makes regular stores competitive at T=16, the
+   re-race is the first instrument that can see it.
+3. **Cache-resident cells (B=4096) and B=1: untouched.** The B=4096 arena
+   has been faithful on the node (raced 9.3 vs scored 9.42) and the pool
+   is what ships there (od 16.2→9.3 on CLX); B=1 has no open order.
+   Suspect (b) — layout — gets no deliberate action: every kernel entry
+   is already 64B-pinned, and this round's edits shift layout anyway;
+   wallaby B=1 reads parity (below).
+
+### Operation count
+
+Unchanged: 48 real flops / 36 arithmetic instructions per 6-point line,
+108 line-DFTs per volume, 972 ymm arithmetic uops + 108 in-codelet
+shuffles. The round adds zero arithmetic to any scored execute; per plan
+it REMOVES the streaming-cell tournament (~400 full-batch arena calls)
+and adds ~37 full-batch calls on the caller's buffers in execute 1 only
+(~230 ms at B=65536, min-of-samples-invisible).
+
+### What was measured on wallaby (Gold 6448Y, 32 threads close, load low)
+
+| case | mt_r3 | mt_r4 | pick |
+|---|---|---|---|
+| B=1 | 0.129–0.130 µs | **0.130 µs** (sd 0.09%) | serial, path untouched |
+| B=4096 | 8.1–8.6 ns/vol | **8.51 ns/vol** (34.86 µs/call, sd 0.13%) | unchanged machinery (fused_zp family, T=32, pool) |
+| B=32768 | (not dev-timed r3) | **20.8 ns/vol** (682.1 µs, sd 0.55%) | rd=det, exre confirms 3pass_nt_pf T=32 |
+| B=65536 | 30.7 ns/vol | **31.0–31.1 ns/vol** (2034.5/2037.5 µs two sessions, sd 0.22–0.28%), setup 1.4 s → 0.007 s | rd=det, `exre=3pass_nt_pf,T=32 31.5ns (plan 3pass_nt_pf,T=32)`, fr=0/0,nb=1 |
+
+**Instrument fidelity, the round's point: exre raced 31.5 ns/vol for a
+cell the driver then ran at 31.0 — 1.02×,** against the mt_r3 node arena's
+1.81×. On wallaby the re-race confirms the incumbent (one socket, no UPI
+question to get wrong); the node, where T=16-vs-32 and the 53-vs-96
+distortion actually live, is what it was built for.
+
+Correctness: PASS rel_l2 = 2.34–2.43e-16 at B=1/7/33/4096/32768/65536,
+repeatable (bit-identical across runs) everywhere including through the
+re-race (every trial computes the full batch; the final winner run pins
+the shipped bits). Compiles clean under all four {AVX2,OpenMP} × {on,off}
+combinations. Parallel efficiency at B=65536: ~635 ns (T=1, r3 curve) /
+31.0 ns = ~20× on 32 — DDR5 bus-bound, unchanged story.
+
+### What did NOT work / honest limits, with numbers
+
+1. **Wallaby cannot arbitrate this round's fix.** It never reproduced the
+   node regression (30.7 ns in mt_r3 on the same source that scored 96.0
+   there), so mt_r4 parity on wallaby (31.0 vs 30.7, within the session
+   band) proves only "no new harm." The mechanism test is the node's:
+   rd=det + no-pool-ever + exre is hypothesis (a)'s removal, run as the
+   VERDICT's ordered bisect but in the forward direction.
+2. **The mt_r3 regression's mechanism remains unconfirmed by me.** I
+   removed the suspect rather than confirmed it (no perf counters, no
+   node access). Pre-registered readings: if the node returns to the
+   L6_pfa band (~79 ns/vol, ≈5.2 ms/call, spread ≤2%) or better, (a) is
+   confirmed at L=6 and "never leave a spin pool alive at a streaming
+   cell" becomes a panel rule (the VERDICT already wants the L=17 pair
+   read the same way). If it stays at ~96 with rd=det, (a) is refuted
+   for L=6 and layout (b) becomes prime — restore the four pruned
+   kernels next round. The r2-style 34.6 ns / 200 GB/s level returns
+   only if a process reaches the spread-page regime; `fr=` and the exre
+   T-column will say so explicitly either way.
+3. Not attempted, deliberately: no new kernels (the cell is compulsory-
+   traffic-bound at 6912 B/vol; in the fr=0 regime the ceiling is one
+   socket's controllers, ~87–105 GB/s = 72–79 ns/vol, and kernel shape
+   moves nothing until the pool/regime question is answered), no B=1
+   surgery (0.211-vs-0.221 has swapped on "path untouched" rounds before
+   — it is process luck until proven otherwise), no sp2 revival (three
+   strikes with VD6).
+
+### Borrowed
+
+- **L6_pfa (mt_r3)**: the first-execute re-race on the caller's buffers —
+  design, margins-with-incumbent semantics, the full-batch-correct trial
+  protocol, the `exre=` reporting convention, and the forced-picks-skip
+  rule. Attributed inline at `l6_exre` and in the header.
+- **The mt_r3 VERDICT**: the deterministic-install-at-streaming-cells rule
+  (§5 net effect), the pool-outliving-the-tournament hypothesis and its
+  ordered bisect (§3.3, §6), and the corroborating clk512 evidence chain
+  (§4.4).
+- **L17_winograd / L36_mixedradix (mt_r3, by example)**: working-set-gated
+  deterministic installation as the lottery-killer — the shape of change 1.
+
+### Next round
+
+1. **Read the node's B=65536 line first**: rd=det present? exre kernel/T?
+   fr? Level ~79 ns (a confirmed), ~96 (a refuted → bisect layout), or
+   ~35 (spread regime reached — then ask what got the pages spread and
+   whether it is reproducible). Each outcome has a pre-registered move
+   (above).
+2. If exre ships a regular-store row (3pass_pfw/fused_zp_pfw) on the node,
+   the NT question at L=6 is regime-dependent even on real buffers —
+   publish the table and keep both rows; if NT wins 3-of-3 again, delete
+   the regular rows from the re-race list (r10 rule, now applied to an
+   honest instrument).
+3. B=4096: if L6_pfa pulls materially ahead again, the residual is the
+   pool round trip (their mt_r3 note says the 2-level tree join is the
+   only unmeasured lever); consider it only with their measured numbers.
+4. If the node's exre confirms T=32=T=16 within noise for a second round,
+   L=6's team-width question is closed on real buffers; drop the T=24
+   column to cut the re-race cost by a third.

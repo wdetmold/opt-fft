@@ -78,6 +78,43 @@
  *   4. legacy gang skips the trailing barrier of each gang's last volume
  *      (the parallel-region join orders it) -- one less barrier per call.
  * FFT64R_P1PF=0|1|2 (2 = force off); everything else keeps its meaning.
+ *
+ * Round mt_r4 (driven by the mt_r3 node verdict: B=128 regressed 2.05x,
+ * 69.5 -> 142.3 us/vol, on an IDENTICAL pick string whose in-arena price was
+ * unchanged -- the verdict convicts the execute path / process memory state
+ * and names two suspects; scs16 was refuted by its own pre-registered
+ * criterion; B=8 still loses to mkl 91.0-vs-72.4 and the named residual is
+ * the gang-internal all-to-all):
+ *   1. BISECT ARM: both r3 suspects are reverted.  The legacy gang's
+ *      trailing barrier is unconditional again (exactly r2's sync), and
+ *      scs16 -- the 34th WREG slice and its create-time num_threads(16)
+ *      first-touch region -- is deleted (it bought nothing: B=1 136.2 ->
+ *      136.3).  The batch execute path and the memory map are r2's, byte
+ *      for byte.  gangp/gangd and g16 rows leave the default pool (node
+ *      rejected 3/3; still env-forcible).
+ *   2. NODE-PRIOR INCUMBENT at batch >= 32 (adopted from L64_blocked mt_r3,
+ *      who adopted the shape from my mt_r2 win -- co-evolution): the arena
+ *      cannot be size-faithful at B=128 (bt=32) and it priced g4 and g8 as
+ *      ties in every round while the driver priced them 69.5-vs-142.3 in
+ *      r3.  The incumbent row is legacy gang-g4-nt (+slabpf1 via the A/B),
+ *      the shape BOTH L64 entries have measured winning this cell on the
+ *      node (69.5 mine r2, 73.7 blocked's r3 twin); a challenger ships only
+ *      if it beats the incumbent by >5% in-arena.
+ *   3. mt=8 "gangt" -- the TILED structure finally goes multicore (batch
+ *      rows, gsz 4/8).  Within a gang, lane l builds z-octet slab(s) l
+ *      whole (pass A: y-FFT fill + in-slab x-lines, all lane-LOCAL, slab
+ *      L2-resident), one gang barrier, then pass B z-lines a kx range --
+ *      whose reads are 8 SEQUENTIAL streams (one per slab, 128-B stride)
+ *      instead of the fused structure's 544-KiB-strided gathers from
+ *      sibling lanes.  The gang all-to-all does not shrink in bytes, but it
+ *      becomes hardware-prefetchable streams, which is the shape phase-1
+ *      measured as "the most prefetch-friendly this geometry allows".
+ *   4. mt=9 "splitt" -- the same tiled structure as a 3-phase within-volume
+ *      split for B=1 (T32/T16 rows): fill items (slab, x-chunk), barrier,
+ *      x-line items (slab, ky-chunk), barrier, pass-B kx chunks.  This is
+ *      the shape of L64_blocked's three-round-winning B=1 pick, with pass
+ *      B's sequential reads replacing my split's strided ky-slab gathers.
+ * FFT64R_MT=8|9 join the env map; everything else keeps its meaning.
  */
 /* Phase-1 header, kept because the per-thread body is unchanged:
  *
@@ -263,7 +300,6 @@ struct fft3d_plan {
     int xb_on;                       /* x-FFT output -> compact 68-KB buffer (SC read-only) */
     int fout;                        /* x-line stage-2 codelet: all-FMA store feeds */
     double *scs;                     /* SHARED split-mode scratch volume       */
-    double *scs16;                   /* T16 twin, first-touched by the T16 map */
     struct mtws ws[NT_MAX];          /* per-thread scratch (NUMA-local)        */
     struct gbar gbars[NT_MAX / 2];   /* one barrier per gang (mt=4/5/6)        */
     int gctr __attribute__((aligned(64)));  /* mt=6 global next-volume counter */
@@ -756,14 +792,18 @@ static inline void xline_tiled(const struct fft3d_plan *p, double *base, double 
  * L2-resident (528 KB against the node's 1 MB).  PF=1 T1-prefetches the
  * next x's chunk set, 16 lines per stage-1 iteration (the exact loads
  * iteration j1 of x+1 will perform) -- for streaming batches.             */
-#define PASSA_DEF(NAME, PF)                                                   \
+/* mt_r4: the slab FILL (y-FFT of an x-range into the slab) is split out of
+ * the fused fill+xline body so the tiled structure can be decomposed across
+ * threads (gangt: whole slabs per lane; splitt: (slab, x-chunk) items).  The
+ * serial wrappers below recompose exactly the phase-1 instruction stream.  */
+#define PASSAF_DEF(NAME, PF)                                                  \
 static void NAME(const struct fft3d_plan *p, const double *in, double *slab,  \
-                 int zb, double *lb)                                          \
+                 int zb, int x0, int x1, double *lb)                          \
 {                                                                             \
     const __m512i IEV = _mm512_setr_epi64(0,2,4,6,8,10,12,14);                \
     const __m512i IOD = _mm512_setr_epi64(1,3,5,7,9,11,13,15);                \
     const VT C = _mm512_set1_pd(M_SQRT1_2);                                   \
-    for (int x = 0; x < 64; x++) {                                            \
+    for (int x = x0; x < x1; x++) {                                           \
         const double *px = in + (size_t)x * 8192 + zb * 16;                   \
         double *dst = slab + (size_t)x * TXS;                                 \
         for (int j1 = 0; j1 < 8; j1++) {                                      \
@@ -849,12 +889,27 @@ static void NAME(const struct fft3d_plan *p, const double *in, double *slab,  \
             VST(so+7*128,r7); VST(so+7*128+8,i7);                             \
         }                                                                     \
     }                                                                         \
-    for (int ky = 0; ky < 64; ky++)                                           \
-        xline_tiled(p, slab + ky * 16, lb);                                   \
 }
 
-PASSA_DEF(passA_plain, 0)
-PASSA_DEF(passA_pf, 1)
+PASSAF_DEF(passAf_plain, 0)
+PASSAF_DEF(passAf_pf, 1)
+
+/* whole-slab pass A (fill + in-slab x-lines), the phase-1 body verbatim */
+static void passA_plain(const struct fft3d_plan *p, const double *in,
+                        double *slab, int zb, double *lb)
+{
+    passAf_plain(p, in, slab, zb, 0, 64, lb);
+    for (int ky = 0; ky < 64; ky++)
+        xline_tiled(p, slab + ky * 16, lb);
+}
+
+static void passA_pf(const struct fft3d_plan *p, const double *in,
+                     double *slab, int zb, double *lb)
+{
+    passAf_pf(p, in, slab, zb, 0, 64, lb);
+    for (int ky = 0; ky < 64; ky++)
+        xline_tiled(p, slab + ky * 16, lb);
+}
 
 /* pass B: z-FFT.  kx outer / ky inner, so the 8 slab reads are 8 SEQUENTIAL
  * streams (consecutive ky = +128 B in each slab) and the output is ONE
@@ -868,12 +923,13 @@ PASSA_DEF(passA_pf, 1)
 #define PFB_LEAD 8                   /* rows (ky iterations) of read lead */
 #endif
 #define PASSB_DEF(NAME, STORE, PFW)                                           \
-static void NAME(const struct fft3d_plan *p, const double *sc, double *out)   \
+static void NAME(const struct fft3d_plan *p, const double *sc, double *out,   \
+                 int kx0, int kx1)                                            \
 {                                                                             \
     const __m512i ILO = _mm512_setr_epi64(0,8,1,9,4,12,5,13);                 \
     const __m512i IHI = _mm512_setr_epi64(2,10,3,11,6,14,7,15);               \
     const VT C = _mm512_set1_pd(M_SQRT1_2);                                   \
-    for (int kx = 0; kx < 64; kx++) {                                         \
+    for (int kx = kx0; kx < kx1; kx++) {                                      \
         const double *sx = sc + (size_t)kx * TXS;                             \
         double *ox = out + (size_t)kx * 8192;                                 \
         for (int ky = 0; ky < 64; ky++) {                                     \
@@ -981,9 +1037,9 @@ static void exec_one(const struct fft3d_plan *p, const double *vi, double *vo,
             if (stream) passA_pf(p, vi, slab, zb, lb);
             else        passA_plain(p, vi, slab, zb, lb);
         }
-        if (mode == 1)      passB_nt(p, sc, vo);
-        else if (mode == 2) passB_pfw(p, sc, vo);
-        else                passB_plain(p, sc, vo);
+        if (mode == 1)      passB_nt(p, sc, vo, 0, 64);
+        else if (mode == 2) passB_pfw(p, sc, vo, 0, 64);
+        else                passB_plain(p, sc, vo, 0, 64);
         return;
     }
     p1_pick(stream || (p1pf == 1), scst)(p, vi, sc, 0, 64, lb, propf);
@@ -1017,10 +1073,7 @@ static void exec_split(const struct fft3d_plan *p, const double *in, double *out
                        int nvol, int tsz, int mode, int slabpf, int scst,
                        int p1pf, int propf, int xb, int fout)
 {
-    /* mt_r3: the T16 team uses the SC whose pages the T16 map first-touched
-     * (all on the socket that owns the caller's buffers); the T32-mapped SC
-     * has half its pages on the other socket.                               */
-    double *sc = (tsz == 16 && p->scs16) ? p->scs16 : p->scs;
+    double *sc = p->scs;
     const int stream = (p1pf == 2) ? 0 : ((nvol > 1) || p1pf);
     p1_fn p1 = p1_pick(stream, scst);
     p23_fn p23 = p23_pick(mode, xb);
@@ -1076,7 +1129,7 @@ static void exec_splitflat(struct fft3d_plan *p, const double *in, double *out,
                            int nvol, int tsz, int mode, int slabpf, int scst,
                            int p1pf, int propf, int xb, int fout)
 {
-    double *sc = (tsz == 16 && p->scs16) ? p->scs16 : p->scs;
+    double *sc = p->scs;
     const int stream = (p1pf == 2) ? 0 : ((nvol > 1) || p1pf);
     p1_fn p1 = p1_pick(stream, scst);
     p23_fn p23 = p23_pick(mode, xb);
@@ -1178,8 +1231,10 @@ static void exec_gang(struct fft3d_plan *p, const double *in, double *out,
             p23(p, sc, vo, slabpf, propf, fout, l * xch, (l + 1) * xch,
                 lb, xbuf);
             if (mode == 1) _mm_sfence();
-            if (b + ngang < nvol)  /* last volume: the region join orders it */
-                gang_barrier(gb, gsz);
+            /* mt_r4: unconditional again -- the r3 conditional skip is one
+             * of the verdict's two suspects for the B=128 regression, and
+             * it saved one ~100-ns barrier per gang per CALL.  Reverted. */
+            gang_barrier(gb, gsz);
         }
     }
 }
@@ -1245,6 +1300,95 @@ static void exec_gangpipe(struct fft3d_plan *p, const double *in, double *out,
         }
     }
 }
+
+/* mt_r4, mt=8 "gangt": the TILED structure inside a gang.  Lane l of a gang
+ * builds 8/gsz whole z-octet slabs (pass A fill + in-slab x-lines -- all
+ * lane-LOCAL work on an L2-resident slab), one gang spin barrier, then pass
+ * B z-lines the lane's 64/gsz kx planes, reading 8 SEQUENTIAL 128-B-stride
+ * streams (one per slab).  The gang's cross-lane exchange is the same bytes
+ * as the fused gang's, but it happens in hardware-prefetchable streams
+ * instead of 544-KiB-strided slab gathers -- pass B is phase-1's "most
+ * prefetch-friendly memory shape this geometry allows", now the shape of
+ * the all-to-all itself.  Direction: L64_blocked's named residual ("each
+ * lane reads 3/4 of its pass-2 input from sibling lanes") attacked by
+ * changing the access PATTERN, since the traffic itself is irreducible.
+ * Two barriers per volume, trailing one skipped on the gang's last volume
+ * (this mode is new, so there is no r2 baseline to preserve).  gsz in
+ * {2,4,8}; the gang SC is lane 0's region (tiled layout, 4.23 MB).         */
+static void exec_gangtiled(struct fft3d_plan *p, const double *in, double *out,
+                           int nvol, int tsz, int gsz, int mode, int p1pf)
+{
+    const int ngang = tsz / gsz;
+    const int spl = 8 / gsz;                  /* slabs per lane  */
+    const int kxw = 64 / gsz;                 /* kx planes per lane */
+    const int stream = (p1pf == 2) ? 0 : (nvol > ngang || p1pf);
+#pragma omp parallel num_threads(ngang * gsz)
+    {
+        const int t = omp_get_thread_num();
+        const int g = t / gsz, l = t % gsz;
+        double *sc = p->ws[g * gsz].sc;       /* gang-shared, socket-local */
+        double *lb = p->ws[t].lb;
+        struct gbar *gb = &p->gbars[g];
+        for (int b = g; b < nvol; b += ngang) {
+            const double *vi = in + (size_t)b * VOLD;
+            double *vo = out + (size_t)b * VOLD;
+            for (int s = l * spl; s < (l + 1) * spl; s++) {
+                double *slab = sc + (size_t)s * TSLAB;
+                if (stream) passA_pf(p, vi, slab, s, lb);
+                else        passA_plain(p, vi, slab, s, lb);
+            }
+            gang_barrier(gb, gsz);
+            if (mode == 1)      passB_nt(p, sc, vo, l * kxw, (l + 1) * kxw);
+            else if (mode == 2) passB_pfw(p, sc, vo, l * kxw, (l + 1) * kxw);
+            else                passB_plain(p, sc, vo, l * kxw, (l + 1) * kxw);
+            if (mode == 1) _mm_sfence();
+            if (b + ngang < nvol)  /* WAR on the slabs before the next fill */
+                gang_barrier(gb, gsz);
+        }
+    }
+}
+
+/* mt_r4, mt=9 "splitt": the tiled structure as a 3-phase within-volume
+ * split (B=1 rows, T32/T16) -- the shape of L64_blocked's B=1 pick, which
+ * has held that cell for three rounds.  tps = tsz/8 threads share a slab:
+ * phase 1 fills (slab zb, x-chunk) items, barrier, phase 2 x-lines
+ * (slab zb, ky-chunk) items, barrier, phase 3 pass-B's kx chunks (pass B
+ * reads all 8 slabs sequentially; every partition boundary is >= one cache
+ * line: x rows are TXS*8 B apart, ky columns 128-B slots, out kx planes
+ * 8 KiB).  Two barriers per volume vs the fused split's one, traded for
+ * sequential pass-3 reads instead of strided ky-slab gathers.              */
+static void exec_splittiled(struct fft3d_plan *p, const double *in, double *out,
+                            int nvol, int tsz, int mode, int p1pf)
+{
+    double *sc = p->scs;
+    const int stream = (p1pf == 2) ? 0 : ((nvol > 1) || p1pf);
+#pragma omp parallel num_threads(tsz)
+    {
+        const int t = omp_get_thread_num();
+        double *lb = p->ws[t].lb;
+        const int tps = tsz / 8;              /* threads per slab      */
+        const int zb  = t / tps, sl = t % tps;
+        const int xw  = 64 / tps, kyw = 64 / tps, kxw = 64 / tsz;
+        double *slab = sc + (size_t)zb * TSLAB;
+        for (int b = 0; b < nvol; b++) {
+            const double *vi = in + (size_t)b * VOLD;
+            double *vo = out + (size_t)b * VOLD;
+            if (stream) passAf_pf(p, vi, slab, zb, sl * xw, (sl + 1) * xw, lb);
+            else        passAf_plain(p, vi, slab, zb, sl * xw, (sl + 1) * xw, lb);
+#pragma omp barrier
+            for (int ky = sl * kyw; ky < (sl + 1) * kyw; ky++)
+                xline_tiled(p, slab + (size_t)ky * 16, lb);
+#pragma omp barrier
+            if (mode == 1)      passB_nt(p, sc, vo, t * kxw, (t + 1) * kxw);
+            else if (mode == 2) passB_pfw(p, sc, vo, t * kxw, (t + 1) * kxw);
+            else                passB_plain(p, sc, vo, t * kxw, (t + 1) * kxw);
+            if (mode == 1) _mm_sfence();
+            if (b < nvol - 1) {   /* last volume: the region join orders it */
+#pragma omp barrier
+            }
+        }
+    }
+}
 #endif /* _OPENMP */
 
 static void exec_mt(struct fft3d_plan *p, const double *in, double *out,
@@ -1277,6 +1421,15 @@ static void exec_mt(struct fft3d_plan *p, const double *in, double *out,
     if (mt == 7 && tsz > 1 && 64 % tsz == 0) {
         exec_splitflat(p, in, out, nvol, tsz, mode, slabpf, scst, p1pf,
                        propf, xb, fout);
+        return;
+    }
+    if (mt == 8 && tsz > 1 && gsz >= 2 && gsz <= 8 && 8 % gsz == 0
+        && tsz % gsz == 0) {
+        exec_gangtiled(p, in, out, nvol, tsz, gsz, mode, p1pf);
+        return;
+    }
+    if (mt == 9 && tsz >= 8 && tsz % 8 == 0 && 64 % tsz == 0) {
+        exec_splittiled(p, in, out, nvol, tsz, mode, p1pf);
         return;
     }
 #else
@@ -1428,10 +1581,7 @@ fft3d_plan *fft3d_create(int L, int batch)
      * regions, every slice a 2-MiB-aligned WREG.  Placement (= first touch)
      * happens below, per owning thread.                                     */
     {
-        /* mt_r3: +1 slice for the T16-mapped shared SC (scs16) when the team
-         * can be split 16-wide (i.e. spans two sockets on the node).        */
-        int n16 = nthr > 16 ? 1 : 0;
-        size_t need = WREG * (size_t)(nthr + 1 + n16) + ((size_t)2 << 20);
+        size_t need = WREG * (size_t)(nthr + 1) + ((size_t)2 << 20);
         p->basesz = need;
         p->basemap = mmap(NULL, need, PROT_READ | PROT_WRITE,
                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -1456,7 +1606,6 @@ fft3d_plan *fft3d_create(int L, int batch)
             p->ws[t].xb = (double *)(r + SCSZ);
             p->ws[t].lb = (double *)(r + SCSZ + XBSZ);
         }
-        p->scs16 = n16 ? (double *)(base + WREG * (size_t)(nthr + 1)) : NULL;
 #ifdef _OPENMP
         /* Spin the pool up NOW (execute only re-enters the warm team) and
          * first-touch: each thread its own region (NUMA-local under
@@ -1474,21 +1623,8 @@ fft3d_plan *fft3d_create(int L, int batch)
                        2 * SCXS * sizeof(double));
         }
         memset((char *)p->scs + SCSZ_FUSED, 0, WREG - SCSZ_FUSED);
-        if (p->scs16) {
-            /* first-touch by the T16 static map exec_split/splitflat use at
-             * tsz=16 (thread t owns planes 4t..4t+3): every page lands on
-             * the socket of threads 0..15 = the socket that also owns the
-             * driver-touched caller buffers on the node                     */
-#pragma omp parallel num_threads(16)
-            {
-                const int t = omp_get_thread_num();
-                memset(p->scs16 + (size_t)(4 * t) * SCXS, 0,
-                       4 * SCXS * sizeof(double));
-            }
-            memset((char *)p->scs16 + SCSZ_FUSED, 0, WREG - SCSZ_FUSED);
-        }
 #else
-        memset(base, 0, WREG * (size_t)(nthr + 1 + n16));
+        memset(base, 0, WREG * (size_t)(nthr + 1));
 #endif
     }
 
@@ -1505,7 +1641,7 @@ fft3d_plan *fft3d_create(int L, int batch)
     {
         struct cnd { int mt, tsz, gsz, sstruct, mode, p1pf; };
         struct cnd cv[40];
-        int nc = 0;
+        int nc = 0, inc = -1;         /* inc: node-prior incumbent row index */
         int bt = batch < 32 ? batch : 32;
         /* defaults if the tuner cannot run: phase-1 node picks + batch rule */
         p->sstruct = 0; p->mode = 2; p->slabpf = 1; p->scst = 0;
@@ -1524,13 +1660,18 @@ fft3d_plan *fft3d_create(int L, int batch)
                 if (nthr > 16)
                     for (int m = 0; m < 3; m++)
                         cv[nc++] = (struct cnd){1, 16, 0, 0, m, 1};
-                /* flat-barrier split (mt=7): B=1 is 2-barriers-per-30us of
-                 * arithmetic, so barrier latency is on the critical path  */
+                /* mt_r4: the tiled 3-phase split (splitt) replaces the
+                 * splitf rows -- splitf was never picked in two rounds on
+                 * either machine, and splitt is the SHAPE of L64_blocked's
+                 * B=1 pick, which has held that cell for three rounds
+                 * (their eng=1 slab split; 127.0-128.7 on the node).  NT
+                 * skipped: at B=1 the 20.9-MB working set sits against the
+                 * node's 22-MB socket L3, blocked's B=1 pick is cached.    */
                 for (int m = 0; m < 3; m += 2) {
-                    if (64 % nthr == 0)
-                        cv[nc++] = (struct cnd){7, nthr, 0, 0, m, 1};
+                    if (nthr % 8 == 0 && 64 % nthr == 0)
+                        cv[nc++] = (struct cnd){9, nthr, 0, 1, m, 1};
                     if (nthr > 16)
-                        cv[nc++] = (struct cnd){7, 16, 0, 0, m, 1};
+                        cv[nc++] = (struct cnd){9, 16, 0, 1, m, 1};
                 }
                 cv[nc++] = (struct cnd){0, 1, 0, 0, 2, 1};  /* serial ref */
             } else {
@@ -1540,30 +1681,28 @@ fft3d_plan *fft3d_create(int L, int batch)
                     cv[nc++] = (struct cnd){2, nthr, 0, 0, m, 0}; /* vol    */
                 for (int m = 0; m < 3; m++)
                     cv[nc++] = (struct cnd){2, nthr, 0, 1, m, 0}; /* tiled  */
-                /* gangs of 4/8/16: one volume per gang of adjacent threads,
-                 * gang-local spin barriers -- the middle ground between
-                 * split (32 threads sweep one volume: cross-core transpose
-                 * traffic) and vol (only B threads busy at B < 32).
-                 * mt_r2: raced PIPELINED (mt=5, one barrier/volume, double-
-                 * buffered SC) and, when a gang gets more than one volume,
-                 * DYNAMIC (mt=6) -- static round-robin waits on the slowest
-                 * UPI-remote gang.  The mt_r1 two-barrier gang (mt=4) keeps
-                 * two insurance rows in case double-buffering thrashes the
-                 * node's smaller L3.                                       */
-                for (int gz = 4; gz <= 16; gz *= 2)
+                /* gangs of 4/8: one volume per gang of adjacent threads,
+                 * gang-local spin barriers.  mt_r4: gangp/gangd (mt=5/6)
+                 * and g16 rows leave the default pool -- the node chose the
+                 * legacy two-barrier gang over them in EVERY mt_r2/r3 batch
+                 * cell and repeat (still env-forcible).  The legacy gang
+                 * races nt + pfw as always, plus one p1pf=2 row per size:
+                 * the pass-1 input prefetch has run unconditionally in
+                 * every loaded gang the node ever scored (nvol > ngang =>
+                 * stream on), and wallaby priced forcing it off at -27% on
+                 * a 16-lane gang -- off deserves a first-class row, not
+                 * just a post-pick A/B in the winner's shadow.             */
+                for (int gz = 4; gz <= 8; gz *= 2)
                     if (nthr % gz == 0 && nthr / gz >= 2 && bt >= nthr / gz) {
-                        for (int m = 0; m < 3; m++)
-                            cv[nc++] = (struct cnd){5, nthr, gz, 0, m, 0};
-                        if (bt > nthr / gz)
-                            for (int m = 0; m < 3; m++)
-                                cv[nc++] = (struct cnd){6, nthr, gz, 0, m, 0};
-                        /* legacy two-barrier gang, nt + pfw.  mt_r3: g16
-                         * joins (one socket per volume, ONE live 4.46-MB SC
-                         * per socket -- L64_blocked mt_r2's winning node
-                         * B=8 shape was G=2/G=4 at nth=32); the node picked
-                         * legacy over gangp/gangd in every mt_r2 cell.     */
                         for (int m = 1; m < 3; m++)
                             cv[nc++] = (struct cnd){4, nthr, gz, 0, m, 0};
+                        if (gz == 4) inc = nc - 2;   /* the g4-nt row      */
+                        cv[nc++] = (struct cnd){4, nthr, gz, 0, 1, 2};
+                        /* mt_r4 gangt: the tiled structure per gang -- pass
+                         * B turns the gang all-to-all into sequential
+                         * streams (see exec_gangtiled).                    */
+                        for (int m = 0; m < 3; m++)
+                            cv[nc++] = (struct cnd){8, nthr, gz, 1, m, 0};
                     }
                 if (batch > nthr)
                     for (int m = 0; m < 3; m++)
@@ -1577,7 +1716,7 @@ fft3d_plan *fft3d_create(int L, int batch)
         double *ti = aligned_alloc(64, (size_t)bt * VOLD * sizeof(double));
         double *to = aligned_alloc(64, (size_t)bt * VOLD * sizeof(double));
         double best[40], tsl[3] = {1e30, 1e30, 1e30},
-               tsc[3] = {1e30, 1e30, 1e30}, tpp[2] = {1e30, 1e30};
+               tsc[3] = {1e30, 1e30, 1e30};
         int pick = 0;
         if (ti && to) {
             for (size_t k = 0; k < (size_t)bt * VOLD; k++)
@@ -1600,6 +1739,18 @@ fft3d_plan *fft3d_create(int L, int batch)
                 }
             for (int v = 1; v < nc; v++)
                 if (best[v] < best[pick] && best[v] < 0.98 * best[0]) pick = v;
+            /* mt_r4 node-prior incumbent (adopted from L64_blocked mt_r3):
+             * at batch >= 32 the arena cannot be size-faithful (bt = 32 <
+             * B) and it has priced g4/g8 as ties in every round while the
+             * node driver priced them 69.5-vs-142.3 us/vol in r3.  The
+             * incumbent is the legacy g4-nt gang -- the shape both L64
+             * entries measured winning this cell on the node (69.5 r2 mine,
+             * 73.7 r3 blocked's twin) -- and a challenger ships only if it
+             * beats the incumbent by >5% in-arena.  Env forcing overrides
+             * below as always.                                             */
+            if (batch >= 32 && inc >= 0 && pick != inc
+                && best[pick] > 0.95 * best[inc])
+                pick = inc;
             p->mt      = cv[pick].mt;
             p->tsz     = cv[pick].tsz;
             p->gsz     = cv[pick].gsz;
@@ -1649,35 +1800,6 @@ fft3d_plan *fft3d_create(int L, int batch)
                 /* tsc rows ran with the final slabpf, so the picked row is
                  * the fully-settled configuration's time */
                 if (tsc[p->scst] / bt < p->tpick) p->tpick = tsc[p->scst] / bt;
-                /* mt_r3: pass-1 input-prefetch A/B on the batch winner.  In
-                 * gang mode the next-plane prefetch is ON whenever a gang
-                 * runs more volumes than there are gangs (nvol > ngang);
-                 * mt_r1 measured FORCING it in a loaded gang costing 8% on
-                 * wallaby at B=8 (371.8 vs 343.0), and the node has never
-                 * voted on off-vs-on there.  p1pf=2 forces it off; off must
-                 * beat the incumbent by 1%.                                 */
-                if (bt > 1 && p->mt != 0) {
-                    const int pv[2] = {p->p1pf, 2};
-                    for (int round = 0; round < 3; round++)
-                        for (int i = 0; i < 2; i++) {
-                            exec_mt(p, ti, to, bt, p->mt, p->tsz, p->gsz, 0,
-                                    p->mode, p->slabpf, p->scst, pv[i],
-                                    0, 0, 0);
-                            double t0 = now_s();
-                            exec_mt(p, ti, to, bt, p->mt, p->tsz, p->gsz, 0,
-                                    p->mode, p->slabpf, p->scst, pv[i],
-                                    0, 0, 0);
-                            exec_mt(p, ti, to, bt, p->mt, p->tsz, p->gsz, 0,
-                                    p->mode, p->slabpf, p->scst, pv[i],
-                                    0, 0, 0);
-                            double dt = (now_s() - t0) / 2.0;
-                            if (dt < tpp[i]) tpp[i] = dt;
-                        }
-                    if (tpp[1] < 0.99 * tpp[0]) {
-                        p->p1pf = 2;
-                        if (tpp[1] / bt < p->tpick) p->tpick = tpp[1] / bt;
-                    }
-                }
             }
             /* serial reference, for the parallel-efficiency report only
              * (clamped: it is a reference, not a candidate, except at B=1
@@ -1693,8 +1815,9 @@ fft3d_plan *fft3d_create(int L, int batch)
                 p->tser = (now_s() - t0) / 2.0 / bs;
             }
             if (getenv("FFT64R_TUNEDBG")) {
-                static const char *mtn[8] = {"ser", "split", "vol", "vdyn",
-                                             "gang", "gangp", "gangd", "splitf"};
+                static const char *mtn[10] = {"ser", "split", "vol", "vdyn",
+                                              "gang", "gangp", "gangd",
+                                              "splitf", "gangt", "splitt"};
                 for (int v = 0; v < nc; v++)
                     fprintf(stderr,
                             "tuner %-5s T%-2d g%-2d %s mode=%d p1pf=%d : %.1f us/vol%s\n",
@@ -1709,11 +1832,12 @@ fft3d_plan *fft3d_create(int L, int batch)
                     fprintf(stderr, "tuner scst A/B: plain %.1f / pfw %.1f"
                             " / nt %.1f us/vol -> scst=%d\n", tsc[0] * 1e6 / bt,
                             tsc[1] * 1e6 / bt, tsc[2] * 1e6 / bt, p->scst);
-                    if (bt > 1 && p->mt != 0)
-                        fprintf(stderr, "tuner p1pf A/B: on %.1f / off %.1f"
-                                " us/vol -> p1pf=%d\n", tpp[0] * 1e6 / bt,
-                                tpp[1] * 1e6 / bt, p->p1pf);
                 }
+                if (batch >= 32 && inc >= 0)
+                    fprintf(stderr, "tuner incumbent g4-nt %.1f us/vol, "
+                            "shipped mt=%d g%d (margin rule %s)\n",
+                            best[inc] * 1e6 / bt, p->mt, p->gsz,
+                            pick == inc ? "held" : "beaten by >5%");
                 fprintf(stderr, "tuner serial ref %.1f us/vol, pick %.1f -> "
                         "eff %.2f at T%d\n", p->tser * 1e6, p->tpick * 1e6,
                         p->tpick > 0 ? p->tser / (p->tpick * p->tsz) : 0.0,
@@ -1740,12 +1864,13 @@ fft3d_plan *fft3d_create(int L, int batch)
             if ((e = getenv("FFT64R_FOUT")))   p->fout   = atoi(e);
         }
         {
-            static const char *mtn[8] = {"ser", "split", "vol", "vdyn",
-                                         "gang", "gangp", "gangd", "splitf"};
+            static const char *mtn[10] = {"ser", "split", "vol", "vdyn",
+                                          "gang", "gangp", "gangd", "splitf",
+                                          "gangt", "splitt"};
             snprintf(g_desc, sizeof g_desc,
                      "radix-8^2/axis AVX-512 MT; pick[B=%d]=%s-T%d-g%d-%s-%s"
                      "+slabpf%d+sc%d+p1%d; ser=%.0fus/vol pick=%.0f eff=%.2f",
-                     batch, mtn[p->mt >= 0 && p->mt <= 7 ? p->mt : 0],
+                     batch, mtn[p->mt >= 0 && p->mt <= 9 ? p->mt : 0],
                      p->tsz, p->gsz, p->sstruct ? "tiled" : "fused",
                      p->mode == 1 ? "nt" : p->mode == 2 ? "pfw" : "plain",
                      p->slabpf, p->scst, p->p1pf, p->tser * 1e6,

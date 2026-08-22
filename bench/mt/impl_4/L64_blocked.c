@@ -6,6 +6,35 @@
  */
 /* L64_blocked.c -- forward complex 3D DFT of a 64^3 cube, batched, out-of-place.
  *
+ * ROUND mt_r4 (node r3: B=1 WON 128.7, B=128 WON 73.7 -- the incumbent
+ * policy repaid itself, 90.5 -> 73.7, though 1/3 processes still shipped a
+ * G=16 arena upset at 91.3; B=8 LOST to mkl 77.1 vs 72.4, the panel's only
+ * genuine library loss, and the verdict names the route: "the gang-internal
+ * all-to-all where each lane reads 3/4 of its second-pass input from
+ * sibling lanes".  Four changes, one bit class as ever):
+ *   kb=1  COMPACT SLAB BUFFER (the named route, executed): the pass-2+3
+ *         x-FFT writes its result to a per-thread 68-KB odd-line-padded
+ *         buffer KB instead of IN PLACE back into the group-shared SC, and
+ *         the z-lines read KB back sequentially.  SC becomes READ-ONLY in
+ *         pass 2+3: no RFO/ownership transfer on the (gsz-1)/gsz of slab
+ *         lines a lane reads from its siblings' pass-1 writes, SC is swept
+ *         2x per volume instead of 4x, and the z-line loads walk 1088-B
+ *         sequential rows instead of the 69.7-KB SCXS stride.  Same values
+ *         stored/loaded -> bit-identical (verified by cmp at B=1/8).  Not a
+ *         pool row: a create-time A/B on the picked candidate (the pro
+ *         protocol), gated on its own interlock check vs the st=0 reference
+ *         and a >1% win; env FFT64B_KB forces.  Wallaby in-arena: B=1 S
+ *         71.6 -> 61.2 (-14.5%), B=128 incumbent 53.0 -> 46.3 (-12.6%),
+ *         B=8 node shape G4-sb1-cached-pf6 53.1 -> 47.6 (-10.4%).
+ *   2. G=16 leaves the default pool at batch >= 32: it shipped in three
+ *      node processes across mt_r2/r3 (135.6/128.6/91.3 us/vol) and lost to
+ *      the G=8 incumbent's 73.7 every time.  FFT64B_G=16 still generates.
+ *   3. pf=6 rows join eng=2 at sb=0 (G=8 at B=8 -- one volume per group, sb
+ *      correctly not generated -- had never raced slabpf despite pf6 being
+ *      the node's B=8 pick at G=4).
+ *   4. The sb=1 trailing barrier of a group's LAST volume is skipped (the
+ *      parallel-region join orders it; from L64_radix8 mt_r3 change 4).
+ *
  * ROUND mt_r3 (node r2: B=1 WON 127.0 stable 3/3; B=8 LOST to mkl by 5%
  * 76.7 vs 73.0, picks G=4/G=2 nt nth=32; B=128 LOST 1.30x to L64_radix8
  * 90.5 vs 69.5 with a PICK LOTTERY -- 2/3 processes chose G=16 dyn=1 sb=1
@@ -1350,9 +1379,9 @@ fft3d_plan *fft3d_create(int Lq, int batch)
      * INDEPENDENT kernel, so the interlock cross-checks the whole mt layer
      * (decomposition bugs, missing barriers, slot aliasing) numerically. */
 #ifdef HAVE_PW4
-    run_vols(4, M_CACHED, 0, 0, 0, p->S, tin, ref, nv);
+    run_vols(4, M_CACHED, 0, 0, 0, 0, p->S, tin, ref, nv);
 #else
-    run_vols(2, M_CACHED, 0, 0, 0, p->S, tin, ref, nv);
+    run_vols(2, M_CACHED, 0, 0, 0, 0, p->S, tin, ref, nv);
 #endif
 
     int    ok[96];
@@ -1489,10 +1518,10 @@ fft3d_plan *fft3d_create(int Lq, int batch)
     static const char *const eng_name[] = {"1core", "S:slab", "G:group", "V:vol"};
     snprintf(g_desc, sizeof g_desc,
              "L64 8x8 split-sc two-stage, hugepage scratch; mt pick: "
-             "eng=%d(%s) G=%d nth=%d dyn=%d sb=%d mode=%s pf=%d st=%d pro=%d (B=%d nv=%d)",
+             "eng=%d(%s) G=%d nth=%d dyn=%d sb=%d kb=%d mode=%s pf=%d st=%d pro=%d (B=%d nv=%d)",
              p->mc.eng, eng_name[p->mc.eng], p->mc.G, p->mc.nth, p->mc.dyn,
-             p->mc.sb, mode_name[p->mc.mode], p->mc.pf, p->mc.st, p->pro,
-             batch, nv);
+             p->mc.sb, p->mc.kb, mode_name[p->mc.mode], p->mc.pf, p->mc.st,
+             p->pro, batch, nv);
 
     if (getenv("FFT64B_VERBOSE")) {
         for (int c = 0; c < nc; ++c)
@@ -1502,12 +1531,15 @@ fft3d_plan *fft3d_create(int Lq, int batch)
                     mc[c].dyn, mc[c].sb, mode_name[mc[c].mode], mc[c].pf,
                     mc[c].st, ok[c] ? "ok " : "BAD",
                     ok[c] ? tc[c] * 1e6 / nv : 0.0);
+        if (t_kb[0] < 1e300)
+            fprintf(stderr, "L64_blocked tuner: kb A/B inplace %.1f / kb %.1f us/vol\n",
+                    t_kb[0] * 1e6 / nv, t_kb[1] * 1e6 / nv);
         if (t_pro[0] < 1e300)
             fprintf(stderr, "L64_blocked tuner: pro A/B off %.1f / on %.1f us/vol\n",
                     t_pro[0] * 1e6 / nv, t_pro[1] * 1e6 / nv);
         fprintf(stderr, "L64_blocked tuner: chose eng=%d G=%d nth=%d dyn=%d "
-                "sb=%d mode=%s pf=%d st=%d pro=%d (nv=%d)\n",
-                p->mc.eng, p->mc.G, p->mc.nth, p->mc.dyn, p->mc.sb,
+                "sb=%d kb=%d mode=%s pf=%d st=%d pro=%d (nv=%d)\n",
+                p->mc.eng, p->mc.G, p->mc.nth, p->mc.dyn, p->mc.sb, p->mc.kb,
                 mode_name[p->mc.mode], p->mc.pf, p->mc.st, p->pro, nv);
     }
     free(ri); free(ro); free(rr);

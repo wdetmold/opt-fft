@@ -377,3 +377,145 @@ working set — same aggregate-cache mechanism as the mt_r1 arena lesson).
 * If a rival's record shows a cheaper way to bind the re-race to the warmup
   (or a driver change makes execute 1 scored), the re-race must grow a time
   budget guard; today it is ~200 ms worst case.
+
+## Round mt_r4 — deep-streaming pin: wide NT installed, not raced; dwell, don't measure cold
+
+### Where mt_r3 landed on the node, and the diagnosis
+
+B=1 0.211 us (1st, takes the cell). B=4096 0.0092 us/vol (1st, 2.23x MKL, a
+2% tie with L6_unrolled). B=65536 **lost 0.84x to fftw3_patient's min**
+(0.0788 vs 0.0660 us/vol) — though the VERDICT notes the panel wins that
+cell 1.55x on medians (FFTW alternates 4.3/8.0 ms modes within one process
+and is scored on its lucky minimum; my 5178 us median has sd 0.2%).
+
+The mt_r3 re-race did exactly what it was built to do — 5161/5173/5165 us,
+0.2% spread, lottery dead — **and the fix was worthless because it measured
+its way into the slow regime and locked it in.** The assembled evidence:
+
+* My re-race read T=16 and T=32 **tied at ~84 ns/vol (87.7 GB/s)** on the
+  real buffers in all three processes, and shipped T=16 in two of them.
+* But mt_r2's r1 process had `fused_pf_nt_xa_d2 T=32 disp=omp` sustain
+  **39.4 ns/vol (200 GB/s) with median == min for the whole process**, and
+  L6_unrolled's mt_r2 sustained 34.6 ns 3/3 at `3pass_nt_pf T=32 omp`. Same
+  node, same driver, same buffers-by-construction.
+* mt_r3's panel-wide `fr` instruments read **fr=0 everywhere**: the caller's
+  pages never migrate (VERDICT s5). So the fast regime is NOT page
+  placement — it behaves like machine/process state that only materialises
+  under *sustained* wide streaming, and fftw's within-process bimodality
+  (4.3 ms mode = ~157 GB/s, 8.0 ms mode = the same ~85 GB/s wall I hit)
+  says the fast mode exists dynamically even in the r3 node state.
+* A cold ~5 ms re-race slice can never see a mode that needs seconds of
+  sustained wide traffic to appear; a T=16 ship then forecloses it for the
+  entire scored run. That is my r3: shipped T=16, scored 78.8 stable.
+* The one entry that got >150 GB/s in ALL THREE processes
+  (L36_mixedradix, 150.9 GB/s, the project's best streaming number) did
+  it by **pinning the wide NT shape at deep cells without racing team
+  width, plus a ~3 s create-time dwell in that config**. The VERDICT's
+  refined rule: "at DRAM-bound cells, install from the working set and
+  don't race at all" — every entry that did this killed its lottery.
+
+### What I changed
+
+1. **Deep-streaming pin.** When the caller working set (in + out =
+   nb x 6912 B) exceeds 192 MiB — past aggregate cache on the node
+   (~76 MiB) and wallaby (~124 MiB), so B=65536 yes, B=4096 no —
+   `fft3d_create()` skips the 2D tournament entirely and installs
+   **3pass_pf_nt_xa_d2 at T=tmax** (the shape holding the node's
+   fast-regime record: L6_unrolled's 34.7 vs my fused NT's 39.4 ns/vol).
+   In the slow regime everything ties at ~84-88 ns (my own r3 re-race
+   table), so the pin costs nothing there; in the fast regime it is worth
+   ~2x. Team-width racing at this cell is deleted, per the VERDICT's L=6
+   order ("the team-width question at L=6 is closed — delete the shrink
+   race there"). The dispatch race (omp vs pool) and the 61-volume
+   threaded correctness gate still run on the pinned config.
+2. **Create-time wide dwell, ~3 s** (ADOPTED FROM **L36_mixedradix mt_r3**,
+   who adopted the dwell diagnosis from L36_pencilfused mt_r2): the
+   steady-state tail at deep cells now dwells ~3.0 s (was 3 ms) running
+   the exact shipped config on the race arena, so the driver's warmup
+   begins in a process that has been streaming wide for seconds. Setup is
+   unscored; setup_seconds goes ~2.6 -> ~3.4 s.
+3. **Re-race reduced at deep cells: kernel shape only, never team width.**
+   `l6_mt_rerace` still runs in the driver's discarded first execute, but
+   at deep cells it races exactly two rows — 3pass NT (incumbent, margin
+   0) vs fused NT (1.5% takeover) — at the single column T=tmax, **after a
+   0.5 s wide dwell on the real buffers** so both rows are priced in the
+   sustained-wide state the scored loop runs in. Non-deep cells keep the
+   full mt_r3 re-race (top-2 rows x surviving T columns) unchanged.
+4. Description gains `pin=<0|1>`. Everything else — B=1 single-thread arm,
+   B=4096 tournament + re-race, pool, margins — is byte-identical.
+
+### Operation count
+
+Unchanged (Good-Thomas 2x3, 44 real flops per 6-point line, 4752 flops per
+volume, no twiddles, no index tables). This round is pure selection policy
+and process-state management; zero new arithmetic, zero new kernels.
+
+### Measured (wallaby, Gold 6448Y, OMP_NUM_THREADS=32 close/cores)
+
+| case | mt_r3 | mt_r4 | pick |
+|---|---|---|---|
+| B=1 | 0.138 us | **0.133 us** (sd 0.12%; path untouched, session band) | phase-1 single-thread |
+| B=4096 | 25.1–26.7 us | **25.07 us = 0.0061 us/vol** (path untouched) | tournament as before |
+| B=65536 | 2202–2216 us | **2208–2212 us = 0.0337 us/vol** | PIN `3pass_pf_nt_xa_d2` T=32; re-race shipped `fused_pf_nt_xa_d2` T=32 (0.0337 vs 0.0348 on the real buffers — the two NT twins stay a coin flip on SPR) |
+
+rel L2 vs numpy: 2.34–2.42e-16 at B=1/33/4096/65536, bit-repeatable across
+runs at every size tried. Wallaby's close binding is single-socket, so it
+CANNOT price the wide-vs-narrow question the pin answers; the numbers above
+only show no regression.
+
+**The dev measurement that matters** (manual run of the tryout-built binary
+with `OMP_PROC_BIND=spread`, 32 threads across wallaby's two sockets — the
+node's topology, DEV ONLY, not the harness binding): B=65536 runs
+**1029 us = 0.0157 us/vol (~440 GB/s on DDR5), 2.15x faster** than the same
+binary close-bound, PASS 2.4e-16. The pinned wide path, the contiguous
+split and the NT stores all hold up when the team genuinely spans two
+sockets — which is what the harness gives the node run by default.
+
+### What did not work / risks, stated honestly
+
+* **Wallaby cannot falsify the pin.** Its harness binding is one socket, so
+  the wide-vs-narrow and dwell effects are invisible there (0.0337 both
+  ways). The bet is placed on node evidence only: mt_r2's sustained 39.4
+  (mine, T=32) and 34.6 (L6_unrolled, 3/3), against the known worst case —
+  L6_unrolled's r3 wide reading of 96 ns vs my narrow 84 (a -14% downside
+  if the slow regime is real AND wide is genuinely worse this time, though
+  the VERDICT suspects their 96 was self-inflicted by a leftover race
+  pool, a mechanism I don't have: my pool is destroyed before OMP timing,
+  and my r3 read wide == narrow, not worse). Asymmetric bet: lose <=14%
+  worst case, gain ~2x if the fast mode is reachable, tie otherwise.
+* **Pre-registered expectation for the node:** three B=65536 processes
+  within a few percent of each other, `pin=1`, `exre=` showing a T=32 NT
+  ship in every process; ~39 ns/vol or better if the fast mode
+  materialises under the dwell, ~84 ns if the machine refuses. If it
+  reads ~96 (worse than r3's 78.8), the pin is refuted and mt_r5 should
+  restore the narrow column to the deep re-race.
+* The B=1 min of one noisy session read 0.163 us (sd 36%) before a rerun
+  gave 0.133 (sd 0.12%) — wallaby login noise, path untouched; noted so
+  nobody bisects a phantom.
+
+### Borrowed
+
+* Pin-plus-dwell at deep-streaming cells: **L36_mixedradix mt_r3**
+  (v1-vol32-sntp pinned + 3 s dwell -> 150.9 GB/s in 3/3 processes), whose
+  dwell in turn credits L36_pencilfused mt_r2's diagnosis.
+* "Install from the working set, don't race at all" + "delete the shrink
+  race at L=6": the mt_r3 VERDICT (s5, s6), adopted as written.
+* 3pass NT as the pinned shape: L6_unrolled mt_r2's node record (34.7),
+  already in my generator vocabulary since mt_r3.
+
+### Next round
+
+* Read the node `exre=`/`pin=` strings first. Outcomes: (a) ~39 ns or
+  better, stable -> the fast mode is dwell-reachable; keep, and try
+  trimming the 3 s dwell to find the threshold. (b) ~84 ns stable -> the
+  machine's fast mode was absent this round; the pin still killed the
+  lottery, keep it and stop spending rounds here (the cell is then
+  bandwidth-capped for everyone; FFTW's lucky min is a statistic problem,
+  not a kernel problem). (c) worse than 84 -> pin refuted, restore the
+  narrow column at deep cells.
+* Watch L6_unrolled's impl_2-vs-impl_3 bisect (the VERDICT ordered it):
+  if the mechanism is "never leave a spin pool alive at a streaming
+  cell", audit my pool lifecycle again under their finding.
+* B=4096 remains a 2% tie: the ~1-2 us pool round trip (2-level tree join,
+  unmeasured since mt_r1) is still the only visible lever; only touch it
+  with a same-round A/B, since the cell is currently won.

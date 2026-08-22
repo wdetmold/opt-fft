@@ -1345,7 +1345,7 @@ static AI void fusedaa_volume(double *restrict scr,
                               const double *restrict src,
                               double *restrict dst,
                               const unsigned char *restrict perm,
-                              const int pf)
+                              const int nt, const int pf)
 {
     /* ---- pass A, per slow plane x: identical arithmetic to FUSED pass A,
      * contiguous [x][ri][ky] stores ---- */
@@ -1382,24 +1382,33 @@ static AI void fusedaa_volume(double *restrict scr,
         r8(zr, zq);                     /* z axis: registers = kz, lanes = kx.SW */
         untrans_ilv(zr, zq);
         double *op = dst + (size_t)ky * YSTR;
-        for (int j = 0; j < 8; ++j) {
-            VST(op + FOUT[j], zr[j]); VST(op + FOUT[j + 8], zq[j]);
+        if (nt) {
+            for (int j = 0; j < 8; ++j) {
+                VSTNT(op + FOUT[j], zr[j]); VSTNT(op + FOUT[j + 8], zq[j]);
+            }
+        } else {
+            for (int j = 0; j < 8; ++j) {
+                VST(op + FOUT[j], zr[j]); VST(op + FOUT[j + 8], zq[j]);
+            }
         }
     }
 }
 
-#define FUSEDAA_RUN(NAME, PF)                                                 \
+/* Round mt_r4: NT instantiations join -- the AA schedule was serial-only
+ * before this round; in the pool it is the §4.5 candidate (see mt_run_job). */
+#define FUSEDAA_RUN(NAME, NT, PF)                                             \
 static void NAME(double *scr, const unsigned char *perm,                      \
                  const double *src, double *dst, long nvol)                    \
 {                                                                             \
     for (long v = 0; v + 1 < nvol; ++v)                                       \
         fusedaa_volume(scr, src + (size_t)v * VOLD,                           \
-                            dst + (size_t)v * VOLD, perm, PF);                \
+                            dst + (size_t)v * VOLD, perm, NT, PF);            \
     fusedaa_volume(scr, src + (size_t)(nvol - 1) * VOLD,                      \
-                        dst + (size_t)(nvol - 1) * VOLD, perm, PF_NONE);      \
+                        dst + (size_t)(nvol - 1) * VOLD, perm, NT, PF_NONE);  \
 }
-FUSEDAA_RUN(faa_run_p0,  PF_NONE)
-FUSEDAA_RUN(faa_run_ps0, PF_S0)
+FUSEDAA_RUN(faa_run_p0,    0, PF_NONE)
+FUSEDAA_RUN(faa_run_ps0,   0, PF_S0)
+FUSEDAA_RUN(faa_run_n_ps0, 1, PF_S0)
 #undef FUSEDAA_RUN
 
 /* One specialised runner per (structure, nt, pf) combination so every branch
@@ -1479,22 +1488,37 @@ FUSED_RUN(f3_run_n_ps0,  fused3_volume,  1, PF_S0,   L8_SI_BATCH)
 #  define MT_PAUSE() do { } while (0)
 #endif
 
-/* Pool runners: the FUSED batch family only.  LANEX/FUSED3/AA never won a
- * batched phase-1 node cell (FUSED picked 9/9 at B=64, 6/6 streaming), and
- * every rank must run on a private 2112-double arena. */
-enum { R_F_P0 = 0, R_F_PS0, R_F_PSW, R_F_N_P0, R_F_N_PS0, R_NOP };
+/* Pool runners.  mt_r1-mt_r3: the FUSED batch family only (LANEX/FUSED3/AA
+ * never won a batched phase-1 node cell).  Round mt_r4 adds the two §4.5
+ * alias-schedule shapes the mt_r3 VERDICT routes this cell to:
+ *   R_F3_N_PS0  fused3 + NT: the volume's write stream is fully sequential
+ *               ascending -- L8_fusedaxes' node-picked seq3-nt shape (their
+ *               arena measured seq3-nt > fused-nt at T=32), never yet raced
+ *               inside MY pool;
+ *   R_AA_*      fusedAA: pass-A scratch placed at sigma=48 vs in and pass-B
+ *               ky order permuted vs out, so NO load 4K-aliases a recent
+ *               store BY CONSTRUCTION -- for the classic runners the alias
+ *               count is a per-worker (scr-out) mod 4096 allocation lottery
+ *               (VERDICT §4.5); AA runners need each rank's separate
+ *               page-aligned AA arena (pl->waab) and dispatch specially in
+ *               mt_run_job. */
+enum { R_F_P0 = 0, R_F_PS0, R_F_PSW, R_F_N_P0, R_F_N_PS0, R_F3_N_PS0,
+       R_AA_PS0, R_AA_N_PS0, R_NOP };
 typedef void (*mt_runfn)(double *, const double *, double *, long);
-static mt_runfn const mt_rtab[5] = { f_run_p0, f_run_ps0, f_run_psw,
-                                     f_run_n_p0, f_run_n_ps0 };
+static mt_runfn const mt_rtab[6] = { f_run_p0, f_run_ps0, f_run_psw,
+                                     f_run_n_p0, f_run_n_ps0, f3_run_n_ps0 };
 static const char *run_str(int r)
 {
     switch (r) {
-    case R_F_P0:    return "none";
-    case R_F_PS0:   return "s0";
-    case R_F_PSW:   return "s0w";
-    case R_F_N_P0:  return "nt";
-    case R_F_N_PS0: return "nt-s0";
-    default:        return "nop";
+    case R_F_P0:     return "none";
+    case R_F_PS0:    return "s0";
+    case R_F_PSW:    return "s0w";
+    case R_F_N_P0:   return "nt";
+    case R_F_N_PS0:  return "nt-s0";
+    case R_F3_N_PS0: return "f3-nt-s0";
+    case R_AA_PS0:   return "aa-s0";
+    case R_AA_N_PS0: return "aa-nt-s0";
+    default:         return "nop";
     }
 }
 
@@ -1536,6 +1560,10 @@ struct mt_pool {
     pthread_t th[MT_MAXT];
     struct mt_targ targ[MT_MAXT];
     double *wscr[MT_MAXT];      /* per-worker arenas, owner-first-touched */
+    double *waab[MT_MAXT];      /* mt_r4: per-worker AA arenas (12 KiB page-
+                                 * aligned, 8 KiB scratch + 4 KiB base slack),
+                                 * owner-first-touched; [0] = the plan's aab,
+                                 * set by fft3d_create after pool creation */
     cpu_set_t aff[MT_MAXT];     /* what OMP close/cores would have given */
     struct mt_worker w[MT_MAXT];
 };
@@ -1550,6 +1578,42 @@ static void mt_run_job(struct mt_pool *pl, int tid, double *scr)
 {
     const int r = pl->runner;
     if (r == R_NOP || tid >= pl->nthr) return;  /* idle rank: ack only */
+    if (r == R_AA_PS0 || r == R_AA_N_PS0) {
+        /* AA family (mt_r4): each rank derives its own scratch base and
+         * pass-B order from ITS OWN page-aligned AA arena and the caller's
+         * base pointers.  A slice offset is whole volumes = k*128 lines == 0
+         * (mod 64) and (mod 8), so the base-pointer derivation is exact for
+         * every rank's slice (the aa_setup argument, per-rank).  Candidates
+         * are gated on the arenas at plan time, so waab is never NULL here. */
+        double *aab = pl->waab[tid];
+        const size_t inl  = (uintptr_t)pl->src >> 6;
+        const size_t outl = (uintptr_t)pl->dst >> 6;
+        const size_t bl   = (uintptr_t)aab >> 6;
+        const size_t k    = (48 + inl - bl) & 63;      /* sigma = 48 vs in */
+        double *ascr = aab + k * 8;
+        const unsigned char *perm = aa_perm_tab[(outl - (bl + k)) & 7];
+        void (*g)(double *, const unsigned char *, const double *, double *,
+                  long) = (r == R_AA_N_PS0) ? faa_run_n_ps0 : faa_run_ps0;
+        if (pl->dynb) {
+            const long b = pl->dynb, n = pl->nvol;
+            long v;
+            while ((v = atomic_fetch_add_explicit(&pl->next, b,
+                                                  memory_order_relaxed)) < n) {
+                long m = n - v;
+                if (m > b) m = b;
+                g(ascr, perm, pl->src + (size_t)v * VOLD,
+                              pl->dst + (size_t)v * VOLD, m);
+            }
+        } else {
+            const long n = pl->nvol, T = pl->nthr;
+            const long v0 = n * tid / T, v1 = n * (tid + 1) / T;
+            if (v1 > v0)
+                g(ascr, perm, pl->src + (size_t)v0 * VOLD,
+                              pl->dst + (size_t)v0 * VOLD, v1 - v0);
+        }
+        if (r == R_AA_N_PS0) VFENCE();      /* NT drains before done */
+        return;
+    }
     mt_runfn f = mt_rtab[r];
     if (pl->dynb) {
         const long b = pl->dynb, n = pl->nvol;
@@ -1567,7 +1631,8 @@ static void mt_run_job(struct mt_pool *pl, int tid, double *scr)
             f(scr, pl->src + (size_t)v0 * VOLD, pl->dst + (size_t)v0 * VOLD,
               v1 - v0);
     }
-    if (r == R_F_N_P0 || r == R_F_N_PS0) VFENCE();  /* NT drains before done */
+    if (r == R_F_N_P0 || r == R_F_N_PS0 || r == R_F3_N_PS0)
+        VFENCE();                           /* NT drains before done */
 }
 
 static void *mt_worker_main(void *arg)
@@ -1578,15 +1643,32 @@ static void *mt_worker_main(void *arg)
 
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &pl->aff[tid]);
 
-    /* allocate AFTER pinning: first touch lands on this rank's socket */
+    /* allocate AFTER pinning: first touch lands on this rank's socket.
+     * The classic arena request is byte-identical to mt_r1-mt_r3 (2112
+     * doubles, 64-align) and is issued FIRST, so its glibc placement class
+     * is unchanged by the mt_r4 AA arena that follows it (the r10 lesson:
+     * never perturb a node-verified allocation).  The AA arena is a separate
+     * 12 KiB page-aligned block: 8 KiB scratch + 4 KiB base slack, same
+     * request as the plan's aab. */
     double *scr = NULL;
     if (posix_memalign((void **)&scr, 64, 2112 * sizeof(double)) != 0)
         scr = NULL;
     if (scr) memset(scr, 0, 2112 * sizeof(double));
     pl->wscr[tid] = scr;
-    atomic_store_explicit(&pl->w[tid].ready, scr ? 1 : -1,
+    double *aab = NULL;
+    if (scr) {
+        if (posix_memalign((void **)&aab, 4096, 1536 * sizeof(double)) != 0)
+            aab = NULL;
+        if (aab) memset(aab, 0, 1536 * sizeof(double));
+    }
+    pl->waab[tid] = aab;
+    atomic_store_explicit(&pl->w[tid].ready, (scr && aab) ? 1 : -1,
                           memory_order_release);
-    if (!scr) return NULL;
+    if (!scr || !aab) {
+        free(scr); free(aab);
+        pl->wscr[tid] = NULL; pl->waab[tid] = NULL;
+        return NULL;
+    }
 
     uint32_t last = 0;
     long idle = 0;
@@ -1604,6 +1686,7 @@ static void *mt_worker_main(void *arg)
         atomic_store_explicit(&pl->w[tid].done, g, memory_order_release);
     }
     free(scr);
+    free(aab);
     return NULL;
 }
 
@@ -2251,21 +2334,30 @@ static void mt_autotune(struct fft3d_plan *p)
         if (Tmax >= 8) MCAND(Tmax / 4, R_F_PS0, 0);
         if (p->batch <= 256) MCAND(1, R_F_PS0, 0);   /* serial verdict line */
     } else {                             /* streaming (B=2048, 32768) */
-        /* Round mt_r3 set.  DYNAMIC IS GONE from the tuner surface entirely:
-         * three rounds of node data (d2 2.4x worse, d8 lost 3/3, d128
-         * tied-to-worse 3/3) plus the mt_r2 VERDICT's panel-wide ruling
-         * ("dyn was the losing pick in every process where it was chosen;
-         * remove it, not re-race it").  s0w also leaves: zero streaming
-         * picks in mt_r1/mt_r2 node runs (0.26 vs 0.21 at B=32768), and the
-         * one process that picked it at B=2048 was the 62.7-vs-56.9 run.
-         * What remains is the node's own leaders: nt-s0/s0/none/nt at the
-         * full team, and the team-width ladder on nt-s0. */
-        MCAND(Tmax, R_F_N_PS0, 0);       /* node arena's streaming leader */
+        /* Round mt_r4 set.  Team width is SETTLED (mt_r3 VERDICT §5: four
+         * independent on-buffer races, wide team 19-35% slower, fr=0
+         * throughout -- "answered and should not be re-attempted"), so the
+         * width ladder shrinks to the two proven points and the freed slots
+         * go to the §4.5 alias schedules: fusedAA (alias-free by
+         * construction: sigma=48 vs in, permuted ky order vs out) and
+         * fused3-nt (fully sequential ascending write stream --
+         * L8_fusedaxes' node-picked seq3-nt shape, measured seq3-nt >
+         * fused-nt in THEIR T=32 arena, never yet raced in mine).  Dropped
+         * this round: Tmax/none and Tmax/nt (zero picks in three rounds of
+         * node tables; nt-s0 covers the NT direction), T24/nt-s0 (never the
+         * argmin in either regime, mt_r3 record's own reading).  NOTE the
+         * asymmetry the governor then resolves: the classic runners' 4K-
+         * alias cost in this arena is one draw of a per-worker (scr-out)
+         * lottery re-rolled on the driver's buffers; the AA runners' number
+         * transfers by construction. */
         MCAND(Tmax, R_F_PS0, 0);         /* node's 3/3 winner at B=2048 */
-        MCAND(Tmax, R_F_P0, 0);
-        MCAND(Tmax, R_F_N_P0, 0);
-        if (Tmax >= 32) MCAND(24, R_F_N_PS0, 0);
-        if (Tmax >= 4)  MCAND(Tmax / 2, R_F_N_PS0, 0);
+        if (p->aab) MCAND(Tmax, R_AA_PS0, 0);
+        MCAND(Tmax, R_F_N_PS0, 0);       /* full-width NT anchor */
+        if (Tmax >= 4) {
+            MCAND(Tmax / 2, R_F_N_PS0, 0);  /* B=32768 node winner 3/3 */
+            if (p->aab) MCAND(Tmax / 2, R_AA_N_PS0, 0);
+            MCAND(Tmax / 2, R_F3_N_PS0, 0);
+        }
     }
 #undef MCAND
 
