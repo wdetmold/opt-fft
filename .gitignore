@@ -106,3 +106,8 @@ bench/gpu/build/
 bench/geom/best/obj/
 bench/geom/best/libfft3d_best.a
 bench/geom/best/verify_best
+
+# graded reference solutions (fft_v4): tracked -- not reconstructible
+!ext/reference/
+# but not the tarball itself
+fft_v4.tar

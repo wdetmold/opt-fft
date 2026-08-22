@@ -91,6 +91,40 @@
  *   - pf=2 wired into the fused X items (prefetch the NEXT item's 23
  *     strided lines): my r2 next-item 3, raced at B<32.
  *
+ * WHAT IS NEW IN mt_r4 (memory schedule + idle-thread hygiene only; DAG
+ * untouched, one bit class as always).  mt_r3's node verdict: both L23
+ * entries sit at 65-67 GB/s streaming, the LOWEST of any geometry, while
+ * the L=36 entries reach 137-151 GB/s with sequential-read discipline;
+ * the tree barrier (bar) and weighted split (wt) lost every node cell and
+ * their tuner rows are dropped (code kept for env-forced A/Bs only).
+ *   - STAGED SEQUENTIAL INPUT (si knob, 0/1/2), range exec only: with si
+ *     engaged a thread copies its volume's `in` (24334 doubles, 190 KiB)
+ *     sequentially into slot-local scratch (vs) and runs the X pass off
+ *     the copy.  Same compulsory bytes; ONE hardware-prefetchable stream
+ *     instead of 23 interleaved 8464-B-strided page streams (32 threads x
+ *     23 streams = 736 open DRAM pages was the suspected 65 GB/s wall).
+ *     si=2 stages on the FAR socket only (near reads local DRAM where the
+ *     strided walk is cheap).  Carried as my unbuilt next-item since
+ *     mt_r1; the shape is the L=36 winners' (L36_pencilfused's paced read
+ *     cursor, L36_mixedradix's sntp), ported per the mt_r3 verdict's
+ *     explicit L=23 order; L23_matrixsimd mt_r4 built the same knob.
+ *   - PACED NEXT-VOLUME PREFETCH (pv knob), range exec only: during
+ *     volume v's compute-heavy plane phase, prefetcht1 volume v+1's `in`
+ *     sequentially (~133 lines per plane, 3043 total).  Same stream
+ *     conversion as si with ZERO extra stores; the X pass then reads
+ *     mostly L2 hits.  Differs from the node-rejected pf=2, which issued
+ *     the same strided pattern just-in-time against the X pass's own
+ *     demand loads.
+ *   - PARKED NON-PARTICIPANTS: once the pick is final, pool threads with
+ *     tid >= team (which join no barrier) poll the generation word with
+ *     nanosleep(100us) instead of pause-spinning.  The node's scored B=1
+ *     pick (fused T=16) leaves 16 workers spinning all run; mt_r3 verdict
+ *     4.4 collects three entries blaming busy spinners for all-core clock
+ *     drag (clk512 2.29 vs 2.89 GHz).  Free by construction: parked
+ *     threads are never participants, and a late generation read only
+ *     delays their empty workfn call.  BORROWED: L23_matrixsimd mt_r4
+ *     (their park design), L36_pfa mt_r3 (nap-after-1ms).
+ *
  * ASSUMPTIONS: L == 23 only; in/out distinct, 64-byte aligned (driver);
  * gcc/clang vector extensions with -ffp-contract=fast; self-#include
  * instantiates the template at 512-bit (WC=4) and 256-bit (WC=2).
@@ -417,21 +451,31 @@ SUF(plane)(const double *restrict t1p, double *restrict pt,
  *  Range exec: volumes [b0,b1) on ONE thread's scratch slot.  Plain
  *  X-first two-sweep, pf/pw as in phase 1; ntc!=0 stages each finished
  *  plane and streams it to out (NT stores skip the read-for-ownership).
+ *  sieff!=0 (mt_r4) copies each volume's `in` sequentially into the
+ *  slot's vs region first and runs the X pass off the L2-resident copy;
+ *  p->pv!=0 (mt_r4) sequentially prefetcht1's the NEXT owned volume's
+ *  `in` paced through the plane phase (~133 lines per plane).  Both are
+ *  bit-exact: the X pass reads identical values in identical order.
  * --------------------------------------------------------------------- */
 static void SUF(rng)(const fft3d_plan *restrict p,
                      const double _Complex *restrict in,
                      double _Complex *restrict out, int b0, int b1,
-                     double *restrict slot, int ntc)
+                     double *restrict slot, int ntc, int sieff)
 {
     const double *restrict cd = CDIST(p);
     const double *restrict sd = SDIST(p);
     double *restrict t1 = slot + L23R_SL_T1;
     double *restrict pb = slot + L23R_SL_PB;
     double *restrict ps = slot + L23R_SL_PS;
-    const int pf = p->pf, pw = p->pw;
+    double *restrict vs = slot + L23R_SL_VS;
+    const int pf = p->pf, pw = p->pw, pv = p->pv;
     for (int b = b0; b < b1; ++b) {
         const double *vin = (const double *)(in + (size_t)b * 12167);
         double *vout = (double *)(out + (size_t)b * 12167);
+        if (sieff) {
+            memcpy(vs, vin, 24334 * sizeof(double));
+            vin = vs;
+        }
         for (int i = 0; i < NX23; ++i) {
             if (pf == 2 && i + 4 < NX23) {
                 /* pull the chunk 4 slots ahead: 23 lines, one per 8464-B-
@@ -443,7 +487,18 @@ static void SUF(rng)(const fft3d_plan *restrict p,
             }
             SUF(xchunk)(vin, t1, L23R_XF0(i), cd, sd);
         }
+        /* 190 KiB = 3043 lines incl. the 48-B volume-start misalignment;
+         * 23 planes x 133 lines covers it with a harmless <64-B overrun */
+        const char *pvn = (pv && b + 1 < b1)
+                              ? (const char *)(in + (size_t)(b + 1) * 12167)
+                              : (const char *)0;
         for (int x = 0; x < 23; ++x) {
+            if (pvn) {
+                long q0 = (long)x * 133, q1 = q0 + 133;
+                if (q1 > 3043) q1 = 3043;
+                for (long q6 = q0; q6 < q1; ++q6)
+                    __builtin_prefetch(pvn + q6 * 64, 0, 2);
+            }
             double *pt = vout + (long)x * 1058;
             if (!ntc) {
                 SUF(plane)(t1 + (long)x * L23R_T1P, pt, pb, cd, sd, pw);
@@ -486,8 +541,12 @@ static void SUF(work_rng)(const fft3d_plan *restrict p, int tid)
         b0 = (int)((long)nb * tid / T);
         b1 = (int)((long)nb * (tid + 1) / T);
     }
-    if (b1 > b0)
-        SUF(rng)(p, pl->in, pl->out, b0, b1, L23R_SLOT(p, tid), p->ntc);
+    if (b1 > b0) {
+        /* si=1: every thread stages; si=2: far-socket threads only (near
+         * threads read local DRAM where the strided walk is cheap) */
+        int sieff = p->si == 1 || (p->si == 2 && pl->far[tid]);
+        SUF(rng)(p, pl->in, pl->out, b0, b1, L23R_SLOT(p, tid), p->ntc, sieff);
+    }
     l23r_bar_join(pl, tid, T);
 }
 
@@ -553,7 +612,7 @@ static __attribute__((unused)) void
 SUF(x_serial)(const fft3d_plan *restrict p, const double _Complex *restrict in,
               double _Complex *restrict out)
 {
-    SUF(rng)(p, in, out, 0, p->batch, L23R_SLOT(p, 0), p->ntc);
+    SUF(rng)(p, in, out, 0, p->batch, L23R_SLOT(p, 0), p->ntc, p->si == 1);
 }
 
 static __attribute__((unused)) void
@@ -710,6 +769,8 @@ typedef struct l23r_pool {
     const double _Complex *in;
     double _Complex *out;
     long gen_local;
+    _Atomic int parkfrom; /* tid >= parkfrom naps on the gen word (mt_r4);
+                           * L23R_MAXT until the pick is final */
     int nthr; /* pool size incl. main */
     int tw;   /* active participants of the current job (<= nthr) */
     int fc;   /* far-collector tid of the current job; 0 = flat barrier */
@@ -727,6 +788,8 @@ struct fft3d_plan {
     int ntc;    /* range exec stages planes + NT-streams them to out */
     int bar;    /* 1 = two-level socket-tree barrier (needs nsock == 2) */
     int wt;     /* weighted near/far volume split: 0 even, 1 = 4:3, 2 = 5:3 */
+    int si;     /* staged sequential input: 0 off, 1 all threads, 2 far only */
+    int pv;     /* paced sequential prefetch of the next owned volume's in */
     void (*exec)(const struct fft3d_plan *, const double _Complex *, double _Complex *);
     double *cd8, *sd8; /* 11 distinct cos / sin magnitudes, splatted 8x */
     double *cd4, *sd4; /* the same, splatted 4x */
@@ -752,7 +815,9 @@ struct fft3d_plan {
 #define L23R_SL_T1 0                       /* 23 * 1064 = 24472 */
 #define L23R_SL_PB 24472                   /* 23 * 48   =  1104 */
 #define L23R_SL_PS 25576                   /* staging plane 1064 */
-#define L23R_SLOTSZ 27136                  /* 53 pages = 217088 B */
+#define L23R_SL_VS 27136                   /* staged-input volume, 24334
+                                            * doubles, page-aligned (mt_r4) */
+#define L23R_SLOTSZ 51712                  /* 101 pages = 413696 B */
 
 #define L23R_SLOT(p, t) ((p)->slab + (size_t)(t) * L23R_SLOTSZ)
 
@@ -948,8 +1013,22 @@ static void *l23r_worker(void *arg)
 
     long last = 0;
     for (;;) {
-        while (atomic_load_explicit(&pl->gen, memory_order_acquire) == last)
-            l23r_cpu_relax();
+        /* mt_r4: once the pick is final, non-participants (tid >= parkfrom,
+         * which every job returns immediately and which join no barrier)
+         * nap-poll instead of pause-spinning -- verdict 4.4's clock-drag
+         * hygiene.  A late generation read only delays their empty workfn
+         * call; the ++last catch-up loop below tolerates any backlog. */
+        if (tid >= atomic_load_explicit(&pl->parkfrom, memory_order_relaxed)) {
+            while (atomic_load_explicit(&pl->gen, memory_order_acquire) ==
+                   last) {
+                struct timespec pts = {0, 100000}; /* 100 us */
+                nanosleep(&pts, NULL);
+            }
+        } else {
+            while (atomic_load_explicit(&pl->gen, memory_order_acquire) ==
+                   last)
+                l23r_cpu_relax();
+        }
         ++last;
         if (atomic_load_explicit(&pl->shutdown, memory_order_relaxed)) break;
         pl->workfn(p, tid);
@@ -1052,7 +1131,8 @@ static int l23r_tune_nv(const fft3d_plan *p, int batch)
 }
 
 /* tuner cell: decomposition mode x width x team x prefetch knobs x
- * barrier shape x near/far weighting */
+ * input schedule.  bar/wt lost every mt_r3 node cell; their code stays
+ * (env-forceable) but no cell races them any more. */
 typedef struct {
     signed char mode; /* 0 serial, 1 batch, 2 batch-NT, 3 fused */
     signed char w;    /* vector width in complex: 4 or 2 */
@@ -1060,6 +1140,8 @@ typedef struct {
     signed char pf, pw;
     signed char bar;  /* 1 = socket-tree barrier (no-op when nsock == 1) */
     signed char wt;   /* weighted volume split: 0 even, 1 = 4:3, 2 = 5:3 */
+    signed char si;   /* staged sequential input: 0/1 all/2 far-only */
+    signed char pv;   /* paced next-volume input prefetch */
 } l23r_cell;
 
 static const char *const l23r_mode_name[4] = {"serial", "batch", "batchNT",
@@ -1087,6 +1169,8 @@ static void l23r_apply(fft3d_plan *p, const l23r_cell *c)
     p->ntc = c->mode == 2;
     p->bar = c->bar;
     p->wt = c->wt;
+    p->si = c->si;
+    p->pv = c->pv;
 }
 
 /* Finish: env overrides (L23R_PF / L23R_PW / L23R_TEAM, for same-window
@@ -1116,16 +1200,32 @@ static void l23r_tune_finish(fft3d_plan *p, const l23r_cell *c)
         int v = atoi(e);
         p->wt = v < 0 ? 0 : (v > 2 ? 2 : v);
     }
+    e = getenv("L23R_SI");
+    if (e && *e) {
+        int v = atoi(e);
+        p->si = v < 0 ? 0 : (v > 2 ? 2 : v);
+    }
+    e = getenv("L23R_PV");
+    if (e && *e) p->pv = atoi(e) ? 1 : 0;
+    /* park the never-participating tail of the pool now that the team is
+     * final (tid >= team joins no barrier and runs no work) */
+    int park = 1;
+    e = getenv("L23R_PARK");
+    if (e && *e) park = atoi(e) ? 1 : 0;
+    atomic_store_explicit(&p->pl->parkfrom,
+                          park ? p->team : p->pl->nthr, memory_order_relaxed);
+    int pk = park && p->team < p->pl->nthr;
     if (g_tnv > 0)
         snprintf(g_dbuf, sizeof g_dbuf,
-                 "rader23 pool %s w%d team=%d pf=%d pw=%d bar=%d wt=%d ns=%d, tuner pick=%.2f inc=%.2f us/t nv=%d",
+                 "rader23 pool %s w%d team=%d pf=%d pw=%d si=%d pv=%d bar=%d wt=%d pk=%d ns=%d, tuner pick=%.2f inc=%.2f us/t nv=%d",
                  l23r_mode_name[(int)c->mode], (int)c->w, p->team, p->pf,
-                 p->pw, p->bar, p->wt, p->pl->nsock, g_tpick, g_tinc, g_tnv);
+                 p->pw, p->si, p->pv, p->bar, p->wt, pk, p->pl->nsock,
+                 g_tpick, g_tinc, g_tnv);
     else
         snprintf(g_dbuf, sizeof g_dbuf,
-                 "rader23 pool %s w%d team=%d pf=%d pw=%d bar=%d wt=%d ns=%d",
+                 "rader23 pool %s w%d team=%d pf=%d pw=%d si=%d pv=%d bar=%d wt=%d pk=%d ns=%d",
                  l23r_mode_name[(int)c->mode], (int)c->w, p->team, p->pf,
-                 p->pw, p->bar, p->wt, p->pl->nsock);
+                 p->pw, p->si, p->pv, p->bar, p->wt, pk, p->pl->nsock);
     g_desc = g_dbuf;
     l23r_tune_free(p);
 }
@@ -1239,6 +1339,9 @@ fft3d_plan *fft3d_create(int L, int batch)
         }
         memset(pb, 0, sizeof(l23r_pool));
         p->pl = (l23r_pool *)pb;
+        /* nobody parks until l23r_tune_finish sets the final team */
+        atomic_store_explicit(&p->pl->parkfrom, L23R_MAXT,
+                              memory_order_relaxed);
         p->pl->nthr = T;
         p->pl->tw = T;
         p->pl->nsock = nsock;
@@ -1288,13 +1391,14 @@ fft3d_plan *fft3d_create(int L, int batch)
      * output. ---- */
     l23r_cell cells[24];
     int ncell = 0;
-#define ADDC(m_, w_, t_, pf_, pw_, bar_, wt_)                                  \
+#define ADDC(m_, w_, t_, pf_, pw_, si_, pv_)                                   \
     do {                                                                       \
         if (ncell < 24) {                                                      \
             cells[ncell].mode = (m_); cells[ncell].w = (w_);                   \
             cells[ncell].team = (signed char)(t_);                             \
             cells[ncell].pf = (pf_); cells[ncell].pw = (pw_);                  \
-            cells[ncell].bar = (bar_); cells[ncell].wt = (wt_); ++ncell;       \
+            cells[ncell].bar = 0; cells[ncell].wt = 0;                         \
+            cells[ncell].si = (si_); cells[ncell].pv = (pv_); ++ncell;         \
         }                                                                      \
     } while (0)
 
@@ -1302,55 +1406,44 @@ fft3d_plan *fft3d_create(int L, int batch)
     const int T16 = T < 16 ? T : 16;
     const int twosock = p->pl->nsock == 2;
     if (batch >= 32) {
-        /* streaming regime: volumes across the full team.  Head = the
-         * node's B=128 mt_r2 winner (plain pf0 pw0 -- both entries'
-         * pick there); NT is the node's B=2048 winner under an honest
-         * arena (rival's nt1 pf0 scored 5.93 vs my mistuned 7.17) and
-         * the wallaby streaming winner.  Weighted near/far splits are
-         * new this round, two-socket only.  Dropped: the two mixed
-         * plain-prefetch combos and team=24 (never won a table
-         * anywhere), the serial telemetry row (phase-1 ST numbers are
-         * known; at nv=640 it cost ~0.25 s of setup for nothing). */
+        /* streaming regime: volumes across the full team.  Heads = the
+         * node's mt_r3 picks (plain pf0 pw0 at B=128, batchNT static at
+         * B=2048).  New this round: the si/pv input-schedule ladder --
+         * the mt_r3 verdict names the sequential-read discipline as what
+         * separates L=36's 137-151 GB/s from L=23's 65.  DROPPED on node
+         * evidence: wt cells (wt=0 in every mt_r3 string), team=16 rows
+         * (verdict 5: four independent narrow-vs-wide refutations; and
+         * my own t16 rows never won a node table in three rounds). */
         ADDC(1, 4, T, 0, 0, 0, 0);
-        ADDC(1, 4, T, 2, 1, 0, 0); /* wallaby L3-resident B=128 winner */
-        ADDC(2, 4, T, 0, 0, 0, 0); /* NT: the node's honest streaming pick */
+        ADDC(1, 4, T, 2, 1, 0, 0); /* node B=128 1/3, wallaby L3-resident */
+        ADDC(2, 4, T, 0, 0, 0, 0); /* NT static: node B=2048 pick */
         ADDC(2, 4, T, 2, 0, 0, 0); /* NT+pf2: wallaby streaming winner */
-        if (twosock) {
-            ADDC(2, 4, T, 0, 0, 0, 1); /* NT, near:far 4:3 */
-            ADDC(2, 4, T, 0, 0, 0, 2); /* NT, near:far 5:3 */
-            ADDC(1, 4, T, 0, 0, 0, 1); /* plain, 4:3 (B=128 regime) */
-        }
-        if (T > 16) { /* the two-socket question: 16 = one CLX socket */
-            ADDC(1, 4, 16, 0, 0, 0, 0);
-            ADDC(2, 4, 16, 0, 0, 0, 0);
-        }
+        ADDC(2, 4, T, 0, 0, 1, 0); /* NT + staged sequential input */
+        ADDC(2, 4, T, 0, 0, 0, 1); /* NT + paced next-volume prefetch */
+        ADDC(2, 4, T, 0, 0, 1, 1); /* NT + si + pv (pv feeds the copy) */
+        ADDC(1, 4, T, 0, 0, 1, 0); /* plain + si (the B=128 regime) */
+        ADDC(1, 4, T, 0, 0, 0, 1); /* plain + pv */
+        if (twosock) ADDC(2, 4, T, 0, 0, 2, 0); /* NT + far-only staging */
         ADDC(1, 2, T, 0, 0, 0, 0); /* non-AVX-512 fallback */
     } else if (batch == 1) {
-        /* B=1: head = fused T=16 flat, the node's scored mt_r2 pick
-         * (11.6-11.9 us, both L23 entries -- one CLX socket keeps the
-         * flat barrier local).  The tree-barrier cells ask whether a
-         * one-remote-read barrier lets the far 16 threads pay for
-         * themselves; wallaby (nsock=1) runs them as flat duplicates.
-         * Serial stays raced as the honest floor. */
+        /* B=1: head = fused T=16 flat, the node's scored pick in mt_r2
+         * AND mt_r3 (11.5-11.9 us, both L23 entries; my tree cells lost
+         * 9/9 node strings, dropped).  The cell is latency-closed -- two
+         * kernels and a purpose-built tree barrier all measure the same
+         * floor -- so this round's only lever is parking the 16 idle
+         * workers (always on, not a cell).  Serial stays as the floor. */
         ADDC(3, 4, T16, 0, 0, 0, 0);
-        ADDC(3, 4, T, 0, 0, 1, 0);  /* tree, full team */
-        ADDC(3, 4, T, 0, 0, 0, 0);  /* flat, full team: wallaby's winner */
-        if (T > 23) ADDC(3, 4, 23, 0, 0, 1, 0); /* 23 plane tasks, tree */
+        ADDC(3, 4, T, 0, 0, 0, 0);   /* flat, full team: wallaby's winner */
         ADDC(3, 4, T16, 2, 0, 0, 0); /* fused X prefetch, one socket */
-        ADDC(3, 4, T, 2, 0, 1, 0);   /* fused X prefetch, tree full team */
         ADDC(0, 4, 1, 0, 0, 0, 0);
         ADDC(3, 2, T, 0, 0, 0, 0);
     } else {
-        /* 2..31 volumes: fused-on-pool heads (uses all T threads;
-         * L23_matrixsimd measured 1.32 us/vol at B=31 vs one-volume-per-
-         * thread's 2.98 at B=16); one-volume-per-thread stays raced --
-         * it keeps t1 L2-private, which won under OMP forks. */
+        /* 2..31 volumes: fused-on-pool heads (uses all T threads);
+         * one-volume-per-thread stays raced -- it keeps t1 L2-private. */
         ADDC(3, 4, T, 0, 0, 0, 0);
-        ADDC(3, 4, T, 0, 0, 1, 0); /* tree */
         ADDC(3, 4, T, 2, 0, 0, 0); /* fused X prefetch */
         ADDC(1, 4, TB, 0, 0, 0, 0);
         ADDC(1, 4, TB, 2, 1, 0, 0);
-        if (T > 16) ADDC(3, 4, 16, 0, 0, 0, 0);
         ADDC(2, 4, TB, 0, 0, 0, 0);
         ADDC(0, 4, 1, 0, 0, 0, 0);
         ADDC(3, 2, T, 0, 0, 0, 0);
@@ -1366,10 +1459,10 @@ fft3d_plan *fft3d_create(int L, int batch)
         if (v >= 0 && v < ncell) {
             l23r_apply(p, &cells[v]);
             if (l23r_verbose())
-                fprintf(stderr, "[L23_rader] FORCED cell %d: %s w%d team=%d pf=%d pw=%d bar=%d wt=%d\n",
+                fprintf(stderr, "[L23_rader] FORCED cell %d: %s w%d team=%d pf=%d pw=%d si=%d pv=%d\n",
                         v, l23r_mode_name[(int)cells[v].mode], cells[v].w,
                         cells[v].team, cells[v].pf, cells[v].pw,
-                        cells[v].bar, cells[v].wt);
+                        cells[v].si, cells[v].pv);
             l23r_tune_finish(p, &cells[v]);
             return p;
         }
@@ -1414,10 +1507,10 @@ fft3d_plan *fft3d_create(int L, int batch)
             if (l23r_verbose())
                 for (int c = 0; c < ncell; ++c)
                     fprintf(stderr,
-                            "[L23_rader tune nv=%d] %-8s w%d team=%2d pf=%d pw=%d bar=%d wt=%d %9.2f us/transform%s\n",
+                            "[L23_rader tune nv=%d] %-8s w%d team=%2d pf=%d pw=%d si=%d pv=%d %9.2f us/transform%s\n",
                             nv, l23r_mode_name[(int)cells[c].mode], cells[c].w,
                             cells[c].team, cells[c].pf, cells[c].pw,
-                            cells[c].bar, cells[c].wt,
+                            cells[c].si, cells[c].pv,
                             best[c] * 1e6 / ((double)nv * inner),
                             c == bestc ? "  <== kept" : "");
         }

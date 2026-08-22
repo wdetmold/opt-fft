@@ -475,3 +475,173 @@ tryout's cross-run cmp everywhere). Builds and passes: AVX2-only
    26887 vs t2g2's 13903 — unlikely, but the race prices it for free).
 4. If `L13_rader` rebuilds, its 0.976 at B=8192 plus my governor are
    complementary — whoever is behind should adopt the other's exec.
+
+## Round mt_r4
+
+### Where round mt_r3 left this entry
+
+Node (Gold 5218, scored): B=1 **5.868 µs** (won, 1.30× over mkl2026 — but a
+2.3% REGRESSION from 5.734, and the VERDICT §3.5 names the cause: my B=1
+governor read t2g2 10% faster than serial in its 64-call probe window and
+locked it in all three processes, and the cell got slower). B=512
+**0.305 µs/vol** (the honest winner — L13_rader's listed 0.302 is a 1-in-3
+pick lottery the verdict says not to quote). B=8192 **0.980 µs/vol — LOST**
+to fftw3_patient's 0.603 (itself a 1-in-3 fast mode; on medians the panel
+wins 1.19×). The round's big findings that bear on me: (a) VERDICT §5 killed
+the page-placement mechanism outright — fr=0 everywhere including my own
+`gov{fr=0/0,frl=0}` at B=8192, so tfw's target regime does not exist;
+(b) §4.3/§6: the per-thread-L2-tile construction ("in read once, out written
+once, all three axes inside the tile") measured 137–151 GB/s at L=36 and
+129 at L=17 where both L=13 entries sit at 69–72 GB/s; the verdict's L=13
+order is to build it; (c) four independent on-buffer races (L8×3, L36_pfa)
+priced the half team 19–35% FASTER at their deep-streaming cells.
+
+### What changed
+
+1. **The B=1 governor race is DELETED; serial is unconditional again.**
+   The mechanism of the r3 regression, now understood: at B=1 the race's 64
+   alternated probe calls sit in the driver's frequency-ramp/warm-up window,
+   while the incumbent it displaces would have sampled the min over
+   thousands of post-lock calls — the probe statistic is structurally biased
+   toward *whichever config is measured only early*, and serial's true min
+   (5.734) was better than t2g2's whole-run min. Probe-window minima at B=1
+   are not comparable to lock-window minima; I will not race that cell
+   again. (The ab[B1] create-time instrument still prints the t-curve.)
+
+2. **Staged-input L2-tile execs** (`l13_exec_xcnt_mx` NT tier, FORCE=16;
+   `l13_exec_xcpf_mx` pf tier, FORCE=17) — the VERDICT §6 construction
+   ported from **L36_pencilfused / L36_mixedradix mt_r3** (their paced read
+   cursor / `vol32-sntp` shape). Per-thread scratch gains a `tin` volume
+   tile (13 x-rows repadded 338→344 doubles; slot now 77.6 KiB, still inside
+   one node core's 1 MiB L2). The exec pipelines on one buffer: prologue
+   copies volume b0's 13 rows; the X pass runs from tin; between the Y and Z
+   groups of plane x it copies x-row x of the NEXT volume (inline vector
+   copy — a memcpy call would spill the 12 pinned zmm constants). Two
+   mechanisms in one change: the volume's DRAM read becomes ONE linear
+   demand stream at full MLP (replacing 13 concurrent 2.7 KB-strided kernel
+   streams plus droppable prefetcht1 hints — pfr43 is gone from the staged
+   exec, the copy IS the read), and every X-pass load becomes 64 B-aligned
+   (at the caller's 338-double row stride, 3/4 of the X pass's zmm loads
+   split a cache line; tin's 344 stride and 64 B base make them all whole-
+   line). Output bit-identical by construction (the copy preserves values).
+
+3. **Governor slots reworked** (still min-of-min-immune, all configs
+   bit-identical): `tfw` and the weighted re-cut race are DELETED (VERDICT
+   §5: fr=0 everywhere; my own r3 wallaby reading had it +36% anyway). NT
+   tier now races `tf` (unstaged full team, the create pick), `th`
+   (unstaged half team), `st` (staged full), `sh` (staged half) — the full
+   2×2 the r3 races never covered, since the L8-family's T16 wins and my
+   MLP theory could interact. pf tier (node B=512) races `tf`, `th`,
+   `st`=xcpf, `nt`=xsnt. The one-time fr read still rides the desc string
+   (zero new machinery, keeps the record comparable).
+
+4. **Default stays UNSTAGED** at both streaming tiers (`-DL13_STG=1` flips
+   it): wallaby priced the staged NT exec +15% (below), and under min-of-min
+   scoring a wrong default costs only the probe calls while a right
+   challenger still takes the cell — the asymmetric-risk choice.
+
+### Operation count
+
+Kernel arithmetic unchanged (14.3k vector-op cycles/volume, zsolid +
+xmm-tail census from panel_r11). The staged execs add one 35 KB volume copy
+per volume: +35 KB of L1/L2 store traffic and +~4.4k copy instructions;
+compulsory DRAM traffic UNCHANGED at 70 KB/volume (the copy's reads replace
+the kernel's reads of `in` one-for-one), and ~40 line-splitting zmm loads
+per volume are deleted from the X pass. Governor: 4 configs × 4–8 probes of
+~53 calls at B=8192, then locked; ≤2 pointer stores per call after lock.
+
+### Measured on wallaby (Gold 6448Y, 32 threads close/cores, driver-level, shared login node — session had visible load spikes; clean-window minima quoted, sd shown where it matters)
+
+| case | mt_r3 | mt_r4 | note |
+|---|---|---|---|
+| B=1 | 2.494 µs | **2.499 µs** (sd 0.15%) | serial restored; one loaded-window reading of 4.89 µs discarded (repeated at 2.50) |
+| B=16 | 5.86 µs/call | **7.42 µs/call** | untouched path, pure login noise (session drift below) |
+| B=512 | 83.9 µs/call | **83.7 µs/call** (0.164 µs/vol) | untouched tier on wallaby (34 MB < 60 MB L3) |
+| B=2048 | 533 µs/call | **529 µs/call** | pf tier, gov armed |
+| B=4096 | 1132 µs/call | **1159–1505 µs** | NT tier, 4-config gov; loaded windows, unreadable beyond parity |
+| B=8192 | 2803 µs/call | **2781–2852 µs = 0.339 µs/vol** | gov locks tf (unstaged), as wallaby should |
+
+**The round's controlled A/B** (forced execs, same build flags, interleaved
+runs): B=8192 unstaged `FORCE=15` **2786 / 2811 µs (sd 0.21/0.23%)** vs
+staged `FORCE=16` **3201 / 3240 µs (sd 11.9/0.10%)** — **staged is +15% on
+wallaby**. Read honestly: wallaby's 32 close threads are one DDR5 socket
+already sustaining 206 GB/s on the unstaged exec, so there is no MLP famine
+to fix and the tile's extra L2 round trip is pure cost. The staged form's
+target regime — the node's 71 GB/s of a socket's ~128, with reads crossing
+UPI for 16 threads — does not exist on wallaby. That is exactly why it
+ships as a governor challenger, not the default.
+
+A pf-tier A/B at B=2048 was attempted and is UNREADABLE: identical unstaged
+builds minutes apart read 535 and 686 µs (28% session drift); the staged
+pf read 644–655 between them. The node governor prices it instead.
+
+Correctness: PASS rel_l2 = 2.83e-16 (B=1) … 2.88e-16 across B = 1, 16, 33,
+512, 2048, 4096, 8192, tol 1e-12; bit-identical output across runs at every
+batch (tryout cmp). Builds and passes: AVX2-only (`-mno-avx512f`),
+no-OpenMP (`-fno-openmp`), `-DL13_GOV=0`, `-DL13_STG=1`, `-DL13_FORCE=16/17`.
+No new warning *classes* (+24 instances of the pre-existing dead-constant-
+load pattern from the two new execs' shared decl macro; gcc deletes them).
+
+### What did NOT work / was deliberately declined, with numbers
+
+1. **Staged-input NT as the create default** — killed by the wallaby A/B
+   above (+15%, sd ≤0.23% on three of four runs). Kept as gov challenger.
+2. **Re-racing B=1 in any form** (including a longer probe window): the r3
+   node data is three processes of the same 2.3% loss, and the bias
+   mechanism (probe-window vs lock-window minima) is structural, not a
+   budget problem. Serial, unconditionally.
+3. **tfw / weighted cuts**: deleted without re-measurement — VERDICT §5's
+   seven-entry fr table killed the regime it was built for (fr=0 at every
+   L=13-relevant cell, migration changes nothing where it happens); my own
+   r3 wallaby probe had it +36% over tf.
+
+### Borrowed, explicitly
+
+* **The staged-input L2-tile construction and the paced read cursor:
+  L36_pencilfused mt_r3 (mode-2/istream) and L36_mixedradix mt_r3
+  (`vol32-sntp`), via the VERDICT §4.3/§6 port order** — re-derived at L=13
+  scale (the volume is 34 KiB, so the tile holds one volume and the cursor
+  paces at x-row granularity between kernel groups).
+* **The staged×half-team `sh` config exists because of the L8-family's
+  three independent T16-wins-by-19-35% races (L8_fusedaxes, L8_batchsimd,
+  L8_radix8 mt_r3) plus L36_pfa's s16** — none of which raced narrow WITH a
+  changed read discipline.
+* The governor frame remains L8_fusedaxes mt_r2's (r3 borrow, carried).
+* "Publish both configs' real-buffer costs instead of hiding a lock"
+  (L8_fusedaxes's no-lock reporting, praised in VERDICT §6) — the gov desc
+  string keeps printing every config's best ns/vol after locking.
+
+### Node predictions, pre-registered
+
+* **B=1**: serial restored ⇒ **5.70–5.78 µs**, cell stays won (mkl2026
+  7.64). Anything at 5.87+ means the r3 regression was not the lock.
+* **B=512**: gov armed, 4 configs. Expect lock=tf and **0.30–0.31 µs/vol**;
+  if the X pass's split loads matter at the L3-adjacent tier, `st` locks
+  and it dips a few %. `nt` should price +25–35% as it always has there.
+* **B=8192, the target.** The gov string is the experiment: if the node's
+  71 GB/s is MLP/latency-starved strided reading (my theory), `st` or `sh`
+  locks with a double-digit win and the cell lands **0.65–0.85 µs/vol**;
+  if the node behaves like wallaby (staging is pure overhead), lock stays
+  tf at **0.95–1.00** and the honest conclusion is that the read pattern
+  was never the binding constraint — in which case the next lever is the
+  NT drain itself (th/sh price that too). Either outcome closes the
+  question the verdict posed for L=13.
+
+### Next round
+
+1. Read the B=8192 gov string first: which of {tf,th,st,sh} locked, and the
+   four best-ns/vol numbers. They decide between "read-side MLP" and
+   "NT-drain/other" for the remaining 71→129 GB/s gap.
+2. If st/sh won: fold staging into the default (working-set gate, no race —
+   the verdict's "install from the working set" rule) and try the same
+   cursor at the pf tier default for B=512.
+3. If tf held at ~0.98: the read side is exonerated; the remaining suspects
+   are the NT drain's fine-grained interleave (2.7 KB bursts between kernel
+   groups vs L36's whole-volume drains — try draining sb per VOLUME from a
+   13-plane staging buffer, 35 KB, still L2-resident) and the per-volume
+   junction rate (34 KiB volumes = 4.5× more stream restarts than L=17).
+4. B=1 has ~0.4 µs of standing headroom vs the phase-1 pinned floor
+   (5.73 node vs 2.53 wallaby ≈ 2.26×, the largest B=1 wallaby→node factor
+   among my cells); if L13_rader's pool lands a stable ~5.0, adopt their
+   two-phase split ONLY under a persistent pool with sub-µs dispatch —
+   the GOMP fork evidence from mt_r1 still stands.

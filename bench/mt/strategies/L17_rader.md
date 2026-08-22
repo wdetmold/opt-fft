@@ -462,3 +462,164 @@ regime to escape); the honest single-socket race still picks NT there
    (needs a half-width wino17 store path -- check cost first).
 4. B=256: if matrixsimd still leads, their staged-input mechanism is the
    remaining unstolen piece.
+
+## Round mt_r4
+
+### Where mt_r3 landed on the node, and what this round is
+
+B=1 6.955 (2nd, matrixsimd 5.976; my pick flapped nt=12/12/8 across
+processes where r2's nt=16 had scored 6.776), B=256 0.796 (2nd, 0.756;
+arena faithful: par=0.790), B=4096 1.289 (2nd, winograd 1.219) -- second at
+all three cells for the third consecutive round, and NOT promoted for it
+("merge into one of the winners or take a genuinely different swing").
+Reading my own r3 pre-registration against the desc telemetry: branch (a)
+half-landed -- the settled arena DID reach the trusted regime (tr=1,
+bw=211-213 GB/s in-arena) and the honest race + 10% gate still kept PLAIN
+(NT never made the margin), dsp=omp shipped, and the cell went 2.200 ->
+1.289.  So mt_r3's mechanics worked and were not enough: my best dense
+schedule on the same OMP static dispatch is simply 6% slower than
+winograd's engine at that cell, and my arena has misranked the cell three
+rounds running (r1 0.79/2.90, r2 NT/2.20, r3 1.12 par/1.29 scored).  Also
+acknowledged: the VERDICT refuted my r3 setup-time-as-migration-dwell
+theory outright (fr=0 in six independent scans; L8_fusedaxes reaches
+95 GB/s on a 0.43 s create).  This round does what the VERDICT ordered:
+merge into the winner at the one cell where the winner is reproducibly
+faster, and stop pretending my arena can rank that cell.
+
+### What was built
+
+1. **The winograd streaming engine, adopted wholesale** (pass1_f4/i4,
+   tail1_f4, kernels A/B/E/H, fused23_h4, tst4/tsto4/tst4f, table
+   layouts -- ~1300 lines copied verbatim from L17_matrixsimd's mt_r3 port
+   of impl/L17_winograd.c, which had already replaced the plan indirection
+   with explicit scratch/table args and dropped the pf/pfw/CLWB hooks).
+   It runs as a plain mode-1 exec (`l17r_exec_wg`) on my existing shadow
+   plans: each team thread serially processes its contiguous static block
+   of volumes out of its OWN page-aligned 4 x 17*296-double (157 KB)
+   scratch, allocated and first-touched by that thread inside
+   fft3d_create's parallel region.  So the engine inherits my whole mode-1
+   machinery unchanged: equal static cut, both dispatch shapes, the
+   spread telemetry.  i4 (split-free pass 1 -- my own "dy" mechanism,
+   returned by two hops) is shipped fixed; winograd's own node processes
+   priced h4/i4 0.7% apart.
+2. **Deterministic install, never an arena race, on the node's regime**:
+   at a streaming cell (working set > 2x aggregate-L3, unchanged r3
+   classification) on a MULTI-node team, the engine is installed outright
+   -- wide team pinned, pf=pfw=0.  The only defensible pick at that cell
+   is the one with reproducible node evidence: engine 1.219-1.222 us/t in
+   every process of two rounds, vs my dense 1.289 best-ever.  A telemetry
+   race (engine vs xl 512t vs dy, 2 passes on the real dispatch) still
+   runs and rides the description as `wg=2 eng/pl=A/B` so the node itself
+   reports what the arena thought of the deterministic pick; it decides
+   nothing.  On a SINGLE-node team (wallaby) the engine is raced honestly
+   against the final dense config (3% to displace) and rightly loses
+   there (see table) -- the gate targets the regime only the node has.
+   Dev override L17R_WG=0/1 for A/Bs; the harness never sets it.
+3. **Dispatch race extended to every batched cell** (was streaming-only):
+   the r3 VERDICT's SS4.4 (clk512 2.29 vs 2.89 GHz next to a spin pool;
+   my own 1.71x gain from dsp=omp at B=4096) makes the OMP shape worth
+   pricing at B=256 too.  Margins unchanged: challenger needs 3%, and the
+   node's streaming cell keeps OMP-wins-ties; elsewhere pool wins ties.
+   Wallaby: B=256 kept pool (0.578 vs 0.587), B=8 kept pool (2.27 vs
+   2.53) -- the race is honest, not a forced flip.
+4. **Streaming dwell cut 5.5 s -> 3.0 s** and its justification rewritten:
+   the migration theory is refuted, so it stays only as warmup on the
+   exact scored code path.  Setup at B=4096 is now ~3.0 s (winograd's is
+   2.3).
+5. **B=1 pick stabilised**: team grid trimmed to {8,12,14,16,17,20} (nt
+   2/4/24/32 never came within 20% of winning on any machine in three
+   rounds), and the pick statistic changed from min-over-sweeps to
+   SUM-over-both-sweeps -- a config must be fast in both order-bias
+   sweeps to win.  This is the cheap version of the median statistic that
+   stabilised matrixsimd's and winograd's picks; the node's r3 nt=12/12/8
+   flapping (scored 6.955 where r2's nt=16 scored 6.776) is the target.
+   Wallaby now separates cleanly: nt=17 7.23 vs 8.5-10.6 for the rest.
+
+### Operation count
+
+Below the gate: unchanged (296 FP instr per 17-point transform, 867
+transforms = ~423 kflop per volume).  Above the gate (node B=4096): the
+engine's count, 3*289*296 = 256,632 FP instructions / 423,096 flops per
+volume -- same flops, fewer instructions, and the win is the access
+pattern (L2-resident kx-blocked scratch, one read of `in`, one dense
+write of `out` per volume), not arithmetic.  The engine produces a
+different correct rounding fixed point (rel_l2 3.26e-16 vs my 3.15e-16),
+which is why it is gated deterministically, never raced on the node.
+
+### Measured (wallaby, SPR 6448Y, 32 threads one socket, shared login node;
+### quiet-window minima, contended windows flagged)
+
+| case | mt_r3 same host | this round | note |
+|---|---|---|---|
+| B=1 | 5.32-6.13 us | **4.99 us, sd 0.6%** (quiet window; 6.57 in a contended one) | mode 2 nt=17 xpf=0; sum statistic separates teams cleanly |
+| B=8 | 9.71-14.2 us/call | 14.56 us/call (1.82 us/t) | vp mode; dispatch race kept pool |
+| B=256 | 122.4 us/call | **116.05 us/call = 0.453 us/t** | plain xl 512t dy, pool kept (0.578/0.587) |
+| B=4096 honest | 3947-4309 us/call | **3939.8 us/call = 0.962 us/t, sd 0.18%** | stnt dy + omp, engine challenge rightly loses (1.013 vs 0.715 in-arena) |
+| B=4096 L17R_WG=1 | -- | 4999.6 us/call = 1.221 us/t (contended, sd 5%) | deterministic engine path exercised end-to-end; rel_l2 3.259e-16, repeatable |
+
+rel_l2 3.11-3.26e-16 at every batch tried (1, 8, 31, 64, 256, 2048,
+4096), repeatable bit-identical across runs at each config.  Note the
+wallaby default at B=4096 is UNCHANGED from r3 (engine only installs on a
+multi-node team), so the honest-race safety net demonstrably still works.
+
+### What did not work / what to know, with numbers
+
+* Nothing was tried and reverted this round.  The engine loses wallaby's
+  honest race by design (single socket loves my NT dense path: 0.715 vs
+  1.013 in-arena) -- that is the gate working, not a failure.
+* The first B=8 tryout read 19.0 us/call and looked like a regression; a
+  rerun in a quieter window read 14.56 (r2 level).  Login-node windows
+  this week swing 2x; only sd<1% runs were used for the table.
+
+### Borrowed this round, named
+
+* **The entire streaming engine** -- L17_winograd (its mt_r2/r3 exemplar
+  source), taken via **L17_matrixsimd's** mt_r3 port (explicit-args
+  fused23_h4, hooks dropped).  The i4 pass-1 loads are my own dy
+  mechanism back after two hops.
+* **Install-from-the-working-set, never race, at DRAM-bound cells** --
+  the mt_r3 VERDICT's central prescription (SS5/SS6), and matrixsimd's
+  deterministic-gate framing.
+* **"Never leave a spin pool alive at a streaming cell"** -- the
+  VERDICT's SS4.4 triangulation (matrixsimd clk512 2.29 vs winograd
+  2.89; L6_unrolled; L36_pfa's nap) motivated extending my dispatch race
+  to all batched cells.
+
+### Pre-registered node expectations (read against the mt_r4 leaderboard)
+
+* **B=4096**: desc should read `wg-eng i4 ... wg=2 eng/pl=A/B, dsp=omp`
+  (omp wins ties on tn=2).  Expect **1.20-1.25 us/t, all three processes
+  within ~2%** -- winograd-parity from 1.289.  If winograd itself moved
+  past 1.219 this round (its NT pass-3 epilogue is the named next
+  lever), parity with r3-winograd is not enough and next round takes the
+  epilogue too.  If the cell reads >1.35 with wg=2: the engine does NOT
+  transfer onto my dispatch/shadow layout, and the eng/pl telemetry says
+  whether the arena saw it coming -- in that case revert to dense-plain
+  (one-line gate change) and A/B the dispatch internals against
+  winograd's region shape.
+* **B=256**: 0.78-0.80 us/t, either dispatch.  A dsp=omp flip needs 3%
+  in-arena; if it flips AND the cell slows, the r5 fix is pool-wins-ties
+  everywhere.
+* **B=1**: expect a STABLE team pick (one nt in all three processes,
+  probably 16 or 17) and 6.6-6.9 us; the flapping, not the mean, is what
+  the sum statistic attacks.  matrixsimd stays ahead (~6.0) -- their B=1
+  lead is structural (fewer vector ops, one fewer sync phase) and this
+  round deliberately spent its risk on B=4096.
+
+### Next round
+
+1. If B=4096 lands at parity: the next lever is winograd's named one --
+   fold an NT stream into the engine's pass-3 store epilogue per
+   kx-block (bounce row, aligned full-line streams, peel for the
+   16-mod-64 volume offset) to delete the out RFO inside the engine; on
+   node NT evidence to date, only adopt via a node-scored A/B, never the
+   arena.
+2. B=1: the remaining 0.7-1.0 us to matrixsimd is their dense X-first
+   kernel's shorter critical path.  Either port their plane-unit kernel
+   as the mode-2 plane task, or accept the cell; do not spend another
+   round on sync-layer tweaks -- r2+r3+r4 bought ~0.3 us total there.
+3. B=256: matrixsimd's staged-input mechanism remains the one unstolen
+   piece if they still lead.
+4. Watch L13/L23/L45/L64: the VERDICT ordered L2-tile ports everywhere;
+   if a new tile trick beats winograd's engine shape at any geometry,
+   it transfers here through the same l17r_exec_wg slot.

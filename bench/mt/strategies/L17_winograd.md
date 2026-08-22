@@ -362,3 +362,138 @@ strm were detected as designed.
    contribution from this file is the fused h-kernel units + flat barrier;
    the dense X-first schedule should come from matrixsimd's exemplar, not be
    reinvented here.
+
+## Round mt_r4
+
+Standing after mt_r3 on the node: B=1 7.563 us (3rd; matrixsimd 5.976),
+B=256 0.823 us/vol (3rd; matrixsimd 0.756 -- the r2 regression repaired as
+predicted), B=4096 1.219 us/vol (1st, 3.36x the best library) with the run
+spread collapsed from 73.3% to 0.4% -- the r3 tuner-fidelity claims all
+landed (the VERDICT calls the record "the round's best-calibrated").  But
+the B=4096 telemetry shows nt=0 shipped despite strm=1/ns=2 detected as
+designed: even under the honest aggregate-L3 owner-touched arena, the
+mt_r2 full-volume NT staging lost by more than the 5% margin on the node.
+The cell runs 129 GB/s of in+out with a 193 GB/s DRAM demand (the RFO is
+the difference), and L17_rader sits 5.7% behind, so the RFO deletion is
+both the offensive and the defensive move this round.
+
+### What was changed: ntb, the RFO deletion without the staging round trip
+
+One mechanism, pre-registered as item 1 of my r3 "next round" list, and
+matching the shape behind every >130 GB/s streaming result in mt_r3
+(L36_mixedradix 150.9 GB/s, L36_pencilfused 137.5, both "per-thread L2
+tile + one NT write of out" -- the VERDICT section 4.3 headline):
+
+* **ntb (pf bit 4).**  In the fused h4/h8/q4/q8 variants (i4 inherits via
+  fused23_h4), pass 3 builds each kx-block's out span -- which is
+  CONTIGUOUS and line-aligned relative to the volume base: 4624 doubles
+  per w=8 block, 2312 per w=4 block, 578 for the kx=16 tail -- in one hot
+  scratch row (buf row 6, reused block after block, so it never leaves
+  cache) and then streams it once to the caller's out with NT stores
+  (nt_copy_span: 16B movntpd peel to the first line boundary, zmm
+  movntpd body, peel again at the tail; volumes are 78608 B = 16 mod 64
+  so block bases cycle 0/16/32/48 mod 64).  Same DRAM traffic as mt_r2's
+  nt (in + NT out, no RFO), but the 78.6 KB per-volume staging write+read
+  round trip becomes a ~37 KB row that stays resident.  A new botailL
+  table (botail rebased by -2*16*289) lets the kx=16 tail build in the
+  bounce row; the tail's scalar (16,16) pencil lands at local offset 544.
+  Exact copies of identically-computed values: bit-identical, cmp-checked
+  at every batch tried.
+* **Tuner surface**: pf columns extended {0,1,2,3,4,8,9} -> +{16 = ntb,
+  17 = ntb + input prefetch}, offered at h4/h8/q4/q8/i4 exactly like nt
+  (q takes 16 only -- its interleaved real loads replace the input pf).
+  nt stays in the grid so the node arbitrates full-volume vs per-block
+  staging by measurement, not by my belief.  The existing streaming
+  margin rule ("best NT candidate within 5% of the pick") already covers
+  ntb since it keys on pf >= 8.  Everything else -- static split, arena,
+  median-of-3, B=1 path -- is byte-identical to mt_r3.
+
+### Operation count
+
+Unchanged: 3*289*296 = 256,632 FP instructions / 423,096 flops per volume.
+ntb adds zero arithmetic; it adds 2*4913 doubles of load+NT-store copy per
+volume (non-FP), against the RFO's 78.6 KB of deleted DRAM traffic.
+
+### Measured (wallaby, SPR, 32 threads close/cores; shared login node,
+### relative numbers -- forced A/Bs interleaved 3 rounds to control drift)
+
+Forced A/B at B=4096, T=32, same binary set, min over samples:
+
+| config | round 1 | round 2 | round 3 |
+|---|---|---|---|
+| h8 plain   | 4627 us | 4619 | 4624 |
+| h8+nt (r2) | 3871 | 3929 | 3864 |
+| **h8+ntb** | **3726** | **3704** | **3722** |
+| h4 plain / h4+ntb | 5518 / 4133 | 5506 / 4141 | 5549 / 4072 |
+| q8 plain / q8+ntb | 4576 / 3593 | 4520 / 3719 | 4483 / 3531 |
+
+ntb beats nt at every variant and plain by 20-26%; q8+ntb touched 3531 us
+= 0.862 us/vol.  Full tuner, three independent processes at B=4096:
+**h8+ntb picked 3/3, 3423 / 3458 / 3461 us = 0.836-0.845 us/vol** (r3 same
+host: 3437-3800 with nt=1-or-flip).  One earlier, noisier process picked
+h8+nt at 3911 -- the nt-vs-ntb arena gap is ~4-5%, inside session noise,
+and both delete the RFO, so that flip costs at most ~5% and never regresses
+past r3.  B=256, three processes: **h8 static, nt=0 ntb=0, 3/3** at
+115.9-126.3 us = 0.45-0.49 us/vol (forced nt +47%, forced ntb +32% at the
+resident cell -- the honest race rejects both, exactly as it should).
+B=1 4.893 us (path untouched), B=33 27.9 us.  rel L2 3.25-3.27e-16 at
+B = 1 / 33 / 256 / 4096, bit-identical outputs across configs and reruns.
+Parallel efficiency vs the phase-1 serial kernel (r1 record's same-host
+numbers): B=4096 15.8/0.836 = 18.9x / 59%; B=256 9.89/0.46 = 21.5x / 67%.
+
+### What did NOT work / what was deliberately not done
+
+* Nothing measured worse than its predecessor this round; the one
+  mechanism built is a pre-registered borrow with three independent node
+  proofs behind its shape.  The known residual risks are recorded
+  instead: (i) nt-vs-ntb can flip in the arena within ~5%, which is
+  benign; (ii) if Cascade Lake NT-store throughput caps the cell near
+  L=36's 150 GB/s, ntb lands at ~1.0-1.05 us/vol, not the 0.81 the
+  193 GB/s demand number promises -- still a win over 1.219.
+* B=256's 9% gap to matrixsimd is compute density (r3 verdict and my own
+  probe agree); the interleaved-complex pass-1 rewrite stays gated on the
+  node's p1/fu ~ 37% probe and was not attempted with the round's risk
+  budget on the streaming cell.
+* B=1 stays structurally unchanged for the second round (7.5-7.6 stable,
+  3rd).  The VERDICT's L=17 item is matrixsimd's experiment (its pool vs
+  my OMP dispatch, the 2.29 vs 2.89 GHz clk512 gap); duplicating it from
+  my side would spend the round rediscovering their answer.
+
+### Borrowed from other entries, named
+
+* The L2-tile + NT-out store shape, applied per kx-block:
+  L36_mixedradix mt_r3 (vol32-sntp, 150.9 GB/s 3/3) and L36_pencilfused
+  mt_r3 (mode-2 tile, 3.13x), via the mt_r3 VERDICT section 4.3; the
+  full-volume ancestor is L17_matrixsimd mt_r1's "pipelined + NT store".
+* The discipline of keeping the displaced mechanism (nt) in the race
+  rather than deleting it on belief: my own r2/r3 lesson.
+
+### Pre-registered node expectations
+
+* **B=4096**: pick h8+ntb (h4+ntb / q8+ntb equally acceptable; nt=1 an
+  acceptable near-tie flip) in all three processes, strm=1 ns=2 in the
+  description.  If the 193 GB/s no-RFO regime holds: **0.81-0.90 us/vol**;
+  if NT stores cap near L=36's 150 GB/s: **1.0-1.1**.  Anything at ~1.22
+  with ntb=1 means per-block NT staging is no better than the RFO path on
+  CLX and the r3 nt=0 verdict extends to ntb; anything with ntb=0 AND
+  nt=0 at >5% margin would mean CLX NT store throughput under this access
+  pattern is the binding constraint -- check the forced numbers in the
+  next round's arena before believing either.
+* **B=256**: nt=0 ntb=0 static h8, ~0.82 us/vol, unchanged.
+* **B=1**: unchanged code, expect 7.5-7.7 us and boring.
+
+### Next round
+
+1. If ntb lands at ~0.85: the residual staging cost is the bounce row's
+   ~74 KB/vol of L2 read+write.  Folding the NT stream directly into
+   tsto8's shuffle epilogue would delete it, but the lane runs are 272 B
+   and 16-mod-64 -- per-run movnt needs a peel that fragments every run
+   into <=4 partial-line WC flushes; only worth building if the node
+   shows ntb's copy loop as exposed time (compare ntb's per-vol gain to
+   the 74 KB/L2-bandwidth bound first).
+2. If the panel merges L=17 regimes: contribute the fused h kernels +
+   ntb epilogue; take the dense X-first B=1 schedule from matrixsimd's
+   exemplar rather than reinventing it.
+3. B=256: the remaining 9% is arithmetic density; re-derive the p1/fu
+   probe on the node before spending anything on the interleaved-complex
+   pass-1 rewrite.

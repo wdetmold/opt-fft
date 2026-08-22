@@ -1,6 +1,50 @@
 /* L36_mixedradix -- forward complex-double 3D DFT of a fixed 36^3 cube.
- * MULTICORE (round mt_r3).  The phase-1 single-thread kernel below is kept
- * intact as the per-thread body; rounds mt_r1..mt_r3 add the 32-core layer:
+ * MULTICORE (round mt_r4).  The phase-1 single-thread kernel below is kept
+ * intact as the per-thread body; rounds mt_r1..mt_r4 add the 32-core layer:
+ *
+ *   ROUND mt_r4 CHANGES (codelets and operation count untouched):
+ *   * SNTX BODY (exec code 9, deep-streaming candidate): snt + pfin plus a
+ *     paced T2 (into-L3) prefetch of the WHOLE next volume's input issued
+ *     from phase 2's NT drain -- 9*PW lines per (y,zb) tile, exactly one
+ *     volume of prefetches per volume drained.  Rationale: in the sntp
+ *     shape phase 1 is read-only DRAM traffic and phase 2 is write-only,
+ *     so the two DRAM directions alternate instead of overlapping; the
+ *     r3 node number (150.9 GB/s, 9.9 us/vol) leaves the read channel idle
+ *     for roughly the NT-drain half of each volume.  The cursor pulls
+ *     in[b+1] to L3 (T2 -- deliberately NOT L2, which holds the 746 KiB
+ *     volume scratch) while the NT stores drain, and phase 1's existing
+ *     32 KB-ahead T1 pfin cursor then promotes L3 -> L2 just in time.
+ *     This is my own mt_r3 "next" item 2 (two-volume overlap), built as a
+ *     prefetch schedule instead of a restructure.  At pinned cells the
+ *     tuner races sntp vs sntx (same pinned macro-shape -- team width and
+ *     NT-vs-inplace stay pinned; a paced-prefetch delta IS arena-priceable,
+ *     as the r2/r3 snt-vs-pfw arena gaps reproduced on the node) and
+ *     publishes both arena times (spA=/sxA=).  FFT36_PFX=0|1 excludes /
+ *     force-installs it.
+ *   * CROSS-SOCKET SPLIT TEAMS DROPPED at B=1 (unless FFT36_MT_T forces
+ *     one): mt_r3's B=1 was a 1.13x lottery (VERDICT s3.2) -- two processes
+ *     picked split12 (23.0/23.2 us, dsp=0.64/0.70), one picked split18
+ *     (25.9 us, dsp=1.49): under close binding threads 16..17 of an
+ *     18-thread team sit on socket 1, so every per-volume barrier crosses
+ *     UPI.  The ladder now drops split teams whose CPUs span more than one
+ *     package (read from sysfs physical_package_id of the pinned map);
+ *     on the node that leaves {16,12,9,8}, on wallaby (32 threads, one
+ *     package) it changes nothing.
+ *   * PFIN PROBE-ONLY at streaming NON-deep vol cells: both rounds of node
+ *     evidence have v1-vol32-pf1 scoring 5.21 us/vol (mt_r2) against
+ *     v1-vol32-pfin's 5.36 (mt_r3, all three processes) while the arena
+ *     ranked pfin >3% ahead -- the arena's in-buffer is create-filled and
+ *     cycles candidates, so cross-call cache state differs from the timed
+ *     loop and the paced input prefetch prices high.  The pfin row is
+ *     still timed and published (pfinA=) but no longer installable there;
+ *     FFT36_PFIN=1 restores it.
+ *   * OVERLAPPED JOIN/BARRIER SCANS: pool_run's join and the flag-array
+ *     barrier's participant-0 scan used to wait on each flag in turn --
+ *     up to 31 SERIALISED remote-line misses (the node measured dsp
+ *     2.06-2.60 us at T=32 vs 0.72 on wallaby's single socket).  Both now
+ *     sweep the whole flag array per pass so the misses overlap in the
+ *     line-fill buffers.  Protocol unchanged (same flags, same epochs,
+ *     same release/acquire pairs) -- only the scan order.
  *
  *   ROUND mt_r3 CHANGES (tuner + instrumentation only; codelets, pool and
  *   parallel bodies untouched -- arithmetic and output bits identical):
@@ -403,10 +447,16 @@ static inline void pool_barrier(mt_pool *pl, int t, int T, uint32_t s)
 {
     __atomic_store_n(&pl->bar[t].v, s, __ATOMIC_RELEASE);
     if (t == 0) {
-        for (int i = 1; i < T; ++i)
-            while ((int32_t)(__atomic_load_n(&pl->bar[i].v,
-                                             __ATOMIC_ACQUIRE) - s) < 0)
-                _mm_pause();
+        /* sweep the whole flag array per pass: the remote-line misses then
+         * overlap in the fill buffers instead of serialising (mt_r4) */
+        for (;;) {
+            int miss = 0;
+            for (int i = 1; i < T; ++i)
+                miss |= (int32_t)(__atomic_load_n(&pl->bar[i].v,
+                                                  __ATOMIC_ACQUIRE) - s) < 0;
+            if (!miss) break;
+            _mm_pause();
+        }
         __atomic_store_n(&pl->bar_rel, s, __ATOMIC_RELEASE);
     } else {
         while ((int32_t)(__atomic_load_n(&pl->bar_rel,
@@ -485,9 +535,14 @@ static void pool_run(mt_pool *pl)
     uint32_t e = ++pl->epoch;
     __atomic_store_n(&pl->go, e, __ATOMIC_RELEASE);
     pool_do_work(pl, 0);
-    for (int i = 1; i < pl->nthr; ++i)
-        while (__atomic_load_n(&pl->done[i].v, __ATOMIC_ACQUIRE) != e)
-            _mm_pause();
+    /* join sweep, same overlap argument as the barrier scan (mt_r4) */
+    for (;;) {
+        int miss = 0;
+        for (int i = 1; i < pl->nthr; ++i)
+            miss |= __atomic_load_n(&pl->done[i].v, __ATOMIC_ACQUIRE) != e;
+        if (!miss) return;
+        _mm_pause();
+    }
 }
 
 /* shrink the pool to `keep` participants (main + keep-1 workers); frees the
@@ -522,6 +577,7 @@ static void pool_shrink(fft3d_plan *p, int keep)
  *   6 = zy cross-plane z/y interleave, pf 1 line   (zy-pf1)
  *   7 = scratch-volume phase 1 + NT-store phase 2  (snt, pf1 on scratch)
  *   8 = code 7 + paced phase-1 input prefetch      (snt-pfin)
+ *   9 = code 8 + paced T2 next-volume prefetch     (snt-pfin-pfx, "sntx")
  */
 static void exec_0_0(const double *, double *, long, double *);
 static void exec_0_1(const double *, double *, long, double *);
@@ -532,6 +588,7 @@ static void exec_0_5(const double *, double *, long, double *);
 static void exec_0_6(const double *, double *, long, double *);
 static void exec_0_7(const double *, double *, long, double *);
 static void exec_0_8(const double *, double *, long, double *);
+static void exec_0_9(const double *, double *, long, double *);
 static void exec_1_0(const double *, double *, long, double *);
 static void exec_1_1(const double *, double *, long, double *);
 static void exec_1_2(const double *, double *, long, double *);
@@ -541,6 +598,7 @@ static void exec_1_5(const double *, double *, long, double *);
 static void exec_1_6(const double *, double *, long, double *);
 static void exec_1_7(const double *, double *, long, double *);
 static void exec_1_8(const double *, double *, long, double *);
+static void exec_1_9(const double *, double *, long, double *);
 
 /* within-volume split workers (B=1 / small batch), run on the pool:
  * (in, out, batch, plan, t, T, pf) */
@@ -729,6 +787,28 @@ fft3d_plan *fft3d_create(int L, int batch)
         int t = omp_get_thread_num();
         if (t < NT_MAX) cpus[t] = sched_getcpu();
     }
+    /* largest prefix of the close/cores map that stays on ONE package
+     * (mt_r4): split teams larger than this pay a cross-UPI per-volume
+     * barrier -- the mt_r3 B=1 lottery's split18 pick, 25.9 us / dsp=1.49
+     * vs split12's 23.0 / 0.64 (VERDICT s3.2).  Unreadable sysfs => no
+     * restriction. */
+    int t1pkg = m;
+    {
+        int pkg0 = 0, ok = 1;
+        for (int i = 0; i < m; ++i) {
+            char pf[96];
+            int pk = -1;
+            if (cpus[i] < 0) { ok = 0; break; }
+            snprintf(pf, sizeof pf, "/sys/devices/system/cpu/cpu%d/topology/"
+                                    "physical_package_id", cpus[i]);
+            FILE *f = fopen(pf, "r");
+            if (!f || fscanf(f, "%d", &pk) != 1) { if (f) fclose(f); ok = 0; break; }
+            fclose(f);
+            if (i == 0) pkg0 = pk;
+            else if (pk != pkg0) { t1pkg = i; break; }
+        }
+        if (!ok) t1pkg = m;
+    }
     memset(p->scratch, 0, (size_t)PT_STRIDE * sizeof(double)); /* main = t0 */
     if (m >= 2) {
         mt_pool *pl = NULL;
@@ -805,6 +885,7 @@ fft3d_plan *fft3d_create(int L, int batch)
      * phase boundary); FFT36_MT_T=<n> restricts parallel candidates to one
      * team size; FFT36_MT_MODE=ser|split|vol restricts the strategy pool. */
     int pfinmode = -1, pfwmode = -1, zymode = -1, sntmode = -1, v0mode = 0;
+    int pfxmode = -1;
     long mtT = 0;
     int mtmode = 0;
     {
@@ -812,6 +893,8 @@ fft3d_plan *fft3d_create(int L, int batch)
         if (ve && *ve == '1') v0mode = 1;
         const char *po = getenv("FFT36_PFIN");
         if (po && (*po == '0' || *po == '1')) pfinmode = *po - '0';
+        const char *xo = getenv("FFT36_PFX");
+        if (xo && (*xo == '0' || *xo == '1')) pfxmode = *xo - '0';
         const char *wo = getenv("FFT36_PFW");
         if (wo && (*wo == '0' || *wo == '1')) pfwmode = *wo - '0';
         const char *zo = getenv("FFT36_ZY");
@@ -913,7 +996,7 @@ fft3d_plan *fft3d_create(int L, int batch)
         int vs[2], nv = 0;
         if (have_512) vs[nv++] = 1;
         if (!have_512 || v0mode) vs[nv++] = 0;
-        int pin_cand = -1, pfw_cand = -1;
+        int pin_cand = -1, pin_cand2 = -1, pfw_cand = -1, pfin_cand = -1;
         for (int vi = 0; vi < nv; ++vi) {
             const int v = vs[vi];
             exec_fn e0 = v ? exec_1_0 : exec_0_0;   /* pf0          */
@@ -925,6 +1008,7 @@ fft3d_plan *fft3d_create(int L, int batch)
             exec_fn e6 = v ? exec_1_6 : exec_0_6;   /* zy-pf1       */
             exec_fn e7 = v ? exec_1_7 : exec_0_7;   /* snt          */
             exec_fn e8 = v ? exec_1_8 : exec_0_8;   /* snt-pfin     */
+            exec_fn e9 = v ? exec_1_9 : exec_0_9;   /* snt-pfin-pfx */
             sp_fn  spw = v ? splitw_1 : splitw_0;
 
             if (mtmode <= 1 && (mtT == 0 || mtT == 1)) {
@@ -938,9 +1022,12 @@ fft3d_plan *fft3d_create(int L, int batch)
             if (mtmode == 1) continue;
 
             if (pin_snt) {
-                /* pinned pick: sntp at full width installs (subject to the
-                 * admission gate); the pfw twin is timed for the record but
-                 * never installable.  pfin-gated via env like everywhere. */
+                /* pinned pick: the vol<m>-snt macro-shape installs (subject
+                 * to the admission gate); team width and NT-vs-inplace stay
+                 * pinned, but the sntp-vs-sntx PREFETCH twin race runs --
+                 * a paced-prefetch delta is arena-priceable (the r2/r3
+                 * snt-vs-pfw arena gaps reproduced on the node).  The pfw
+                 * twin is timed for the record but never installable. */
                 if (in_pfw && vi == 0) {
                     CAND(run_pool_vol, e4, spw, 0, m, "v%d-vol%d-pfw", v, m);
                     cd[nc - 1].elig = 0;
@@ -950,6 +1037,11 @@ fft3d_plan *fft3d_create(int L, int batch)
                     CAND(run_pool_vol, pfinmode == 0 ? e7 : e8, spw, 0, m,
                          "v%d-vol%d-%s", v, m, pfinmode == 0 ? "snt" : "sntp");
                     pin_cand = nc - 1;
+                    if (pfxmode != 0 && pfinmode != 0) {
+                        CAND(run_pool_vol, e9, spw, 0, m,
+                             "v%d-vol%d-sntx", v, m);
+                        pin_cand2 = nc - 1;
+                    }
                 }
                 continue;
             }
@@ -975,13 +1067,26 @@ fft3d_plan *fft3d_create(int L, int batch)
                         CAND(run_pool_vol, e1, spw, 0, T, "v%d-vol%d-pf1", v, T);
                     if (in_plain && !streaming)
                         CAND(run_pool_vol, e2, spw, 0, T, "v%d-vol%d-pf4", v, T);
-                    if (in_pfin)
+                    if (in_pfin) {
                         CAND(run_pool_vol, e3, spw, 0, T, "v%d-vol%d-pfin", v, T);
+                        /* mt_r4: probe-only at streaming non-deep cells --
+                         * node scored vol32-pf1 5.21 us/vol (mt_r2) vs
+                         * vol32-pfin 5.36 (mt_r3, 3 of 3) while the arena
+                         * ranked pfin ahead; timed + published as pfinA. */
+                        if (streaming && !deep && pfinmode == -1 &&
+                            mtT == 0 && mtmode == 0) {
+                            cd[nc - 1].elig = 0;
+                            if (pfin_cand < 0) pfin_cand = nc - 1;
+                        }
+                    }
                     if (in_pfw)
                         CAND(run_pool_vol, e4, spw, 0, T, "v%d-vol%d-pfw", v, T);
                     if (streaming && in_snt) {
                         CAND(run_pool_vol, e7, spw, 0, T, "v%d-vol%d-snt", v, T);
                         CAND(run_pool_vol, e8, spw, 0, T, "v%d-vol%d-sntp", v, T);
+                        if (pfxmode != 0 && pfinmode != 0)
+                            CAND(run_pool_vol, e9, spw, 0, T,
+                                 "v%d-vol%d-sntx", v, T);
                     }
                     if (zymode == 1)
                         CAND(run_pool_vol, e6, spw, 0, T, "v%d-vol%d-zy1", v, T);
@@ -1000,6 +1105,10 @@ fft3d_plan *fft3d_create(int L, int batch)
                     if (T < 2 || T > m) continue;
                     if (i > 0 && T >= m) continue;
                     if (mtT && T != mtT) continue;
+                    /* mt_r4: no cross-package split teams unless forced --
+                     * their per-volume barrier crosses UPI (the r3 split18
+                     * lottery, VERDICT s3.2).  FFT36_MT_T overrides. */
+                    if (!mtT && T > t1pkg) continue;
                     CAND(run_pool_split, e0, spw, 0, T, "v%d-split%d-pf0", v, T);
                     CAND(run_pool_split, e0, spw, 1, T, "v%d-split%d-pf1", v, T);
                 }
@@ -1059,9 +1168,20 @@ fft3d_plan *fft3d_create(int L, int batch)
             if (bk < 0 || best[k] < 0.97 * best[bk]) bk = k;
         }
         if (bk < 0) bk = 0;
-        if (pin_cand >= 0)
-            for (int k = 0; k < ns; ++k)
-                if (keep[k] == pin_cand) bk = k;
+        if (pin_cand >= 0) {
+            /* pinned macro-shape overrides the open race; within it the
+             * sntp-vs-sntx prefetch twins settle on arena time (sntx must
+             * beat the sntp incumbent by the same 3% bar; FFT36_PFX=1
+             * forces sntx) */
+            int k1 = -1, k2 = -1;
+            for (int k = 0; k < ns; ++k) {
+                if (keep[k] == pin_cand)  k1 = k;
+                if (pin_cand2 >= 0 && keep[k] == pin_cand2) k2 = k;
+            }
+            if (k1 >= 0) bk = k1;
+            if (k2 >= 0 && (k1 < 0 || pfxmode == 1 ||
+                            best[k2] < 0.97 * best[k1])) bk = k2;
+        }
         const mtcand *w = &cd[keep[bk]];
         p->run = w->run; p->bfn = w->bfn; p->spw = w->spw;
         p->pf = w->pf;  p->T = w->T;
@@ -1088,12 +1208,19 @@ fft3d_plan *fft3d_create(int L, int batch)
         for (int k = 0; k < ns; ++k)
             if (cd[keep[k]].T == 1 && (t_ser < 0.0 || best[k] < t_ser))
                 t_ser = best[k];
-        double t_pfw = -1.0;
-        for (int k = 0; k < ns; ++k)
-            if (keep[k] == pfw_cand) t_pfw = best[k];
+        double t_pfw = -1.0, t_sp = -1.0, t_sx = -1.0, t_pfi = -1.0;
+        for (int k = 0; k < ns; ++k) {
+            if (keep[k] == pfw_cand)  t_pfw = best[k];
+            if (keep[k] == pin_cand)  t_sp  = best[k];
+            if (pin_cand2 >= 0 && keep[k] == pin_cand2) t_sx = best[k];
+            if (keep[k] == pfin_cand) t_pfi = best[k];
+        }
         double us_win = best[bk] / reps / nt * 1e6;
         double us_ser = t_ser > 0.0 ? t_ser / reps / nt * 1e6 : -1.0;
         double us_pfw = t_pfw > 0.0 ? t_pfw / reps / nt * 1e6 : -1.0;
+        double us_sp  = t_sp  > 0.0 ? t_sp  / reps / nt * 1e6 : -1.0;
+        double us_sx  = t_sx  > 0.0 ? t_sx  / reps / nt * 1e6 : -1.0;
+        double us_pfi = t_pfi > 0.0 ? t_pfi / reps / nt * 1e6 : -1.0;
         double eff = (us_ser > 0.0 && w->T > 1) ? us_ser / ((double)w->T * us_win)
                                                 : 1.0;
         int n = snprintf(g_desc, sizeof g_desc,
@@ -1104,6 +1231,11 @@ fft3d_plan *fft3d_create(int L, int batch)
                  ns, us_ser, us_win, eff, dsp);
         if (us_pfw > 0.0 && n > 0 && (size_t)n < sizeof g_desc)
             n += snprintf(g_desc + n, sizeof g_desc - n, " pfwA=%.1f", us_pfw);
+        if (us_sp > 0.0 && us_sx > 0.0 && n > 0 && (size_t)n < sizeof g_desc)
+            n += snprintf(g_desc + n, sizeof g_desc - n, " spA=%.1f sxA=%.1f",
+                          us_sp, us_sx);
+        if (us_pfi > 0.0 && n > 0 && (size_t)n < sizeof g_desc)
+            n += snprintf(g_desc + n, sizeof g_desc - n, " pfinA=%.1f", us_pfi);
         if (n > 0 && (size_t)n < sizeof g_desc)
             g_desc_base = (size_t)n;
 
@@ -1167,6 +1299,7 @@ void fft3d_destroy(fft3d_plan *plan)
 #define FNP6(n) XCAT(XCAT(n##_, VAR), _6)
 #define FNP7(n) XCAT(XCAT(n##_, VAR), _7)
 #define FNP8(n) XCAT(XCAT(n##_, VAR), _8)
+#define FNP9(n) XCAT(XCAT(n##_, VAR), _9)
 
 #if VAR == 1
 /* ---- 512-bit: 4 complex lanes per zmm, 32 registers ---- */
@@ -1408,7 +1541,8 @@ void FN(zblock)(const double *pin, double *pl, long yb)
 
 static inline __attribute__((always_inline))
 void FN(body)(const double *in, double *out, long batch, double *plane,
-              const int pf, const int pfin, const int pfw, const int snt)
+              const int pf, const int pfin, const int pfw, const int snt,
+              const int pfx)
 {
     /* snt: phase 1 writes a per-thread volume scratch (cache-warm after the
      * first volume) instead of cold `out`; phase 2 reads it and STREAMS to
@@ -1433,6 +1567,9 @@ void FN(body)(const double *in, double *out, long batch, double *plane,
 #define PFIN_D 4096                    /* read cursor distance = 32 KB      */
 #define PFW_D  FFT36_PFW_DIST          /* write cursor distance, default 1 plane */
 #define PFIN_L (36 * PW / 8)           /* lines per codelet call: 18 / 9    */
+#define PFX_L  (9 * PW)                /* next-vol lines per phase-2 tile:
+                                        * 36*(36/PW) tiles x 9*PW lines =
+                                        * 11664 = one whole volume (mt_r4) */
     const double *pfp = 0, *pfend = 0;
     if (pfin) {
         pfend = in + batch * (long)NVOL * 2;
@@ -1503,9 +1640,22 @@ void FN(body)(const double *in, double *out, long batch, double *plane,
          * cursor leaves only the first 32 KB of in[b+1] exposed to phase-2
          * eviction; 3 lines per 36-line tile group x 324 groups = 62 KB
          * re-covers it from phase 2, whose own read stream is cache-resident. */
-        const double *ncw = (pfin && b + 1 < batch)
+        const double *ncw = (pfin && !pfx && b + 1 < batch)
                                 ? in + (b + 1) * (long)NVOL * 2
                                 : (const double *)0;
+
+        /* pfx (mt_r4, sntx body): paced T2 cursor over the WHOLE of
+         * in[b+1], issued from phase 2's NT drain -- the drain is
+         * write-only DRAM traffic, so the read channel is otherwise idle
+         * for its duration.  T2 lands the lines in L3, deliberately NOT
+         * the L2 that holds the volume scratch phase 2 is reading; phase
+         * 1's 32 KB-ahead T1 pfin cursor then promotes L3 -> L2 in time.
+         * PFX_L lines per (y,zb) tile = exactly one volume per volume. */
+        const double *nvp = 0, *nvend = 0;
+        if (pfx && b + 1 < batch) {
+            nvp   = in + (b + 1) * (long)NVOL * 2;
+            nvend = nvp + (long)NVOL * 2;
+        }
 
         /* -------- phase 2: x-lines, in place in `out` (or scratch -> NT
          * stores into `out` for snt) ------------------------------------- */

@@ -7,7 +7,21 @@
 > 106, "Intel Xeon Processor @ 2.60GHz", 4 vCPU of an n2-standard-128). All seven optimized
 > the same batched 3D complex-double FFT workload, single core, AVX-512. Sources: full
 > session transcripts of the seven graded attempts (main-v4, 2026-08-22), independently
-> extracted and cross-checked; reconstructed final sources in `fft_v4_solutions/`.
+> extracted and cross-checked; **the reconstructed final sources of all seven attempts are
+> in this repository at `ext/reference/fft_v4_solutions/`** — one directory per attempt,
+> named by score, each with its `implementation.c`, the graded `solution.py` wrapper, a
+> README reconstructing how it reached its final state, and (for the generated ones) the
+> generator scripts.
+>
+> **Reading the sources: contract caveat.** These implement the *graded* workload — the
+> full m-step chain including the nonlinear map `z/(1+|z|)`, driven through a ctypes
+> wrapper — not our `fft3d_api.h` ABI. They are reference material for technique (layout,
+> codelets, generators), not drop-in entries. The two most instructive reads:
+> `1000f989_score1.00/implementation.c` (score 1.00 in **1,045 hand-written lines** —
+> lane-interleaved SoA, zero-shuffle passes, lazy map; C_opt 2.014 s, ~3.4× the held-out
+> SOTA) and `1760b1bf_score0.96/` (the fastest C_opt of all, **1.500 s**, from a Python
+> generator emitting phase-structured register-resident codelets — read `generator.py`
+> before the 34K generated lines).
 >
 > **Why this section outranks §08/§09 where they conflict:** it is measured on the machine
 > that grades us, which is a *virtualized* Ice Lake whose behaviour differs from bare metal
