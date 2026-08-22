@@ -1,0 +1,5 @@
+   L8_radix8                      0.572 us     0.572 us    40.28       1.1%    0.042s  ok 1.3e-16       1.03x
+   L8_radix8                      0.612 us    39.182 us    37.63       1.9%    0.076s  ok 2.3e-16       1.04x
+   L8_radix8                      0.980 us  2007.131 us    23.51       2.4%    0.188s  ok 1.9e-16       1.05x
+   L8_radix8                      1.277 us 20917.015 us    18.05       0.1%    0.633s  ok 2.3e-16       1.04x
+   L8_radix8                radix-8 split-complex 52-instr codelet; 2p/fused-1f/3p-seq shapes; tuner pick[B=16384]=avx512-1f-pfs-pfw (default)

@@ -1,0 +1,1110 @@
+/* =============================================================================
+ * L23_rader -- 23^3 complex-double forward DFT; Rader realization for p = 23.
+ *
+ * THE ROUND'S QUESTION (this entry exists to answer it): was the panel's L=17
+ * prime win about primes being easy, or about 17 being a lucky prime?
+ * p-1 = 22 = 2*11, so Rader's length-22 cyclic convolution splits, via
+ * g^11 = -1 (g = 5 primitive root mod 23), into a CYCLIC-11 correlation with
+ * the real kernel cos(2*pi*5^q/23) acting on the folded even part
+ * u_j = x_j + x_{23-j}, plus a CYCLIC-11 correlation with the real kernel
+ * sin(2*pi*5^q/23) acting on w_j = -i(x_j - x_{23-j}).  That +/- fold is the
+ * ONLY sign-only reduction available: the quotient group has odd prime order
+ * 11, so unlike 17 (where conv-16 kept splitting: cyclic-8 -> cyclic-4 +
+ * negacyclic-4, all free), the chain stops immediately.  Every sub-quadratic
+ * realization of a length-11 convolution known to the corpus (Winograd CRT
+ * mod (x-1)*Phi_11: 20 mults but >130 unfusable adds; Karatsuba linear conv:
+ * ~51 mults + ~150 adds; conv via two 11-point DFTs: ~2x total ops) EXCEEDS
+ * the 121 fused FMAs of the direct circulant matvec on FMA hardware, where
+ * one FMA = one add = one FP-port cycle.  Therefore the optimal Rader-23 on
+ * this machine IS the conjugate-folded direct form -- mathematically the
+ * dense-symmetric kernel, i.e. the same arithmetic L23_matrixsimd arrived at
+ * from the dense side.  17 was lucky.  Full counts in the strategy record.
+ *
+ * WHAT THIS FILE DOES
+ *   Row-column 3D: one folded 23-point kernel per axis, SIMD lanes = WC
+ *   adjacent independent lines, all coefficients REAL so interleaved complex
+ *   is already the right layout (one vector FMA per real coefficient per
+ *   line-group).  Per line: 253 FMA + 44 add/sub = 297 vector FP ops; per
+ *   volume 3*529 lines -> 943 kflop (yardstick 5*N*log2(N) = 824 kflop).
+ *
+ * KERNELS (both fully unrolled, generated; tuner picks within cmp-verified
+ * bit-identical sets only):
+ *   krn_ts : two-sweep, the 11 distinct cosines then the 11 distinct sines
+ *            pinned in registers (all coefficient loads eliminated); optional
+ *            parking of the 12 P accumulators in L1 across the sine sweep.
+ *            Adapted from L23_matrixsimd's chunk23p (itself from
+ *            L17_matrixsimd r3's pinned-constant kernel) -- attribution in
+ *            the strategy record.
+ *   krn_il : interleaved single-load sweep -- each x_j / x_{23-j} pair is
+ *            loaded ONCE per line (23 vs 46 data loads), coefficients come
+ *            from a pre-splatted j-major table as FMA memory operands.  This
+ *            is the experiment the rival entry did not run at L=23: on the
+ *            strided Y-pass loads, halving data loads halves L1 traffic.
+ *
+ * PASSES (structure adopted from L23_matrixsimd, in turn from L17_matrixsimd):
+ *   X-last  (batch < 64):  per plane x: Y (lanes over z, transposing store
+ *            into a 23x24-padded plane buffer), Z (lanes over ky, transposing
+ *            store into t1); then X over the whole volume (lanes over the 529
+ *            contiguous (y,z) pairs, plain stores into out).
+ *   X-first (batch >= 64): X from `in` into t1 first, then Y,Z per plane into
+ *            `out` -- spreads the output writes across the volume's compute
+ *            (L17_matrixsimd r3, measured -14..-17% at batch there).
+ *   The pass ORDER changes the association of the triple sum, so the class is
+ *   a pure function of the batch size (bit-repeatability across processes);
+ *   the tuner selects freely only within a class, among variants cmp-verified
+ *   bit-identical on wallaby (width / parking / kernel form).
+ *
+ * ASSUMPTIONS: L == 23 only; in/out distinct and 8-byte aligned (driver gives
+ * 64); gcc/clang vector extensions with -ffp-contract=fast; self-#include
+ * instantiates the template at 512-bit (WC=4) and 256-bit (WC=2).
+ * =============================================================================
+ */
+#ifdef L23R_TEMPLATE
+/* ===========================================================================
+ *  TEMPLATE BODY -- instantiated once per vector width.
+ *  Inputs: WC (complex per vector), SUF(x) (name mangler).
+ * ===========================================================================
+ */
+#define VDW (2 * WC) /* doubles per vector */
+
+typedef double SUF(vd) __attribute__((vector_size(8 * VDW), aligned(8)));
+typedef long long SUF(vi) __attribute__((vector_size(8 * VDW)));
+#define VT SUF(vd)
+#define IT SUF(vi)
+
+#define VLD(p) (*(const VT *)(p))
+#define VST(p, v) (*(VT *)(p) = (v))
+
+#if defined(__clang__)
+#  define SHUF1(a, ...) __builtin_shufflevector(a, a, __VA_ARGS__)
+#  define SHUF2(a, b, ...) __builtin_shufflevector(a, b, __VA_ARGS__)
+#else
+#  define SHUF1(a, ...) __builtin_shuffle(a, (IT){__VA_ARGS__})
+#  define SHUF2(a, b, ...) __builtin_shuffle(a, b, (IT){__VA_ARGS__})
+#endif
+
+/* MULI(t) = -i*t on interleaved complex: swap re/im, negate the new im lane.
+ * XOR on the sign bit issues on port 5, off the FMA port (L17_matrixsimd's
+ * measured choice, via L23_matrixsimd). */
+#define SIGN64 ((long long)0x8000000000000000LL)
+#if WC == 4
+#  define SWAPRI(x) SHUF1(x, 1, 0, 3, 2, 5, 4, 7, 6)
+#  define NEGMASK ((IT){0, SIGN64, 0, SIGN64, 0, SIGN64, 0, SIGN64})
+#else
+#  define SWAPRI(x) SHUF1(x, 1, 0, 3, 2)
+#  define NEGMASK ((IT){0, SIGN64, 0, SIGN64})
+#endif
+#define MULI(t) ((VT)((IT)SWAPRI(t) ^ NEGMASK))
+
+/* full-width read of entry i from a pre-splatted table */
+#define CGET(base, i) VLD((base) + (size_t)(i) * VDW)
+
+#if WC == 4
+#  define CDIST(p) ((p)->cd8)
+#  define SDIST(p) ((p)->sd8)
+#  define CTAB(p) ((p)->ct8)
+#else
+#  define CDIST(p) ((p)->cd4)
+#  define SDIST(p) ((p)->sd4)
+#  define CTAB(p) ((p)->ct4)
+#endif
+
+/* ---- WCxWC transpose of complex elements (128-bit blocks) --------------- */
+#if WC == 4
+#  define TTILE(x, y)                                                          \
+      do {                                                                     \
+          VT q0 = SHUF2((x)[0], (x)[1], 0, 1, 2, 3, 8, 9, 10, 11);             \
+          VT q1 = SHUF2((x)[2], (x)[3], 0, 1, 2, 3, 8, 9, 10, 11);             \
+          VT q2 = SHUF2((x)[0], (x)[1], 4, 5, 6, 7, 12, 13, 14, 15);           \
+          VT q3 = SHUF2((x)[2], (x)[3], 4, 5, 6, 7, 12, 13, 14, 15);           \
+          (y)[0] = SHUF2(q0, q1, 0, 1, 4, 5, 8, 9, 12, 13);                    \
+          (y)[1] = SHUF2(q0, q1, 2, 3, 6, 7, 10, 11, 14, 15);                  \
+          (y)[2] = SHUF2(q2, q3, 0, 1, 4, 5, 8, 9, 12, 13);                    \
+          (y)[3] = SHUF2(q2, q3, 2, 3, 6, 7, 10, 11, 14, 15);                  \
+      } while (0)
+#  define TILE(m0, e0, e1, e2, e3)                                             \
+      do {                                                                     \
+          VT xx[4], yy[4];                                                     \
+          xx[0] = (e0); xx[1] = (e1); xx[2] = (e2); xx[3] = (e3);              \
+          TTILE(xx, yy);                                                       \
+          VST(dst + 0 * da + (m0) * 2, yy[0]);                                 \
+          VST(dst + 1 * da + (m0) * 2, yy[1]);                                 \
+          VST(dst + 2 * da + (m0) * 2, yy[2]);                                 \
+          VST(dst + 3 * da + (m0) * 2, yy[3]);                                 \
+      } while (0)
+#else
+#  define TTILE(x, y)                                                          \
+      do {                                                                     \
+          (y)[0] = SHUF2((x)[0], (x)[1], 0, 1, 4, 5);                          \
+          (y)[1] = SHUF2((x)[0], (x)[1], 2, 3, 6, 7);                          \
+      } while (0)
+#  define TILE(m0, e0, e1)                                                     \
+      do {                                                                     \
+          VT xx[2], yy[2];                                                     \
+          xx[0] = (e0); xx[1] = (e1);                                          \
+          TTILE(xx, yy);                                                       \
+          VST(dst + 0 * da + (m0) * 2, yy[0]);                                 \
+          VST(dst + 1 * da + (m0) * 2, yy[1]);                                 \
+      } while (0)
+#endif
+
+/* Store tail: X_0 = P_0, X_k = P_k + R_k, X_{23-k} = P_k - R_k.
+ * tr=0: plain vector stores, output m at dst + m*db (lanes contiguous).
+ * tr=1: WCxWC tile-transposed stores, outputs contiguous, lane stride da. */
+#if WC == 4
+#define L23R_STORE_TAIL()                                                      \
+    do {                                                                       \
+        if (!tr) {                                                             \
+            VST(dst + 0 * db, P0);                                             \
+            VST(dst + 1 * db, P1 + R1);    VST(dst + 2 * db, P2 + R2);         \
+            VST(dst + 3 * db, P3 + R3);    VST(dst + 4 * db, P4 + R4);         \
+            VST(dst + 5 * db, P5 + R5);    VST(dst + 6 * db, P6 + R6);         \
+            VST(dst + 7 * db, P7 + R7);    VST(dst + 8 * db, P8 + R8);         \
+            VST(dst + 9 * db, P9 + R9);    VST(dst + 10 * db, P10 + R10);      \
+            VST(dst + 11 * db, P11 + R11); VST(dst + 12 * db, P11 - R11);      \
+            VST(dst + 13 * db, P10 - R10); VST(dst + 14 * db, P9 - R9);        \
+            VST(dst + 15 * db, P8 - R8);   VST(dst + 16 * db, P7 - R7);        \
+            VST(dst + 17 * db, P6 - R6);   VST(dst + 18 * db, P5 - R5);        \
+            VST(dst + 19 * db, P4 - R4);   VST(dst + 20 * db, P3 - R3);        \
+            VST(dst + 21 * db, P2 - R2);   VST(dst + 22 * db, P1 - R1);        \
+        } else {                                                               \
+            TILE(0, P0, P1 + R1, P2 + R2, P3 + R3);                            \
+            TILE(4, P4 + R4, P5 + R5, P6 + R6, P7 + R7);                       \
+            TILE(8, P8 + R8, P9 + R9, P10 + R10, P11 + R11);                   \
+            TILE(12, P11 - R11, P10 - R10, P9 - R9, P8 - R8);                  \
+            TILE(16, P7 - R7, P6 - R6, P5 - R5, P4 - R4);                      \
+            TILE(19, P4 - R4, P3 - R3, P2 - R2, P1 - R1);                      \
+        }                                                                      \
+    } while (0)
+#else
+#define L23R_STORE_TAIL()                                                      \
+    do {                                                                       \
+        if (!tr) {                                                             \
+            VST(dst + 0 * db, P0);                                             \
+            VST(dst + 1 * db, P1 + R1);    VST(dst + 2 * db, P2 + R2);         \
+            VST(dst + 3 * db, P3 + R3);    VST(dst + 4 * db, P4 + R4);         \
+            VST(dst + 5 * db, P5 + R5);    VST(dst + 6 * db, P6 + R6);         \
+            VST(dst + 7 * db, P7 + R7);    VST(dst + 8 * db, P8 + R8);         \
+            VST(dst + 9 * db, P9 + R9);    VST(dst + 10 * db, P10 + R10);      \
+            VST(dst + 11 * db, P11 + R11); VST(dst + 12 * db, P11 - R11);      \
+            VST(dst + 13 * db, P10 - R10); VST(dst + 14 * db, P9 - R9);        \
+            VST(dst + 15 * db, P8 - R8);   VST(dst + 16 * db, P7 - R7);        \
+            VST(dst + 17 * db, P6 - R6);   VST(dst + 18 * db, P5 - R5);        \
+            VST(dst + 19 * db, P4 - R4);   VST(dst + 20 * db, P3 - R3);        \
+            VST(dst + 21 * db, P2 - R2);   VST(dst + 22 * db, P1 - R1);        \
+        } else {                                                               \
+            TILE(0, P0, P1 + R1);                                              \
+            TILE(2, P2 + R2, P3 + R3);                                         \
+            TILE(4, P4 + R4, P5 + R5);                                         \
+            TILE(6, P6 + R6, P7 + R7);                                         \
+            TILE(8, P8 + R8, P9 + R9);                                         \
+            TILE(10, P10 + R10, P11 + R11);                                    \
+            TILE(12, P11 - R11, P10 - R10);                                    \
+            TILE(14, P9 - R9, P8 - R8);                                        \
+            TILE(16, P7 - R7, P6 - R6);                                        \
+            TILE(18, P5 - R5, P4 - R4);                                        \
+            TILE(20, P3 - R3, P2 - R2);                                        \
+            TILE(21, P2 - R2, P1 - R1);                                        \
+        }                                                                      \
+    } while (0)
+#endif
+
+/* -----------------------------------------------------------------------
+ *  krn_ts: two-sweep pinned-constant kernel.  cd/sd hold the 11 distinct
+ *  cos/sin magnitudes splatted; every coefficient is a register constant
+ *  (cosines carry their own sign; sine signs are compile-time +/-).
+ *  pc=1 parks the 12 P accumulators in L1 scratch across the sine sweep
+ *  (same arithmetic order, bit-identical; only data movement differs).
+ * --------------------------------------------------------------------- */
+static inline __attribute__((always_inline)) void
+SUF(krn_ts)(const double *restrict src, long rs, double *restrict dst, long da,
+            long db, const double *restrict cd, const double *restrict sd,
+            double *restrict sc, int tr, int pc)
+{
+    VT P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11;
+    VT R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11;
+
+    { /* ---- cosine sweep: 12 accumulators, 11 pinned constants ---- */
+        VT C1 = CGET(cd, 0), C2 = CGET(cd, 1), C3 = CGET(cd, 2),
+           C4 = CGET(cd, 3), C5 = CGET(cd, 4), C6 = CGET(cd, 5),
+           C7 = CGET(cd, 6), C8 = CGET(cd, 7), C9 = CGET(cd, 8),
+           C10 = CGET(cd, 9), C11 = CGET(cd, 10);
+        VT v0 = VLD(src);
+        P0 = v0; P1 = v0; P2 = v0; P3 = v0; P4 = v0; P5 = v0;
+        P6 = v0; P7 = v0; P8 = v0; P9 = v0; P10 = v0; P11 = v0;
+        { VT u = VLD(src + 1 * rs) + VLD(src + 22 * rs);
+          P0 += u; P1 += C1 * u; P2 += C2 * u; P3 += C3 * u;
+          P4 += C4 * u; P5 += C5 * u; P6 += C6 * u; P7 += C7 * u;
+          P8 += C8 * u; P9 += C9 * u; P10 += C10 * u; P11 += C11 * u; }
+        { VT u = VLD(src + 2 * rs) + VLD(src + 21 * rs);
+          P0 += u; P1 += C2 * u; P2 += C4 * u; P3 += C6 * u;
+          P4 += C8 * u; P5 += C10 * u; P6 += C11 * u; P7 += C9 * u;
+          P8 += C7 * u; P9 += C5 * u; P10 += C3 * u; P11 += C1 * u; }
+        { VT u = VLD(src + 3 * rs) + VLD(src + 20 * rs);
+          P0 += u; P1 += C3 * u; P2 += C6 * u; P3 += C9 * u;
+          P4 += C11 * u; P5 += C8 * u; P6 += C5 * u; P7 += C2 * u;
+          P8 += C1 * u; P9 += C4 * u; P10 += C7 * u; P11 += C10 * u; }
+        { VT u = VLD(src + 4 * rs) + VLD(src + 19 * rs);
+          P0 += u; P1 += C4 * u; P2 += C8 * u; P3 += C11 * u;
+          P4 += C7 * u; P5 += C3 * u; P6 += C1 * u; P7 += C5 * u;
+          P8 += C9 * u; P9 += C10 * u; P10 += C6 * u; P11 += C2 * u; }
+        { VT u = VLD(src + 5 * rs) + VLD(src + 18 * rs);
+          P0 += u; P1 += C5 * u; P2 += C10 * u; P3 += C8 * u;
+          P4 += C3 * u; P5 += C2 * u; P6 += C7 * u; P7 += C11 * u;
+          P8 += C6 * u; P9 += C1 * u; P10 += C4 * u; P11 += C9 * u; }
+        { VT u = VLD(src + 6 * rs) + VLD(src + 17 * rs);
+          P0 += u; P1 += C6 * u; P2 += C11 * u; P3 += C5 * u;
+          P4 += C1 * u; P5 += C7 * u; P6 += C10 * u; P7 += C4 * u;
+          P8 += C2 * u; P9 += C8 * u; P10 += C9 * u; P11 += C3 * u; }
+        { VT u = VLD(src + 7 * rs) + VLD(src + 16 * rs);
+          P0 += u; P1 += C7 * u; P2 += C9 * u; P3 += C2 * u;
+          P4 += C5 * u; P5 += C11 * u; P6 += C4 * u; P7 += C3 * u;
+          P8 += C10 * u; P9 += C6 * u; P10 += C1 * u; P11 += C8 * u; }
+        { VT u = VLD(src + 8 * rs) + VLD(src + 15 * rs);
+          P0 += u; P1 += C8 * u; P2 += C7 * u; P3 += C1 * u;
+          P4 += C9 * u; P5 += C6 * u; P6 += C2 * u; P7 += C10 * u;
+          P8 += C5 * u; P9 += C3 * u; P10 += C11 * u; P11 += C4 * u; }
+        { VT u = VLD(src + 9 * rs) + VLD(src + 14 * rs);
+          P0 += u; P1 += C9 * u; P2 += C5 * u; P3 += C4 * u;
+          P4 += C10 * u; P5 += C1 * u; P6 += C8 * u; P7 += C6 * u;
+          P8 += C3 * u; P9 += C11 * u; P10 += C2 * u; P11 += C7 * u; }
+        { VT u = VLD(src + 10 * rs) + VLD(src + 13 * rs);
+          P0 += u; P1 += C10 * u; P2 += C3 * u; P3 += C7 * u;
+          P4 += C6 * u; P5 += C4 * u; P6 += C9 * u; P7 += C1 * u;
+          P8 += C11 * u; P9 += C2 * u; P10 += C8 * u; P11 += C5 * u; }
+        { VT u = VLD(src + 11 * rs) + VLD(src + 12 * rs);
+          P0 += u; P1 += C11 * u; P2 += C1 * u; P3 += C10 * u;
+          P4 += C2 * u; P5 += C9 * u; P6 += C3 * u; P7 += C8 * u;
+          P8 += C4 * u; P9 += C7 * u; P10 += C5 * u; P11 += C6 * u; }
+    }
+    if (pc) {
+        VST(sc + 0 * VDW, P0);   VST(sc + 1 * VDW, P1);
+        VST(sc + 2 * VDW, P2);   VST(sc + 3 * VDW, P3);
+        VST(sc + 4 * VDW, P4);   VST(sc + 5 * VDW, P5);
+        VST(sc + 6 * VDW, P6);   VST(sc + 7 * VDW, P7);
+        VST(sc + 8 * VDW, P8);   VST(sc + 9 * VDW, P9);
+        VST(sc + 10 * VDW, P10); VST(sc + 11 * VDW, P11);
+    }
+    { /* ---- sine sweep: 11 accumulators, 11 pinned constants ---- */
+        VT S1 = CGET(sd, 0), S2 = CGET(sd, 1), S3 = CGET(sd, 2),
+           S4 = CGET(sd, 3), S5 = CGET(sd, 4), S6 = CGET(sd, 5),
+           S7 = CGET(sd, 6), S8 = CGET(sd, 7), S9 = CGET(sd, 8),
+           S10 = CGET(sd, 9), S11 = CGET(sd, 10);
+        { VT w = MULI(VLD(src + 1 * rs) - VLD(src + 22 * rs));
+          R1 = S1 * w; R2 = S2 * w; R3 = S3 * w; R4 = S4 * w;
+          R5 = S5 * w; R6 = S6 * w; R7 = S7 * w; R8 = S8 * w;
+          R9 = S9 * w; R10 = S10 * w; R11 = S11 * w; }
+        { VT w = MULI(VLD(src + 2 * rs) - VLD(src + 21 * rs));
+          R1 += S2 * w; R2 += S4 * w; R3 += S6 * w; R4 += S8 * w;
+          R5 += S10 * w; R6 -= S11 * w; R7 -= S9 * w; R8 -= S7 * w;
+          R9 -= S5 * w; R10 -= S3 * w; R11 -= S1 * w; }
+        { VT w = MULI(VLD(src + 3 * rs) - VLD(src + 20 * rs));
+          R1 += S3 * w; R2 += S6 * w; R3 += S9 * w; R4 -= S11 * w;
+          R5 -= S8 * w; R6 -= S5 * w; R7 -= S2 * w; R8 += S1 * w;
+          R9 += S4 * w; R10 += S7 * w; R11 += S10 * w; }
+        { VT w = MULI(VLD(src + 4 * rs) - VLD(src + 19 * rs));
+          R1 += S4 * w; R2 += S8 * w; R3 -= S11 * w; R4 -= S7 * w;
+          R5 -= S3 * w; R6 += S1 * w; R7 += S5 * w; R8 += S9 * w;
+          R9 -= S10 * w; R10 -= S6 * w; R11 -= S2 * w; }
+        { VT w = MULI(VLD(src + 5 * rs) - VLD(src + 18 * rs));
+          R1 += S5 * w; R2 += S10 * w; R3 -= S8 * w; R4 -= S3 * w;
+          R5 += S2 * w; R6 += S7 * w; R7 -= S11 * w; R8 -= S6 * w;
+          R9 -= S1 * w; R10 += S4 * w; R11 += S9 * w; }
+        { VT w = MULI(VLD(src + 6 * rs) - VLD(src + 17 * rs));
+          R1 += S6 * w; R2 -= S11 * w; R3 -= S5 * w; R4 += S1 * w;
+          R5 += S7 * w; R6 -= S10 * w; R7 -= S4 * w; R8 += S2 * w;
+          R9 += S8 * w; R10 -= S9 * w; R11 -= S3 * w; }
+        { VT w = MULI(VLD(src + 7 * rs) - VLD(src + 16 * rs));
+          R1 += S7 * w; R2 -= S9 * w; R3 -= S2 * w; R4 += S5 * w;
+          R5 -= S11 * w; R6 -= S4 * w; R7 += S3 * w; R8 += S10 * w;
+          R9 -= S6 * w; R10 += S1 * w; R11 += S8 * w; }
+        { VT w = MULI(VLD(src + 8 * rs) - VLD(src + 15 * rs));
+          R1 += S8 * w; R2 -= S7 * w; R3 += S1 * w; R4 += S9 * w;
+          R5 -= S6 * w; R6 += S2 * w; R7 += S10 * w; R8 -= S5 * w;
+          R9 += S3 * w; R10 += S11 * w; R11 -= S4 * w; }
+        { VT w = MULI(VLD(src + 9 * rs) - VLD(src + 14 * rs));
+          R1 += S9 * w; R2 -= S5 * w; R3 += S4 * w; R4 -= S10 * w;
+          R5 -= S1 * w; R6 += S8 * w; R7 -= S6 * w; R8 += S3 * w;
+          R9 -= S11 * w; R10 -= S2 * w; R11 += S7 * w; }
+        { VT w = MULI(VLD(src + 10 * rs) - VLD(src + 13 * rs));
+          R1 += S10 * w; R2 -= S3 * w; R3 += S7 * w; R4 -= S6 * w;
+          R5 += S4 * w; R6 -= S9 * w; R7 += S1 * w; R8 += S11 * w;
+          R9 -= S2 * w; R10 += S8 * w; R11 -= S5 * w; }
+        { VT w = MULI(VLD(src + 11 * rs) - VLD(src + 12 * rs));
+          R1 += S11 * w; R2 -= S1 * w; R3 += S10 * w; R4 -= S2 * w;
+          R5 += S9 * w; R6 -= S3 * w; R7 += S8 * w; R8 -= S4 * w;
+          R9 += S7 * w; R10 -= S5 * w; R11 += S6 * w; }
+    }
+    if (pc) {
+        P0 = VLD(sc + 0 * VDW);   P1 = VLD(sc + 1 * VDW);
+        P2 = VLD(sc + 2 * VDW);   P3 = VLD(sc + 3 * VDW);
+        P4 = VLD(sc + 4 * VDW);   P5 = VLD(sc + 5 * VDW);
+        P6 = VLD(sc + 6 * VDW);   P7 = VLD(sc + 7 * VDW);
+        P8 = VLD(sc + 8 * VDW);   P9 = VLD(sc + 9 * VDW);
+        P10 = VLD(sc + 10 * VDW); P11 = VLD(sc + 11 * VDW);
+    }
+    L23R_STORE_TAIL();
+}
+
+/* -----------------------------------------------------------------------
+ *  krn_il: interleaved single-load kernel.  Each (x_j, x_{23-j}) pair is
+ *  loaded once; both accumulator banks advance together.  Coefficients are
+ *  FMA memory operands from the pre-splatted j-major table ct (row j-1:
+ *  entries 0..10 = cos(2pi kj/23) k=1..11, 11..21 = sin(2pi kj/23) with the
+ *  sign already in the value).  23 accumulators live -> gcc spills a few on
+ *  EVEX (32 regs), heavily on 16; the tuner decides whether the halved data
+ *  loads pay for the spills.
+ * --------------------------------------------------------------------- */
+static inline __attribute__((always_inline)) void
+SUF(krn_il)(const double *restrict src, long rs, double *restrict dst, long da,
+            long db, const double *restrict ct, int tr)
+{
+    VT P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11;
+    VT R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11;
+    {
+        VT v0 = VLD(src);
+        P0 = v0; P1 = v0; P2 = v0; P3 = v0; P4 = v0; P5 = v0;
+        P6 = v0; P7 = v0; P8 = v0; P9 = v0; P10 = v0; P11 = v0;
+        { VT a = VLD(src + 1 * rs), b = VLD(src + 22 * rs);
+          VT u = a + b, w = MULI(a - b);
+          const double *cj = ct + 0 * 22 * VDW;
+          P0 += u; P1 += CGET(cj, 0) * u; P2 += CGET(cj, 1) * u;
+          P3 += CGET(cj, 2) * u; P4 += CGET(cj, 3) * u; P5 += CGET(cj, 4) * u;
+          P6 += CGET(cj, 5) * u; P7 += CGET(cj, 6) * u; P8 += CGET(cj, 7) * u;
+          P9 += CGET(cj, 8) * u; P10 += CGET(cj, 9) * u; P11 += CGET(cj, 10) * u;
+          R1 = CGET(cj, 11) * w; R2 = CGET(cj, 12) * w; R3 = CGET(cj, 13) * w;
+          R4 = CGET(cj, 14) * w; R5 = CGET(cj, 15) * w; R6 = CGET(cj, 16) * w;
+          R7 = CGET(cj, 17) * w; R8 = CGET(cj, 18) * w; R9 = CGET(cj, 19) * w;
+          R10 = CGET(cj, 20) * w; R11 = CGET(cj, 21) * w; }
+        { VT a = VLD(src + 2 * rs), b = VLD(src + 21 * rs);
+          VT u = a + b, w = MULI(a - b);
+          const double *cj = ct + 1 * 22 * VDW;
+          P0 += u; P1 += CGET(cj, 0) * u; P2 += CGET(cj, 1) * u;
+          P3 += CGET(cj, 2) * u; P4 += CGET(cj, 3) * u; P5 += CGET(cj, 4) * u;
+          P6 += CGET(cj, 5) * u; P7 += CGET(cj, 6) * u; P8 += CGET(cj, 7) * u;
+          P9 += CGET(cj, 8) * u; P10 += CGET(cj, 9) * u; P11 += CGET(cj, 10) * u;
+          R1 += CGET(cj, 11) * w; R2 += CGET(cj, 12) * w; R3 += CGET(cj, 13) * w;
+          R4 += CGET(cj, 14) * w; R5 += CGET(cj, 15) * w; R6 += CGET(cj, 16) * w;
+          R7 += CGET(cj, 17) * w; R8 += CGET(cj, 18) * w; R9 += CGET(cj, 19) * w;
+          R10 += CGET(cj, 20) * w; R11 += CGET(cj, 21) * w; }
+        { VT a = VLD(src + 3 * rs), b = VLD(src + 20 * rs);
+          VT u = a + b, w = MULI(a - b);
+          const double *cj = ct + 2 * 22 * VDW;
+          P0 += u; P1 += CGET(cj, 0) * u; P2 += CGET(cj, 1) * u;
+          P3 += CGET(cj, 2) * u; P4 += CGET(cj, 3) * u; P5 += CGET(cj, 4) * u;
+          P6 += CGET(cj, 5) * u; P7 += CGET(cj, 6) * u; P8 += CGET(cj, 7) * u;
+          P9 += CGET(cj, 8) * u; P10 += CGET(cj, 9) * u; P11 += CGET(cj, 10) * u;
+          R1 += CGET(cj, 11) * w; R2 += CGET(cj, 12) * w; R3 += CGET(cj, 13) * w;
+          R4 += CGET(cj, 14) * w; R5 += CGET(cj, 15) * w; R6 += CGET(cj, 16) * w;
+          R7 += CGET(cj, 17) * w; R8 += CGET(cj, 18) * w; R9 += CGET(cj, 19) * w;
+          R10 += CGET(cj, 20) * w; R11 += CGET(cj, 21) * w; }
+        { VT a = VLD(src + 4 * rs), b = VLD(src + 19 * rs);
+          VT u = a + b, w = MULI(a - b);
+          const double *cj = ct + 3 * 22 * VDW;
+          P0 += u; P1 += CGET(cj, 0) * u; P2 += CGET(cj, 1) * u;
+          P3 += CGET(cj, 2) * u; P4 += CGET(cj, 3) * u; P5 += CGET(cj, 4) * u;
+          P6 += CGET(cj, 5) * u; P7 += CGET(cj, 6) * u; P8 += CGET(cj, 7) * u;
+          P9 += CGET(cj, 8) * u; P10 += CGET(cj, 9) * u; P11 += CGET(cj, 10) * u;
+          R1 += CGET(cj, 11) * w; R2 += CGET(cj, 12) * w; R3 += CGET(cj, 13) * w;
+          R4 += CGET(cj, 14) * w; R5 += CGET(cj, 15) * w; R6 += CGET(cj, 16) * w;
+          R7 += CGET(cj, 17) * w; R8 += CGET(cj, 18) * w; R9 += CGET(cj, 19) * w;
+          R10 += CGET(cj, 20) * w; R11 += CGET(cj, 21) * w; }
+        { VT a = VLD(src + 5 * rs), b = VLD(src + 18 * rs);
+          VT u = a + b, w = MULI(a - b);
+          const double *cj = ct + 4 * 22 * VDW;
+          P0 += u; P1 += CGET(cj, 0) * u; P2 += CGET(cj, 1) * u;
+          P3 += CGET(cj, 2) * u; P4 += CGET(cj, 3) * u; P5 += CGET(cj, 4) * u;
+          P6 += CGET(cj, 5) * u; P7 += CGET(cj, 6) * u; P8 += CGET(cj, 7) * u;
+          P9 += CGET(cj, 8) * u; P10 += CGET(cj, 9) * u; P11 += CGET(cj, 10) * u;
+          R1 += CGET(cj, 11) * w; R2 += CGET(cj, 12) * w; R3 += CGET(cj, 13) * w;
+          R4 += CGET(cj, 14) * w; R5 += CGET(cj, 15) * w; R6 += CGET(cj, 16) * w;
+          R7 += CGET(cj, 17) * w; R8 += CGET(cj, 18) * w; R9 += CGET(cj, 19) * w;
+          R10 += CGET(cj, 20) * w; R11 += CGET(cj, 21) * w; }
+        { VT a = VLD(src + 6 * rs), b = VLD(src + 17 * rs);
+          VT u = a + b, w = MULI(a - b);
+          const double *cj = ct + 5 * 22 * VDW;
+          P0 += u; P1 += CGET(cj, 0) * u; P2 += CGET(cj, 1) * u;
+          P3 += CGET(cj, 2) * u; P4 += CGET(cj, 3) * u; P5 += CGET(cj, 4) * u;
+          P6 += CGET(cj, 5) * u; P7 += CGET(cj, 6) * u; P8 += CGET(cj, 7) * u;
+          P9 += CGET(cj, 8) * u; P10 += CGET(cj, 9) * u; P11 += CGET(cj, 10) * u;
+          R1 += CGET(cj, 11) * w; R2 += CGET(cj, 12) * w; R3 += CGET(cj, 13) * w;
+          R4 += CGET(cj, 14) * w; R5 += CGET(cj, 15) * w; R6 += CGET(cj, 16) * w;
+          R7 += CGET(cj, 17) * w; R8 += CGET(cj, 18) * w; R9 += CGET(cj, 19) * w;
+          R10 += CGET(cj, 20) * w; R11 += CGET(cj, 21) * w; }
+        { VT a = VLD(src + 7 * rs), b = VLD(src + 16 * rs);
+          VT u = a + b, w = MULI(a - b);
+          const double *cj = ct + 6 * 22 * VDW;
+          P0 += u; P1 += CGET(cj, 0) * u; P2 += CGET(cj, 1) * u;
+          P3 += CGET(cj, 2) * u; P4 += CGET(cj, 3) * u; P5 += CGET(cj, 4) * u;
+          P6 += CGET(cj, 5) * u; P7 += CGET(cj, 6) * u; P8 += CGET(cj, 7) * u;
+          P9 += CGET(cj, 8) * u; P10 += CGET(cj, 9) * u; P11 += CGET(cj, 10) * u;
+          R1 += CGET(cj, 11) * w; R2 += CGET(cj, 12) * w; R3 += CGET(cj, 13) * w;
+          R4 += CGET(cj, 14) * w; R5 += CGET(cj, 15) * w; R6 += CGET(cj, 16) * w;
+          R7 += CGET(cj, 17) * w; R8 += CGET(cj, 18) * w; R9 += CGET(cj, 19) * w;
+          R10 += CGET(cj, 20) * w; R11 += CGET(cj, 21) * w; }
+        { VT a = VLD(src + 8 * rs), b = VLD(src + 15 * rs);
+          VT u = a + b, w = MULI(a - b);
+          const double *cj = ct + 7 * 22 * VDW;
+          P0 += u; P1 += CGET(cj, 0) * u; P2 += CGET(cj, 1) * u;
+          P3 += CGET(cj, 2) * u; P4 += CGET(cj, 3) * u; P5 += CGET(cj, 4) * u;
+          P6 += CGET(cj, 5) * u; P7 += CGET(cj, 6) * u; P8 += CGET(cj, 7) * u;
+          P9 += CGET(cj, 8) * u; P10 += CGET(cj, 9) * u; P11 += CGET(cj, 10) * u;
+          R1 += CGET(cj, 11) * w; R2 += CGET(cj, 12) * w; R3 += CGET(cj, 13) * w;
+          R4 += CGET(cj, 14) * w; R5 += CGET(cj, 15) * w; R6 += CGET(cj, 16) * w;
+          R7 += CGET(cj, 17) * w; R8 += CGET(cj, 18) * w; R9 += CGET(cj, 19) * w;
+          R10 += CGET(cj, 20) * w; R11 += CGET(cj, 21) * w; }
+        { VT a = VLD(src + 9 * rs), b = VLD(src + 14 * rs);
+          VT u = a + b, w = MULI(a - b);
+          const double *cj = ct + 8 * 22 * VDW;
+          P0 += u; P1 += CGET(cj, 0) * u; P2 += CGET(cj, 1) * u;
+          P3 += CGET(cj, 2) * u; P4 += CGET(cj, 3) * u; P5 += CGET(cj, 4) * u;
+          P6 += CGET(cj, 5) * u; P7 += CGET(cj, 6) * u; P8 += CGET(cj, 7) * u;
+          P9 += CGET(cj, 8) * u; P10 += CGET(cj, 9) * u; P11 += CGET(cj, 10) * u;
+          R1 += CGET(cj, 11) * w; R2 += CGET(cj, 12) * w; R3 += CGET(cj, 13) * w;
+          R4 += CGET(cj, 14) * w; R5 += CGET(cj, 15) * w; R6 += CGET(cj, 16) * w;
+          R7 += CGET(cj, 17) * w; R8 += CGET(cj, 18) * w; R9 += CGET(cj, 19) * w;
+          R10 += CGET(cj, 20) * w; R11 += CGET(cj, 21) * w; }
+        { VT a = VLD(src + 10 * rs), b = VLD(src + 13 * rs);
+          VT u = a + b, w = MULI(a - b);
+          const double *cj = ct + 9 * 22 * VDW;
+          P0 += u; P1 += CGET(cj, 0) * u; P2 += CGET(cj, 1) * u;
+          P3 += CGET(cj, 2) * u; P4 += CGET(cj, 3) * u; P5 += CGET(cj, 4) * u;
+          P6 += CGET(cj, 5) * u; P7 += CGET(cj, 6) * u; P8 += CGET(cj, 7) * u;
+          P9 += CGET(cj, 8) * u; P10 += CGET(cj, 9) * u; P11 += CGET(cj, 10) * u;
+          R1 += CGET(cj, 11) * w; R2 += CGET(cj, 12) * w; R3 += CGET(cj, 13) * w;
+          R4 += CGET(cj, 14) * w; R5 += CGET(cj, 15) * w; R6 += CGET(cj, 16) * w;
+          R7 += CGET(cj, 17) * w; R8 += CGET(cj, 18) * w; R9 += CGET(cj, 19) * w;
+          R10 += CGET(cj, 20) * w; R11 += CGET(cj, 21) * w; }
+        { VT a = VLD(src + 11 * rs), b = VLD(src + 12 * rs);
+          VT u = a + b, w = MULI(a - b);
+          const double *cj = ct + 10 * 22 * VDW;
+          P0 += u; P1 += CGET(cj, 0) * u; P2 += CGET(cj, 1) * u;
+          P3 += CGET(cj, 2) * u; P4 += CGET(cj, 3) * u; P5 += CGET(cj, 4) * u;
+          P6 += CGET(cj, 5) * u; P7 += CGET(cj, 6) * u; P8 += CGET(cj, 7) * u;
+          P9 += CGET(cj, 8) * u; P10 += CGET(cj, 9) * u; P11 += CGET(cj, 10) * u;
+          R1 += CGET(cj, 11) * w; R2 += CGET(cj, 12) * w; R3 += CGET(cj, 13) * w;
+          R4 += CGET(cj, 14) * w; R5 += CGET(cj, 15) * w; R6 += CGET(cj, 16) * w;
+          R7 += CGET(cj, 17) * w; R8 += CGET(cj, 18) * w; R9 += CGET(cj, 19) * w;
+          R10 += CGET(cj, 20) * w; R11 += CGET(cj, 21) * w; }
+    }
+    L23R_STORE_TAIL();
+}
+
+/* chunk start offsets covering a 23-long index; the last chunk overlaps the
+ * previous and rewrites bit-identical values (cheaper than masking --
+ * L17_matrixsimd's measured lesson, via L23_matrixsimd) */
+#if WC == 4
+static const int SUF(off23)[6] = {0, 4, 8, 12, 16, 19};
+#  define NOFF23 6
+#else
+static const int SUF(off23)[12] = {0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 21};
+#  define NOFF23 12
+#endif
+
+#define PBROW (24 * 2) /* plane buffer row stride, doubles (23 padded to 24) */
+
+/* kernel dispatch: KRN is a compile-time constant inside each exec.
+ *   0 = pinned two-sweep   1 = pinned two-sweep, P parked   2 = interleaved */
+#define L23R_CALL(KRN, srcp, rs, dstp, da, db, tr)                             \
+    do {                                                                       \
+        if ((KRN) == 0)                                                        \
+            SUF(krn_ts)((srcp), (rs), (dstp), (da), (db), cd, sd, sc, (tr), 0);\
+        else if ((KRN) == 1)                                                   \
+            SUF(krn_ts)((srcp), (rs), (dstp), (da), (db), cd, sd, sc, (tr), 1);\
+        else                                                                   \
+            SUF(krn_il)((srcp), (rs), (dstp), (da), (db), ct, (tr));           \
+    } while (0)
+
+/* X-pass chunk slots: slot i covers lanes i*WC..; the last is the
+ * overlapping tail (529 % WC != 0 for both widths) */
+#define NX23 (529 / WC + 1)
+#define L23R_XF0(i) ((i) < 529 / WC ? (long)(i) * WC : (long)(529 - WC))
+
+/* -----------------------------------------------------------------------
+ *  Exec variants.  REORD: 0 = X-last, 1 = X-first (see header).
+ *  NTC: Z pass writes a staging plane, then streamed (NT) to `out` --
+ *  skips the read-for-ownership of every output line in the streaming
+ *  regime (adopted from L23_matrixsimd's exec_rfn <- L17_matrixsimd).
+ *  The cross-volume input prefetch (p->pf, A/B'd at create, changes no
+ *  bits) is from L17_winograd r2 via L17_matrixsimd.
+ * --------------------------------------------------------------------- */
+#define L23R_EXEC(NAME, KRN, REORD) L23R_EXEC_N(NAME, KRN, REORD, 0)
+#define L23R_EXEC_N(NAME, KRN, REORD, NTC)                                     \
+    static __attribute__((unused)) void                                       \
+    NAME(const fft3d_plan *restrict p, const double _Complex *restrict in,     \
+         double _Complex *restrict out)                                        \
+    {                                                                          \
+        const double *restrict cd = CDIST(p);                                  \
+        const double *restrict sd = SDIST(p);                                  \
+        const double *restrict ct = CTAB(p);                                   \
+        double *restrict pb = p->pb;                                           \
+        double *restrict t1 = p->t1;                                           \
+        double *restrict sc = p->sc;                                           \
+        const int nb = p->batch;                                               \
+        (void)cd; (void)sd; (void)ct;                                          \
+        for (int b = 0; b < nb; ++b) {                                         \
+            const double *vin = (const double *)(in + (size_t)b * 12167);      \
+            double *vout = (double *)(out + (size_t)b * 12167);                \
+            if (REORD) { /* X first: in -> t1[kx][y][z] */                     \
+                for (int i = 0; i < NX23; ++i) {                               \
+                    long f0 = L23R_XF0(i);                                     \
+                    L23R_CALL(KRN, vin + 2 * f0, 1058, t1 + 2 * f0,            \
+                              2, 1058, 0);                                     \
+                }                                                              \
+            }                                                                  \
+            for (int x = 0; x < 23; ++x) {                                     \
+                const double *pin2 = (REORD ? (const double *)t1 : vin)        \
+                                     + (long)x * 1058;                         \
+                double *pt = NTC ? p->ps                                       \
+                                 : (REORD ? vout : t1) + (long)x * 1058;       \
+                if (REORD && p->pf && b + 1 < nb) {                            \
+                    /* pull the NEXT volume's input toward L2 while the       \
+                     * plane phase runs from cache-resident scratch: 133      \
+                     * lines per plane x 23 planes covers the volume */       \
+                    const char *nx = (const char *)(vin + 24334)               \
+                                     + (long)x * 8464;                         \
+                    for (int q3 = 0; q3 < 133; ++q3)                           \
+                        __builtin_prefetch(nx + (long)q3 * 64, 0, 2);          \
+                }                                                              \
+                /* Y: along y (row stride 46), lanes over z, transposed */    \
+                for (int t = 0; t < NOFF23; ++t) {                             \
+                    long f0 = SUF(off23)[t];                                   \
+                    L23R_CALL(KRN, pin2 + 2 * f0, 46, pb + f0 * PBROW,         \
+                              PBROW, 2, 1);                                    \
+                }                                                              \
+                /* Z: along z (row stride PBROW), lanes over ky, transposed */\
+                for (int t = 0; t < NOFF23; ++t) {                             \
+                    long f0 = SUF(off23)[t];                                   \
+                    L23R_CALL(KRN, pb + 2 * f0, PBROW, pt + f0 * 46,           \
+                              46, 2, 1);                                       \
+                }                                                              \
+                if (NTC) l23r_ntcopy(vout + (long)x * 1058, p->ps, 1058);      \
+            }                                                                  \
+            if (!REORD) { /* X last: t1 -> out */                              \
+                for (int i = 0; i < NX23; ++i) {                               \
+                    long f0 = L23R_XF0(i);                                     \
+                    L23R_CALL(KRN, t1 + 2 * f0, 1058, vout + 2 * f0,           \
+                              2, 1058, 0);                                     \
+                }                                                              \
+            }                                                                  \
+        }                                                                      \
+    }
+
+L23R_EXEC(SUF(exec_ts), 0, 0)
+L23R_EXEC(SUF(exec_tsp), 1, 0)
+L23R_EXEC(SUF(exec_il), 2, 0)
+L23R_EXEC(SUF(exec_ts_f), 0, 1)
+L23R_EXEC(SUF(exec_tsp_f), 1, 1)
+L23R_EXEC(SUF(exec_il_f), 2, 1)
+L23R_EXEC_N(SUF(exec_ts_fn), 0, 1, 1)
+#undef L23R_EXEC
+#undef L23R_EXEC_N
+
+/* -----------------------------------------------------------------------
+ *  Cross-volume software pipelining (adopted from L17_matrixsimd r4's
+ *  exec18 via L23_matrixsimd's exec_p*): X-first with t1 double-buffered;
+ *  volume b+1's X chunks are interleaved, ~6 per plane at two insertion
+ *  points, into volume b's plane phase, so every volume's input read (but
+ *  the first) overlaps compute.  Pure scheduling: each chunk computes the
+ *  same values from the same operands as plain X-first; bit-identity is
+ *  cmp-VERIFIED, never assumed (contraction can differ at a new site).
+ * --------------------------------------------------------------------- */
+#define L23R_EXEC_P(NAME, KRN, NTC)                                            \
+    static __attribute__((unused)) void                                       \
+    NAME(const fft3d_plan *restrict p, const double _Complex *restrict in,     \
+         double _Complex *restrict out)                                        \
+    {                                                                          \
+        const double *restrict cd = CDIST(p);                                  \
+        const double *restrict sd = SDIST(p);                                  \
+        const double *restrict ct = CTAB(p);                                   \
+        double *restrict pb = p->pb;                                           \
+        double *restrict sc = p->sc;                                           \
+        const int nb = p->batch;                                               \
+        (void)cd; (void)sd; (void)ct;                                          \
+        { /* prologue: volume 0's X pass, the only un-overlapped read */      \
+            const double *vin0 = (const double *)in;                           \
+            for (int i = 0; i < NX23; ++i) {                                   \
+                long f0 = L23R_XF0(i);                                         \
+                L23R_CALL(KRN, vin0 + 2 * f0, 1058, p->t1 + 2 * f0,            \
+                          2, 1058, 0);                                         \
+            }                                                                  \
+        }                                                                      \
+        for (int b = 0; b < nb; ++b) {                                         \
+            double *vout = (double *)(out + (size_t)b * 12167);                \
+            const double *restrict cur = (b & 1) ? p->t1b : p->t1;             \
+            double *restrict nxt = (b & 1) ? p->t1 : p->t1b;                   \
+            const double *vinN = (const double *)(in + (size_t)(b + 1) * 12167);\
+            const int hn = (b + 1 < nb);                                       \
+            for (int x = 0; x < 23; ++x) {                                     \
+                int i0 = 0, ih = 0, i1 = 0;                                    \
+                if (hn) {                                                      \
+                    i0 = (x * NX23) / 23; i1 = ((x + 1) * NX23) / 23;          \
+                    ih = i0 + (i1 - i0) / 2;                                   \
+                    for (int i = i0; i < ih; ++i) {                            \
+                        long f0 = L23R_XF0(i);                                 \
+                        L23R_CALL(KRN, vinN + 2 * f0, 1058,                    \
+                                  nxt + 2 * f0, 2, 1058, 0);                   \
+                    }                                                          \
+                }                                                              \
+                const double *pin2 = cur + (long)x * 1058;                     \
+                double *pt = NTC ? p->ps : vout + (long)x * 1058;              \
+                for (int t = 0; t < NOFF23; ++t) {                             \
+                    long f0 = SUF(off23)[t];                                   \
+                    L23R_CALL(KRN, pin2 + 2 * f0, 46, pb + f0 * PBROW,         \
+                              PBROW, 2, 1);                                    \
+                }                                                              \
+                if (hn) {                                                      \
+                    for (int i = ih; i < i1; ++i) {                            \
+                        long f0 = L23R_XF0(i);                                 \
+                        L23R_CALL(KRN, vinN + 2 * f0, 1058,                    \
+                                  nxt + 2 * f0, 2, 1058, 0);                   \
+                    }                                                          \
+                }                                                              \
+                for (int t = 0; t < NOFF23; ++t) {                             \
+                    long f0 = SUF(off23)[t];                                   \
+                    L23R_CALL(KRN, pb + 2 * f0, PBROW, pt + f0 * 46,           \
+                              46, 2, 1);                                       \
+                }                                                              \
+                if (NTC) l23r_ntcopy(vout + (long)x * 1058, p->ps, 1058);      \
+            }                                                                  \
+        }                                                                      \
+    }
+
+L23R_EXEC_P(SUF(exec_ts_p), 0, 0)
+L23R_EXEC_P(SUF(exec_ts_pn), 0, 1)
+#undef L23R_EXEC_P
+
+#undef VDW
+#undef VT
+#undef IT
+#undef VLD
+#undef VST
+#undef SHUF1
+#undef SHUF2
+#undef SWAPRI
+#undef NEGMASK
+#undef MULI
+#undef SIGN64
+#undef CGET
+#undef CDIST
+#undef SDIST
+#undef CTAB
+#undef L23R_STORE_TAIL
+#undef TTILE
+#undef TILE
+#undef NOFF23
+#undef PBROW
+#undef L23R_CALL
+#undef NX23
+#undef L23R_XF0
+
+#else /* ================= main body ================= */
+
+#include <complex.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+#include "../fft3d_api.h"
+
+/* Streaming copy of one finished 23x23 plane (1058 doubles) into `out`:
+ * NT stores skip the read-for-ownership of every output line in the
+ * streaming regime.  Plane starts are 16 (mod 64)-byte aligned (8464-byte
+ * plane stride), hence the step-up loop.  Same bits, so it stays in the
+ * bit class.  Adopted from L23_matrixsimd's l23_ntcopy (<- L17_matrixsimd). */
+#if defined(__AVX512F__) || defined(__AVX__) || defined(__SSE2__)
+#  include <immintrin.h>
+static void l23r_ntcopy(double *restrict dst, const double *restrict src, size_t nd)
+{
+    size_t i = 0;
+#if defined(__AVX512F__)
+    while (i + 2 <= nd && (((uintptr_t)(dst + i)) & 63u)) {
+        _mm_stream_pd(dst + i, _mm_loadu_pd(src + i));
+        i += 2;
+    }
+    for (; i + 8 <= nd; i += 8) _mm512_stream_pd(dst + i, _mm512_loadu_pd(src + i));
+#elif defined(__AVX__)
+    while (i + 2 <= nd && (((uintptr_t)(dst + i)) & 31u)) {
+        _mm_stream_pd(dst + i, _mm_loadu_pd(src + i));
+        i += 2;
+    }
+    for (; i + 4 <= nd; i += 4) _mm256_stream_pd(dst + i, _mm256_loadu_pd(src + i));
+#endif
+    for (; i + 2 <= nd; i += 2) _mm_stream_pd(dst + i, _mm_loadu_pd(src + i));
+    for (; i < nd; ++i) dst[i] = src[i];
+    _mm_sfence();
+}
+#else
+static void l23r_ntcopy(double *restrict dst, const double *restrict src, size_t nd)
+{
+    memcpy(dst, src, nd * sizeof *dst);
+}
+#endif
+
+struct fft3d_plan {
+    int L, batch;
+    int pf; /* cross-volume input prefetch in the X-first plane phase (A/B'd) */
+    void (*exec)(const struct fft3d_plan *, const double _Complex *, double _Complex *);
+    double *cd8, *sd8; /* 11 distinct cos / sin magnitudes, splatted 8x */
+    double *cd4, *sd4; /* the same, splatted 4x */
+    double *ct8, *ct4; /* interleaved-kernel tables: 11 rows x 22, splatted */
+    double *sc;        /* 12 vectors: parked P accumulators (pc=1 kernel) */
+    double *pb;        /* 23 x 24 complex plane buffer (pass Y -> pass Z) */
+    double *t1;        /* one 23^3 complex volume: pass Z <-> pass X */
+    double *t1b;       /* second volume buffer for the pipelined variants */
+    double *ps;        /* staging plane for the NT-copy variants */
+    void *block;
+    double _Complex *ti, *to; /* transient buffers for the plan-time tuner */
+    size_t tn;
+};
+
+/* ---- instantiate the kernel template: 512-bit and 256-bit ---- */
+#if defined(__has_include)
+#  if __has_include("L23_rader.c")
+#    define L23R_SELF "L23_rader.c"
+#  elif __has_include("impl/L23_rader.c")
+#    define L23R_SELF "impl/L23_rader.c"
+#  endif
+#else
+#  define L23R_SELF "L23_rader.c"
+#endif
+
+#ifdef L23R_SELF
+#  define L23R_TEMPLATE 1
+#  define WC 4
+#  define SUF(x) x##_w4
+#  include L23R_SELF
+#  undef SUF
+#  undef WC
+#  undef L23R_TEMPLATE
+
+#  define L23R_TEMPLATE 2
+#  define WC 2
+#  define SUF(x) x##_w2
+#  include L23R_SELF
+#  undef SUF
+#  undef WC
+#  undef L23R_TEMPLATE
+#else
+#  error "L23_rader.c must be able to #include itself"
+#endif
+
+static double l23r_now(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec;
+}
+
+const char *fft3d_name(void) { return "L23_rader"; }
+
+static const char *g_desc =
+    "Rader p=23 folded to cyclic-11 pair = dense conj-folded kernel, SIMD lines";
+
+const char *fft3d_description(void) { return g_desc; }
+
+int fft3d_supports(int L) { return L == 23; }
+
+static int l23r_verbose(void)
+{
+    const char *e = getenv("L23R_VERBOSE");
+    return e && *e && *e != '0';
+}
+
+static void l23r_tune_free(fft3d_plan *p)
+{
+    free(p->ti); free(p->to);
+    p->ti = NULL; p->to = NULL; p->tn = 0;
+}
+
+/* Deterministic pseudo-random tuning data (realistic magnitudes suffice). */
+static int l23r_tune_alloc(fft3d_plan *p, int nv)
+{
+    size_t n = (size_t)nv * 12167;
+    if (p->tn >= n) return 1;
+    l23r_tune_free(p);
+    if (posix_memalign((void **)&p->ti, 64, n * sizeof *p->ti) != 0) { p->ti = NULL; return 0; }
+    if (posix_memalign((void **)&p->to, 64, n * sizeof *p->to) != 0) {
+        free(p->ti); p->ti = NULL; p->to = NULL; return 0;
+    }
+    p->tn = n;
+    unsigned sr = 20260821u;
+    for (size_t i = 0; i < n; ++i) {
+        sr = sr * 1103515245u + 12345u;
+        double a = (double)(sr >> 8) / 8388608.0 - 1.0;
+        sr = sr * 1103515245u + 12345u;
+        double b = (double)(sr >> 8) / 8388608.0 - 1.0;
+        p->ti[i] = a + b * (double _Complex)I;
+    }
+    memset(p->to, 0, n * sizeof *p->to);
+    return 1;
+}
+
+/* Streaming-regime tuner arena: in + out together exceed ~2.5x L3
+ * (machine-relative sizing, from L36_mixedradix via L17_matrixsimd r3). */
+static int l23r_tune_nv(int batch)
+{
+    long l3 = -1;
+#ifdef _SC_LEVEL3_CACHE_SIZE
+    l3 = sysconf(_SC_LEVEL3_CACHE_SIZE);
+#endif
+    int cap = 144;
+    if (l3 > 0) {
+        double nv = 2.5 * (double)l3 / (2.0 * 12167.0 * 16.0);
+        cap = nv < 144.0 ? 144 : (nv > 448.0 ? 448 : (int)nv);
+    }
+    return batch < cap ? batch : cap;
+}
+
+fft3d_plan *fft3d_create(int L, int batch)
+{
+    if (L != 23 || batch < 1) return NULL;
+    fft3d_plan *p = calloc(1, sizeof *p);
+    if (!p) return NULL;
+    p->L = L;
+    p->batch = batch;
+
+    const size_t nd = 11;       /* distinct constants */
+    const size_t nt = 11 * 22;  /* il table entries */
+    const size_t nsc = 12 * 8;
+    const size_t npb = 23 * 24 * 2;
+    const size_t nt1 = 12167 * 2;
+    const size_t nps = 1058 + 6;
+    const size_t ntot = 24 * nd + 12 * nt + nsc + npb + 2 * nt1 + nps + 512;
+    void *blk = NULL;
+    if (posix_memalign(&blk, 64, ntot * sizeof(double)) != 0 || !blk) {
+        free(p);
+        return NULL;
+    }
+    memset(blk, 0, ntot * sizeof(double));
+    p->block = blk;
+
+#define L23R_ALIGN64(q) ((double *)(((uintptr_t)(q) + 63u) & ~(uintptr_t)63u))
+    double *q = (double *)blk;
+    p->cd8 = q; q += 8 * nd;
+    p->sd8 = q; q += 8 * nd;
+    p->cd4 = q; q += 4 * nd;
+    p->sd4 = q; q += 4 * nd;
+    q = L23R_ALIGN64(q);
+    p->ct8 = q; q += 8 * nt;
+    q = L23R_ALIGN64(q);
+    p->ct4 = q; q += 4 * nt;
+    q = L23R_ALIGN64(q);
+    p->sc = q; q += nsc;
+    q = L23R_ALIGN64(q);
+    p->pb = q; q += npb;
+    q = L23R_ALIGN64(q);
+    p->t1 = q; q += nt1;
+    q = L23R_ALIGN64(q);
+    p->t1b = q; q += nt1;
+    q = L23R_ALIGN64(q);
+    p->ps = q;
+#undef L23R_ALIGN64
+
+    /* long double trig so the double table is correctly rounded */
+    const long double twopi = 6.283185307179586476925286766559005768394L;
+    for (int m = 1; m <= 11; ++m) {
+        double c = (double)cosl(twopi * (long double)m / 23.0L);
+        double s = (double)sinl(twopi * (long double)m / 23.0L);
+        for (int t = 0; t < 8; ++t) p->cd8[(m - 1) * 8 + t] = c;
+        for (int t = 0; t < 8; ++t) p->sd8[(m - 1) * 8 + t] = s;
+        for (int t = 0; t < 4; ++t) p->cd4[(m - 1) * 4 + t] = c;
+        for (int t = 0; t < 4; ++t) p->sd4[(m - 1) * 4 + t] = s;
+    }
+    for (int j = 1; j <= 11; ++j) {
+        for (int k = 1; k <= 11; ++k) {
+            int m = (k * j) % 23;
+            double c = (double)cosl(twopi * (long double)m / 23.0L);
+            double s = (double)sinl(twopi * (long double)m / 23.0L);
+            size_t rc = (size_t)(j - 1) * 22 + (k - 1);
+            size_t rs2 = (size_t)(j - 1) * 22 + 11 + (k - 1);
+            for (int t = 0; t < 8; ++t) p->ct8[rc * 8 + t] = c;
+            for (int t = 0; t < 8; ++t) p->ct8[rs2 * 8 + t] = s;
+            for (int t = 0; t < 4; ++t) p->ct4[rc * 4 + t] = c;
+            for (int t = 0; t < 4; ++t) p->ct4[rs2 * 4 + t] = s;
+        }
+    }
+
+    /* ---- variant selection.  The X order is a pure function of the batch
+     * size (X-last < 64 <= X-first) because the two associate the triple sum
+     * differently; the tuner times ALL variants for the record but may only
+     * PICK within the batch class, and only among forms cmp-verified
+     * bit-identical on wallaby (see strategy record for the verification). */
+    {
+        typedef void (*l23r_fn)(const fft3d_plan *, const double _Complex *,
+                                double _Complex *);
+        enum { NC = 18 };
+        static const l23r_fn cand[NC] = {
+            exec_ts_w4,   exec_tsp_w4,   exec_il_w4,
+            exec_ts_w2,   exec_tsp_w2,   exec_il_w2,
+            exec_ts_f_w4, exec_tsp_f_w4, exec_il_f_w4,
+            exec_ts_f_w2, exec_tsp_f_w2, exec_il_f_w2,
+            exec_ts_fn_w4, exec_ts_fn_w2,
+            exec_ts_p_w4,  exec_ts_p_w2,
+            exec_ts_pn_w4, exec_ts_pn_w2,
+        };
+        static const char *const tags[NC] = {
+            "rader23 folded pair, 512-bit, pinned two-sweep, X-last",
+            "rader23 folded pair, 512-bit, pinned two-sweep P-parked, X-last",
+            "rader23 folded pair, 512-bit, interleaved single-load, X-last",
+            "rader23 folded pair, 256-bit, pinned two-sweep, X-last",
+            "rader23 folded pair, 256-bit, pinned two-sweep P-parked, X-last",
+            "rader23 folded pair, 256-bit, interleaved single-load, X-last",
+            "rader23 folded pair, 512-bit, pinned two-sweep, X-first",
+            "rader23 folded pair, 512-bit, pinned two-sweep P-parked, X-first",
+            "rader23 folded pair, 512-bit, interleaved single-load, X-first",
+            "rader23 folded pair, 256-bit, pinned two-sweep, X-first",
+            "rader23 folded pair, 256-bit, pinned two-sweep P-parked, X-first",
+            "rader23 folded pair, 256-bit, interleaved single-load, X-first",
+            "rader23 folded pair, 512-bit, pinned, X-first, NT planes",
+            "rader23 folded pair, 256-bit, pinned, X-first, NT planes",
+            "rader23 folded pair, 512-bit, pinned, X-first, pipelined",
+            "rader23 folded pair, 256-bit, pinned, X-first, pipelined",
+            "rader23 folded pair, 512-bit, pinned, X-first, pipelined, NT planes",
+            "rader23 folded pair, 256-bit, pinned, X-first, pipelined, NT planes",
+        };
+        /* Selectable set: X-first only, ALL batch sizes.  cmp-verified on
+         * wallaby (B=4): the six X-first variants are bit-identical to each
+         * other (kernel form, width, parking change no bits), the six X-last
+         * variants likewise, and the two pass orders differ -- so a single
+         * always-X-first class keeps output independent of the tuner's pick.
+         * X-first also WON at B=1 on wallaby (23.61 vs 24.92 us): out is
+         * written as dense plane stores while the scattered db=1058 stores go
+         * to the hot t1 scratch instead of a cold out.  X-last variants are
+         * still timed for the record (verbose) but never picked. */
+        static const int selB[12] = {6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17};
+        const int *sel = selB;
+        const int nsel = 12;
+        int bestv = sel[0];
+        p->exec = cand[bestv];
+        g_desc = tags[bestv];
+
+        const char *force = getenv("L23R_FORCE");
+        if (force && *force) {
+            int v = atoi(force);
+            if (v >= 0 && v < NC) {
+                p->exec = cand[v];
+                g_desc = tags[v];
+                if (l23r_verbose())
+                    fprintf(stderr, "[L23_rader] FORCED variant %d: %s\n", v, tags[v]);
+                return p;
+            }
+        }
+
+        /* small-set timing for batch < 64 (candidates never interleaved: a
+         * 512/256-bit licence transition per sample mis-ranks on the node --
+         * L17_matrixsimd r1) */
+        if (batch < 64) {
+            int nv = batch < 8 ? batch : 8;
+            int inner = (32 + nv - 1) / nv;
+            if (l23r_tune_alloc(p, nv)) {
+                int sb = p->batch;
+                p->batch = nv;
+                double best[NC];
+                for (int v = 0; v < NC; ++v) {
+                    best[v] = 1e30;
+                    cand[v](p, p->ti, p->to);
+                    cand[v](p, p->ti, p->to);
+                    /* 5 reps, min: a load spike during one candidate's slot
+                     * otherwise locks a 25% mis-pick into the process (seen
+                     * on wallaby; the node is exclusive but this is cheap) */
+                    for (int r = 0; r < 5; ++r) {
+                        double t0 = l23r_now();
+                        for (int q2 = 0; q2 < inner; ++q2) cand[v](p, p->ti, p->to);
+                        double dt = l23r_now() - t0;
+                        if (dt < best[v]) best[v] = dt;
+                    }
+                }
+                p->batch = sb;
+                for (int s = 1; s < nsel; ++s)
+                    if (best[sel[s]] < best[bestv]) bestv = sel[s];
+                p->exec = cand[bestv];
+                g_desc = tags[bestv];
+                if (l23r_verbose())
+                    for (int v = 0; v < NC; ++v)
+                        fprintf(stderr, "[L23_rader tune] %-66s %8.2f us/transform%s\n",
+                                tags[v], best[v] * 1e6 / (nv * inner),
+                                v == bestv ? "  <== kept" : "");
+            }
+        }
+
+        /* streaming-set timing for batch >= 64 (L17_winograd r2's lesson:
+         * the streaming regime can prefer a different kernel outright) */
+        if (batch >= 64) {
+            int nv2 = l23r_tune_nv(batch);
+            if (l23r_tune_alloc(p, nv2)) {
+                int sb = p->batch;
+                p->batch = nv2;
+                double best2[NC];
+                for (int v = 0; v < NC; ++v) {
+                    best2[v] = 1e30;
+                    cand[v](p, p->ti, p->to);
+                    for (int r = 0; r < 3; ++r) {
+                        double t0 = l23r_now();
+                        cand[v](p, p->ti, p->to);
+                        double dt = l23r_now() - t0;
+                        if (dt < best2[v]) best2[v] = dt;
+                    }
+                }
+                p->batch = sb;
+                for (int s = 1; s < nsel; ++s)
+                    if (best2[sel[s]] < best2[bestv]) bestv = sel[s];
+                p->exec = cand[bestv];
+                g_desc = tags[bestv];
+                if (l23r_verbose())
+                    for (int v = 0; v < NC; ++v)
+                        fprintf(stderr, "[L23_rader tune >L3 nv=%d] %-66s %8.2f us/transform%s\n",
+                                nv2, tags[v], best2[v] * 1e6 / nv2,
+                                v == bestv ? "  <== kept" : "");
+            }
+        }
+
+        /* pf A/B on the final pick (prefetches change no bits).  Skipped when
+         * a pipelined variant won: its interleaved X chunks ARE the prefetch. */
+        if (batch >= 2 && !(bestv >= 14 && bestv <= 17)) {
+            int nv2 = batch < 64 ? (batch < 8 ? batch : 8) : l23r_tune_nv(batch);
+            if (nv2 >= 2 && l23r_tune_alloc(p, nv2)) {
+                int sb = p->batch;
+                p->batch = nv2;
+                double tv[2] = {1e30, 1e30};
+                for (int v = 0; v < 2; ++v) {
+                    p->pf = v;
+                    p->exec(p, p->ti, p->to);
+                    for (int r = 0; r < 3; ++r) {
+                        double t0 = l23r_now();
+                        p->exec(p, p->ti, p->to);
+                        double dt = l23r_now() - t0;
+                        if (dt < tv[v]) tv[v] = dt;
+                    }
+                }
+                p->batch = sb;
+                p->pf = (tv[1] < tv[0]) ? 1 : 0;
+                if (l23r_verbose())
+                    fprintf(stderr, "[L23_rader tune] prefetch A/B: off %.2f on %.2f us/transform -> pf=%d\n",
+                            tv[0] * 1e6 / nv2, tv[1] * 1e6 / nv2, p->pf);
+            }
+        }
+    }
+
+    l23r_tune_free(p);
+    return p;
+}
+
+void fft3d_execute(fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    p->exec(p, in, out);
+}
+
+void fft3d_destroy(fft3d_plan *p)
+{
+    if (!p) return;
+    l23r_tune_free(p);
+    free(p->block);
+    free(p);
+}
+
+#endif /* template / main body */

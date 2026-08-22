@@ -1,0 +1,5 @@
+   L8_fusedaxes                   0.571 us     0.571 us    40.32       5.3%    0.900s  ok 2.3e-16       1.02x
+   L8_fusedaxes                   0.587 us    37.589 us    39.23       3.3%    0.943s  ok 2.3e-16       1.00x
+   L8_fusedaxes                   0.930 us  1904.484 us    24.78       4.6%    1.278s  ok 2.3e-16       1.00x
+   L8_fusedaxes                   1.234 us 20225.133 us    18.66       1.7%    1.796s  ok 2.3e-16       1.00x
+   L8_fusedaxes             8^3 fused/seq3/AA; B=1 pick=fused (tuned) clk256s/p=3.27/2.42 clk512s/p=2.43/2.42

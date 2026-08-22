@@ -1,0 +1,4 @@
+   L23_rader                     47.854 us    47.854 us    17.25       0.9%    0.261s  ok 3.8e-16       1.00x
+   L23_rader                     49.232 us   196.929 us    16.77       1.0%    0.290s  ok 3.8e-16       1.00x
+   L23_rader                     65.197 us  8345.161 us    12.66       1.1%    1.011s  ok 3.8e-16       1.00x
+   L23_rader                rader23 folded pair, 512-bit, pinned two-sweep, X-first, pf=0 pw=0

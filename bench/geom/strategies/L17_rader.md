@@ -1187,3 +1187,165 @@ B=2048 on wallaby (node arena stays 384).
    measurement (r5 VERDICT §6 L=17 ask) will say whether shadow-scheduling
    can ever recover them or whether the kernels' ~90 constant loads + ~60
    stack moves per block are the real residue.
+
+---
+
+## Round panel_r7 (2026-08-22)
+
+### Standing going in
+
+panel_r6 was ABANDONED between development and timing (stale-runner
+retirement; see results/panel_r6_abandoned_no_timing/WHY.md), so there is no
+r6 leaderboard: the standings are still panel_r5 (2nd at B=1 17.098 and B=8
+18.605 behind matrixsimd 15.223/16.658; 3rd at B=256 24.843 and B=2048
+25.500 behind matrixsimd 21.198/21.983 and winograd 23.933/24.567), and my
+r6 additions (sp pipeline, pfw, licence-honest warmup) have NEVER been
+node-measured.  This round's leaderboard therefore judges r6's and r7's
+bets together.
+
+### What changed (kernel arithmetic untouched: 296 FP / 488 flops per 17-pt)
+
+1. **Deferred-junction plane schedule ("dz", "dz pin", "dzsp") — the
+   round's structural bet, ADOPTED FROM L17_matrixsimd panel_r6's
+   deferred-Z** (their group-level deferral with a double-buffered plane
+   buffer: wallaby −3.0% at B=1, −5.7% at B=8 for their structure — the only
+   new L=17 mechanism of r6 with a positive same-structure measurement).
+   My plane phase had three store→load junctions per plane, all
+   back-to-back: deint(x)→z(x) on T, z(x)→transpose(x) on T (in place),
+   transpose(x)→y(x) on U.  Each is a group tail whose stores are
+   immediately re-read with no independent work behind them — on the node's
+   224-entry ROB (2.3× shallower than wallaby's) that exposure is a prime
+   suspect for the ~13.5k non-FP cycles/volume at B=1 (r5 accounting at the
+   measured clk512=2.89).  `exec_dz_body` software-pipelines the SAME groups
+   one plane deep with T double-buffered by parity (U stays single — its
+   producer and consumer are one kernel group apart in the same iteration):
+
+       deint(0)→T0; for x=0..17: { transpose(x−1); z(x); y(x−1); deint(x+1) }
+
+   Every junction now has ≥1 full independent group between producer and
+   consumer (z→transpose has two); the only exposed ones left are plane 0's
+   deint→z and the final transpose(16)→y(16).  Unlike r5's ov — which chased
+   the same cycles by SPLITTING the transpose loops and lost to its own
+   plumbing — dz moves whole groups and adds ZERO instructions.  Same kernel
+   calls, same operand values, same within-pass order → **bit-identical to
+   every class-A candidate** (cmp-verified vs forced 512t at B=8 and B=3;
+   B=3 exercises the ping-pong parity).  Cost: one extra T pair (+6.5 KB
+   scratch; plane-phase footprint T0+T1+U = 19.6 KB of the node's 32 KB
+   L1d).  "dzsp" composes the r6 cross-volume x-block pipeline (via the
+   shared noinline xblk_run) into the same schedule, for the batched cells.
+   Three new class-A tuner candidates (11 total); L17R_FORCE indices:
+   8=dz, 9=dz pin, 10=dzsp (0–7 unchanged, sp stays 7).
+
+2. **Two-pass candidate ranking (tuner honesty fix #3).**  Even with the r5
+   settle spin and the r6 per-candidate licence warmups, one wallaby verbose
+   table this round spanned 27 → 10 µs/t MONOTONICALLY down the table for
+   near-identical work — the machine ramped over the whole ~50 ms
+   tournament and the settle spin didn't cover it.  `l17r_rank` now runs two
+   full fixed-order sweeps and keeps the per-candidate min across both
+   (second sweep runs on the settled clock, halving order bias); each
+   candidate is still timed in its own contiguous block within a sweep
+   (matrixsimd item-12 discipline).  The B=1 pfw A/B and the batched
+   (pf,pfw) grid got the same two-sweep treatment at unchanged total exec
+   count.  Verified: a later verbose table on a contended window is
+   internally consistent (~5% spread, no ramp), matching the forced A/Bs.
+   Costs ~2× rank time; setup is now 0.26–0.30 s at B=1 and 4.2 s at B=2048
+   on wallaby's 977-volume arena (node arena stays 384 → roughly half that).
+
+### Operation count
+
+Unchanged per 17-point transform: 296 FP instr (192 FMA + 104 add/sub).
+dz moves zero arithmetic and zero data; it re-orders whole groups only.
+I-footprint (objdump, wallaby native): exec_dzm_w8 7629 instr ≈ 30.5 KB,
+exec_dzmpin_w8 7676, exec_dzspm_w8 6136 ≈ 24.5 KB — all under r2's 38 KB
+kill line; the rolled 2-trip zmm loops held (asm-opaque bounds).
+
+### Measured — wallaby (Gold 6448Y, gcc 11.4, panel flags; forced pairs are
+### same-window alternating pinned runs `taskset -c 17`, min over 4 reps)
+
+Forced A/B at B=1 (F2 = xl 512t vs F8/F9 = dz/dz pin), µs:
+
+| config | pfw=0 | pfw=1 |
+|---|---|---|
+| xl 512t | **9.459** | **8.874** |
+| xl 512t dz | 9.948 (+5.2%) | 9.269 (+4.5%) |
+| xl 512t dz pin | — | 9.183 (+3.5%) |
+
+Forced A/B at B=2048 (pf=0, pfw=0, slow-ish window), µs/t:
+512t 18.07, sp **17.94**, dzsp 18.44.  **dz loses 3.5–6% on wallaby in every
+cell** — the same shape as r4's mixed tail (wallaby −3–4%, node picked it
+everywhere at −2.5–5.2%) and for the same reason: two 512-bit FMA units and
+a 512-entry ROB already hide these junctions there.  matrixsimd's deferral
+won on wallaby because their junction is a store-forwarding chokepoint
+between much shorter (74-cycle) chunks; mine sit between 296-cycle drains.
+So dz is a **pure node bet shipped as tuner candidates**, riding on the
+node's shallow ROB + single FMA unit; if the port arithmetic is wrong the
+node tuner discards it and nothing is lost.
+
+Autotuned end-to-end (tryout.sh, mixed windows):
+
+| case | r6 code (best windows) | this round |
+|---|---|---|
+| B=1 | 8.838 | **8.889 µs** (sd 0.04%) |
+| B=8 | 9.15 | 9.33 µs/t |
+| B=256 | 11.03 | 11.51 µs/t |
+| B=2048 | 15.08 | 16.74 µs/t (setup 4.2 s) |
+
+(Window-limited; no wallaby regression signal — forced same-window pairs
+above are the honest statistic, and the incumbents are unchanged code.)
+
+Correctness: PASS rel_l2 = 3.114e-16 (B=1), 3.151e-16 (B=8), 3.138e-16
+(B=3), 3.153e-16 (B=256), 3.155e-16 (B=2048); dz/dz-pin/dzsp all
+cmp-bit-identical to forced 512t on full outputs (B=8, B=3); repeatable
+across runs at every batch incl. forced dzsp at B=3;
+`-fsanitize=undefined` clean (forced dzsp+pfw, B=8); `-Wall -Wextra`
+silent; AVX2 host (wombat) verified end-to-end (PASS 3.151e-16, 30.4 µs/t
+at B=8, EVEX-only candidates self-eliminate).
+
+### What was tried and did NOT work / caveats
+
+1. **dz forced on wallaby loses everywhere** (table above) — recorded so
+   nobody deletes it for the wrong reason; the mechanism targets the node's
+   224-entry ROB and 296-cycle single-unit drains, which wallaby does not
+   have.  Node A/B via `-DL17R_FORCE=8/9/10`.
+2. **The one-sweep tuner mis-ranked by up to 2× on a ramping wallaby
+   window** (verbose table 27→10 µs/t monotone; the same run's driver
+   steady-state was 9.33).  This is the same failure r5 item 5's settle
+   spin was meant to fix, at a longer time scale.  Two-sweep min fixed it;
+   any fixed-order tuner on a powersave-governor machine needs this.
+3. (All inherited dead ends stand: ov's split-loop overlap, X-first on this
+   structure, slab lane-packing, transpose fusion into stores, NT stores,
+   negacyclic splits, same-volume prefetch, non-inline kernels,
+   pragma-unroll on 2-trip loops.)
+
+### Borrowed this round (attribution)
+
+* **L17_matrixsimd (panel_r6)**: the deferred-junction mechanism itself
+  ("deferred-Z": group-level deferral + double-buffered plane buffer, zero
+  extra instructions), here generalised to a one-plane-deep software
+  pipeline covering all three of my junctions; also their raw-ssh
+  measurement trap note (hit it again this round — always `cd` in the
+  remote command).
+* **L17_winograd / L36_pfa / L8_fusedaxes**: nothing new taken this round;
+  their pfw mechanism ships unchanged from my r6 adoption.
+
+### Next (in order)
+
+1. **Read the node's panel_r7 pick strings** — they answer, in one shot:
+   r6's bets (sp at batch? pfw where?) and r7's (dz/dz-pin at B=1/B=8?
+   dzsp at batch?).  Each is a mechanism settled on the scoring machine.
+2. **If dz is picked at B=1/B=8**: the junctions were real — deepen the
+   pipeline (defer y two planes, or start the x pass's first blocks inside
+   the last planes' drains, both still class A) and expect the same
+   treatment to pay in matrixsimd-style at B=256+.
+3. **If dz is rejected along with ov (r5)**: two independent scheduling
+   attacks on the non-FP residue will have failed on the node — the
+   remaining suspects are per-block effects (window turnover at kernel
+   boundaries, the ~90 constant loads per block), and the honest next step
+   is a kernel-shape change: matrixsimd's 148-op half-size chunks give the
+   OoO window 2× more boundaries per FP op, which their 15.2 vs my 17.1
+   at B=1 says matters more than my 8% lower lane-slot count.  That is a
+   big rewrite; do it only on this evidence.
+4. **If B=2048 is still 3rd after sp/pfw/dzsp land**: the write path is
+   exhausted; the read side (A + T + U ≈ 250 KB of L2 scratch traffic per
+   volume) and the kx-blocked two-volume x pass (r5 item 4) are the only
+   uncosted ideas left.

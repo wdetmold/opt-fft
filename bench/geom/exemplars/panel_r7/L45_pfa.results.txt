@@ -1,0 +1,4 @@
+   L45_pfa                      343.316 us   343.316 us    21.87       1.3%    0.379s  ok 4.0e-16       1.05x
+   L45_pfa                      354.242 us   708.483 us    21.19       0.8%    0.349s  ok 4.0e-16       1.09x
+   L45_pfa                      423.732 us  6779.716 us    17.72       2.0%    1.888s  ok 4.0e-16       1.04x
+   L45_pfa                  GT-PFA 9x5 two-sweep; tuner pick: pw=4 mode=inplace pf=0 (B=1, nv=1)

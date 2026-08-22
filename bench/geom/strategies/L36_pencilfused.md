@@ -1151,3 +1151,178 @@ hypothesis (originally **L36_mixedradix r1** item 2): this file, this round.
    the gated-out mode 8 at B=4 (5.8 MB working set, streams on nothing) is
    correctly excluded and the lever is elsewhere — probably the same
    front-end story as B=1.
+
+---
+
+## Round panel_r7
+
+### Where round r6 landed, and the diagnosis
+
+Round r6 was **never timed on the node** (the round was halted between
+development and timing to retire a stale runner; see
+`results/panel_r6_abandoned_no_timing/WHY.md`), so the last node data is still
+panel_r5: 2nd at B=1 (121.255 vs pfa 120.358), 3rd at B=4 (132.656), 3rd at
+B=32 (186.903 vs pfa 168.565), 3rd at B=256 (230.243 vs pfa 182.598). My r6
+work — mode 8 istream+pfw and the byte-faithful PFIN pacing, the ports of the
+mechanism pfa won both streaming cells with — therefore ships this round
+unmeasured, and remains the streaming bet with the r6 predictions unchanged.
+
+Reading the rivals' r6 records, the board has moved to B=1:
+
+* **L36_pfa r6** diagnosed the node's B=1 cell (all three entries bunched at
+  120–123 against a ~62–83 µs port floor) as **L2-capacity bound**: in+out =
+  1.5 MB against the node's 1 MB L2, so pass A's in-read allocates into L2
+  and evicts `out` mid-execute — the in-place stores then RFO from L3, pass
+  B re-reads from L3, and modified lines write back: 2–3 MB of L2↔L3 round
+  trips per execute against 746 KB compulsory. Wallaby cannot exhibit this
+  (2 MB L2 holds both buffers), which is why five rounds of wallaby tuning
+  never touched it. Their fix: an **NTA-hinted read prefetch** (prefetchnta
+  fills L1, bypasses L2 on SKX-class cores) with a *constant* 4 KB lead
+  paced at consumption rate — keep `in` out of L2 entirely so `out` stays
+  L2-M across executes, collapsing steady-state L3 traffic to the compulsory
+  746 KB in-read.
+* **L36_mixedradix r6** ported pfw (−33% at wallaby B=256), retired their NT
+  machinery, and measured the stage-interleaved two-transform pipeline (sp2)
+  at B=1: **+7.7%, dead** — independently confirming my r6 PFA36X2 kill.
+* **L36_pfa r6 also found pfw WINS at B=4** in a quiet window (inplace pf=2
+  70.7 vs pf=0 76.9 on wallaby, −8%), overturning the r5 in-arena +11% that
+  my mode-8 gate was built on.
+
+### Technique (round r7): NTA candidates for the L2-capacity cell + the B=4 pfw gate
+
+Line kernel, both widths, modes 0–8, the streaming paths: all unchanged
+(streaming pass A/B byte-identical to r6). Three additive changes:
+
+1. **Mode 9 ISTREAM+NTA** (adopted from **L36_pfa r6**, their pf=4 — stated
+   plainly, the round's headline borrow, the third round running I port their
+   current bet). Mode 7's structure (z-first pass A straight into `out`,
+   pass B cached in place) with the read cursor NTA-hinted and *no* T1/PFNX
+   prefetch anywhere: `__builtin_prefetch(p,0,0)` (prefetchnta), constant
+   lead FFT36PF_PFDN = 512 doubles = 4 KB (their sweep: 128 too late at
+   135.7, 256≈512), advanced 2·PFSTEP per iteration of the FIRST subloop
+   only — the second subloop reads no `in` bytes and issues nothing, keeping
+   the lead constant (their discipline; a swinging lead drops quick-evict L1
+   NTA lines, which was their r3 catastrophe). No PFNX: the target is
+   cache-resident by construction.
+2. **Mode 10 INPLACE+NTA** (this file's own variant). Mode 0's y-first pass
+   A — no staging arrays, no load-side shuffles, ~4 µs better than z-first
+   at B=1 on wallaby, and the shape the node itself picked over istream at
+   B=1 in r5 — plus an NTA cursor matched to its actual consumption order,
+   which is **column-major over the plane's 36×9 cache-line grid** (iteration
+   zg consumes line-column zg: 36 lines at stride 576 B). The cursor
+   prefetches line-column zg+2 (36 prefetchnta per iteration, a constant
+   4.5 KB lead), wrapping columns 9–10 into the next plane so every line of
+   the volume issues exactly once; the first plane's columns 0–1 (72 lines)
+   are the only unprefetched reads per volume. A *sequential* cursor cannot
+   pace this pass — the order mismatch is why r6 left mode 0 prefetch-free —
+   but the column cursor can. If NTA pays on the node, this keeps the
+   y-first register advantage on top of it; pfa has no equivalent (their
+   phase 1 is transpose-on-load only).
+3. **Mode 8 admitted at B≥3** (new gate `allow_pfw`: batch × 1.46 MB >
+   3 MB). At B=4 the out volumes cycle out of L2, so pass A's stores pay an
+   L3-RFO that prefetchw hides; pfa's r6 quiet-window B=4 measurement
+   (pf=2 −8%) overturned the r5 in-arena +11% my old streaming-only gate was
+   built on. B=1/B=2 stay excluded (out is the resident target there;
+   prefetchw is pure µop tax, three entries' measurements agree).
+
+**NTA modes gated to B≤2 on physics**: the mechanism requires `out` to fit
+in L2, so beyond B=2 the prize cannot exist and the prefetch is pure cost —
+measured, below. Tuner: same interleaved-rounds + self-warming + 1e-11
+interlock, now {pw 2,4} × {modes 0–10} = 22 configs (B=1 admits
+{0,1,7,9,10} × 2 = 10; B=4 admits {0,1,7,8} × 2; streaming admits
+{0,1,2,3,4,5,6,7,8} × 2). Hysteresis rank: inplace < istream < istream+pfw
+< inplace+nta < istream+nta < scratch < nt < seqnt < xv < pipe < pipeseq.
+`FFT36PF_FORCE_MODE` now 0..10; `FFT36PF_PFDN` is `-D`-overridable for the
+monitor's sweeps (256/512/1024 would bracket it).
+
+### Operation count
+
+Unchanged: 248 FMA-port ops + 49 port-5 shuffles per 36-point line over PW
+lanes; 241k FMA-port vector ops/volume at PW=4. Mode 9 swaps the T1 cursor's
+11 664 prefetcht1/volume for 11 664 prefetchnta; mode 10 adds 11 664
+prefetchnta/volume to mode 0 (one per input line) and zero FP. The B=1 prize
+being bought: pfa's accounting says ~1.5–2 MB of L2↔L3 round trips per
+execute at the node's B=1, worth of order 20–40 µs there if fully deleted.
+
+### What was measured (wallaby, Gold 6448Y; µs per transform, driver min;
+rel_l2 3.64–3.84e-16 and bit-identical re-runs on every run listed)
+
+* **B=1 auto: 53.2** (fast window, sd 4.5%; pick = inplace — correct on
+  wallaby, whose 2 MB L2 holds in+out: there is nothing for NTA to fix on
+  the machine I can measure, exactly as pfa's r6 record warned). Forced
+  mode 9: 59.5 (+12%); forced mode 10: **53.8 (+1.2% — the column-paced NTA
+  costs almost nothing even where it cannot help**, so if the node's
+  tournament finds the L2 prize, mode 10 keeps the y-first compute edge).
+  Mode 10's output is bit-identical to mode 0's (same arithmetic order,
+  rel_l2 3.835e-16 both); mode 9 matches istream's documented 3.644e-16.
+* **B=4: the new pfw admission pays.** Auto now picks mode 8: 72.4–76.9
+  µs/vol across two windows vs forced mode 7-family baselines; forced mode 8
+  73.7. r6's auto B=4 was 87.4 (noisy window) with mode 8 gated out. Forced
+  mode 9 at B=4: 94.5 (+24%); forced mode 10 at B=4: **136.8 (+80%)** — the
+  measurement behind the B≤2 physics gate: with out cycling through L3, NTA
+  protects nothing and every in-read pays L3 latency off a 4.5 KB lead.
+* **Streaming parity preserved** (paths untouched): B=32 auto 73.8 µs/vol
+  (r6: 72.7), B=256 auto 99.9 in a quiet window (r6: 100.1; a first 15%-sd
+  window read 122 — the documented window lottery, not a regression).
+* Hygiene: AVX2-only path end-to-end on wombat/Haswell at B=2 with modes
+  9/10 admitted at PW=2 (PASS 3.818e-16, bit-repeatable; prefetchnta is
+  baseline x86-64, nothing to guard); `-march=cascadelake -mtune=cascadelake`
+  build run end-to-end on wallaby (PASS, 55.3 µs at B=1, sd 0.05%).
+
+### What was tried and did NOT work — with the number that killed it
+
+1. **NTA modes admitted at B=4** (first cut of the gate): forced mode 10 =
+   136.8 µs/vol vs mode 0's ~76 (+80%), mode 9 = 94.5 (+24%). Once the
+   volume set cycles L3, keeping `in` out of L2 protects nothing (out cannot
+   be resident anyway) and un-L2-buffered L3 reads dominate. Gate moved from
+   "not streaming" to **batch ≤ 2**, where the mechanism can physically
+   exist. This is the same lesson as pfa's r6 B=32 NTA loss (109.4 vs 95.7),
+   reproduced one regime lower.
+2. Nothing else was touched. The streaming code ships byte-identical to r6
+   (which the node has still never timed), so this round's node data will
+   score r6's mode 8 and r7's NTA bet in one shot.
+
+### Attribution summary
+
+NTA read-stream mechanism, the constant-4-KB-lead / first-subloop-only pacing
+discipline, the PFDN=512 default, and the L2-eviction diagnosis of the node's
+B=1 cell: **L36_pfa r6** (pf=4/pf=3; pacing lesson ultimately their r3 PFIN
+deficit arithmetic). pfw-at-B=4 admission: **L36_pfa r6**'s quiet-window B=4
+measurement. The column-order NTA cursor matched to the y-first pass A
+(mode 10) and the B≤2 physics gate with its B=4 kill numbers: this file,
+this round. Confirmation that stage-interleaving two transforms is dead at
+B=1 (+7.7% their form, +1–3% mine): **L36_mixedradix r6** × my r6 PFA36X2 —
+independent kills, same verdict.
+
+### Predictions for the node (stated so they can be scored)
+
+* **Picks**: B=1 pw4 {inplace, inplace+nta, or istream+nta} — if pfa's L2
+  diagnosis is right the tournament installs an NTA mode and **B=1 lands
+  95–115 µs** (from 121.3), with mode 10 the better of the two by the
+  y-first margin (~3–5%); if the NTA L1-tax transfers from wallaby, the pick
+  stays inplace and B=1 reads 119–123, a clean null that closes NTA for
+  L=36. B=4 pw4 **istream+pfw** (newly admitted): **124–130** (from 132.7).
+  B=32 pw4 istream+pfw: **165–178** (r6 prediction, unmeasured). B=256
+  istream+pfw (width open): **180–200** (r6 prediction, unmeasured).
+* If B=1 improves but by <10 µs, ask the monitor for a `FFT36PF_PFDN` sweep
+  (256/512/1024) and one `perf stat -e L2-misses,LLC-loads` B=1 run — the
+  same counter request pfa's r6 Next #1 makes; one measurement settles both
+  files' question.
+
+### Next
+
+1. **If an NTA mode wins node B=1**: sweep PFDN there; then try NTA
+   semantics at B=2 (in+out = 2.9 MB vs 1 MB L2 — probably lost, but the
+   tuner already prices it), and consider an NTA variant of pass B's mid
+   reads at B=1 (they are out-lines, already L2-M — likely nothing to gain;
+   check the counter data first).
+2. **If NTA is a null**: B=1's residual ~40 µs above the floor is then
+   front-end or L2-latency-in-the-strided-pass; the monitor's
+   `idq.dsb_uops`/`idq.mite_uops` counters (my r6 Next #1, still unrun) are
+   the cheap discriminator before anyone writes more code.
+3. **Streaming cells**: this round finally scores r6's mode 8. If it lands
+   >205 at B=256 despite being picked, the exposed term is pass A's read
+   stream and the `FFT36PF_PFD` sweep (2048/4096/8192) is the next A/B.
+4. **B=4**: if istream+pfw is picked and the cell still trails mixedradix,
+   the difference is inside the small-batch pass A ordering; diff their
+   y-pass against my y-first order before spending a round.

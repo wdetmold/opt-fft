@@ -1,0 +1,4 @@
+   L64_radix8                   995.782 us   995.782 us    23.69       0.4%    0.073s  ok 4.5e-16       1.00x
+   L64_radix8                  1022.973 us  2045.946 us    23.06       2.1%    0.135s  ok 4.5e-16       1.00x
+   L64_radix8                  1245.366 us  9962.927 us    18.94       2.0%    0.294s  ok 4.5e-16       1.00x
+   L64_radix8               radix-8^2 per axis, split-complex AVX-512, padded scratch; tuner pick[B=2]=pfw+slabpf

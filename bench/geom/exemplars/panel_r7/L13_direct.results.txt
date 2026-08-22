@@ -1,0 +1,4 @@
+   L13_direct                     5.901 us     5.901 us    20.67       0.7%    0.000s  ok 2.9e-16       1.00x
+   L13_direct                     6.089 us    97.426 us    20.03       2.7%    0.000s  ok 2.9e-16       1.00x
+   L13_direct                     8.396 us  4298.530 us    14.53       1.7%    0.000s  ok 2.9e-16       1.00x
+   L13_direct               conj-folded dense 13x13 per axis, lanes=lines, pinned sines; 512b all-pinned+ymm-tail X-first

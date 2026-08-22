@@ -1,0 +1,5 @@
+   L8_batchsimd                   0.558 us     0.558 us    41.31       6.4%    0.005s  ok 2.3e-16       1.00x
+   L8_batchsimd                   0.588 us    37.630 us    39.19       4.3%    0.041s  ok 2.3e-16       1.00x
+   L8_batchsimd                   0.945 us  1935.263 us    24.38       4.5%    0.271s  ok 2.3e-16       1.02x
+   L8_batchsimd                   1.232 us 20187.348 us    18.70       2.4%    0.859s  ok 2.3e-16       1.00x
+   L8_batchsimd             radix-8 split, 3 structures as candidates; pick[B=2048]: mode=FUSED nt=0 pf=s0w

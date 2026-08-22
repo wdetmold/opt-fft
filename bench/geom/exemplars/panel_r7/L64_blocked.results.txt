@@ -1,0 +1,4 @@
+   L64_blocked                 1087.455 us  1087.455 us    21.70       1.2%    0.299s  ok 4.2e-16       1.09x
+   L64_blocked                 1160.975 us  2321.949 us    20.32       1.8%    0.417s  ok 4.2e-16       1.13x
+   L64_blocked                 1308.094 us 10464.754 us    18.04       0.2%    2.360s  ok 4.2e-16       1.05x
+   L64_blocked              L64 8x8 two-stage, hugepage odd-line-padded scratch; tuner pick: pw=4 mode=cached pf=0 st=0(3-sweep) (B=2, nv=2)
