@@ -70,18 +70,26 @@ default is 20 ms; if you measure something surprisingly slow in `tryout.sh`, che
 
 ## The machine
 
-| | A100-PCIE-40GB (sm_80) |
+Two A100 variants are involved, and they are not the same part:
+
+| | scored on: **A100-SXM4-40GB** (reserved node) | fallback: A100-PCIE-40GB (login node) |
+|---|---|---|
+| SMs | 108 | 108 |
+| FP64 | 9.7 TFLOP/s vanilla, 19.5 via tensor cores | same |
+| HBM2 | 40 GB, **~2.0 TB/s** | 40 GB, ~1.55 TB/s |
+
+A bandwidth-bound kernel therefore measures ~30% faster on the node you are scored on than on
+the login node's GPU. Never compare across the two. Everything below is the SXM4 part:
+
+| | A100 (sm_80), per SM |
 |---|---|
-| SMs | 108 |
-| FP64 | 9.7 TFLOP/s vanilla, 19.5 TFLOP/s via FP64 tensor cores |
-| HBM2 | 40 GB, ~1.55 TB/s |
 | L2 | 40 MB |
 | shared memory | 164 KB/SM carveout, but **163 KB max per block** and only **48 KB by default** |
 | registers | 256 KB/SM (65536 × 32-bit), max 255 per thread |
 
 Working sets per volume (complex double = 16 B/point):
 
-| L | points | bytes | fits in 164 KB shared? |
+| L | points | bytes | fits one block's 163 KB shared? |
 |---|---|---|---|
 | 6 | 216 | 3.4 KB | yes, ~48 volumes |
 | 8 | 512 | 8.2 KB | yes, ~20 volumes |
@@ -116,8 +124,9 @@ Four hardware facts that the corpus had wrong or that are easy to get wrong, all
 
 ## Where to develop, and where you are scored
 
-**Develop here, on the login node** — it has an A100, so unlike the CPU phases you develop
-on the same architecture you are scored on. One command:
+**You get a whole A100 to yourself.** The project holds an 8-GPU node for this phase, and
+because ssh into a node is permitted while you hold an allocation on it, `tryout.sh` leases
+one of those GPUs and runs your code there:
 
 ```bash
 cd /home/lqcd/wdetmold/fft/bench/gpu
@@ -125,17 +134,23 @@ cd /home/lqcd/wdetmold/fft/bench/gpu
 ./tryout.sh L17_dmma 17 512
 ```
 
-It builds only your file, runs it, verifies against numpy, re-runs to confirm bit-identical
-output, and prints cuFFT on the same case. The GPU here is **shared**, so treat its timings
-as relative: cuFFT's run-to-run spread is ~30% on this node against ~0.3% on a
-job-allocated GPU. Use it for "did this change help", never as a reported number.
+It builds your file, leases a GPU, runs on the reserved node, verifies against numpy, re-runs
+to confirm bit-identical output, releases the lease, and prints cuFFT on the same case. Run it
+after every change — an uncontended SXM4 A100 gives ~0.02% run-to-run spread, so you can
+actually see a 2% improvement.
 
-`compute-sanitizer --tool memcheck` and `ncu --set full` are available and worth your time —
-an occupancy or bank-conflict number will tell you more than another guess.
+**Eight agents, eight GPUs, so take one only while you are using it.** `./gpu_lease.sh status`
+shows who holds what. If all eight are busy, `tryout.sh` waits. If the reservation is down it
+falls back to the shared login-node GPU and says so — those numbers are relative only.
 
-**Do not submit slurm jobs.** The monitor owns the scored measurement, on an a100 partition
-with `--gres=gpu:1`. If you need something only a job-allocated GPU can show, say so in your
-return value and the monitor will take it.
+`compute-sanitizer --tool memcheck` and `ncu --set full` work over the lease too, and an
+occupancy or bank-conflict number will tell you more than another guess. Profiling counters
+need the GPU to yourself, which is exactly what the lease gives you.
+
+**Do not submit slurm jobs.** The reservation is already there; a second allocation would sit
+in the queue behind the cluster's real work. The monitor takes the scored measurements inside
+a *scoring window* that holds all eight leases, so nothing else is on the node while numbers
+are recorded — which is why your lease may briefly have to wait.
 
 ## What carries over from the CPU phases
 
