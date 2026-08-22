@@ -372,3 +372,103 @@ description reporting will answer it in the monitor's run.
    that would quantify the TLB share; expect single-digit percent.
 3. **Do not revisit the arithmetic** (still closed at 4752 flops) and do not build a
    512-bit path for the Gold 5218 (1 FMA unit — round-1 analysis stands).
+
+---
+
+## Round panel_r3 (2026-08-21, dev machine = wallaby, Sapphire Rapids Gold 6448Y)
+
+### Where round panel_r2 landed (node)
+
+Second in all four cells behind `L6_unrolled`: B=1 0.221 vs 0.218, B=64 0.223 vs 0.214,
+B=4096 0.393 vs 0.384, B=32768 **0.616 vs 0.572** µs. The description-string reporting
+paid off: the node picked **v2 (fused) at B=1** — front-end analysis confirmed, B=1 is
+within ~4% of the 486-cycle FP floor at base clock — and **v6 (fused+pf1, normal stores)
+at B=64/4096/32768**. NT stores lost on the node at every batch size, for both L=6
+entries independently (VERDICT §"the same tuner reporting"), despite NT winning wallaby's
+DRAM regime by a wide margin. The B=32768 loss is a tournament artifact, not a kernel
+gap: my grid *contains* the node's winning shape (v5 = 3pass+pf — `L6_unrolled` won that
+cell with exactly `3pass_pf`), but my race truncated at 4096 volumes = 27 MiB, which is
+L3-resident on wallaby and L3-marginal on the node, so the race never saw the DRAM
+regime it was picking for.
+
+### What changed (three things, one borrowed, one new)
+
+1. **Race truncation cap 4096 → 16384 volumes (113 MiB)** — borrowed from
+   `L6_unrolled`'s round-2 record, which raised its cap for exactly this failure and
+   documented the rationale ("a tuning arena that fits the dev machine's L3 mis-picks
+   the store policy for a streaming run"; the monitor's VERDICT lists my 27 MiB arena
+   as one of the round's two reusable tuner-protocol failures). 113 MiB is unambiguously
+   DRAM on wallaby (60 MiB L3) and the node (22 MiB). Setup grows to ~1.1 s at B=32768,
+   still unscored.
+2. **New pf=3 column: `prefetcht1` at distance 1** (vs pf=1/2 = `prefetcht0` at
+   distance 1/2). Theory: T1 fills L2 but not L1, so streaming the next volume does not
+   displace the L1-resident scratch; the x-pass then eats an L1-miss/L2-hit (~14 cy)
+   per load, which the OoO window hides. Grid is now {fused}×{nt}×{pf∈0,1,2,3} = 16
+   kernels, variant = 1 + fused + 2·nt + 4·pf.
+3. **Tournament selection fix**: the reference time now tracks the true minimum even
+   when the incumbent survives the 1% takeover margin (previously a chain of <1% steps
+   could drift the pick off the fastest candidate).
+
+Arithmetic untouched (still 4752 flops / 972 ymm FP per volume; closed). Asm re-check at
+`-march=cascadelake`: all 16 kernels spill-free (3pass kernels 0 rsp refs, fused 1 =
+callee-save restore); `prefetcht1` confirmed emitted in v13–v16.
+
+### What was measured (wallaby; race-table numbers, which are the trustworthy statistic here — see r2's clock-lottery warning)
+
+B=32768 tournament at the new 113 MiB race size (µs/transform):
+
+| shape | pf=0 | pf=T0·1 | pf=T0·2 | pf=T1·1 |
+|---|---|---|---|---|
+| 3pass | 0.5340 | 0.5252 | 0.5213 | 0.5247 |
+| fused | 0.4848 | 0.4885 | 0.4826 | 0.4909 |
+| 3pass+nt | 0.2771 | 0.2310 | 0.2312 | **0.2142** |
+| fused+nt | 0.2805 | 0.2742 | 0.2728 | 0.2674 |
+
+Chosen v15 = 3pass+nt+pfT1. Driver: **B=32768 0.231 µs/vol vs 0.338 last round = 1.46×
+on wallaby** (MKL same case: 0.708). The T1 hint beats T0 by 7% in the NT rows — first
+positive datum for pf=3; on wallaby only, so far. B=4096 picked v16 (fused+nt+pfT1),
+race 0.3171 vs old v8's 0.3187 — T1 marginally ahead there too. B=1: 0.126 µs (turbo
+invocation) / 0.247 (base), unchanged, picks v5≈v1 within noise; B=64 picks v6, as
+before. Accuracy everywhere rel L2 2.2–2.4e-16, bit-identical across re-runs, B ∈
+{1,8,64,4096,32768} all PASS.
+
+**Node prediction, explicitly falsifiable via the description string:** the node raced
+at 113 MiB in panel_r2 (`L6_unrolled`) still rejected NT, so I expect the node to pick
+**v5 (3pass+pf1, normal stores) or v13 (3pass+pfT1) at B=32768** and land near
+`L6_unrolled`'s 0.572; if it picks an NT variant (v7/v11/v15) the node-NT story was a
+race-arena artifact after all and the cell should drop below 0.55. B=4096 should stay
+fused+pf (race size unchanged there, 27 MiB = faithful to the real working set). B=1
+unchanged.
+
+### What was tried and did NOT work (with the number)
+
+1. Nothing new failed outright this round — the changes were narrow by design. The
+   standing negative results that shaped it: NT-on-node (both L=6 entries, panel_r2,
+   every batch size), `prefetchnta` (L6_unrolled r2: 0.53–0.65 vs 0.19 µs/vol,
+   catastrophic — why the new column is T1, not NTA), `MADV_HUGEPAGE` (my r2 item 1,
+   kernel 5.15 + pre-faulted buffers), and two-volumes-in-flight software pipelining
+   across the pass boundary (L6_unrolled r1 item 3: inside noise — which is why I did
+   not attempt the cross-volume x-pass/fused interleave this round either).
+2. Not attempted, recorded as consciously skipped: an ascending-`g`-order x-pass twin
+   (L6_unrolled's loop order). My r1 measured zp-outer worth +0.6% on Haswell; the
+   residual same-shape gap to them at B=64/4096 on the node is ~2% with overlapping run
+   spreads, wallaby cannot resolve node front-end effects, and doubling the grid to 32
+   kernels for an unmeasurable-here fraction of a percent is bad economics. If the r3
+   leaderboard still shows a consistent 2% at B=64 with identical variant strings, diff
+   the two entries' generated asm on the node rather than guessing (their r2 Next #3
+   says the same).
+
+### Next
+
+1. **Read the r3 leaderboard `variant=` strings against the prediction above.** If v5/v13
+   wins B=32768 at ~0.57, the tournament story is closed and L=6 large-batch is at the
+   compulsory-traffic floor with normal stores (10368 B/vol incl. RFO ≈ 18 GB/s at
+   0.572); the only thing left there would be an answer to why NT loses on the node
+   (LFB contention under `powersave`?) — a monitor-side `perf stat` question, not a code
+   change.
+2. **B=1 needs the node clock measured before any further work** (VERDICT asks for
+   `perf stat -e cycles,ref-cycles` during an L=6 B=1 run). At base clock we are ≤4%
+   from the FP-port floor and done; if the node actually turbos, there is real headroom
+   and the pass-boundary schedule becomes worth attacking despite item 1's dead end.
+3. If pf=T1 wins on the node too, propagate the idea to the other geometries' records —
+   L17_winograd found pf=T0 *loses* on the node at L=17; T1 was never tried there.

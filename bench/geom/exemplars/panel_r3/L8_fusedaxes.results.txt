@@ -1,0 +1,5 @@
+   L8_fusedaxes                   0.577 us     0.577 us    39.93       0.6%    0.000s  ok 2.4e-16       1.01x
+   L8_fusedaxes                   0.642 us    41.074 us    35.90       3.7%    0.000s  ok 2.3e-16       1.00x
+   L8_fusedaxes                   1.291 us  2643.382 us    17.85       1.7%    0.216s  ok 2.3e-16       1.04x
+   L8_fusedaxes                   1.580 us 25886.670 us    14.58       0.2%    0.657s  ok 2.3e-16       1.00x
+   L8_fusedaxes             8^3 fused x/y/z in L1, lanes=z; B=64 pick=plain (rule)

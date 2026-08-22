@@ -1,0 +1,661 @@
+/* =====================================================================================
+ * L36_pencilfused.c -- forward complex-double 3D DFT of a fixed 36^3 cube, batched.
+ *
+ * TECHNIQUE (round panel_r3 revision)
+ *   Two-pass pencil/tile-fused row-column transform with Good-Thomas (PFA) 4x9
+ *   line kernels, INTERLEAVED-complex SIMD with a *spectator* axis in the vector
+ *   lanes (a lane = one 128-bit re/im pair = one line of the pass).
+ *
+ *   ROUND panel_r3 CHANGE: the two passes are SWAPPED relative to round r2.  The
+ *   plane-fused pass now runs FIRST, reading `in` (the only DRAM-cold buffer)
+ *   plane-sequentially, and the strided x-pass runs SECOND against the cache-
+ *   resident intermediate.  Round r2 had it the other way around, so its 36
+ *   concurrent 20736-B-stride read streams hit DRAM-cold `in` -- the structural
+ *   reason it trailed L36_pfa/L36_mixedradix by 5% (B=1) to 19% (batched) on the
+ *   node.  This ordering is adopted from L36_pfa round r2 (who adopted it from
+ *   L36_mixedradix round 1); both put the strided access on the warm buffer.
+ *
+ *     pass A (per x-plane, 36x36 complex = 20.25 KB, L1-resident):
+ *         A1  y-transform, lanes = z (contiguous, shuffle-free), output
+ *             transposed in PWxPW complex-lane blocks into a plane buffer P[z][ky]
+ *         A2  z-transform, lanes = ky (P rows contiguous in ky), transposed back,
+ *             stored to mid[x][ky][kz] (plane-sequential write)
+ *     pass B (streaming): x-transform, lanes = PW consecutive flat (ky,kz).
+ *         36 read streams from mid + 36 write streams to out, both stride
+ *         20736 B; the reads carry an unconditional one-line-ahead software
+ *         prefetch (L36_pfa measured removing it costs 14% at B=1 -- 36 streams
+ *         exceed the L2 streamer).  Stores are non-temporal in the NT modes.
+ *
+ *   Two crossings of the grid, no materialised transpose anywhere; the only
+ *   shuffles are the per-module swaps and the PWxPW register transposes on
+ *   L1-resident data.  Both unavoidable volume transposes (see the round-1
+ *   record for the proof there must be exactly one pair) act inside pass A.
+ *
+ *   MODES (self-tuned in fft3d_create(), which is not scored):
+ *     0 INPLACE     mid = out.  Smallest resident set (in + out = 1.46 MB), the
+ *                   small-batch winner: pass B rewrites out in place out of L2.
+ *     1 SCRATCH     mid = a private one-volume scratch reused for every volume
+ *                   (cache-resident across the call), cached final stores.
+ *     2 SCRATCH+NT  as 1 but pass B's stores are non-temporal: DRAM traffic per
+ *                   volume drops to the compulsory read-in + NT-write-out
+ *                   (~1.5 MB) vs INPLACE's ~2.2 MB with the RFO.  At PW=2 two
+ *                   flat groups are paired so every NT write completes a full
+ *                   64-byte line (half-line NT stores thrash the ~12 WC buffers;
+ *                   pairing trick from L36_pfa/L36_mixedradix round r2).
+ *     3 SCRATCH+NT+XV  as 2, plus a CROSS-VOLUME software pipeline: while pass B
+ *                   of volume v streams NT stores (store-buffer-bound, load
+ *                   ports idle), prefetch volume v+1's `in` into L3
+ *                   (prefetcht2, 36 lines per line-group; 324 groups x 36 lines
+ *                   = exactly one volume).  Pass A of v+1 then reads L3, not
+ *                   DRAM.  This is new this round and targets the monitor's
+ *                   panel_r2 finding that L=36 batched runs at half the node's
+ *                   demonstrated single-core streaming rate because reads and
+ *                   compute do not overlap (VERDICT panel_r2 section 6: ceiling
+ *                   ~123 us/volume at B=256 vs the measured 238.8).
+ *
+ * OPERATION COUNT (per 36-point line over PW lanes; unchanged from round r2)
+ *   Good-Thomas 4x9: n = (9 n1 + 4 n2) mod 36, k = (9 k1 + 28 k2) mod 36, so
+ *   W36^{nk} = W4^{n1 k1} * W9^{n2 k2} and the inter-factor twiddle stage vanishes.
+ *
+ *     DFT4  interleaved: 8 FMA-port ops + 1 swap           x9   72 + 9
+ *     DFT3  interleaved: 6 FMA-port ops + 1 swap           x24 144 + 24
+ *     CMUL  by constant: 2 FMA-port ops + 1 swap           x16  32 + 16
+ *     PFA-36 line:       248 FMA-port ops + 49 port-5 shuffles, 36 ld + 36 st
+ *
+ *   Per volume: 3 x 1296 lines -> 3888/PW kernel calls; 241k FMA-port vector ops
+ *   at PW=4, floor ~105 us at 2.3 GHz on the node's single 512-bit FMA pipe (or
+ *   two 256-bit ones -- identical by construction, so both widths are built and
+ *   the plan-time tuner decides).  Register transposes add 8 shuffles per PW
+ *   vectors of PW complex, on port 5, which the FMA work leaves idle.
+ *
+ * ASSUMPTIONS
+ *   * L == 36 only; in/out distinct and 64-byte aligned (driver guarantees); `in` const.
+ *   * gcc vector extensions + explicit FMA forms (via contraction) for the modules.
+ *   * Two instantiations from one source text via #include __FILE__: PW=2 with no
+ *     target attribute (inherits -march=native: AVX2 on the dev box, EVEX-encoded
+ *     256-bit with 32 registers on the node) and PW=4 under target("avx512f,...").
+ *     fft3d_create() times all (width x mode) configurations, interleaved-rounds
+ *     protocol, and every candidate must reproduce the PW=2 INPLACE answer to
+ *     1e-11 relative before it is eligible, so a path that cannot be executed at
+ *     development time can cost speed but never correctness.
+ *   * FFT36PF_SKIPA / FFT36PF_SKIPB compile out one pass -- WRONG ANSWERS, purely
+ *     a phase-timing diagnostic for tryout runs with explicit -D flags.
+ * ===================================================================================== */
+
+#ifndef L36_PENCILFUSED_TEMPLATE
+#define _POSIX_C_SOURCE 200809L
+/* ------------------------------------------------------------------ common part ---- */
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <time.h>
+#include <immintrin.h>
+
+#include "fft3d_api.h"
+
+#define LL      36
+#define NPLANE  1296                /* 36*36 complex in one (y,z) plane               */
+#define NVOL2   93312               /* doubles per volume, interleaved complex        */
+#define PST     36                  /* P-buffer row stride, complex (576 B = 9 lines, */
+                                    /* odd in lines -> touches all 64 L1 sets)        */
+
+/* twiddles: W9^m = exp(-2 pi i m / 9), and sqrt(3)/2 for the 3-point module */
+#define K3     0.86602540378443864676
+#define W91R   0.76604444311897803520
+#define W91I  (-0.64278760968653932632)
+#define W92R   0.17364817766693034885
+#define W92I  (-0.98480775301220805937)
+#define W94R  (-0.93969262078590838405)
+#define W94I  (-0.34202014332566873305)
+
+struct fft3d_plan {
+    int    batch;
+    int    pw;                      /* 2 or 4 complex lanes, chosen by measurement    */
+    int    mode;                    /* 0 INPLACE, 1 SCRATCH, 2 +NT, 3 +NT+XV prefetch */
+    double *mid;                    /* one-volume scratch for the SCRATCH modes       */
+    double *pp;                     /* 36 x PST complex plane buffer                  */
+    void   *arena;
+};
+
+/* ---------------------------------------------------------------- instantiations ---- */
+#define L36_PENCILFUSED_TEMPLATE 1
+
+#define PW     2
+#define TS(x)  x##_v2
+#define TATTR
+#include __FILE__
+#undef PW
+#undef TS
+#undef TATTR
+
+#define PW     4
+#define TS(x)  x##_v4
+#define TATTR  __attribute__((target("avx512f,avx512dq,avx512vl")))
+#include __FILE__
+#undef PW
+#undef TS
+#undef TATTR
+
+/* --------------------------------------------------------------------------- API ---- */
+
+static const char *mode_name(int m)
+{
+    return m == 0 ? "inplace" : m == 1 ? "scratch" : m == 2 ? "scratch+nt"
+                                                            : "scratch+nt+xvpf";
+}
+
+/* the tuner's pick is written here so the monitor can read it off the raw
+ * per-case json (VERDICT panel_r2, cross-cutting item 2) */
+static char g_desc[224] =
+    "L=36: plane-fused y+z pass then strided x pass, PFA 4x9 interleaved-complex "
+    "line kernel, in-place/NT/cross-volume-prefetch modes self-tuned (pre-create)";
+
+const char *fft3d_name(void)        { return "L36_pencilfused"; }
+const char *fft3d_description(void) { return g_desc; }
+int fft3d_supports(int L)           { return L == LL; }
+
+static double now_s(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec;
+}
+
+void fft3d_execute(fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    const double *ind = (const double *)in;
+    double *outd = (double *)out;
+    if (p->pw == 4)
+        exec_v4(ind, outd, p->mid, p->pp, p->batch, p->mode);
+    else
+        exec_v2(ind, outd, p->mid, p->pp, p->batch, p->mode);
+}
+
+fft3d_plan *fft3d_create(int L, int batch)
+{
+    if (L != LL || batch < 1) return NULL;
+
+    fft3d_plan *p = calloc(1, sizeof *p);
+    if (!p) return NULL;
+    p->batch = batch;
+
+    const size_t nMid = (size_t)NVOL2 + 64;
+    const size_t nP   = (size_t)36 * PST * 2 + 64;
+    void *arena = NULL;
+    if (posix_memalign(&arena, 64, (nMid + nP) * sizeof(double)) != 0 || !arena) {
+        free(p);
+        return NULL;
+    }
+    memset(arena, 0, (nMid + nP) * sizeof(double));
+    p->arena = arena;
+    p->mid = (double *)arena;
+    p->pp  = p->mid + nMid;
+
+    /* defaults if the tuning allocation fails: 256-bit; NT once the batch has
+     * clearly left L3 (r1/r2 evidence: NT is neutral-to-winning only there) */
+    p->pw   = 2;
+    p->mode = ((double)batch * 1492992.0 > 16.0 * 1024.0 * 1024.0) ? 2 : 0;
+
+    /* ---- self-tune: {PW=2, PW=4} x {INPLACE, SCRATCH, NT, NT+XV}, timed and
+     * CROSS-CHECKED.  Every configuration must reproduce the PW=2 INPLACE answer
+     * on this machine to 1e-11 relative before it may be selected.
+     * The arena is capped at 64 volumes (~191 MB in+out) so the NT-vs-cached
+     * ranking actually streams past every L3 this code will meet (L36_pfa r2:
+     * a 16-volume arena fit wallaby's 60 MB L3 and mis-picked cached stores;
+     * this file's first r3 attempt repeated that at 48 volumes -- tuner said
+     * cached 80.8 vs NT+XV 95.4, the full 382 MB run said 146.4 vs 119.2). */
+    const long tb = batch < 64 ? batch : 64;
+    const long rv = tb < 2 ? tb : 2;    /* volumes checked for admission */
+    double *din = NULL, *dout = NULL, *dref = NULL;
+    if (posix_memalign((void **)&din,  64, (size_t)tb * NVOL2 * sizeof(double)) == 0 &&
+        posix_memalign((void **)&dout, 64, (size_t)tb * NVOL2 * sizeof(double)) == 0 &&
+        posix_memalign((void **)&dref, 64, (size_t)rv * NVOL2 * sizeof(double)) == 0) {
+
+        unsigned st = 12345u;
+        for (size_t i = 0; i < (size_t)tb * NVOL2; ++i) {
+            st = st * 1103515245u + 12345u;
+            din[i] = (double)(int)(st >> 16) * 3.0517578125e-5;
+        }
+        exec_v2(din, dout, p->mid, p->pp, rv, 0);
+        memcpy(dref, dout, (size_t)rv * NVOL2 * sizeof(double));
+        double refmax = 0.0;
+        for (size_t i = 0; i < (size_t)rv * NVOL2; ++i) {
+            double a = dref[i] < 0 ? -dref[i] : dref[i];
+            if (a > refmax) refmax = a;
+        }
+        if (refmax <= 0.0) refmax = 1.0;
+
+        /* Admission first (correctness gate), then time the survivors over
+         * INTERLEAVED rounds keeping each candidate's minimum -- contiguous
+         * per-candidate blocks let one load spike mis-rank the whole plan
+         * (round-r2 lesson, protocol from L36_mixedradix round 1).  NT/XV
+         * candidates are admitted only once the batch has clearly left L3;
+         * below that a forced DRAM write per call can only lose (round-1
+         * measurement: NT neutral at B<=4, 1.53x win at B=32). */
+        const int have512  = __builtin_cpu_supports("avx512f");
+        const int allow_nt = ((double)batch * 1492992.0 > 16.0 * 1024.0 * 1024.0);
+        double bestc[8];
+        int ok[8];
+        for (int cfg = 0; cfg < 8; ++cfg) {          /* cfg = (pw4?4:0) | mode */
+            const int w = (cfg & 4) ? 4 : 2;
+            const int m = (cfg & 3);
+            bestc[cfg] = 1e300;
+            ok[cfg] = 0;
+            if (w == 4 && !have512) continue;
+            if (m >= 2 && !allow_nt) continue;
+#ifdef FFT36PF_FORCE_PW
+            if (w != FFT36PF_FORCE_PW) continue;
+#endif
+#ifdef FFT36PF_FORCE_MODE
+            if (m != FFT36PF_FORCE_MODE) continue;
+#endif
+            if (w == 4) exec_v4(din, dout, p->mid, p->pp, rv, m);
+            else        exec_v2(din, dout, p->mid, p->pp, rv, m);
+            double err = 0.0;
+            for (size_t i = 0; i < (size_t)rv * NVOL2; ++i) {
+                double d = dout[i] - dref[i];
+                if (d < 0) d = -d;
+                if (d > err) err = d;
+            }
+            ok[cfg] = (err <= 1e-11 * refmax);
+        }
+        /* many short rounds rather than few long ones: the finer the interleave,
+         * the less a load burst on a shared machine can distort one minimum */
+        const int inner  = (tb <= 2) ? 6 : (tb <= 8 ? 3 : 1);
+        const int rounds = (tb <= 2) ? 12 : (tb <= 8 ? 8 : 4);
+        for (int r = 0; r < rounds; ++r) {
+            for (int cfg = 0; cfg < 8; ++cfg) {
+                if (!ok[cfg]) continue;
+                const int w = (cfg & 4) ? 4 : 2;
+                const int m = (cfg & 3);
+                /* round 0 doubles as warm-up; its (worst-case) timing enters
+                 * the minimum, which is harmless */
+                double t0 = now_s();
+                for (int q = 0; q < inner; ++q) {
+                    if (w == 4) exec_v4(din, dout, p->mid, p->pp, tb, m);
+                    else        exec_v2(din, dout, p->mid, p->pp, tb, m);
+                }
+                double t = (now_s() - t0) / inner;
+                if (t < bestc[cfg]) bestc[cfg] = t;
+            }
+        }
+        double bestt = 1e300;
+        for (int cfg = 0; cfg < 8; ++cfg) {
+            if (!ok[cfg] || bestc[cfg] >= bestt) continue;
+            bestt = bestc[cfg];
+            p->pw   = (cfg & 4) ? 4 : 2;
+            p->mode = (cfg & 3);
+        }
+        if (getenv("FFT36PF_VERBOSE")) {
+            for (int cfg = 0; cfg < 8; ++cfg)
+                if (ok[cfg])
+                    fprintf(stderr, "L36_pencilfused tuner: pw=%d %-15s %8.1f us/vol\n",
+                            (cfg & 4) ? 4 : 2, mode_name(cfg & 3),
+                            bestc[cfg] * 1e6 / tb);
+            fprintf(stderr, "L36_pencilfused tuner: chose pw=%d %s (tb=%ld)\n",
+                    p->pw, mode_name(p->mode), tb);
+        }
+    }
+    free(din);
+    free(dout);
+    free(dref);
+
+    snprintf(g_desc, sizeof g_desc,
+             "L=36 plane-fused y+z then strided x, PFA4x9 interleaved lanes; "
+             "tuner picked pw=%d mode=%s (B=%d)",
+             p->pw, mode_name(p->mode), batch);
+    return p;
+}
+
+void fft3d_destroy(fft3d_plan *p)
+{
+    if (!p) return;
+    free(p->arena);
+    free(p);
+}
+
+#else
+/* ============================== templated kernel body ============================== */
+/* A vector holds PW complex numbers = 2*PW doubles, interleaved re,im.               */
+
+typedef double    TS(vd) __attribute__((vector_size(2 * PW * 8)));
+typedef long long TS(vi) __attribute__((vector_size(2 * PW * 8)));
+typedef double    TS(vu) __attribute__((vector_size(2 * PW * 8), aligned(8), may_alias));
+
+#define vd  TS(vd)
+#define vi  TS(vi)
+#define vu  TS(vu)
+#define LD(p)     (*(const vu *)(const void *)(p))
+#define ST(p, v)  (*(vu *)(void *)(p) = (v))
+#if PW == 2
+#  ifdef __AVX__
+#    define STNT(p, v) _mm256_stream_pd((double *)(p), (__m256d)(v))
+#  else
+#    define STNT(p, v) ST(p, v)
+#  endif
+#  define VC(a, b) ((vd){ (a), (b), (a), (b) })
+#  define SWPM ((vi){ 1, 0, 3, 2 })
+#else
+#  define STNT(p, v) _mm512_stream_pd((double *)(p), (__m512d)(v))
+#  define VC(a, b) ((vd){ (a), (b), (a), (b), (a), (b), (a), (b) })
+#  define SWPM ((vi){ 1, 0, 3, 2, 5, 4, 7, 6 })
+#endif
+#define VS(a)    VC(a, a)
+#define CSWAP(v) __builtin_shuffle((v), SWPM)   /* swap re/im in every complex lane */
+
+/* --- PW x PW transpose of complex (128-bit) lanes, butterfly form ------------------ */
+#define CTRSTEP(a, i, s) do {                                                          \
+    vi ml_, mh_;                                                                      \
+    for (int j_ = 0; j_ < 2 * PW; ++j_) {                                             \
+        int g_ = j_ / 2, d_ = j_ & 1;                                                 \
+        int b_ = g_ / (s), o_ = g_ % (s);                                             \
+        long long sl_ = (b_ & 1) ? (PW + (b_ - 1) * (s) + o_) : (b_ * (s) + o_);      \
+        ((long long *)&ml_)[j_] = 2 * sl_ + d_;                                       \
+        ((long long *)&mh_)[j_] = 2 * (sl_ + (s)) + d_;                               \
+    }                                                                                 \
+    vd lo_ = __builtin_shuffle((a)[i], (a)[(i) + (s)], ml_);                           \
+    vd hi_ = __builtin_shuffle((a)[i], (a)[(i) + (s)], mh_);                           \
+    (a)[i] = lo_; (a)[(i) + (s)] = hi_;                                                \
+} while (0)
+
+#if PW == 2
+#  define CTRANSPOSE(a) do { CTRSTEP(a,0,1); } while (0)
+#else
+#  define CTRANSPOSE(a) do { CTRSTEP(a,0,1); CTRSTEP(a,2,1);                           \
+                             CTRSTEP(a,0,2); CTRSTEP(a,1,2); } while (0)
+#endif
+
+/* --- the modules (interleaved complex; constants are lane-splatted pairs) ---------- */
+/* forward DFT-3: y1 = x0 - t/2 - i*K3*(x1-x2), y2 the conjugate partner.
+ * 6 FMA-port ops + 1 swap: KSV = (K3,-K3,...) makes KSV*swap(m) = -i*K3*m exactly. */
+#define DFT3I(X0, X1, X2, Y0, Y1, Y2) do {                                             \
+    vd t_ = (X1) + (X2), m_ = (X1) - (X2);                                             \
+    (Y0) = (X0) + t_;                                                                  \
+    vd a_ = (X0) - VS(0.5) * t_;                                                       \
+    vd ms_ = CSWAP(m_);                                                                \
+    (Y1) = a_ + VC(K3, -K3) * ms_;                                                     \
+    (Y2) = a_ - VC(K3, -K3) * ms_;                                                     \
+} while (0)
+
+/* complex multiply by the constant (WR + i WI): 2 FMA-port ops + 1 swap.
+ * out = WR*v + (-WI,WI)*swap(v). */
+#define CMULI(V, WR, WI, O) do {                                                       \
+    vd q_ = CSWAP(V);                                                                  \
+    (O) = VS(WR) * (V) + VC(-(WI), (WI)) * q_;                                         \
+} while (0)
+
+/* Good-Thomas index maps for 36 = 4 * 9:  n = (9 n1 + 4 n2) mod 36,
+ * k = (9 k1 + 28 k2) mod 36, whence n k = 9 n1 k1 + 4 n2 k2 (mod 36). */
+#define IX(n1,n2)  (((9 * (n1) + 4 * (n2)) % 36))
+#define OX(k1,k2)  (((9 * (k1) + 28 * (k2)) % 36))
+#define UU(k1,j)   ((k1) * 9 + (j))
+
+/* stage A, one of nine DFT-4 over n1.  y1 = t1 - i*t3 and y3 = t1 + i*t3 via
+ * (1,-1)*swap(t3).  8 FMA-port ops + 1 swap.  LOAD(j,X) supplied by the caller. */
+#define SA_(n2, LOAD) do {                                                             \
+    vd q0, q1, q2, q3;                                                                 \
+    LOAD(IX(0,n2), q0)                                                                 \
+    LOAD(IX(1,n2), q1)                                                                 \
+    LOAD(IX(2,n2), q2)                                                                 \
+    LOAD(IX(3,n2), q3)                                                                 \
+    vd t0_ = q0 + q2, t1_ = q0 - q2;                                                   \
+    vd t2_ = q1 + q3, t3_ = q1 - q3;                                                   \
+    u[UU(0,n2)] = t0_ + t2_;                                                           \
+    u[UU(2,n2)] = t0_ - t2_;                                                           \
+    vd sw_ = CSWAP(t3_);                                                               \
+    u[UU(1,n2)] = t1_ + VC(1.0, -1.0) * sw_;                                           \
+    u[UU(3,n2)] = t1_ - VC(1.0, -1.0) * sw_;                                           \
+} while (0)
+
+/* stage B, one of four DFT-9 over n2, Cooley-Tukey 3x3: three DFT-3 on the decimated
+ * sub-sequences, four nontrivial W9 twiddles, three DFT-3 across. */
+#define SB_(k1, STORE) do {                                                            \
+    vd a00, a01, a02, a10, a11, a12, a20, a21, a22;                                    \
+    DFT3I(u[UU(k1,0)], u[UU(k1,3)], u[UU(k1,6)], a00, a01, a02);                       \
+    DFT3I(u[UU(k1,1)], u[UU(k1,4)], u[UU(k1,7)], a10, a11, a12);                       \
+    DFT3I(u[UU(k1,2)], u[UU(k1,5)], u[UU(k1,8)], a20, a21, a22);                       \
+    { vd o0, o1, o2;                                                                   \
+      DFT3I(a00, a10, a20, o0, o1, o2);                                                \
+      STORE(OX(k1,0), o0) STORE(OX(k1,3), o1) STORE(OX(k1,6), o2) }                    \
+    { vd b1, b2, o0, o1, o2;                                                           \
+      CMULI(a11, W91R, W91I, b1);                                                      \
+      CMULI(a21, W92R, W92I, b2);                                                      \
+      DFT3I(a01, b1, b2, o0, o1, o2);                                                  \
+      STORE(OX(k1,1), o0) STORE(OX(k1,4), o1) STORE(OX(k1,7), o2) }                    \
+    { vd c1, c2, o0, o1, o2;                                                           \
+      CMULI(a12, W92R, W92I, c1);                                                      \
+      CMULI(a22, W94R, W94I, c2);                                                      \
+      DFT3I(a02, c1, c2, o0, o1, o2);                                                  \
+      STORE(OX(k1,2), o0) STORE(OX(k1,5), o1) STORE(OX(k1,8), o2) }                    \
+} while (0)
+
+/* the whole 36-point line: 248 FMA-port ops + 49 shuffles over PW lanes.
+ * ALL 36 loads happen in the SA_ stage, before the first SB_ store, so LOAD and
+ * STORE may alias -- pass B relies on this for its in-place mode. */
+#define PFA36(LOAD, STORE) do {                                                        \
+    vd u[36];                                                                          \
+    SA_(0,LOAD); SA_(1,LOAD); SA_(2,LOAD); SA_(3,LOAD); SA_(4,LOAD);                   \
+    SA_(5,LOAD); SA_(6,LOAD); SA_(7,LOAD); SA_(8,LOAD);                                \
+    SB_(0,STORE); SB_(1,STORE); SB_(2,STORE); SB_(3,STORE);                            \
+} while (0)
+
+/* --- the two passes ------------------------------------------------------------- */
+TATTR static void TS(exec)(const double *restrict in, double *restrict out,
+                           double *restrict mids, double *restrict pp,
+                           long nvol, int mode)
+{
+    const int nt = (mode >= 2);
+    for (long v = 0; v < nvol; ++v) {
+        const double *inv  = in  + (size_t)v * NVOL2;
+        double       *outv = out + (size_t)v * NVOL2;
+        double       *mid  = (mode == 0) ? outv : mids;
+        const double *nxt  = (mode == 3 && v + 1 < nvol)
+                             ? in + (size_t)(v + 1) * NVOL2 : (const double *)0;
+
+#ifndef FFT36PF_SKIPA
+        /* ------- pass A: two transforms fused over one L1-resident x-plane ------- */
+        if (mode == 0) {
+        /* INPLACE (small-batch) variant: y-transform first, lanes = z, so the
+         * kernel's loads come straight off the plane with no staging array and
+         * no load-side shuffles -- the register-pressure-friendly order.  The
+         * plane is cache-warm at small batch, so the scattered (stride-576B)
+         * load pattern costs nothing here; at streaming batch it costs ~2x
+         * (101 vs 58 us/vol measured at B=256 cold), hence the else-branch. */
+        for (int x = 0; x < 36; ++x) {
+            const double *rsrc = inv  + (size_t)x * 2 * NPLANE;
+            double       *rdst = outv + (size_t)x * 2 * NPLANE;
+
+            /* y-transform (lanes = z), transposed on the way into P[z][ky] */
+            for (int zg = 0; zg < 36 / PW; ++zg) {
+                const double *s = rsrc + 2 * (size_t)zg * PW;
+                vd yv[36];
+#define YLOAD(j, X)  { (X) = LD(s + (size_t)(j) * 72); }
+#define YSTORE(k, X) { yv[k] = (X); }
+                PFA36(YLOAD, YSTORE);
+#undef YLOAD
+#undef YSTORE
+                for (int kg = 0; kg < 36 / PW; ++kg) {
+                    vd t[PW];
+                    for (int i = 0; i < PW; ++i) t[i] = yv[kg * PW + i];
+                    CTRANSPOSE(t);
+                    for (int l = 0; l < PW; ++l)
+                        ST(pp + 2 * ((size_t)(zg * PW + l) * PST + kg * PW), t[l]);
+                }
+            }
+
+            /* z-transform (lanes = ky), transposed back, stored to the plane */
+            for (int kg = 0; kg < 36 / PW; ++kg) {
+                const double *s = pp + 2 * (size_t)kg * PW;
+                vd zv[36];
+#define ZLOAD(j, X)  { (X) = LD(s + 2 * ((size_t)(j) * PST)); }
+#define ZSTORE(k, X) { zv[k] = (X); }
+                PFA36(ZLOAD, ZSTORE);
+#undef ZLOAD
+#undef ZSTORE
+                for (int cg = 0; cg < 36 / PW; ++cg) {
+                    vd t[PW];
+                    for (int i = 0; i < PW; ++i) t[i] = zv[cg * PW + i];
+                    CTRANSPOSE(t);
+                    for (int l = 0; l < PW; ++l)
+                        ST(rdst + 2 * ((size_t)(kg * PW + l) * 36 + cg * PW), t[l]);
+                }
+            }
+        }
+        } else {
+        /* SCRATCH/streaming variant: z-transform first via transpose-on-load */
+        for (int x = 0; x < 36; ++x) {
+            const double *rsrc = inv + (size_t)x * 2 * NPLANE;
+            double       *rdst = mid + (size_t)x * 2 * NPLANE;
+            /* Plane-ahead prefetch: the y-kernels read the cold plane through 36
+             * stride-576B streams, which exposes the full miss latency (measured
+             * r3: our NT path trailed L36_pfa's sequential-read phase 1 by ~20%
+             * at B=256 before this).  So pull plane x+1 into L2 sequentially
+             * while plane x computes; with XV having staged the volume in L3,
+             * this is an L3->L2 stage, cheap and one plane (~2 us) ahead. */
+#ifndef FFT36PF_NOPAPF
+            const double *npf = (x + 1 < 36) ? rsrc + 2 * NPLANE : (const double *)0;
+#else
+            const double *npf = 0;
+#endif
+
+            /* A1: z-transform, lanes = PW y-rows via transpose-on-load, output
+             * transposed back into P[y][kz].  The transpose-on-load order keeps
+             * the cold `in` reads SEQUENTIAL in PW streams (adopted from
+             * L36_pfa r2 phase 1): the previous y-first order read the plane
+             * through 36 stride-576B streams and measured 101 vs 58 us/vol
+             * against pfa's phase 1 at B=256 cold. */
+            for (int yb = 0; yb < 36; yb += PW) {
+                vd Zv[36], Wv[36];
+                for (int zb = 0; zb < 36 / PW; ++zb) {
+                    vd t[PW];
+                    for (int j = 0; j < PW; ++j)
+                        t[j] = LD(rsrc + 2 * ((size_t)(yb + j) * 36 + (size_t)zb * PW));
+                    CTRANSPOSE(t);
+                    for (int l = 0; l < PW; ++l)
+                        Zv[zb * PW + l] = t[l];
+                }
+                if (npf)
+                    for (int j_ = 0; j_ < (9 * PW); ++j_)
+                        __builtin_prefetch(npf + ((size_t)(yb / PW) * (9 * PW) + j_) * 8, 0, 2);
+#define ZLOAD(j, X)  { (X) = Zv[j]; }
+#define ZSTORE(k, X) { Wv[k] = (X); }
+                PFA36(ZLOAD, ZSTORE);
+#undef ZLOAD
+#undef ZSTORE
+                for (int kb = 0; kb < 36 / PW; ++kb) {
+                    vd t[PW];
+                    for (int i = 0; i < PW; ++i) t[i] = Wv[kb * PW + i];
+                    CTRANSPOSE(t);
+                    for (int l = 0; l < PW; ++l)
+                        ST(pp + 2 * ((size_t)(yb + l) * PST + (size_t)kb * PW), t[l]);
+                }
+            }
+
+            /* A2: y-transform, lanes = kz (P rows contiguous, shuffle-free),
+             * stored straight to the mid plane -- 36 scattered 64-B store
+             * streams, which the store buffer absorbs (unlike scattered LOADS,
+             * which was the old order's mistake). */
+            for (int kb = 0; kb < 36 / PW; ++kb) {
+                const double *s = pp + 2 * (size_t)kb * PW;
+#define YLOAD(j, X)  { (X) = LD(s + 2 * ((size_t)(j) * PST)); }
+#define YSTORE(k, X) { ST(rdst + 2 * ((size_t)(k) * 36 + (size_t)kb * PW), X); }
+                PFA36(YLOAD, YSTORE);
+#undef YLOAD
+#undef YSTORE
+            }
+        }
+        }
+#endif /* FFT36PF_SKIPA */
+
+#ifndef FFT36PF_SKIPB
+        /* -------- pass B: x-transform, lanes = PW consecutive flat (ky,kz).
+         * 36 read + 36 write streams of stride 20736 B; the read streams exceed
+         * the L2 streamer, so prefetch each one line ahead unconditionally. ---- */
+        if (!nt) {
+            for (int g = 0; g < NPLANE / PW; ++g) {
+                const double *src = mid  + 2 * (size_t)g * PW;
+                double       *dst = outv + 2 * (size_t)g * PW;
+                for (int j_ = 0; j_ < 36; ++j_)
+                    __builtin_prefetch(src + (size_t)j_ * (2 * NPLANE) + 8, 0, 3);
+#define BLOAD(j, X)  { (X) = LD(src + (size_t)(j) * (2 * NPLANE)); }
+#define BSTORE(k, X) { ST(dst + (size_t)(k) * (2 * NPLANE), X); }
+                PFA36(BLOAD, BSTORE);
+#undef BLOAD
+#undef BSTORE
+            }
+        } else {
+#if PW == 4
+            for (int g = 0; g < NPLANE / PW; ++g) {
+                const double *src = mid  + 2 * (size_t)g * PW;
+                double       *dst = outv + 2 * (size_t)g * PW;
+                for (int j_ = 0; j_ < 36; ++j_)
+                    __builtin_prefetch(src + (size_t)j_ * (2 * NPLANE) + 8, 0, 3);
+                /* XV: stage the NEXT volume's input into L3 while this pass is
+                 * store-drain-bound.  324 groups x 36 lines = the whole volume. */
+                if (nxt)
+                    for (int j_ = 0; j_ < 36; ++j_)
+                        __builtin_prefetch(nxt + ((size_t)g * 36 + j_) * 8, 0, 1);
+#define BLOAD(j, X)    { (X) = LD(src + (size_t)(j) * (2 * NPLANE)); }
+#define BSTORENT(k, X) { STNT(dst + (size_t)(k) * (2 * NPLANE), X); }
+                PFA36(BLOAD, BSTORENT);
+#undef BLOAD
+#undef BSTORENT
+            }
+#else
+            /* PW=2: 32-B NT stores are half a cache line and a group touches 36
+             * different lines -- far beyond the WC buffers.  Pair two adjacent
+             * flat groups so every line is completed back-to-back. */
+            for (int gp = 0; gp < NPLANE / (2 * PW); ++gp) {
+                const double *src = mid  + 4 * (size_t)gp * PW;
+                double       *dst = outv + 4 * (size_t)gp * PW;
+                for (int j_ = 0; j_ < 36; ++j_)
+                    __builtin_prefetch(src + (size_t)j_ * (2 * NPLANE) + 8, 0, 3);
+                if (nxt)
+                    for (int j_ = 0; j_ < 36; ++j_)
+                        __builtin_prefetch(nxt + ((size_t)gp * 36 + j_) * 8, 0, 1);
+                vd Wa[36], Wb[36];
+#define BLOADA(j, X) { (X) = LD(src + (size_t)(j) * (2 * NPLANE)); }
+#define BSTA(k, X)   { Wa[k] = (X); }
+                PFA36(BLOADA, BSTA);
+#undef BLOADA
+#undef BSTA
+#define BLOADB(j, X) { (X) = LD(src + (size_t)(j) * (2 * NPLANE) + 2 * PW); }
+#define BSTB(k, X)   { Wb[k] = (X); }
+                PFA36(BLOADB, BSTB);
+#undef BLOADB
+#undef BSTB
+                for (int k_ = 0; k_ < 36; ++k_) {
+                    STNT(dst + (size_t)k_ * (2 * NPLANE),          Wa[k_]);
+                    STNT(dst + (size_t)k_ * (2 * NPLANE) + 2 * PW, Wb[k_]);
+                }
+            }
+#endif
+        }
+#endif /* FFT36PF_SKIPB */
+    }
+    if (nt) _mm_sfence();
+}
+
+#undef vd
+#undef vi
+#undef vu
+#undef LD
+#undef ST
+#undef STNT
+#undef VC
+#undef VS
+#undef SWPM
+#undef CSWAP
+#undef CTRSTEP
+#undef CTRANSPOSE
+#undef DFT3I
+#undef CMULI
+#undef IX
+#undef OX
+#undef UU
+#undef SA_
+#undef SB_
+#undef PFA36
+#endif

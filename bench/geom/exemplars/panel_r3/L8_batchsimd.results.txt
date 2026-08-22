@@ -1,0 +1,5 @@
+   L8_batchsimd                   0.570 us     0.570 us    40.45       2.3%    0.029s  ok 1.4e-16       1.00x
+   L8_batchsimd                   0.663 us    42.457 us    34.73       3.4%    0.026s  ok 1.3e-16       1.03x
+   L8_batchsimd                   1.283 us  2626.925 us    17.96       0.8%    0.237s  ok 1.3e-16       1.03x
+   L8_batchsimd                   1.748 us 28643.860 us    13.18       1.3%    0.466s  ok 1.3e-16       1.11x
+   L8_batchsimd             2-pass fused lanex (x+y|z) radix-8 split; pick[B=64]: mode=LANEX nt=0 pf=t0

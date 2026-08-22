@@ -483,3 +483,150 @@ unchanged.
    footprint 5.9 MB, all-cached): likely L2 conflict between `in`, `out` and the
    plane scratch as volumes rotate. A small experiment with per-volume plane
    offsets could recover a few percent; low priority.
+
+---
+
+## Round panel_r3
+
+### Where round panel_r2 landed (node, p55n3 — NOTE: different physical node than r1)
+
+Lost all four cells to `L36_pfa` for the first time: B=1 120.3 vs their 119.3
+(inside spread), B=4 129.7 vs 128.5 (inside spread), B=32 **231.4 vs 202.7**,
+B=256 **261.5 vs 238.8**. My own four cells regressed vs r1
+(+1.6/+1.1/+13.1/+5.7 %), but the MKL control moved +17.8 %/+24.9 % in exactly
+the B=32/B=256 cells on the new node, so the monitor could not attribute my NT
+regression and asked for an `FFT36_NT=0|1` control run (VERDICT §6a — still
+wanted, the override is still in). The VERDICT also quantified the round's
+biggest open prize: at B=256 the panel runs 238.8 µs against a
+`max(compute 119, 1.49 MB / 12.1 GB/s)` ≈ **123 µs ceiling — ~1.9× sitting in
+un-overlapped memory time**, and noted nobody has built a cross-volume pipeline.
+That is what this round builds.
+
+### What changed: the cross-volume pipeline (code 5, "xv"), plus two fixes
+
+**1. Cross-volume input prefetch on the NT path** (`exec_<V>_5` =
+pf1 + xv). Observation: with the reused-scratch NT structure, volume b's
+phase 2 is NT-store-drain-bound and issues *no DRAM reads* (scratch is
+cache-resident), while volume b+1's phase 1 then pays a serial DRAM read of
+`in`. So phase 2 now prefetches volume b+1's `in` with `_mm_prefetch(..., T1)`
+(into L2, sparing L1), paced **one 36-line granule per phase-2 tile**:
+324 tiles × 36 lines = 11 664 lines = exactly one 746 KB volume, and the pace
+matches the rate at which phase 2 retires scratch lines, so on an LRU L2 the
+incoming stream tends to replace dead scratch. Cost: 11 664 prefetch
+instructions per volume ≈ 2.4 % more instructions, phase 2 only, no arithmetic
+change. Same granule logic in the PW=2 staged path (tile-pair = same 36-line
+granule). Idea and magnitude estimate: **the monitor's panel_r2 VERDICT §6
+(L=36 item b)** — this is that suggestion, implemented.
+
+**2. The NT tuner arena now must stream on the machine doing the tuning.**
+My r2 tuner ranked NT candidates on a ≤4-volume (6 MB) arena — fine for
+*policy* (that is threshold-decided) but it ranks pf/xv variants under
+cache-resident conditions. First attempt was a fixed 32-volume arena; wallaby
+promptly demonstrated the bug: 47.8 MB fits its 60 MB L3, the tuner dropped
+xv, and the auto run scored 129.3 µs/vol while a forced `FFT36_XV=1` run of
+the same binary scored 112.6. Fix: arena = in+out footprint of **2.5× this
+machine's L3** (sysconf, fallback 22 MiB), clamped to [32, 128] volumes and to
+the batch. On wallaby that is 106 volumes (158 MB/call, streams); on the node
+37 (55 MB/call, streams). After the fix the auto-tuner picks xv on wallaby and
+lands at 113.9. This is **L36_pfa's round-2 lesson #1** ("a tuning arena must
+actually stream on the machine with the largest L3 you will meet"), borrowed
+with attribution and made machine-relative instead of hard-coded. Setup cost
+grew to ~1.4 s at B=256 on wallaby (~0.7 s expected on the node) — excluded
+from the score and comparable to L17_winograd's 1.2 s.
+
+**3. Tuner picks are now readable off the leaderboard.** `fft3d_create()`
+snprintf's the winning candidate into a static buffer that
+`fft3d_description()` returns, e.g.
+`"PFA 4x9 2-sweep, lanes=lines; pick=v1-nt-pf1-xv (B=256, arena=106 vol,
+ntpolicy=1, 9 cand)"` — verified in the driver's `--json` output at B=1 and
+B=256. Mechanism from **L6_pfa** (r2's only fully closed prediction loop);
+requested by VERDICT cross-cutting item 2. A new `FFT36_XV=0|1` override
+(read once at plan time, mirrors `FFT36_NT`) forces the xv candidates out/in
+for paired A/B runs.
+
+### Operation count
+
+Unchanged: 248 FMA-port vector ops + 49 shuffles per 36-point line over PW
+lanes, 708 real flops/line, 2 752 704 flops/volume. xv adds 11 664 `prefetcht1`
+per volume (+2.4 % instructions) on the NT path only; nothing else moved.
+
+### What was measured (wallaby, Sapphire Rapids Gold 6448Y, 2 MB L2, 60 MB L3)
+
+Wallaby again toggled fast/slow states between runs (same as r2); paired
+back-to-back A/Bs are the evidence, single numbers are context only.
+
+B=256 (streams everywhere: 382 MB), µs per transform, driver min, alternating
+`FFT36_NT` unset (auto=NT), 3 pairs:
+
+| run | XV=0 | XV=1 |
+|---|---|---|
+| pair 1 | 129.8 (sd 0.23 %) | **112.6** (sd 0.15 %) |
+| pair 2 | 147.3 (sd 0.22 %) | **112.8** (sd 0.09 %) |
+| pair 3 | 145.9 (sd 0.36 %) | **112.8** (sd 0.13 %) |
+
+xv is **−13 % against XV=0's best window and −23 % against its typical one**,
+and it flattens the window-to-window variance (the prefetched read is
+insensitive to whatever was perturbing the demand-read runs). Auto-tuned run
+after the arena fix: 113.9 µs/vol, pick=`v1-nt-pf1-xv`. r2's number on this
+machine was 126.6–129.3, so the round is −11 % to −13 % on wallaby at B=256.
+Correctness at every batch tried (1, 4, 32, 256): rel_l2 = 3.95–3.96e-16,
+bit-identical re-runs, all four PASS.
+
+B=32 forced NT (real B=32 on wallaby is cached by the threshold), 2 pairs:
+XV=0 84.5 / 86.1 µs/vol, XV=1 94.0 / 96.9. **xv loses ~12 % when `in` is
+L3-resident** — there is no DRAM read to hide and 11 664 prefetches are pure
+overhead plus L2 pollution. Expected and acceptable: the tuner sees exactly
+these conditions (arena = min(batch, stream-size) = the real footprint when
+the batch itself does not stream) and will keep xv off wherever it loses.
+
+B=1: 54.05 µs, PASS (cached path — code untouched this round). For the
+record: that is half of r2's quiet-window 102.2 on the same machine, while
+MKL in the same two runs went the other way (80.7 → 150.6). Same binary
+semantics, different day — one more instance of this record's rule 1
+(cross-run wallaby comparisons are fiction; only the paired A/Bs above count).
+
+### What was tried / observed that did NOT work
+
+1. **A fixed 32-volume tuning arena** (first version of fix 2): on wallaby it
+   sits inside L3, the tuner dropped xv, and the auto run gave 129.3 µs/vol vs
+   112.6 forced — a 15 % mis-pick from ranking a streaming decision on a
+   cache-resident arena, reproducing L36_pfa's lesson on my own tuner one
+   abstraction level down (they mis-ranked the *policy*; I mis-ranked the
+   *variant within the policy*). Machine-relative sizing fixed it; the number
+   pair above is the receipt.
+2. **xv at L3-resident batch sizes** (wallaby B=32 forced-NT): −12 %, numbers
+   above. Not a code failure — a regime boundary the tuner now handles — but
+   recorded so nobody hard-enables xv unconditionally.
+
+### Predictions for the node (stated so they can be scored)
+
+* Expected picks: B=1/B=4 `v1-cached-pf*`; B=32 and B=256 NT by threshold,
+  xv's fate per-case readable from the description string.
+* B=256: `in` streams from DRAM (382 MB), same shape as wallaby B=256, but the
+  node's 1 MB L2 must hold the 729 KB scratch *and* the incoming prefetch
+  stream, so some prefetched lines will be evicted before phase 1 uses them —
+  expect a smaller xv win than wallaby's 13–23 %. From r2's 261.5: **~205–235
+  µs** if the node's L36-batched anomaly (MKL +25 %) persists, ~180–210 if it
+  was the other node. Beating L36_pfa's 238.8 is the target.
+* B=32: `in` is 23.9 MB against 22 MB L3 — barely streaming; xv should be a
+  small win or a tuner-rejected tie. From r2's 231.4: **~200–225 µs**.
+* The B=32/B=256 `FFT36_NT=0|1` control the VERDICT asked for is still wanted,
+  and `FFT36_XV=0|1` now exists for the same purpose on this round's change.
+
+### Next
+
+1. **Read the node's per-case pick strings** (now plumbed); if xv lost at
+   B=256 there, the L2-competition explanation above is the suspect — try a
+   half-volume pacing (prefetch only during the last 162 tiles, halving
+   residency time) or `prefetchnta` on the *scratch* reads so scratch does not
+   need L2 retention and `in` can have it.
+2. **Extend the pipeline to phase 1** (prefetch the tail of in(b+1) during
+   phase 1(b+1) itself, a few KB ahead): covers whatever xv's L2 residency
+   loses, and the first volume of every call, which xv cannot touch.
+3. **B=1 software pipelining of two line transforms** (round-1 Next #2, still
+   undone): B=1 is now a three-way 1 % race on the node (119.3/120.3/125.1);
+   ~10 % of front-end headroom is documented in round 1's static counts.
+4. If the node's L36-batched anomaly persists on p55n3, ask the monitor to pin
+   the node or run one `perf stat -e cycles,ref-cycles` L36 B=256 job — MKL
+   +25 % on a fixed binary is a machine effect, not a code effect, and it caps
+   what any B=256 number can mean.

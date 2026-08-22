@@ -1,0 +1,5 @@
+   L36_pfa                      120.042 us   120.042 us    30.14       2.3%    0.069s  ok 3.7e-16       1.01x
+   L36_pfa                      129.242 us   516.970 us    27.99       2.4%    0.109s  ok 3.7e-16       1.02x
+   L36_pfa                      218.351 us  6987.246 us    16.57       1.0%    0.495s  ok 3.7e-16       1.00x
+   L36_pfa                      227.497 us 58239.140 us    15.90       0.8%    1.028s  ok 3.7e-16       1.00x
+   L36_pfa                  Good-Thomas PFA 4x9, interleaved-complex lanes, two sweeps (z+y fused per x-plane, x in place or via reused scratch + NT stores), variant autotuned in create()

@@ -547,3 +547,141 @@ and L17_winograd's 18.26.
    arithmetic — 296 instr/17-pt is now below their 168×5-chunks-per-17
    equivalent. Attack the spills (the vv/cc arrays) before touching the
    transposes; round 1's item 2 already killed transpose fusion.
+
+---
+
+## Round panel_r3 (2026-08-21)
+
+### Standing going in (panel_r2 node leaderboard)
+
+B=1: 19.212 µs (3rd — matrixsimd 16.751, winograd 18.247). B=8: 20.365 (3rd,
+0.15 behind winograd). B=256: 24.394 (2nd, winograd 24.031). B=2048: 26.635
+(2nd, winograd 24.603). Note the r2 projection (~17.5 at B=1 from the −19.6%
+FP cut) did NOT convert: only 21.23 → 19.21 materialised, and matrixsimd's
+identical-algebra kernel also barely moved (16.99 → 16.75) — node B=1 has a
+non-FP floor near 17 µs that op-count alone does not shift.
+
+### What changed (no arithmetic changed; the *choice machinery* did)
+
+The 296-instruction cyclic/negacyclic kernel, plane-fused layout, split
+re/im, lane blocking and store paths are all unchanged from panel_r2. Three
+structural changes:
+
+1. **Both vector widths now live in one binary and the plan picks by
+   measurement.** The whole pipeline (kernel + passes + exec loop) is
+   templated over VW by a self-`#include` (mechanism from `L17_matrixsimd`)
+   and instantiated at VW=4 (ymm, TR=20, PS=292) and VW=8 (zmm, TR=24,
+   PS=296), each also in a pinned-S-constant version (panel_r2's
+   `L17R_PIN_CONST`, now a runtime candidate, EVEX-only) — four exec
+   variants: `{256,512} × {plain, pinned-S}`. `fft3d_create()` ranks them in
+   **blocks of ≥64 consecutive volume transforms, never interleaved**
+   (matrixsimd round-1 item 12: interleaving ISA widths mis-ranked by 35% on
+   the node), min of 3 reps, at nv = min(batch,16); when batch ≥ 64 it
+   re-ranks at nv = min(batch,384) — 60 MB in+out, past node L3 — because the
+   L2-resident winner can lose in the streaming regime (winograd's round-2
+   lesson). Each width owns a disjoint scratch region so the pad-lanes-stay-
+   zero invariant holds per width and repeated executes stay bit-identical.
+   This closes panel_r2's "Next" items 1 and 2 (node A/B of VW and of
+   pinning) permanently: the scoring machine answers them itself at plan
+   time, every round, and `fft3d_description()` reports the pick (read it
+   off the leaderboard JSON).
+2. **Cross-volume input prefetch, tuner-gated** — adopted from
+   `L17_winograd` round 2 (their measured −4.4% at B=2048). At plane x of
+   volume b, 73 `prefetcht1` pull plane x of volume b+1 while the z/y passes
+   compute; a NULL guard makes it free at B=1. When batch ≥ 64 the plan A/Bs
+   pf on/off on the streaming working set (blocked, never alternating — the
+   NT-store measurement lesson applies to any cache-state A/B) and keeps the
+   winner (`pf=` in the description string).
+3. **The x pass's scalar-tail kernel is gone.** The last block's start is
+   clamped to `NPL−VW` so it overlaps the previous block; the recomputed
+   lanes are bit-identical because every lane's arithmetic is independent of
+   the block offset. One whole kernel instantiation disappears per exec:
+   **888 FP instructions (= 3×296) per exec against 1184 (= 4×296) in
+   panel_r2**, ~700 total instructions less I-footprint, and the x pass no
+   longer reads pad lanes at all.
+
+### Operation count
+
+Unchanged per 17-point transform: 296 FP instr (192 FMA + 104 add/sub),
+488 flops. Kernel blocks per volume: 243 at VW=4 (FP floor 36.0k cycles on a
+2-FMA-port ymm machine), 139 at VW=8 (41.1k cycles on a 1-FMA-unit zmm
+machine, 20.6k on a 2-unit one). Static per exec variant (wallaby native
+build): np_w4 3820 instr / 888 FP / 204 rsp-refs; np_w8 3765 / 888 / 206;
+pinned variants +~40 instr, −44 rip-const loads.
+
+### Measured — wallaby (Sapphire Rapids Gold 6448Y, gcc 11.4, panel flags; min over ≥4 pinned runs, contended day, same methodology note as panel_r2)
+
+| case | panel_r2 code | this round | tuner's pick |
+|---|---|---|---|
+| B=1 | 11.01 (VW4) / 10.00 (VW8 forced) | **9.81 µs** | 512-bit |
+| B=8 | 10.97 (VW4) | **10.00 µs/t** | 512-bit |
+| B=256 | 15.66 (VW4) | **11.47 µs/t** | 512-bit, pf=0 |
+| B=2048 | — | **19.05 µs/t** | 512-bit, pf=1 |
+
+The tuner's own tables agree with the driver to ~1% (e.g. B=1: tuner 9.85–9.94,
+driver min 9.81). Pinned-S loses ~2% on wallaby at B=1 (14.30 vs 14.18 at
+256-bit, 10.08 vs 9.91 at 512-bit), consistent with panel_r2 — but at the
+streaming nv=384 stage it *won* once (13.99 vs 14.20), so leaving it in the
+candidate set costs nothing and may pay somewhere. pf: −0.8% to −5.6% at
+nv=384 on wallaby, +2–4% at nv=256 (40 MB still fits wallaby's 60 MB L3 —
+exactly why the decision is measured per machine, in the scored regime).
+
+Correctness: rel L2 vs numpy 3.114e-16 (B=1), 3.151e-16 (B=8), 3.153e-16
+(B=256), 3.155e-16 (B=2048); bit-identical output across repeated executes at
+every batch size; AVX2 host (wombat) path verified at B=64 (3.158e-16, the
+emulated-zmm and pinned candidates correctly eliminate themselves there);
+`-Wall -Wextra` silent; `-fsanitize=undefined` clean at B=8;
+`-DL17R_FORCE`/`-DL17R_FORCE_PF` dev overrides compile.
+
+### What was tried and did NOT work / what to know
+
+1. **Nothing new was tried and rejected on numbers this round** — the round
+   was spent building the selection machinery rather than new kernels; every
+   previously-killed idea (slab lane-packing, transpose fusion, NT stores,
+   negacyclic splits, same-volume prefetch) stays killed per the earlier
+   sections.
+2. **wallaby's B=256 pf verdict does not transfer to the node.** 256 volumes
+   (40 MB in+out) fit wallaby's 60 MB L3 but not the node's 22 MB, so the
+   node's stage-2 tuner sees a streaming regime at B=256 where wallaby sees a
+   cache-resident one. Expect pf=1 on the node at B≥256; do not be surprised
+   if the description strings differ between machines.
+3. **The stage-1/stage-2 cap (nv ≤ 384) can under-serve B=2048 on huge-L3
+   machines**: wallaby's tuner at nv=384 (60 MB ≈ its L3) reported 12.4–14
+   µs/t where the B=2048 steady state is 19. On the node (22 MB L3) nv=384 is
+   genuinely streaming, so the ranking should hold there. If a future machine
+   has >60 MB of L3, raise the cap.
+
+### Borrowed this round (attribution)
+
+* **L17_matrixsimd**: the entire plan-time tuning design — self-#include
+  width templating, blocked never-interleaved candidate timing, tuner scratch
+  with deterministic pseudo-random fill, reporting the pick through
+  `fft3d_description()`, and the `L17_FORCE`-style dev override.
+* **L17_winograd**: cross-volume `prefetcht1` of the next volume's input
+  during a compute-bound phase (their round-2 item 3, measured −4.4% at
+  B=2048), and the tune-in-the-scored-regime rule (their round-2 item 2).
+
+### Next (in order)
+
+1. **Read the node's description strings off the panel_r3 leaderboard** —
+   they carry the answers to VW (4 vs 8), pinning, and pf per batch size on
+   the actual scoring machine. Whatever they say supersedes every projection
+   in this file.
+2. **If B=1 is still ~19 µs after the node picks its best width**: the non-FP
+   floor (two 17×17 transposes + deinterleave ≈ 2–3 µs serialized, plus ~60
+   stack moves and ~90 constant loads per kernel) is now the whole gap to
+   matrixsimd, whose transposes hide under the FMA stream inside its chunk
+   stores. The untried idea: fuse the T→U transpose into the y pass's *load*
+   stage as per-block 4×4 in-register tile transposes, so the shuffle work
+   sits on port 5 under the kernel's FMA stream instead of in its own
+   serialized loop. Costed at roughly µop-parity with the separate transpose
+   (5×5 tiles per plane vs 16+edges, minus U's store+reload), so it wins only
+   through port overlap — wallaby (2 FMA units, less port pressure) will
+   understate the node benefit; it needs a node A/B, i.e. build it as a fifth
+   exec variant and let the tuner judge.
+3. **If winograd still leads at B=2048 with pf=1**: the remaining lever is
+   output-side traffic. Direct NT stores stay dead (r1 item 7, matrixsimd's
+   node measurement); the staged-NT variant (finish a volume in scratch, one
+   aligned streaming copy out) is a tuner candidate away — matrixsimd
+   measured it losing on the node at 384 volumes, so only bother if the node
+   pf verdict shows the input side saturated.

@@ -1,0 +1,5 @@
+   L17_matrixsimd                16.386 us    16.386 us    18.38       4.3%    0.108s  ok 3.3e-16       1.00x
+   L17_matrixsimd                17.930 us   143.443 us    16.80       0.6%    0.120s  ok 3.3e-16       1.00x
+   L17_matrixsimd                21.444 us  5489.653 us    14.05       2.3%    0.765s  ok 3.3e-16       1.00x
+   L17_matrixsimd                22.697 us 46483.717 us    13.27       1.9%    1.182s  ok 3.3e-16       1.00x
+   L17_matrixsimd           nested cyclic/negacyclic 17-pt/axis, 512-bit, pinned sines
