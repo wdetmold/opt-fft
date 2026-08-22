@@ -912,3 +912,169 @@ batch tried (1, 4, 8, 32, 256), bit-identical re-runs everywhere.
 3. **If both batched cells land on cached**, consider retiring the xv bodies
    and the PW=2 staged-NT machinery next round to halve the candidate count
    and setup time — but only after the node confirms, not before.
+
+---
+
+## Round panel_r6
+
+### Where round panel_r5 landed (node, p55n3)
+
+Lost B=1 for the first time in three rounds (122.755 vs L36_pfa 120.358 and
+pencilfused 121.255 — the round's only cell regression, +3.1% on an identical
+pick string, VERDICT suspect: code layout as the pool grew 9→12). Tied B=4
+(129.742 vs pfa 129.295). Lost both streaming cells again: B=32 177.726 vs
+pfa 168.565, B=256 215.882 vs pfa 182.598. The decisive datum is in the pick
+strings: my node picks at B=32/B=256 were `v1-cached-pf1-pfin` (3/3 stable) —
+which is exactly L36_pfa's *losing* `inplace pf=1` configuration — while pfa
+won both cells with `inplace pf=2`: the same structure plus a **paced
+`prefetchw` on the phase-1 cold-`out` store stream**. Their in-arena
+decomposition put a number on what I was missing: inplace-pf2 90.5 vs
+inplace-pf1 156.6 µs/vol at B=256 (−42%). The r5 VERDICT's store-policy
+verdict is now categorical: hide the RFO (`prefetchw`), don't avoid it (NT
+stores lost on the node for the fourth consecutive round, at every geometry,
+in every entry's own tournament).
+
+### What changed
+
+**1. `pfw` — paced write-intent prefetch on phase 1's store stream (new
+exec code 4 = `cached-pf1-pfin-pfw`, all three kernels). Borrowed, with
+attribution: L36_pfa round panel_r5's PFWMID (their `pf=2`, node-selected at
+both B=32 and B=256), which in turn adopted it from L6_unrolled r3's
+`fused_pfw`.** A cursor of `__builtin_prefetch(p, 1, 3)` (emits `prefetchw`
+on PRFCHW parts — Cascade Lake and Sapphire Rapids both; degrades to
+`prefetcht0` on Haswell) runs one plane (PFW_D = 2592 doubles = 20.25 KB)
+ahead of the plane phase 1 is storing, advancing PFIN_L lines per codelet
+call — 18 calls/plane at PW=4, 36 at PW=2, either way exactly one plane of
+prefetchw per plane stored, the same pacing arithmetic as pfin. The cursor is
+per-volume (`vout + PFW_D`), clamped at the end of `out`. At streaming batch
+every one of the 11 664 output lines per volume otherwise costs an
+un-overlapped demand RFO from DRAM; prefetchw acquires the line exclusive
+ahead of the store while keeping the normal-store shape the node prefers.
+Offered **only in the streaming pool**: pfa and L6_unrolled both measured
+prefetchw at +11–17% on cache-resident volumes, so it is not re-litigated at
+B=1/B=4 in every plan.
+
+**2. The NT and xv machinery is retired** (exec codes 3/4/5/6 of r2–r5, the
+one-volume scratch, the PW=2 staged-flush NT path, `FFT36_NT`/`FFT36_XV`).
+This executes my own r5 "Next #3", whose stated condition was met: the node
+picked cached at both streaming cells *with the full NT candidate set in the
+pool* (ntpolicy=1, 18 cand), and NT has now lost every tournament on the node
+for four rounds panel-wide. xv has been dominated by pfin since r4 on both
+machines. Effects: candidate pool 18 → 9 at streaming sizes and 12 → 15 at
+cached sizes (sp2 added, see below), setup time halved (3.0–3.4 s → 1.44 s at
+B=256 on wallaby), and the compiled footprint drops by roughly half its
+bodies — relevant because the r5 VERDICT's suspect for my +3.1% B=1
+regression was code layout.
+
+**3. sp2 — the five-rounds-untried B=1 lever, finally measured.** New exec
+code 5 = `cached-pf0-sp2`: two *independent* 36-point line transforms
+interleaved at source level (DFT4-by-DFT4 in stage 1, DFT9-by-DFT9 in stage
+2) in both the y-pass and the x-pass, via generic `ST1G/ST2G` macros
+parameterised over the temp array and load/store macros (the single-line
+codelets expand through the same macros, so their codegen is unchanged).
+Output is bit-identical to sequential calls — same operations, same
+per-transform association. **Result: it loses.** Forced `FFT36_SP2=1` on
+wallaby at B=1: 55.5–55.6 µs vs the full pool's 51.58 (**+7.7%**); on the
+Haswell login node (V0, 16 ymm) forced sp2 at B=8: 209.6 vs ~200 µs/vol
+(+5%). The mechanism doubles live vector state (72 T-array values against 32
+zmm) and the extra spill traffic costs more than the latency overlap buys —
+on machines whose OOO window already overlaps adjacent loop iterations.
+Recorded as measured-and-rejected at this granularity; kept in the pool as a
+gated candidate (the node's narrower Cascade Lake OOO window gets to vote,
+and the numerical gate admits it every plan), listed last so it must beat the
+incumbent by 3%.
+
+**4. Tuner hardening after an observed noisy-window mis-pick.** With the r5
+ordering (v0 kernels listed first), one wallaby plan taken during a load
+spike picked `v2-cached-pf4` and executed at 75.6 µs (sd 15.9%) — a 40%
+mis-pick. Candidates are now ordered **V1 first** (V1 has won every node cell
+in every round since r1), then V2, then V0, all through the same
+probe-and-admit path, so a 256-bit kernel now needs a >3% fake win over V1's
+best-of-rounds minimum to be installed rather than a coin flip. Four
+subsequent plans in windows with sd up to 33% all picked v1 (pf0/pf1 flipped
+between those near-identical twins, which is harmless). Sampling at tiny
+arenas also raised: rounds 6 → 10 at nt < 4.
+
+Overrides now: `FFT36_PFIN=0|1`, `FFT36_PFW=0|1`, `FFT36_SP2=0|1` (read once
+at plan time; execution stays repeatable). `FFT36_NT`/`FFT36_XV` are gone.
+
+### Operation count
+
+Unchanged since round 1: 248 FMA-port vector ops + 49 shuffles per 36-point
+line over PW lanes, 708 real flops/line, 2 752 704 flops/volume. pfw adds
+11 664 `prefetchw` per volume (one per output line), phase 1 only, streaming
+candidates only. sp2 adds zero operations (same ops, reordered).
+
+### What was measured (wallaby, Sapphire Rapids Gold 6448Y, 2 MB L2, 60 MB L3)
+
+All PASS vs numpy, bit-identical re-runs. rel_l2 = 3.954e-16 (B=1),
+3.957e-16 (B=8, wombat V0), 3.961e-16 (B=32 wombat, B=256 wallaby).
+
+* **The round's result — paired A/B at B=256** (382 MB, streams; same
+  binary, forced pools, back-to-back, two pairs):
+  `pf1-pfin` **152.2 / 153.1** vs `pf1-pfin-pfw` **102.8 / 104.5** µs/vol —
+  **pfw is −33%**, against pfa's −42% in-arena for the identical mechanism.
+  Auto tournament picks `v1-cached-pf1-pfin-pfw` and lands **101.4–103.7
+  µs/vol** end-to-end (sd 0.07–0.13% in quiet windows) — the same speed the
+  retired NT path measured in r5 (101.2), now in the cached-store shape the
+  node actually selects. MKL same windows: 168.5–170.2 µs/vol.
+* B=1: **51.58 µs** quiet-window (pick `v1-cached-pf1`), matching r5's 51.59
+  — the restructure (NT removal, probe-path unification, V1-first) cost
+  nothing on the fast path.
+* B=4: 78.2–79.7 µs/vol, pick `v1-cached-pf0`. B=32 (cached regime on
+  wallaby's 60 MB L3): 82.6, pick `v1-cached-pf1-pfin`.
+* V0 pfw path end-to-end on the Haswell login node, where B=32 *is*
+  streaming (45.6 MB > 1.25 × 30 MB): pick `v0-cached-pf1-pfin-pfw`, PASS,
+  repeatable — exercises the PW=2 pacing (9 lines/call, 36 calls/plane) and
+  the builtin's graceful degradation (no PRFCHW on Haswell).
+* Build hygiene (the r4 latent-break lesson): clean under the node's
+  `-O3 -march=cascadelake -mtune=cascadelake` (objdump shows 34 real
+  `prefetchw` sites) and under bare `-O2`.
+* Setup: 1.44–1.60 s at B=256 (halved from r5), 0.18 s at B=4, ≤0.35 s at B=1.
+
+### What was tried and did NOT work — with the number that killed it
+
+1. **sp2 (source-interleaved transform pairs) at B=1: +7.7% on wallaby
+   (55.6 vs 51.6), +5% on Haswell V0.** The five-round "Next" item is now a
+   measured rejection at this granularity. Anyone revisiting B=1 compute
+   should try a *stage-level* pipeline instead (one T array live while the
+   next tile's stage 1 fills a second — half the extra live state), not
+   re-run the full-pair form.
+2. **V0-first candidate ordering under load: a real 40% mis-pick**
+   (`v2-cached-pf4`, 75.6 µs, sd 15.9%). Fixed structurally (V1 first + 3%
+   bar); four noisy-window plans since all picked v1.
+
+### Predictions for the node (stated so they can be scored)
+
+* **B=32** (streams there: 45.6 MB vs 27.5 MB threshold): pick
+  `v1-cached-pf1-pfin-pfw`. pfa's identical-mechanism cell measured 168.565;
+  wallaby says my two-sweep is at parity with their structure once pfw is in.
+  **Predict 163–175 µs** (from 177.726).
+* **B=256**: pick `*-cached-pf1-pfin-pfw`; **predict 180–200 µs** (from
+  215.882). Note pfa's winning node pick here was **pw=2** inplace-pf2 — if
+  my v2/v0 pfw candidates beat v1 on the node the tournament can follow, and
+  the pick string will say so.
+* **B=1**: pool semantics unchanged (sp2 should be rejected in-arena);
+  the halved code footprint is the only layout change — if the r5 VERDICT's
+  layout theory is right, B=1 returns toward 119–121; if it stays ~123 the
+  theory needs a different suspect. **Predict 119–123**, pick
+  `v1-cached-pf0/pf1`.
+* **B=4**: 128–131, pick `v1-cached-pf0`.
+* Setup ≤ 1 s in every cell (37-volume arena, 9 candidates at streaming).
+
+### Next
+
+1. **Read the node's B=256 pick width.** If v1-pfw lands >5% behind pfa's
+   pw=2-pfw cell, the gap is the 512-bit kernel's L1/L2 behaviour under a
+   live prefetchw stream — try lowering the pfw batch per call (9 lines
+   twice as often) before touching structure.
+2. **PFW_D sweep** (1296 / 2592 / 5184 doubles): shipped 2592 = pfa's
+   default, which their own record calls pacing arithmetic, not measurement.
+   One forced A/B per value at B=256 on the node settles it (pfa's r5 Next
+   #1, still open — worth coordinating via the monitor).
+3. **B=1 stage-level software pipeline** (see failure #1): the only
+   remaining compute lever; the full-pair form is dead, the halved-live-state
+   form is not.
+4. If B=1 still reads ~123 with the smaller binary, ask the monitor for one
+   `perf stat -e icache_64b.iftag_miss,frontend_retired.itlb_miss` B=1 run —
+   settle the layout theory with a counter instead of a third guess.

@@ -49,14 +49,24 @@ scored on the kernel, not on PCIe — but the transfer numbers are on the leader
 approach that would need a round trip cannot hide it.
 
 Method, identical in shape to the CPU phases: compilation and `create()` excluded, warmup
-discarded, inner repeat count auto-calibrated to clear the timer, ~20 samples, 3 independent
-processes, **CUDA events around the whole inner loop with an explicit synchronize** so
-asynchronous launches cannot be counted as free. Batched and non-batched are scored
-separately.
+discarded, inner repeat count auto-calibrated, ~20 samples, 3 independent processes, **CUDA
+events around the whole inner loop plus a device synchronize** so work on a non-blocking
+stream cannot be counted as free.
 
-Note what that means for `B=1`: one 6³ volume is 3.4 KB of work on 108 SMs. That case is
-dominated by launch and synchronization overhead, and it is a real part of the competition —
-if your `execute` launches three kernels, you pay three launches.
+**Batch points are defined by working set**, not by round numbers, so the geometries are
+comparable and the methodology matches how the GPU literature benchmarks this:
+
+| point | size | what it measures |
+|---|---|---|
+| `B=1` | one volume | launch and synchronization overhead. Scored separately and read as such — if your execute launches three kernels, you pay three launches |
+| `B_L2` | in+out ≈ 32 MiB | the whole problem inside the A100's 40 MiB L2 |
+| `B_HBM` | one buffer ≈ 1 GiB | **the primary score**: it cannot hide in cache, so this is the real bandwidth question |
+
+**Do not shorten the sample length.** We have no permission to lock clocks on this cluster,
+and the GPU's boost behaviour has a cliff: measured with cuFFT at L=8/B=64, varying only
+`--min-sample-ms`, per-execute time was 22.4 µs at 3 ms, 20.9 µs at 10 ms, and **12.3 µs at
+20 ms** where the SM clock pins at 1410 MHz. That is 1.7× of pure measurement artefact. The
+default is 20 ms; if you measure something surprisingly slow in `tryout.sh`, check that first.
 
 ## The machine
 
@@ -66,7 +76,7 @@ if your `execute` launches three kernels, you pay three launches.
 | FP64 | 9.7 TFLOP/s vanilla, 19.5 TFLOP/s via FP64 tensor cores |
 | HBM2 | 40 GB, ~1.55 TB/s |
 | L2 | 40 MB |
-| shared memory | up to 164 KB/SM (configurable carveout), 32 banks × 4 B |
+| shared memory | 164 KB/SM carveout, but **163 KB max per block** and only **48 KB by default** |
 | registers | 256 KB/SM (65536 × 32-bit), max 255 per thread |
 
 Working sets per volume (complex double = 16 B/point):
@@ -85,6 +95,24 @@ Working sets per volume (complex double = 16 B/point):
 That table is the central design fact: for L ≤ 17 a whole volume fits in one SM's shared
 memory, so all three axes can be done with **one** global read and one global write. Above
 that they cannot, and the transform becomes a memory-traffic problem.
+
+Four hardware facts that the corpus had wrong or that are easy to get wrong, all corrected in
+`../../docs/literature/09-gpu-small-batched-a100.md`:
+
+* **You only get 48 KB of shared memory per block unless you ask.** The default is 49152 B;
+  anything above it requires
+  `cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, bytes)` and a
+  dynamic allocation. Forget this and a 17³ volume (78.6 KB) simply fails to launch.
+* **L=23 does not fit shared memory.** 190.1 KiB against a 163 KB per-block ceiling. An
+  earlier version of the corpus quoted "192 KB per block", which is the unified L1+shared per
+  *SM*; under that wrong number L=23 looks like it fits. It does not — it is a registers-or-
+  tiling problem.
+* **The register file is 1.56× shared memory, not 4×.** 256 KB registers against 164 KB
+  shared per SM. The 4× figure came from a pre-Volta 32 KB shared figure. The direction still
+  favours registers; the magnitude does not decide the question at L = 13, 17, 23.
+* **A complex double occupies 4 registers, not 2.** So a 64-point line is 256 registers,
+  above the 255-per-thread ceiling: at L=64 one line per thread is impossible and you need
+  2–4 threads per line.
 
 ## Where to develop, and where you are scored
 
@@ -116,9 +144,23 @@ measurement each, and their records say what worked. Two results are worth havin
 
 * **At the prime L=17, a dense conjugate-symmetric matrix-vector product beat Rader** on the
   CPU, by 4.97× over the best library, because a matvec has perfect data flow. On an A100
-  there is an FP64 tensor-core path at 2× the vanilla FP64 rate that a matrix formulation
-  can reach and a butterfly cannot. Whether that is real for a 17×17 double-precision
-  operand is the most interesting open question in this phase.
+  there is an FP64 tensor-core path (DMMA) at 2× the vanilla FP64 rate that a matrix
+  formulation can reach and a butterfly cannot — and unlike the published half-precision
+  tensor-core FFT work, **DMMA is IEEE-compliant FP64 with round-to-nearest**, so it clears
+  our 1e-12 gate outright. The corpus works the arithmetic through: a dense per-axis DFT is
+  24·L flop/point, which hides entirely under the 32-byte/point HBM floor for L ≤ 8.3 on the
+  vanilla pipe and **L ≤ 16.7 on DMMA** — i.e. DMMA moves the "a dense matrix is free"
+  frontier from L≈8 to L≈17, exactly where the CPU result lives. Two caveats stated equally
+  plainly: there is no prior work on FP64 tensor-core FFT at all, so this is a well-supported
+  hypothesis with no empirical check; and the one paper that does program DMMA directly found
+  **shared-memory data motion, not FLOPs, was the bottleneck** — which reframes the benefit as
+  fewer shared-memory reads of the matrix rather than the 19.5 TFLOP/s headline.
+* **The libraries are not weak at 17.** Unlike FFTW and MKL, cuFFT has radix-m building
+  blocks for every prime below 128 (Bluestein starts only at 131), and per VkFFT's own
+  account cuFFT's radix-17 *is* a dense matvec. VkFFT's real radix set is 2–16 and 32, so six
+  of our eight geometries are one or two native stages for it. Do not expect the CPU phase's
+  4.97× to reappear here: the libraries already have our algorithm, and we have to implement
+  it better rather than differently.
 * **The CPU phase plateaued on arithmetic and was decided by layout.** Expect the same here,
   more so: at these sizes with large batches the transform is bandwidth-bound, and the
   measured floor already shows it — a deliberately naive O(L⁴) GPU kernel is only 1.6×

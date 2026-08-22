@@ -89,5 +89,10 @@ for case in $CASES; do
   echo "   done L=$L B=$B"
 done
 
+# Record the clock state the numbers were taken at: we cannot lock clocks (no permission),
+# so this is the only evidence of whether the GPU was boosting throughout.
+nvidia-smi --query-gpu=clocks.sm,clocks.max.sm,temperature.gpu,power.draw,clocks_throttle_reasons.active \
+           --format=csv,noheader 2>/dev/null | sed 's/^/clocks after sweep: /' >> "$OUT/environment.txt"
+
 python3 leaderboard.py --round "$ROUND" | tee "$OUT/leaderboard.txt"
 echo "== round $ROUND complete: $OUT =="

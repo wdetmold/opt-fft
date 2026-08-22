@@ -13,6 +13,23 @@
  *     asynchronous launches cannot be counted as free.
  *   * cudaGetLastError() is checked after the transform: a kernel that faults must fail the
  *     entry rather than silently returning a zero-filled buffer that happens to be fast.
+ *
+ * ON SAMPLE LENGTH, which turns out to matter a great deal here. We have no permission to
+ * lock clocks on this cluster (`nvidia-smi -lgc` returns "The current user does not have
+ * permission"), so the GPU's own boost behaviour decides the clock. Measured on the A100
+ * with cuFFT at L=8, B=64, varying only the sample length:
+ *
+ *      --min-sample-ms  3   ->  22.4 us per execute
+ *      --min-sample-ms 10   ->  20.9 us
+ *      --min-sample-ms 20   ->  12.3 us      <-- SM clock pinned at 1410 MHz
+ *      --min-sample-ms 50   ->  12.4 us
+ *
+ * That is a 1.7x cliff, not a gradual ramp: below ~20 ms of continuous work the GPU never
+ * reaches its boost clock, and every number comes out slow. So the default is 20 ms and
+ * should not be lowered. The literature's opposite warning (tight-loop repetition inflating
+ * times by 20-25%) applies to parts whose clocks are already locked; here the ramp dominates
+ * and the sustained number is also the representative one, since the target workload runs
+ * transforms back to back.
  */
 #include <cuda_runtime.h>
 
@@ -45,7 +62,8 @@ static void usage(const char *argv0)
             "usage: %s --L N --batch B --in FILE [options]\n"
             "  --samples N        timed samples (default 30)\n"
             "  --warmup N         discarded warmup executes (default 5)\n"
-            "  --min-sample-ms X  auto-calibrate inner reps to exceed this (default 20)\n"
+            "  --min-sample-ms X  auto-calibrate inner reps to exceed this (default 20;\n"
+            "                     shorter samples measure a downclocked GPU -- see header)\n"
             "  --out FILE         write the transformed batch here (for the checker)\n"
             "  --json FILE        write timing results here\n"
             "  --run-index N      label for this process\n",
@@ -56,7 +74,7 @@ static void usage(const char *argv0)
 int main(int argc, char **argv)
 {
     int L = 0, batch = 0, samples = 30, warmup = 5, run_index = 0;
-    double min_sample_ms = 20.0;
+    double min_sample_ms = 20.0;  /* see the clock-ramp note in the header */
     const char *in_path = NULL, *out_path = NULL, *json_path = NULL;
 
     for (int i = 1; i < argc; ++i) {
@@ -154,6 +172,10 @@ int main(int argc, char **argv)
     for (;;) {
         CUDA_OK(cudaEventRecord(ev_start));
         for (long i = 0; i < inner; ++i) fft3d_gpu_execute(plan, d_in, d_out);
+        /* An implementation may launch on its own stream, and a stream created with
+           cudaStreamNonBlocking does NOT synchronize with the NULL stream -- so an event
+           recorded here would not await it and the work would be timed as free. */
+        CUDA_OK(cudaDeviceSynchronize());
         CUDA_OK(cudaEventRecord(ev_stop));
         CUDA_OK(cudaEventSynchronize(ev_stop));
         float ms = 0.0f;
@@ -170,6 +192,7 @@ int main(int argc, char **argv)
     for (int s = 0; s < samples; ++s) {
         CUDA_OK(cudaEventRecord(ev_start));
         for (long i = 0; i < inner; ++i) fft3d_gpu_execute(plan, d_in, d_out);
+        CUDA_OK(cudaDeviceSynchronize());   /* see the note in the calibration loop */
         CUDA_OK(cudaEventRecord(ev_stop));
         CUDA_OK(cudaEventSynchronize(ev_stop));
         float ms = 0.0f;

@@ -978,3 +978,176 @@ r4** via the r4 VERDICT §5.
 3. **B=4 regime**: mixedradix holds it (129.9 vs my 132.4). Both entries run
    inplace there; the difference is inside the small-batch pass A. Diff their
    plane pass against mode 0's y-first order before spending a round.
+
+---
+
+## Round panel_r6
+
+### Where round r5 landed, and the diagnosis
+
+Node (Gold 5218, panel_r5): 2nd at B=1 (121.255 vs pfa 120.358 — but §3b of the
+verdict flags my three runs as 134.1/125.6/121.3, so the placing rests on one
+run), 3rd at B=4 (132.656), **3rd at B=32 (186.903 vs pfa 168.565) and 3rd at
+B=256 (230.243 vs pfa 182.598, −26%)**. The node picked my modes exactly as
+predicted (pw4 inplace at B=1/B=4, pw4 istream at B=32/B=256), so the loss is
+not a mispick: the istream *structure* is behind. Two named causes in the r5
+verdict:
+
+1. **L36_pfa's r5 headline: `pf=2`** — a paced write-intent prefetch
+   (`prefetchw`) over phase 1's in-place out store stream — was selected by the
+   node 3/3 at BOTH streaming cells and took them 174.2→168.6 and 218.9→182.6.
+   Their in-arena decomposition: inplace-pf2 90.5 vs inplace-pf1 156.6 at B=256
+   (**−42%** — the cold-out RFO was the dominant exposed cost of precisely the
+   mode the node runs me in). My istream was their pf=1 twin; my own r5 "Next"
+   item 1 predicted this lever and this round ships it.
+2. **The residual gap**: my istream measured wallaby-parity with their exemplar
+   (156.6 vs 157.1) yet landed 10.9% behind their pf=1 on the node — the
+   verdict's "most precisely localised unexplained number on the board", to be
+   closed by diffing the two files, not by writing new mechanisms. The diff
+   (done this round, mechanism level): their phase-1 read prefetch (PFIN) is a
+   **paced cursor** 4096 doubles (32 KB) ahead, advanced 18 lines per loop
+   iteration through BOTH subloops, so the DRAM read stream stays busy during
+   the y-transform half of every plane; my r5 scheme issued the whole next
+   plane (324 lines) during the FIRST subloop only, then went silent for the
+   second — on wallaby's bandwidth that difference is invisible, on the node's
+   it plausibly is the 10.9%. Everything else on the monitor's candidate list
+   (PFNX depth 3 lines/group, phase-2 one-line-ahead pattern, in-place pass-B
+   discipline) was already identical, and the monitor's own fingerprint check
+   confirms arithmetic-order identity at B=32/B=256.
+
+### Technique (round r6): mode 8 ISTREAM+PFW + the byte-faithful PFIN pacing
+
+Line kernel, both widths, modes 0–7, the INPLACE/B=1 path: all unchanged.
+Three additive changes:
+
+1. **Mode 8 ISTREAM+PFW** (adopted from **L36_pfa r5**, their node-winning
+   `inplace pf=2` — stated plainly, this is the round's headline borrow, and
+   it is the second round running I port their node winner one round behind
+   them). Mode 7 plus a paced write-intent cursor over pass A's out stores:
+   `__builtin_prefetch(p,1,3)` (emits `prefetchw`), FFT36PF_PFWD = 2592
+   doubles = one plane ahead, 18 lines per iteration through both pass-A
+   subloops — pacing arithmetic identical to the read cursor, values
+   identical to pfa's node-selected configuration. Gated with the streaming
+   modes (batch × 1.46 MB > 16 MB): prefetchw on cache-resident lines is pure
+   µop tax (pfa in-arena +13%/+11% at B=1/B=4, L6_unrolled +17%). Mode 7
+   stays in the candidate set as the pf=1 control. Hysteresis rank: inplace <
+   istream < istream+pfw < scratch < … (a 3%-tie falls to the simpler mode).
+2. **Pass A's read prefetch is now pfa's PFIN, byte-faithful**: paced cursor
+   FFT36PF_PFD = 4096 doubles ahead of the plane being consumed, advanced
+   PFSTEP = 36·PW doubles (18 lines at pw4) per iteration in BOTH subloops
+   (2·(36/PW) iterations × PFSTEP = exactly one plane per plane), hint T1,
+   cursor recomputed per plane (`inv + PFD + x·2592`) so pipe modes can still
+   call planes individually. Replaces the r5 next-plane-dump in ALL streaming
+   pass-A callers (modes 1–8; mode 0's y-first pass A untouched). Cursors run
+   harmlessly past the volume end; the next volume's first 62 KB is still
+   pre-covered by the PFNX 3-lines-per-group in pass B (modes 7/8).
+3. **PFA36X2, a diagnostic** (`-DFFT36PF_PAIRB`): two independent line-groups
+   stage-interleaved in pass B, to finally measure the software-pipeline-two-
+   groups idea (mixedradix r1 item 2, on every L=36 "Next" list for five
+   rounds, named again in the r5 verdict §6). Result: **dead** — see below.
+
+Tuner: same interleaved-rounds + self-warming + 1e-11 interlock protocol, now
+{pw 2,4} × {modes 0–8} = 18 candidates. `FFT36PF_FORCE_MODE` now 0..8;
+`FFT36PF_PFD` / `FFT36PF_PFWD` are `-D`-overridable for the monitor's sweeps.
+
+### Operation count
+
+Unchanged: 248 FMA-port ops + 49 port-5 shuffles per 36-point line over PW
+lanes; 241k FMA-port vector ops/volume at PW=4; ~83 µs/volume single-FMA-pipe
+floor at the measured 2.89 GHz AVX-512 licence clock (r5 verdict §5). Mode 8
+adds 11 664 `prefetchw` µops/volume (one per out line) and zero FP. The
+cascadelake disassembly carries the prefetchw sites (verified, 22 rolled
+sites) alongside the read-prefetch population.
+
+### What was measured (wallaby, Gold 6448Y; the r5 verdict's clock-lottery
+finding applies — only same-window A/Bs quoted as evidence; µs per transform,
+driver min; rel_l2 3.654–3.836e-16, rel_max ≤ 4.9e-16, bit-identical re-runs
+on every run listed)
+
+Forced end-to-end A/Bs, same window, alternating runs (the round's evidence):
+
+| cell | mode 7 (istream) | mode 8 (+pfw) | Δ |
+|---|---|---|---|
+| B=256 pw4 | 155.1 / 156.1 / 156.7 | **105.1 / 106.1 / 110.7** | **−31%** |
+| B=32 pw4 | 86.0 | **77.9** | −9% (B=32 is L3-marginal on wallaby; the node's 22 MB L3 should show more) |
+
+In-arena tables (self-warming tuner, one tournament each): B=256 pw4
+istream+pfw **87.0** vs istream 136.0 (−36%), pipeseq 85.4, scratch 81.1;
+B=32 pw4 istream+pfw **75.7** vs istream 91.4 (−17%), scratch 72.0. Wallaby's
+tuner picks scratch at both (its documented 60 MB-L3 arena artifact, r3/r5
+records); the node's own tournament decides there, and the node has rejected
+scratch modes in every round since r3 while picking exactly this in-place
+shape 3/3.
+
+Auto-tuned full runs (all PASS): B=1 **52.3** fast-window (r5: 51.45 — path
+untouched, parity), B=4 87.4 (noisy window, path untouched), B=32 72.7,
+B=256 100.1. AVX2-only path verified end-to-end on wombat (B=2 auto PASS
+3.818e-16; B=32 forced mode 8 PASS 3.654e-16, bit-repeatable — on Haswell,
+which lacks PRFCHW, gcc lowers the write-intent hint safely). Clean builds:
+`-march=native` (Haswell), `-march=cascadelake`, bare `-O2`, and with
+`-DFFT36PF_PAIRB`.
+
+### What was tried and did NOT work — with the number that killed it
+
+1. **Software-pipelining two line-groups (PFA36X2), measured at last after
+   five rounds on the panel's Next lists.** Forced mode 0, B=1, alternating
+   same-window runs on wallaby: pw4 paired 54.9–55.1 vs baseline 53.4–54.8
+   (**+1–3%, a loss**); pw2 paired 94.0 vs baseline 80.2 (**−17%,
+   decisively worse** — the doubled live set spills exactly as the r1
+   register arithmetic predicted). Conclusion for the whole L=36 board: the
+   out-of-order window already covers cross-group overlap at PW=4 (a ~400-µop
+   group body against a 224-entry ROB leaves nothing for software pipelining
+   to add), and at PW=2 the register cost is ruinous. The B=1 gap to the
+   floor is NOT latency-chain serialization. Kill it from the Next lists; the
+   diagnostic stays in the file (`-DFFT36PF_PAIRB`) if anyone wants the node
+   number.
+2. Nothing else regressed or was reverted; the round was deliberately narrow
+   (one borrowed node-proven mechanism, one pacing port, one measurement).
+
+### Attribution summary
+
+Write-intent paced cursor on the in-place out stream (mode 8) and its exact
+constants (PFWD 2592, 18 lines/iteration, T0 hint on the w-side): **L36_pfa
+r5** (`pf=2`, node-selected 3/3 at both streaming cells; ultimately from
+**L6_unrolled r3**'s prefetchw, node-confirmed via **L6_pfa r4**). Read-side
+paced-cursor pacing through both subloops (PFD 4096, T1): **L36_pfa r3
+PFIN**, ported byte-faithfully per the r5 verdict §6's file-diff instruction.
+The PFA36X2 measurement vehicle and the kill of the two-group pipeline
+hypothesis (originally **L36_mixedradix r1** item 2): this file, this round.
+
+### Predictions for the node (stated so they can be scored)
+
+* Picks: B=1 pw4 inplace, B=4 pw4 inplace (both unchanged), **B=32 pw4
+  istream+pfw, B=256 istream+pfw** (width open at B=256 — the node took
+  pfa's pw2 there in r5; both widths of mode 8 are candidates).
+* **B=256: 180–200 µs** (from 230.2; pfa's same-mechanism 182.6 is the
+  target, and my pass A now carries their exact pacing — if the pacing port
+  closed the r5 residual, I land at 182±5; if only the RFO part transfers,
+  nearer 195).
+* **B=32: 165–178** (from 186.9; pfa's 168.6 ± the same residual logic).
+* B=1: 119–125, B=4: 129–134 (untouched paths, spread only).
+* If mode 8 is picked but B=256 still lands >205, the remaining exposed term
+  is pass A's read stream despite the pacing port, and the next lever is the
+  monitor's `FFT36PF_PFD` sweep (2048/4096/8192) — one env-free `-D` A/B per
+  value.
+
+### Next
+
+1. **If the pacing port closed the residual**: parity with pfa at streaming
+   batch; the differentiator moves to B=1/B=4, where all three entries sit
+   1.44× above the 2.89 GHz port floor and the two-group pipeline is now a
+   documented dead end. The remaining B=1 suspects, in order: front-end (the
+   ~1100-µop unrolled plane bodies vs the 1.5k-µop DSB — measurable only via
+   the monitor's `perf stat -e idq.dsb_uops,idq.mite_uops`), and the pp
+   plane-buffer round trip in pass A (fusable in principle by keeping the
+   9 Wv blocks of a yb-group in registers through the y-transform at pw2 —
+   32 EVEX ymm make 36+9 live vectors feasible; unverified).
+2. **If mode 8 is rejected on the node** despite pfa's identical-mechanism
+   3/3 selection, something in my pacing differs from theirs in a way the
+   file diff missed; ask the monitor for forced `FFT36PF_FORCE_MODE=7` vs
+   `=8` node numbers at B=256 — one pair settles it.
+3. **B=4** remains the cell nobody has attacked structurally (all three
+   entries run plain inplace there); if the node shows B=4 memory-shaped,
+   the gated-out mode 8 at B=4 (5.8 MB working set, streams on nothing) is
+   correctly excluded and the lever is elsewhere — probably the same
+   front-end story as B=1.

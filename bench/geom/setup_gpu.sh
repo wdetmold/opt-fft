@@ -20,16 +20,20 @@ if [ ! -d "$GPU" ]; then LOG "no GPU harness at $GPU -- cannot start phase 3"; e
 # Batches are much larger than the CPU phases': 108 SMs need work to fill. B=1 is kept
 # because on a GPU it is the launch-overhead case, which is a real and separate question.
 cat > "$GPU/cases.txt" <<'CASES'
-# <L>:<batch>.  B=1 is the latency/launch-overhead case; the large batches are where the
-# A100 should show what it can do. Largest working set per case is ~1 GB of the 40 GB.
-6:1     6:4096     6:131072
-8:1     8:2048     8:65536
-17:1    17:256     17:8192
-36:1    36:32      36:1024
-13:1    13:512     13:16384
-23:1    23:128     23:4096
-45:1    45:16      45:512
-64:1    64:8       64:256
+# <L>:<batch>.  Batch points are defined by WORKING SET rather than by round numbers, which
+# is how the GPU literature benchmarks these (VkFFT reports 500 MB - 1 GB) and makes the
+# geometries comparable to each other:
+#   B=1     the launch-overhead / latency case, scored separately and read as such
+#   B_L2    in+out ~= 32 MiB, so the whole problem lives in the A100's 40 MiB L2
+#   B_HBM   one buffer ~= 1 GiB, so it cannot: this is the primary score
+6:1     6:4854     6:310608
+8:1     8:2048     8:131072
+13:1    13:477     13:30549
+17:1    17:213     17:13660
+23:1    23:86      23:5515
+36:1    36:22      36:1438
+45:1    45:11      45:736
+64:1    64:4       64:256
 CASES
 LOG "wrote cases.txt ($(grep -vE '^\s*(#|$)' "$GPU/cases.txt" | wc -w) cases)"
 

@@ -894,3 +894,189 @@ In-arena (one tournament each, back-to-back, the load-immune comparison):
    measure whether `prefetchw` on Cascade Lake demotes to a plain prefetch
    (it is PRFCHW, not 3DNOW — it should not), e.g. one forced
    `FFT36_PF=2` vs `FFT36_PF=1` pair at B=256 settles it.
+
+---
+
+## Round panel_r6
+
+### Where round 5 stood, and this round's diagnosis
+
+Node, panel_r5: **first in all four cells for the first time** — B=1 120.358,
+B=4 129.295, B=32 168.565 (−3.2%), B=256 182.598 (−16.6%, the pf=2 write-intent
+prefetch doing what it was built for). Node picks: B=1/B=4 `pw4 inplace pf=0`,
+B=32 `pw4 inplace pf=2`, B=256 `pw2 inplace pf=2` (pw2! — first node cell where
+256-bit won; noted, not acted on). The r5 verdict's caveat stands: the 1.70×
+margin at B=256 is partly MKL regressing unexplained; don't bank it.
+
+The round's target follows from the corrected clock. The r4/r5 verdicts settled
+the node at **~3.89 GHz sustained** (L6_unrolled's in-plan probe), so the B=1
+port floor is 241k cycles / 3.89 GHz ≈ **62 µs** against 120.4 measured — 1.94×.
+Where do the extra ~230k cycles go? Two machine-side accounting checks:
+
+* **wallaby B=1 sits exactly on its port-5 model.** Gold 6448Y has two 512-bit
+  FMA pipes (ports 0 and 5), and port 5 also serves every 512-bit shuffle.
+  Port-5 load = 120.5k (half the FMAs) + ~95k shuffles/transposes ≈ 215k cycles
+  ≈ 54 µs at ~4 GHz — measured 50.7–51.4. So wallaby B=1 is **port-5-bound**,
+  and shuffle reduction is a wallaby lever, not a node lever (the node's port 5
+  carries no FP: its port-0 floor is 241k and port 5 sits at ~95k, idle).
+* **the node's B=1 difference from wallaby is one number: L2 = 1 MB vs 2 MB,
+  against in+out = 1.5 MB.** On wallaby both volumes are L2-resident at B=1;
+  on the node the sequential in-read (demand or T1 prefetch) allocates every
+  line into L2 and evicts `out` mid-execute, so the in-place phase-1 stores
+  RFO from L3, phase 2 re-reads from L3, and modified out lines write back —
+  2–3 MB of L2↔L3 round trips per execute against 746 KB compulsory. This also
+  explains why all three L36 entries cluster at 120–123 µs at B=1: they share
+  the two-sweep structure, so they share the wall.
+
+### Technique (round 6 delta) — no arithmetic change anywhere
+
+1. **pf=3 and pf=4: NTA-hinted in-read prefetch**, to keep the read stream out
+   of L2 entirely (prefetchNTA fills L1 and bypasses L2 on SKX-class cores) so
+   `out` (in-place) or `S` (scratch) stays L2-resident across the execute —
+   and at B=1, across executes: steady state would leave out's lines
+   L2-modified, deleting the RFO *and* the writeback, collapsing L3 traffic to
+   the compulsory 746 KB in-read. Mechanics: a constant-lead cursor
+   (`FFT36_PFDN` = 512 doubles = 4 KB) paced at exactly the consumption rate
+   inside the yb-subloop only (2·PFSTEP per iteration; the zb-subloop issues
+   nothing), so the lead never swings — unlike the pf=1 T1 cursor, whose
+   ±10 KB swing is fine for L2 but fatal for L1-resident NTA lines. pf=3 =
+   NTA read + the pf=2 write-intent mechanism (streaming cells); pf=4 = NTA
+   read alone (the B=1/B=4 bet, where out should be L2-M already — ranked
+   SIMPLER than pf=3 in the hysteresis). Only for INPLACE/SCRATCH; PFNX off
+   for both (cache-resident target). Candidates 20 → 28, all 1e-13-gated.
+   The r3 NTA catastrophe (135.1 vs 104.4 at B=256) is not being re-tried:
+   that was a 32 KB lead on DRAM-latency streams with nothing behind the L1
+   drop; this is a 4 KB constant lead on L3-resident data — and it ships as a
+   gated candidate, never a default.
+2. **Self-warming tuner (adopted from L36_pencilfused r5,** their 167.4-vs-89.8
+   phantom-penalty diagnosis): one untimed exec of each candidate before its
+   timed reps, so every candidate is timed from its own steady-state cache.
+   My rotation had exactly the flaw they documented — at nv≥8 each candidate
+   is timed with R=1, and NT/pipe candidates flush `tout`, deterministically
+   overcharging their successor every round. This matters doubly now: it is
+   the difference between the node reading pf=3/4's B=1 steady state honestly
+   or charging it a predecessor's cold cache. Setup cost ~2× (B=32: 0.75 →
+   1.44 s on wallaby), excluded from the score.
+
+### Attribution
+
+* **Self-warming tournament: L36_pencilfused round panel_r5**, verbatim
+  mechanism, their diagnosis.
+* **3.89 GHz clock and the recomputed floors: L6_unrolled r4's probe** via the
+  r4/r5 verdicts (also both rivals' r5 records, which flagged B=1's ~2× floor
+  gap as the board's largest prize).
+* The NTA read-stream idea itself is this file's, but the *pacing discipline*
+  (constant lead, consumption-rate issue) is the lesson of my own r3 PFIN
+  deficit arithmetic, applied to a 32 KB-smaller budget.
+* Negative guidance used: L36_mixedradix r5's "wallaby cannot arbitrate store
+  policy for the node" — extended here to "wallaby cannot price NTA's B=1
+  prize at all" (its 2 MB L2 holds in+out at B=1, so there is nothing to fix
+  on the machine I can measure).
+
+### Operation count
+
+Unchanged: 248 FMA-port vector ops per 36-point line, 241 056 per volume at
+PW=4. pf=3/4 add 11 664 prefetchnta µops per volume (36/iteration, yb-subloop
+only) and zero flops. Recomputed floors at the verdict's 3.89 GHz: port floor
+~62 µs/volume; B=256's in-place traffic floor (2.2 MB at the ~12 GB/s
+demonstrated single-core rate) ~175–183 µs — **B=256 measured 182.6 is AT its
+own traffic floor**; only an NT-shaped structure could go lower and the node
+has rejected NT three rounds running. B=256 is closed from this side; hence
+the B=1 focus.
+
+### What was measured (wallaby, Gold 6448Y; fast/slow ~2× windows toggling as
+in r2/r5 — in-arena tables are back-to-back and comparable, cross-window
+deltas are not; quiet-window runs marked)
+
+End-to-end, driver min; rel_l2 = 3.644–3.654e-16 at B=1/4/32/256,
+bit-identical re-runs everywhere; AVX2-only build verified end-to-end on
+wombat (PASS 3.646e-16 at B=2, bit-identical):
+
+| B | end-to-end µs/vol | pick | window |
+|---|---|---|---|
+| 1 | **50.7** | pw4, inplace, pf=0 | fast (= r5's 51.4) |
+| 4 | **68.9** (sd 0.02%) | pw4, inplace, **pf=2** | quiet — best-ever B=4 here (r5: 74.6) |
+| 32 | **71.2** (sd 0.07%) | pw4, **scratch**, pf=2 | quiet (r5: 71.4; mode flip is the self-warmed table) |
+| 256 | **100.4** | pw4, scratch, pf=2 | (r5: 101.6) |
+
+Findings, in-arena (back-to-back within one tournament):
+
+* **B=4 quiet window: pf=2 beats pf=0 by 8%** (inplace 70.7 vs 76.9; pf=1
+  74.9). r5's B=4 rejection of pf=2 (138.7 vs 124.9) was taken in a 17%-sd
+  window and looks like a window artifact. With the self-warmed table the
+  node's B=4 tournament may now flip to pf=2 — worth watching.
+* **NTA (pf=3/4) loses on wallaby in every regime wallaby can see**, with the
+  numbers in the next section. All eight new candidates pass the 1e-13 gate
+  everywhere (the mechanism is correct, just unprofitable on this memory
+  system).
+* Self-warming moved wallaby's B=32 in-arena from inplace-pf2 71.7 / scratch-pf2
+  75.3 (r6 pre-fix) to scratch-pf2 69.4 / inplace-pf2 72.3 — i.e. the r5-style
+  table had been overcharging scratch (it follows an NT candidate in rotation).
+  End-to-end B=32 unchanged (71.2 vs 71.4): on wallaby the two modes are near
+  precisely because its L3 absorbs both; the node's call is the real one.
+
+### What was tried and did NOT work — with the number that killed it
+
+1. **NTA in-read at B=32 on wallaby**: pf=4-inplace 109.4 vs pf=0-inplace 95.7
+   (+14% — worse than NO prefetch at all) vs pf=2's 71.7. NTA prefetch on this
+   memory system is actively harmful when the stream comes from L3/DRAM at
+   rate: NTA lines are inserted into L1 with a quick-evict policy, and a line
+   dropped before use was never put in L2, so it is re-read from L3 — the read
+   costs twice and protects nothing.
+2. **Shortening the NTA lead to 1 KB** (FFT36_PFDN=128, B=32): pf=4-inplace
+   135.7 — worse still (now too late: the demand loads outrun the prefetch and
+   the L1-hit fraction collapses). 4 KB (512 doubles) was the best of
+   {128, 256, 512} tried; 256 ≈ 512 within noise at B=4 (85.0 vs 82.0).
+3. **NTA at B=4 on wallaby, the closest local proxy for the node's B=1 regime**
+   (out[b] cycles out of wallaby's 2 MB L2 between executes exactly as node
+   B=1 does with 1 MB): quiet window, pf=4-inplace 82.0 / pf=3-inplace 76.7 vs
+   pf=2-inplace **70.7**. Even where NTA's L2-protection prize exists (phase-2
+   re-reads), its L1 fill-buffer tax exceeds it on this machine. Caveat for
+   the node, recorded honestly: the B=4 proxy CANNOT show the full node-B=1
+   prize (at B≥4 out is cold each execute, so the RFO/writeback deletion —
+   the big term — never materializes locally; at wallaby-B=1 in+out fit L2 and
+   there is nothing to fix). The node's own nv=1 steady-state tournament is
+   the only honest measurement of pf=4's actual bet, which is why it ships as
+   a candidate despite losing every wallaby cell.
+4. Nothing else was touched: no arithmetic, no layout, no mode changes. B=1's
+   hot path (pw4-inplace-pf0) is instruction-identical to r5 (verified:
+   wallaby B=1 unchanged at 50.7 and bit-identical output at every batch).
+
+### Node predictions (stated so they can be scored)
+
+* **B=1, the cell this round is aimed at.** If the L2-eviction diagnosis is
+  right AND the NTA L1-tax stays below the L3-round-trip savings on Cascade
+  Lake (slower L3, smaller L1 than wallaby — both cut the wrong way), the
+  tuner picks `pw4 inplace pf=4` and B=1 lands **95–112 µs**. If the wallaby
+  pathology transfers, pf=4 loses in-arena, the pick stays `inplace pf=0`,
+  and B=1 reads 119–122 — a null result that would close the NTA idea for
+  good with one line in the pick string. I genuinely cannot call it; the
+  candidate structure means being wrong costs nothing.
+* **B=4**: with self-warmed tables, pick moves to `pw4 inplace pf=2` and
+  **124–129 µs**, or stays pf=0 at 128–131.
+* **B=32/B=256**: picks `inplace pf=2` (possibly `scratch pf=2` at B=32 now
+  that the table no longer overcharges scratch — if it flips AND improves,
+  that was the self-warming, not noise), times flat ±3% (168–174 / 178–188).
+  Both cells are at/near their in-place traffic floors at 3.89 GHz.
+* Setup roughly doubles (self-warming); still ≤5 s at B=256.
+
+### Next
+
+1. **If pf=4 is rejected at node B=1**: the NTA route is closed (both L1-tax
+   regimes measured, both machines). The remaining B=1 levers are then (a) ask
+   the monitor for one `perf stat -e L2-misses,LLC-loads` at B=1 to size the
+   memory term directly — if it is small, the 2× floor gap is front-end/spill
+   and the fix is codelet scheduling, not caching; (b) the 88→80 DFT9 gap via
+   genfft's n1_9 DAG (~3%, transcribe-don't-derive, r1 item 6 stands); (c) a
+   PW=2 B=1 look — the node chose pw2 at B=256, and pw2 halves the transpose
+   shuffle count per line while keeping the same port-0 floor.
+2. **If pf=4 wins at node B=1**: sweep FFT36_PFDN (256/512/1024) there, and
+   try pf=4 semantics for B=4 (out[b] re-residency across the 4-volume cycle
+   is marginal: 3 MB working set vs 1 MB L2 — probably lost, but the tuner
+   already prices it).
+3. **FFT36_PFWD node sweep** (1296/2592/5184 at B=256) is still unrun from r5;
+   one env-var A/B per value if the monitor has cycles for it.
+4. Wallaby-only note for whoever inherits this file: wallaby B=1 is port-5
+   bound (215k-cycle model matches measurement to 5%); if wallaby numbers ever
+   matter for their own sake, transpose-shuffle reduction is where its B=1
+   time is, not FMA count.
