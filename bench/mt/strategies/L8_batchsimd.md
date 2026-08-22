@@ -138,3 +138,141 @@ Arena tables from wallaby creates (us/transform, published in every JSON):
   the caller's socket at B=64 (T=16 static already approximates this).
 * **Slice-aligned dyn blocks** (dynb = slice size) to recover dyn's balance
   without its grab frequency.
+
+## Round mt_r2 — fix the two things the mt_r1 node data convicted: the streaming surrogate and the flat collect
+
+### Where mt_r1 landed on the node, and the diagnosis
+
+* B=1: 0.554 us, tied for the cell win with L8_fusedaxes.  poolrt{2=0.406,
+  8=0.829, 32=4.424} published — the serial-B=1 argument is now node-documented.
+* B=2048: 0.028 us/t (56.5 us/call) vs fusedaxes 0.026 (53.7).  Pick T=32/s0,
+  arena 0.0274 — the pick was right; the ~2.8 us/call gap is the handshake.
+* **B=32768: 0.295 us/t — 1.84x off the cell, my worst result of the round.**
+  The t_*.json descriptions show exactly why: the tuner's arena read
+  `T32/none=0.145–0.157` and picked plain stores 3/3, and the driver then ran
+  0.295.  The surrogate was 4×L3 capped at 8192 volumes = 5632 volumes =
+  88 MiB on the node, so ~1/4 of a plain-store candidate's RFO traffic stayed
+  L3-resident and plain looked 2× better than it is at the driver's 512 MiB.
+  Meanwhile the same arena's `T32/nt-s0=0.168–0.171` matches the 0.176
+  fusedaxes scored with NT.  The information to win the cell was in my own
+  arena table; the surrogate regime threw it away.  L8_fusedaxes mt_r1 hit
+  the identical failure on wallaby (their "what did NOT work" item 1, wrong
+  pick by 27%) and published the fix; I did not rediscover it, I took it.
+
+### What changed this round
+
+1. **Streaming surrogate: cap 4×L3 → 8×L3, clamp [4096,8192] → [8192,32768]
+   volumes** — borrowed verbatim from L8_fusedaxes mt_r1.  On the node the
+   B=32768 arena now runs at 11264 volumes = 176 MiB (8× the 22 MiB L3), in
+   the driver's residency regime.  Wallaby confirms the flip: the tuner now
+   picks **T=32 nt-s0** with arena
+   `{T32/nt-s0=0.0764, T32/s0=0.1126, T32/s0w=0.1094, T32/none=0.1133,
+   T32/nt=0.0765, T32/nt-s0/d128=0.0762, T32/s0/d128=0.1125,
+   T24/nt-s0=0.0781, T16/nt-s0=0.0805}` — NT wins by 32%, the exact margin
+   the old 4×L3 surrogate inverted.
+2. **Tree collect** (my own mt_r1 "leaner collect" queue item; no other
+   entry had built it).  mt_r1's collect was rank 0 serially spin-reading 31
+   remote done lines — on the two-socket node each is a cross-socket
+   cache-to-cache transfer, and poolrt measured the empty round-trip at
+   4.424 us at T=32, ~8% of the whole B=2048 execute and the entire
+   53.7-vs-56.5 gap to fusedaxes (their dispatch+join ≈ 0.8 us).  Now worker
+   t acquire-waits for children 2t+1/2t+2 (< T, hence always released) and
+   only then release-stores its own done, so rank 0 collects TWO lines and
+   the critical path is log2(T) ≈ 5 c2c hops instead of 31 serialized ones.
+   The release stays FLAT: 31 independent store RFOs pipeline in the store
+   buffer, and a tree release would serialize the wake path.  The
+   rewrite-job-fields safety argument survives: done[1]/done[2] are
+   release-stored only after the whole subtree was acquire-read, so the
+   acquire chain to rank 0 still covers every released worker.
+3. **Streaming candidate set rebuilt on the node's own arena tables.**
+   Anchor rule adopted from fusedaxes: nt-s0 anchors when ws > 1.5×L3;
+   s0 (the node's 3/3 winner at B=2048, which sits at 1.45×L3) anchors in
+   the 0.9–1.5× band.  Dropped: nt-s0/d8 and s0w/d8 (lost 3/3 on the node,
+   0.20–0.25 vs 0.15–0.19 — fetch_add every ~1.4 us of work × 32 threads on
+   one cursor line).  Added: **coarse dynamic blocks dblk = nvol/256, clamp
+   [8,512]** (one fetch_add per ~22 us of work at B=32768) so the two
+   sockets can self-balance the UPI asymmetry that static equal slices
+   cannot see — wallaby (single-socket) has it tying static at 0.0762 vs
+   0.0764, and only the node can show the two-socket case; and **T=24
+   nt-s0** (16 near + 8 far threads), probing between the node's near-equal
+   T32 (0.168–0.171) and T16 (0.169–0.172) nt-s0 endpoints.
+
+### Operation count
+
+Unchanged per volume: 1248 vector FP + 896 shuffles + 256/256 loads/stores
+(FUSED), 16 KiB DRAM traffic per volume with NT (8 read + 8 written, RFO
+deleted), 24 KiB with plain stores.  The tree collect moves work between
+threads but adds none: still exactly one release store and one done store
+per worker per execute; internal workers add ≤2 acquire spins they pay while
+they would otherwise idle.
+
+### Measured on wallaby (SPR 6448Y, 32 threads = one socket, shared login
+node — dev numbers, relative only)
+
+| case | mt_r1 (this file) | mt_r2 | pick | note |
+|---|---|---|---|---|
+| B=1     | 0.328 us | 0.340 us min (load-dependent, phase-1 floor) | serial FUSED/SI520, unchanged path | rel L2 2.27e-16 |
+| B=2048  | 42.9 us/call = 0.021 us/t | **34.4 us/call = 0.0168 us/t** (−20%) | T=32, s0, static (wallaby mid set: 32 MiB < 60 MiB L3) | tree collect is the only path change at this cell on wallaby |
+| B=32768 | (not measured at this B; B=16384 was 0.058) | **2508–2531 us/call = 0.0766–0.0773 us/t** | **T=32, nt-s0, static** — NT now wins the arena by 32% | equals fusedaxes' mt_r1 wallaby 2466–2515 on the same host |
+
+poolrt (empty-job round-trip, published every B=1 create): wallaby
+{2=0.295–0.343, 8=0.673–0.880, 32=1.527–1.957} vs mt_r1's flat-collect
+{2=0.407, 8=0.620, 32=1.684}.  On single-socket wallaby the tree is only
+~0–10% at T=32 (intra-socket c2c is cheap; each tree hop pays a pause-loop
+detection latency), and T=8 is slightly worse — the tree's target is the
+node, where 31 serialized CROSS-SOCKET reads cost 4.424 us and depth-5
+should land ~1.5–2 us.  The node's own B=1 poolrt line will price it.
+
+Correctness: PASS (rel L2 2.20–2.28e-16, tol 1e-12) at B = 1, 2, 3, 5, 31,
+33, 64, 100, 513, 2048, 32768; repeatable bit-identical across runs at every
+size; builds warning-free (-Wall -Wextra) at native SPR, cascadelake,
+haswell (AVX2), and -DL8_EMU8.
+
+### What did not work / verdicts recorded, with numbers
+
+* **Tree collect on ONE socket is nearly free but not a win**: wallaby T=32
+  round-trip 1.527–1.957 vs flat 1.684, T=8 0.673–0.880 vs 0.620.  Shipped
+  anyway on the node evidence (4.424 us flat at T=32 is 31 serialized
+  cross-socket c2c transfers; the tree replaces them with ~5) — if the
+  node's poolrt does not drop well below ~2.5 us next round, revert to flat
+  and try prefetch-then-scan instead.
+* **Fine dynamic (d8) is dead on the node**: 0.2037–0.2126 vs static nt-s0
+  0.168–0.171 in all three B=32768 node arenas (and d2 lost 2.4× at B=2048
+  on wallaby again this round, 0.0531 vs 0.0219).  Only the coarse
+  nvol/256 block survives as a candidate.
+* **Not rediscovered, per records**: intra-volume B=1 splitting stays dead —
+  my own node poolrt (0.406 us at T=2 > the 0.27 us maximum saving) plus
+  fusedaxes' independent 0.8 us join measurement both say so.
+
+### Borrowed, and from whom
+
+* **8×L3 / [8192,32768] streaming surrogate cap**: L8_fusedaxes mt_r1,
+  verbatim, including the diagnosis pattern (their wallaby wrong-pick was my
+  node wrong-pick).
+* **NT anchor above 1.5×L3, plain anchor below**: L8_fusedaxes mt_r1's
+  anchor rule.
+* Tree collect and the coarse-dynamic-block idea are mine (both were queued
+  in my mt_r1 "what I would do next"); T=24 was prompted by the node's flat
+  T32≈T16 nt-s0 readings.
+
+### What I would do next
+
+* **Read the node's B=32768 pick and arena first.**  Expected: nt-s0 (or
+  nt-s0/d128) at ~0.17 us/t, from 0.295 — that alone moves the cell from
+  1.84× to ~1.05× vs fftw3_patient's 0.161.  If d128 wins, the socket
+  self-balancing hypothesis is confirmed; consider dblk tuning (64/256).
+* **Read the node's new poolrt{32}**: if it is not ≤ ~2 us, try
+  prefetch-all-then-scan flat collect, or a two-level tree matched to the
+  socket topology (workers 1 and 16 as socket roots).
+* **B=2048**: with the handshake shaved, the remaining gap to fusedaxes
+  (if any) is real kernel difference; their fused+pfs at T=32 and mine are
+  the same shape, so parity is the expectation.  If the node still shows
+  +1–2 us/call, measure the release path (31 store RFOs from rank 0) with a
+  socket-rooted two-level release.
+* If the node's B=32768 lands ~0.17 and fftw3_patient holds 0.161, the next
+  lever is traffic, not scheduling: nothing below 16 KiB/vol exists for an
+  out-of-place transform, so the question becomes whether fftw's edge is
+  page placement (their planner first-touches with the team) — test a
+  variant where each rank streams its slice through a small NUMA-local
+  bounce buffer before the NT write.  Price it first; it may cost more than
+  the UPI it saves.

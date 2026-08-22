@@ -1,0 +1,4 @@
+   L64_radix8                   136.183 us   136.183 us   173.25       2.0%    0.070s  ok 4.5e-16       1.07x
+   L64_radix8                    90.578 us   724.621 us   260.47       3.6%    0.450s  ok 4.5e-16       1.24x
+   L64_radix8                    69.494 us  8895.202 us   339.50      18.2%    2.049s  ok 4.5e-16       1.00x
+   L64_radix8               radix-8^2/axis AVX-512 MT; pick[B=128]=gang-T32-g4-fused-nt+slabpf1+sc0+p10; ser=1441us/vol pick=70 eff=0.64

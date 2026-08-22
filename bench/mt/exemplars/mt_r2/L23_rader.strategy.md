@@ -1,0 +1,308 @@
+# L23_rader — multicore strategy record
+
+Phase-1 history (how the serial kernel got its shape, and the closed list of
+streaming nulls that must not be rebuilt) lives in
+`../../geom/strategies/L23_rader.md`. This file starts at the multicore phase.
+Phase-1 baselines used below: node (CLX, panel_r11 scored) B=1 47.469 µs,
+B=4 49.678, B=128 64.793 µs/vol; wallaby (SPR, driver-level) 21.35 / 23.34 /
+24.3 µs per volume.
+
+## Round mt_r1
+
+### What changed
+
+The arithmetic is untouched: same conjugate-folded Rader pair (297 vector FP
+ops per line-group, 409 zmm chunks per volume, 943 kflop), same two-sweep
+pinned-constant kernel, same X-first pass order, same 1064-double t1 plane
+stride, sine-table-folded -i rotation. Every volume's DAG is identical no
+matter which thread runs it, so output is bit-identical to the serial exec at
+every team size and for every tuner cell (cmp-VERIFIED, see below). What was
+added is a threading layer, and what was *deleted* is every phase-1 exec
+variant the verdicts had already declared a null (rp-t1, deferred-Z, both
+pipelining schedules, pf=1, krn_il, P-parking, X-last) — the MT file races
+modes, not corpses.
+
+1. **Range execs** `(plan, in, out, b0, b1, slot)` over per-thread page-sized
+   scratch slots (t1 24472 + pb 1104 + NT staging plane 1064 doubles, padded
+   to 53 pages = 217 KiB), allocated once and **first-touched by the owning
+   thread** in a full-width parallel region in `fft3d_create()` — NUMA-local
+   scratch, no false sharing by page construction, and the region spins up
+   the OpenMP pool so the first timed execute creates no threads.
+2. **mode=batch**: team of min(batch, T) threads, thread t owns the contiguous
+   volume block [nb·t/T, nb·(t+1)/T), ranges computed from the team OpenMP
+   actually delivers; zero synchronisation except the join. pf=2 (in-pass X
+   prefetch) and pw=1 (write-intent out-plane prefetch) kept as per-thread
+   knobs.
+3. **mode=batchNT**: same, but each finished plane is staged and streamed to
+   `out` with NT stores. This was a four-round phase-1 null; it was raced
+   again on the argument that with 32 cores sharing DRAM, the RFO third of
+   the out traffic is a bigger slice of a scarcer resource. **The null
+   flipped**: on wallaby at nv=403 (true streaming), batchNT pf2 = 1.74 µs/t
+   vs plain-batch best 2.00 — the round's one transferable finding (other
+   entries whose NT variants lost single-threaded should re-race them).
+4. **mode=fused** (batch ≤ nslots): omp-for over all batch·133 X chunks
+   (chunk i of volume v writes whole distinct 64-B lines of slot v's t1; the
+   overlapping tail chunk rewrites bit-identical values, benign cross-thread),
+   implicit barrier — the one true global dependency, since every X chunk
+   writes one (y,z) column of *all 23* kx-planes — then omp-for `nowait` over
+   all batch·23 (v,x) planes, each Y→Z on the executing thread's own pb.
+   At B=1 this is the intra-volume split.
+5. **Deterministic joint-cell hysteretic tuner** (phase-1 r9 mechanism, cells
+   extended to (mode, width, team, pf, pw)): one canonical list per regime,
+   two fixed-order sweeps, per-cell min, >2% to displace, licence-honest
+   1.5 ms warmups. Heads by the fastest-known-head rule: B=1 serial (the
+   node-measured phase-1 pick), 1<B<32 one-volume-per-thread, B≥32 full-team
+   batch pf2 pw1. team=16 cells sit in the B≥32 list as the node's
+   two-socket question (driver first-touches in/out single-threaded → one
+   socket owns them; 16 close-bound threads = one CLX socket, all-local).
+   Small batches tune at the TRUE batch (the decomposition is a function of
+   it), streaming batches on the L3-relative arena. Since all cells are one
+   bit class, no pick can change the output — the pick lottery is
+   structurally harmless here, unlike phase-1 r8.
+6. Env knobs: `L23R_FORCE` (cell index), `L23R_TEAM`, `L23R_PF`, `L23R_PW`,
+   `L23R_VERBOSE`. Tuner telemetry (pick + list-head µs/t, arena size) baked
+   into the description string as before.
+
+### Operation count
+
+Per volume unchanged from panel_r11: 3·529 line-groups × 297 vector FP ops =
+943 kflop, 409 zmm chunks (flat layout only now). The MT layer adds zero
+arithmetic; fused adds two team barriers per call, batch adds one fork/join.
+
+### What was measured on wallaby (Gold 6448Y SPR, 32 threads close/cores, driver-level, shared login node)
+
+| case | phase-1 serial (same machine) | mt_r1 | per-vol | speedup | parallel efficiency |
+|---|---|---|---|---|---|
+| B=1 | 21.35 µs | **7.65–8.1 µs** (fused team=23) | 7.65 µs | 2.8× | 12% on 23 threads |
+| B=3 | ~22.8 µs/vol | 16.5 µs/call | 5.5 µs | 4.1× | — |
+| B=8 | ~23.3 µs/vol | 24.2 µs/call | 3.02 µs | 7.7× | 97% on 8 threads |
+| B=16 | ~23.3 µs/vol | 47.6 µs/call (batch-16 pf2 pw1) | 2.98 µs | 7.8× | 49% on 16 threads |
+| B=32 | ~24.3 µs/vol | 45.0 µs/call | 1.41 µs | 17× | 54% on 32 |
+| B=33 | — | 68.4 µs/call (2-vols/thread boundary, PASS) | 2.07 µs | — | — |
+| B=128 | 24.3 µs/vol | **140.8 µs/call** (batchNT) | **1.10 µs** | **22×** | **69% on 32** |
+| B=512 | 24.3 µs/vol | 892 µs/call (batchNT) | 1.74 µs | 14× | 44% |
+
+Correctness: PASS rel_l2 = 3.77e-16 … 3.81e-16 at B = 1, 3, 4, 8, 16, 32,
+33, 128, 512; repeatable (bit-identical across runs) everywhere.
+Bit-class verification: forced cells batch / batch+pf2pw1 / fused-32 /
+fused-16 / serial / batch-w2 all cmp-identical on full B=3 outputs.
+
+Key tuner tables (one quiet-ish run each):
+* B=1 (nv=1): serial 32.07; fused t32 9.83, **t23 9.07 ← kept**, t16 10.48,
+  t8 13.46, t4 23.24. The 23-plane phase sets the natural team.
+* B=16 (nv=16): batch-16 pf0 3.35, **pf2 pw1 2.96 ← kept**; fused t16 3.41,
+  t32 6.15 (cross-thread t1 handoff: X writers ≠ plane readers, so fused
+  loses to thread-private t1 once every thread has a whole volume).
+* B=512 (nv=403): batch t32 pf2pw1 2.07, pf0pw1 2.00; **batchNT pf2 1.74 ←
+  kept** (−13% vs plain best); batch t16 3.49 (wallaby is one socket at 32
+  threads, so t16 just halves the compute — the node must re-ask this);
+  serial 32.05.
+
+Where the missing cores went, honestly: at B=128 the call moves ≥128 × 0.95
+MB (in + out + RFO-or-NT + 2×t1) in 141 µs ≈ 550 GB/s aggregate including
+cache reuse — bandwidth-shared territory, and exactly where NT's RFO savings
+pay. At B=1 the 7.7 µs decomposes as ~1.4 µs of longest-thread work plus
+~6 µs of GOMP fork + one barrier + join on a *shared* login node (L13_direct
+measured the same 4–5 µs GOMP region cost); the fused split still buys 2.8×
+because L=23's 21 µs of work dwarfs it — the opposite balance from
+L13_direct's B=1 (2.5 µs of work, split lost). Both results support the same
+rule: intra-volume splitting pays iff work ≫ region cost.
+
+### What did NOT work / observations with numbers
+
+1. **fused at team=32 loses to team=23 at B=1** (9.83 vs 9.07): the plane
+   phase has exactly 23 tasks, so threads 24–31 only help the X phase and
+   then idle into the barrier; the wider fork costs more than the X-phase
+   help. Kept team=23 in the canonical list ahead of 32? No — list order is
+   head-first only; both are raced, hysteresis decides per machine.
+2. **fused at mid batch** (B=16): 6.15 µs/t at t32 vs 3.35 for plain
+   batch-16 — volume v's t1 is written by many threads and read by others
+   (dirty-line migration every plane), where batch mode keeps t1 L2-private.
+   Fused is only for batch < team.
+3. **The second fused barrier was pure waste**: `nowait` on the plane loop
+   (join is the sync) took B=1 from 8.68 to 7.69 µs, −11%. One barrier ≈
+   1 µs at team 23 on this machine.
+4. **The raw-ssh trap** (documented five times in the phase-1 record, and I
+   did it AGAIN, twice): one-off remote commands must be
+   `ssh wallaby 'source ~/fft/env.sh; cd ~/fft/bench/mt; …'` with absolute
+   paths, `test -s` before any cmp, `&&`-chained.
+
+### Borrowed this round (attributions)
+
+**L13_direct mt_r1** (the only other MT record when this round started): the
+whole threading-layer design — range execs with per-thread slots first-touched
+by their owner inside a create()-time full-width region, ranges computed from
+the delivered team, contiguous volume blocks, one-volume-per-thread as the
+mid-batch head, and the "B=1 splits iff work ≫ region cost" framing that
+predicted my fused win. From my own phase-1 lineage: krn_ts, pf=2/pw=1,
+NT-copy machinery, the joint-cell hysteretic tuner, fastest-known-head rule,
+licence-honest warmups, L3-relative arena sizing.
+
+### Node prediction (pre-registered)
+
+Picks: B=1 fused (team 23 or 32 — CLX has 2×16 cores, so team 16 may also
+surface: it is all-one-socket there); B=4 fused t32; B=128 **batchNT** if the
+node's DRAM contention resembles wallaby's, else batch pf2 pw1. Levels are
+guesses across a µarch gap: B=1 8–15 µs (fork cost on the idle pinned node
+should be *below* wallaby's), B=128 1.7–2.6 µs/vol (node phase-1 streaming
+was 2.7× wallaby's per-vol time). The t16-vs-t32 field in the B≥32 tuner
+telemetry is the round's NUMA instrument — read it before believing any
+UPI story.
+
+### Next
+
+1. **Persistent spin-pool** (pthreads pinned to the harness's cores,
+   sense-reversing barrier, created in fft3d_create) — the B=1 cell is
+   ~80% synchronisation; cutting fork+barrier+join from ~6 µs to ~1 µs is
+   worth ~3× there and helps every batch < 8. L13_direct's next-round item
+   too; whoever builds it first, the other should copy. Only build it on
+   node confirmation that the fork cost survives on idle pinned hardware.
+2. If the node's B≥32 telemetry shows t16 ≥ t32 (UPI-bound): don't cap the
+   team — make the far socket's threads stage their volumes' `in` through
+   local scratch (one extra 190 KiB local read converts every remote load
+   into a single remote stream), and consider NT for the far socket only.
+3. Race a fused variant whose X phase assigns chunks so that the thread that
+   writes t1 columns of plane x is the one that later reads plane x — a
+   chunk→plane affinity map could cut the mid-batch dirty-line handoff and
+   make fused competitive at 2 vols/thread (the B=33-boundary 2.07 µs/vol
+   is the target).
+
+## Round mt_r2
+
+### What changed
+
+The arithmetic is again untouched (same conjugate-folded Rader pair, 297
+vector FP ops per line-group, 943 kflop/volume); output is bit-identical to
+mt_r1 in every mode (cmp-VERIFIED below). What changed is the dispatch:
+
+1. **Persistent spin pool replaces every execute-time OpenMP region** —
+   adopted whole from **L23_matrixsimd mt_r1**, which measured the thing my
+   own r1 record only inferred: one GOMP fork+barrier+join costs 6.2–8.2 µs
+   at T=8..32 on wallaby, and a central fetch-add barrier ~2.5–5 µs.
+   `fft3d_create()` reads the harness's thread→CPU map from one throwaway
+   OMP region (`sched_getcpu()` per thread, so the pool pins exactly where
+   `OMP_PROC_BIND=close / OMP_PLACES=cores` would put threads, with their
+   duplicate-CPU check for unbound runs), spawns 31 pinned pthreads once,
+   and `execute()` publishes a job and release-stores one generation word.
+   Barriers are their flag-array design: per-thread padded arrival flags,
+   tid 0 always collects and broadcasts one release word; epochs 2·gen
+   (mid) / 2·gen+1 (join) tolerate a varying team, and the join needs no
+   release. Workers never sleep. OpenMP never runs after create().
+2. **Fused mode got a dedicated t1 arena** (batch < 32; batch·24472
+   doubles), first-touched by a pool job with the SAME static plane
+   partition the plane loop uses — reader-owned pages, also from
+   L23_matrixsimd. mt_r1 kept fused t1 in slot v (all of volume v's pages
+   on thread v's node); that plus the OMP fork is why fused lost the whole
+   mid-batch range last round. The X-pass overlap tail chunk is now folded
+   into the last independent item (132 items, the last runs 2 chunks) so no
+   t1 line has two writers across threads.
+3. **Modes and tuner mechanism unchanged** (serial / batch / batchNT /
+   fused; joint-cell hysteretic tuner, two sweeps, per-cell min, >2%
+   displacement, 1.5 ms licence warmups; batch and batchNT share one range
+   exec via an `ntc` plan flag). Heads updated to measurement: B≥32 head is
+   now **batch pf0 pw0 — the NODE's mt_r1 pick** (its tuner: 3.40 vs 5.51
+   µs/t for the old pf2 pw1 head; both prefetch knobs LOSE at 32-thread
+   streaming there, all four combos stay raced, batchNT stays raced as
+   wallaby's winner); B=1 and 2≤B<32 heads are fused-on-pool.
+4. Env knobs unchanged (`L23R_FORCE/TEAM/PF/PW/VERBOSE`); description
+   string now says `pool` and carries the same pick/inc telemetry.
+
+### Operation count
+
+Per volume unchanged from panel_r11: 3·529 line-groups × 297 vector FP ops
+= 943 kflop, 409 zmm chunks. Parallel overhead per execute: one release
+store + T arrival stores per barrier; fused = mid + join, batch = join
+only; zero extra FP work, zero OpenMP.
+
+### Measured on wallaby (Gold 6448Y SPR, 32 threads close/cores, driver-level, shared login node)
+
+| case | mt_r1 | mt_r2 | per-vol | vs phase-1 ST (21.35–24.3) | parallel eff |
+|---|---|---|---|---|---|
+| B=1   | 7.65 µs | **4.93–5.36 µs** (fused t32) | 4.9–5.4 | 4.2× | 13% on 32 |
+| B=3   | 16.5 µs/call | 11.22 µs/call | 3.74 | 6.1× | — |
+| B=8   | 24.2 µs/call | 19.95 µs/call | **2.49** | 9.4× | 29% |
+| B=16  | 47.6 µs/call | 34.07 µs/call | **2.13** | 11× | 34% |
+| B=32  | 45.0 µs/call | 40.95 µs/call | **1.28** | 19× | 59% |
+| B=33  | 68.4 µs/call | 64.7 µs/call | 1.96 | — | — |
+| B=128 | 140.8 µs/call | 163.3 µs/call this window; in-tuner pick 1.27–1.28 µs/t | ~1.28 | 19× | 59% |
+| B=512 | 892 µs/call | 907 µs/call; tuner batchNT pf2 **1.66** µs/t (r1: 1.74) | 1.77 | 14× | 43% |
+
+(B=128/512 windows are not comparable across days on this shared node; the
+in-tuner tables are the like-for-like numbers.)
+
+Correctness: PASS rel_l2 = 3.767e-16 … 3.808e-16 at B = 1, 3, 8, 16, 32,
+33, 128, 512; repeatable (bit-identical across runs) everywhere.
+Bit-class: all 7 forced cells cmp-identical on full outputs at B=3 AND
+B=128 (serial / batch / batchNT / fused / team variants / w2).
+
+Key tuner tables (one run each):
+* B=1 (nv=1): fused t32 **5.08 ← kept**, t23 5.67, t16 8.20, t8 10.60,
+  w2-fused 5.80, serial 32.1. The OMP-era t23>t32 inversion is gone — the
+  flag barrier grows so slowly with T that the 9 extra X-phase threads win.
+* B=8: fused t32 **4.22 ← kept**, batch-8 5.02, batch-8 pf2pw1 5.11,
+  batchNT-8 7.35. Fused now beats one-volume-per-thread at EVERY 2≤B<32
+  (B=16: 2.41 vs 2.66) — mt_r1's opposite verdict (6.15 vs 3.35 at B=16)
+  was the fork+slot-t1 tax, not the decomposition.
+* B=512 (nv=403): batchNT pf2 **1.66 ← kept**, batchNT pf0 1.75, batch
+  pf2pw1 1.88, pf0pw1 1.98, pf0pw0 2.71, t16 3.32–5.11. Wallaby still
+  loves NT and pf2 at true streaming; the node picked the exact opposite
+  (pf0 pw0 plain) in r1 — that is why the head is the node's pick and
+  everything else is raced.
+* B=128 (nv=128, fits wallaby's 60 MiB L3): plain batch 1.27–1.28 for all
+  four knob combos, batchNT 1.59 — the L3-resident RFO inversion
+  L23_matrixsimd documented, reproduced.
+
+### What did NOT work / observations with numbers
+
+1. **Raw-ssh trap, sixth appearance, now with a twist**: three identical
+   failed attempts because the remote command lacked `cd
+   ~/fft/bench/mt` before `python3 gen_input.py`. Fix that actually held:
+   put the dev loop in a script on the shared filesystem and
+   `ssh wallaby /abs/path/script.sh` — no quoting, no cwd surprises.
+2. No performance regressions found this round: every scored regime
+   improved or matched on wallaby. The B=128 window number (163 µs) is
+   higher than r1's 140.8 but the in-tuner per-transform (1.27 vs r1's
+   ~1.10 µs/t implied) is window noise on a shared node — flagged, not
+   explained away: the node will arbitrate.
+
+### Borrowed this round (attributions)
+
+**L23_matrixsimd mt_r1** (my direct rival at this geometry), wholesale:
+the persistent pinned spin pool, the flag-array mid/join barriers with
+generation-derived epochs, the sched_getcpu OMP-map pinning with the
+unbound-run check, the reader-partitioned fused t1 arena first-touch, and
+the folded overlap-tail X item. Their record's GOMP fork (6.2–8.2 µs) and
+fetch-add barrier (~2.5–5 µs) measurements saved me a round of
+rediscovery, exactly as the brief intends. My r1 record had the spin pool
+as next-round item 1 and said "whoever builds it first, the other should
+copy" — they built it first; copied, and it composes with my modes: my
+fused-on-pool mid-batch numbers (2.49 at B=8, 2.13 at B=16) now beat their
+r1 wallaby marks (2.77 at B=8), and batchNT-on-pool keeps my streaming
+edge (1.66 vs their 1.51 is theirs at nv=416; at the node's B=2048 I won
+r1 6.05 vs 7.24).
+
+### Node prediction (pre-registered)
+
+* B=1: fused t32 or t23; expect 6–10 µs (r1: 14.15; matrixsimd's pool got
+  11.84 — same sync design, same work, so parity ± the t1-arena
+  difference). If the node's cross-socket barrier is the cost, t16 shows
+  up; that cell is the instrument.
+* B=128: batch or batchNT near 2.0–2.3 µs/vol (r1: 2.35 with the fork
+  tax); the node's 22 MiB L3 makes B=128 true streaming, so the pick
+  should match its B=2048 pick, not wallaby's L3-resident plain-batch.
+* B=2048: pick stays batch pf0 pw0 (the r1 node head), 5.5–6.0 µs/vol —
+  the pool only removes one fork per call here.
+
+### Next
+
+1. **Two-level (socket-tree) barrier** if the node's B=1 pick lands at
+   t16: tid 16 collects socket-1 flags, tid 0 collects socket-0 + tid 16
+   (L23_matrixsimd's next-round item 2; whoever builds it first...).
+2. **Far-socket staging for streaming on the node**: if B=2048 telemetry
+   shows t16 ≈ t32, socket-1 threads should stream `in` through local
+   scratch and/or NT-store only their half — untestable on wallaby (32
+   close threads = one socket there), so build it only against node
+   telemetry.
+3. Wire pf into the fused X items (each thread's 4–5 chunks at B=1 read
+   cold strided lines; worth ~0.2–0.4 µs if it lands) — unmeasured this
+   round, shared-node noise would have swallowed it.

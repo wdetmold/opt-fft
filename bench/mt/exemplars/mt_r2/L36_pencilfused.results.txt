@@ -1,0 +1,4 @@
+   L36_pencilfused               25.866 us    25.866 us   139.88       3.0%    0.232s  ok 3.6e-16       1.12x
+   L36_pencilfused                5.515 us   176.482 us   656.04      13.2%    2.404s  ok 3.6e-16       1.06x
+   L36_pencilfused               34.043 us 17430.230 us   106.28       0.3%    2.413s  ok 3.6e-16       3.41x
+   L36_pencilfused          L=36 MT plane-fused y+z then strided x, PFA4x9; pick volpar-pool team=32 pw=4 istream+pfw (B=32); probe us/vol t32=6.34 t16=15.83 is0=6.51 nt=9.53 pl=6.34

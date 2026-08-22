@@ -1,0 +1,4 @@
+   L45_pfa                       57.197 us    57.197 us   131.24       0.3%    0.230s  ok 4.0e-16       1.00x
+   L45_pfa                       15.751 us   252.023 us   476.57       2.5%    0.581s  ok 4.0e-16       1.00x
+   L45_pfa                       45.446 us 11634.136 us   165.18       6.2%    4.336s  ok 4.0e-16       1.00x
+   L45_pfa                  GT-PFA 9x5 pool T=32; pick=pw4-mtn-pfi (B=256 nv=128) mtv-pf0=61.1 mtv-pf3=61.9 mtn-pf0=44.4 mtn-pfi=42.4 mts-pf0=44.8 mts-pfi=44.1 g2-pf0=49.0 g2-pfw=51.4 g2n-pf0=45.0 g2n-pfi=43.2 mtf-rr=76.9 mtf-blk=65.3 mtf-bpf=63.7 ip-pf0=715.6 ip-pf3=603.2 mtv-pf0=61.3 mtf-blk=68.7 ip-pf0=747.7

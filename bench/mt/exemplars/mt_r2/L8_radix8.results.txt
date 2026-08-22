@@ -1,0 +1,4 @@
+   L8_radix8                      0.581 us     0.581 us    39.63       0.6%    0.081s  ok 1.3e-16       1.04x
+   L8_radix8                      0.028 us    57.192 us   825.04       0.4%    0.139s  ok 2.3e-16       1.06x
+   L8_radix8                      0.174 us  5697.777 us   132.50       0.6%    0.654s  ok 2.3e-16       1.09x
+   L8_radix8                radix-8 52-instr codelet; B=1 serial, B>1 pool-parallel 1f (3p probes); pick[B=1,T=32]=avx512-2p (fixed) arena{2p=0.571 1f520*=0.577 1f*=0.578 3p*=0.616}

@@ -1,6 +1,38 @@
 /* Multicore phase.  Phase-1 (single-thread) history: ../../geom/strategies/
  * L8_batchsimd.md; this phase's record: ../strategies/L8_batchsimd.md.
  *
+ * TECHNIQUE (round mt_r2: fix the two things the mt_r1 node data convicted)
+ *   1. STREAMING SURROGATE 4x -> 8x L3, clamp [4096,8192] -> [8192,32768]
+ *      volumes (borrowed VERBATIM from L8_fusedaxes mt_r1, who measured the
+ *      failure mode first: a surrogate partly L3-resident crowned plain
+ *      stores by 27% over the NT pick the real 512 MiB run wanted).  My
+ *      mt_r1 node run at B=32768 was the same accident at driver level: the
+ *      88 MiB surrogate (4x22 MiB L3, capped 8192 vols... actually 5632)
+ *      let plain-store candidates keep ~1/4 of their RFO traffic in L3, the
+ *      arena read T32/none=0.145-0.157 and picked it, and the driver then
+ *      ran 0.295 us/t -- while my own arena's T32/nt-s0=0.168-0.171 matches
+ *      the 0.176 fusedaxes scored with NT.  8x L3 (176 MiB on the node)
+ *      puts the arena in the driver's residency regime.
+ *   2. TREE COLLECT.  mt_r1's collect was rank 0 serially spin-reading 31
+ *      remote done lines; the node measured the empty round-trip at
+ *      poolrt{32=4.424 us} (each read a cross-socket c2c transfer) -- ~8%
+ *      of the whole B=2048 execute, and the entire 53.7-vs-56.5 us/call gap
+ *      to L8_fusedaxes (whose dispatch+join is ~0.8 us).  Now worker t
+ *      waits for children 2t+1/2t+2 (< T) and only then sets done, so rank 0
+ *      collects TWO lines and the depth is log2(T): ~5 c2c hops instead of
+ *      31 serialized ones.  Release stays flat (31 independent store RFOs
+ *      pipeline; a tree would serialize the wake path).  This was the
+ *      "leaner collect" item my own mt_r1 record queued; no other entry had
+ *      built it yet.
+ *   3. Streaming candidate set rebuilt on the node's own mt_r1 arena: anchor
+ *      T32/nt-s0 when ws > 1.5x L3 (fusedaxes' anchor rule, adopted), keep
+ *      T32/s0 as the anchor in the 0.9-1.5x band (it won B=2048 3/3);
+ *      d8 and s0w/d8 dropped (lost 3/3 on the node, 0.20-0.25 vs 0.15-0.19);
+ *      coarse dynamic blocks (nvol/256, clamp [8,512]) added instead -- one
+ *      fetch_add per ~22 us of work lets the two sockets self-balance the
+ *      UPI asymmetry static splits cannot see; T=24 nt-s0 added (16 near +
+ *      8 far threads) between the node's near-equal T32/T16 endpoints.
+ *
  * TECHNIQUE (round mt_r1: volume-parallel over a persistent pinned spin pool;
  *   B=1 stays serial, with the measurement that says why)
  *   The serial kernel below is byte-for-byte the phase-1 result.  On top:
@@ -1501,6 +1533,16 @@ static void *mt_worker_main(void *arg)
         last = g;
         if (atomic_load_explicit(&pl->shutdown, memory_order_acquire)) break;
         mt_run_job(pl, tid, scr);
+        /* round mt_r2 tree collect: absorb the children's done flags before
+         * publishing our own, so rank 0 waits on 2 lines, not 31.  Children
+         * of a released worker are < T by construction, hence released. */
+        {
+            const int T = pl->nthr;
+            for (int c = 2 * tid + 1; c <= 2 * tid + 2 && c < T; ++c)
+                while (atomic_load_explicit(&pl->w[c].done,
+                                            memory_order_acquire) != g)
+                    MT_PAUSE();
+        }
         atomic_store_explicit(&pl->w[tid].done, g, memory_order_release);
     }
     free(scr);
@@ -1509,7 +1551,10 @@ static void *mt_worker_main(void *arg)
 
 /* Release ranks 1..T-1, run rank 0's share on the CALLER's thread and
  * scratch, collect.  Job fields may be rewritten freely between calls: the
- * previous collect proved every released worker finished reading them. */
+ * previous collect proved every released worker finished reading them (the
+ * mt_r2 tree collect preserves this: done[1] and done[2] are release-stored
+ * only after the whole subtree's done flags were acquire-read, so the
+ * acquire chain to rank 0 covers every released worker). */
 static void mt_exec_raw(struct mt_pool *pl, double *scr0,
                         const double *src, double *dst, long nvol,
                         int runner, int T, int dynb)
@@ -1521,8 +1566,8 @@ static void mt_exec_raw(struct mt_pool *pl, double *scr0,
     for (int t = 1; t < T; ++t)
         atomic_store_explicit(&pl->w[t].release, g, memory_order_release);
     mt_run_job(pl, 0, scr0);
-    for (int t = 1; t < T; ++t)
-        while (atomic_load_explicit(&pl->w[t].done, memory_order_acquire) != g)
+    for (int c = 1; c <= 2 && c < T; ++c)
+        while (atomic_load_explicit(&pl->w[c].done, memory_order_acquire) != g)
             MT_PAUSE();
 }
 
@@ -1613,9 +1658,9 @@ const char *fft3d_name(void) { return "L8_batchsimd"; }
  * publish-only fused-vs-fusedAA A/B -- the in-plan numbers pattern adopted
  * from L8_fusedaxes r10, so the node's ranking is readable even when no
  * pick changes. */
-static char g_desc[384] =
+static char g_desc[512] =
     "split-complex radix-8; FUSED default, LANEX2/LANEX3 candidates; untuned";
-static char g_arena[224] = "";
+static char g_arena[288] = "";
 static char g_ab[80]     = "";
 static char g_rt[96]     = "";   /* B=1 pool round-trip evidence (mt_r1) */
 
@@ -1973,9 +2018,17 @@ static void b1_ab(struct fft3d_plan *p)
  * (beats static in streaming even single-socket; the node adds NUMA). */
 static void mt_autotune(struct fft3d_plan *p)
 {
-    long cap = (4L * l3_bytes()) / (long)(2 * VOLD * sizeof(double));
-    if (cap < 4096) cap = 4096;
-    if (cap > 8192) cap = 8192;
+    /* Round mt_r2: surrogate cap 4x -> 8x L3, clamp [8192, 32768] volumes --
+     * borrowed verbatim from L8_fusedaxes mt_r1.  The mt_r1 cap (4x L3,
+     * <= 8192 vols = 88 MiB on the node) left ~1/4 of a plain-store
+     * candidate's RFO traffic L3-resident: the node arena read
+     * T32/none=0.145 and picked it, and the 512 MiB driver run then paid
+     * 0.295 us/t while nt-s0 (arena 0.168-0.171) matched fusedaxes' scored
+     * 0.176.  8x L3 = 176 MiB on the node: the arena is in the driver's
+     * residency regime and NT candidates race fairly. */
+    long cap = (8L * l3_bytes()) / (long)(2 * VOLD * sizeof(double));
+    if (cap < 8192) cap = 8192;
+    if (cap > 32768) cap = 32768;
     long nsur = p->batch < cap ? p->batch : cap;
     if (nsur < 1) nsur = 1;
 
@@ -2002,15 +2055,27 @@ static void mt_autotune(struct fft3d_plan *p)
         if (Tmax >= 4) MCAND(Tmax / 2, R_F_P0, 0);
         if (Tmax >= 8) MCAND(Tmax / 4, R_F_PS0, 0);
         if (p->batch <= 256) MCAND(1, R_F_PS0, 0);   /* serial verdict line */
-    } else {                             /* streaming (B=2048, 16384) */
-        MCAND(Tmax, R_F_PSW, 0);         /* default: phase-1 pick, full team */
-        MCAND(Tmax, R_F_PS0, 0);
+    } else {                             /* streaming (B=2048, 32768) */
+        /* Round mt_r2 set, rebuilt on the node's own mt_r1 arena tables:
+         * nt-s0 leads (it matched fusedaxes' scored 0.176 in-arena while the
+         * mis-tuned plain pick cost 0.295 at driver level); d8 and s0w/d8
+         * dropped -- lost 3/3 on the node (0.20-0.25 vs 0.15-0.19).  Coarse
+         * dynamic blocks (nvol/256, one fetch_add per ~22 us of work at
+         * B=32768) added so the sockets self-balance the UPI asymmetry;
+         * T=24 (16 near + 8 far threads) probes between the node's
+         * near-equal T32/T16 nt-s0 endpoints. */
+        int dblk = (int)(p->batch / 256);
+        if (dblk < 8) dblk = 8;
+        if (dblk > 512) dblk = 512;
+        MCAND(Tmax, R_F_N_PS0, 0);       /* node arena's streaming leader */
+        MCAND(Tmax, R_F_PS0, 0);         /* node's 3/3 winner at B=2048 */
+        MCAND(Tmax, R_F_PSW, 0);         /* phase-1 serial pick, kept honest */
         MCAND(Tmax, R_F_P0, 0);
-        MCAND(Tmax, R_F_N_PS0, 0);
         MCAND(Tmax, R_F_N_P0, 0);
-        MCAND(Tmax, R_F_N_PS0, 8);
-        MCAND(Tmax, R_F_PSW, 8);
-        if (Tmax >= 4) MCAND(Tmax / 2, R_F_N_PS0, 0);
+        MCAND(Tmax, R_F_N_PS0, dblk);
+        MCAND(Tmax, R_F_PS0, dblk);
+        if (Tmax >= 32) MCAND(24, R_F_N_PS0, 0);
+        if (Tmax >= 4)  MCAND(Tmax / 2, R_F_N_PS0, 0);
     }
 #undef MCAND
 
@@ -2216,7 +2281,12 @@ fft3d_plan *fft3d_create(int L, int batch)
             int tdef = mt_nmax();
             if ((long)tdef > (long)batch) tdef = batch;
             p->tthr = tdef;
-            p->runner = big ? R_F_PSW : R_F_PS0;   /* phase-1 per-regime pick */
+            /* mt_r2 anchor rule (fusedaxes mt_r1's, adopted): NT anchor only
+             * when ws > 1.5x L3 (B=32768: NT deletes the RFO, node arena
+             * 0.168 vs the 0.295 plain-pick driver run); in the 0.9-1.5x
+             * band (node B=2048, 32 MiB) s0 anchors -- it won 3/3 there. */
+            p->runner = (big && ws * 2 > (size_t)l3_bytes() * 3)
+                          ? R_F_N_PS0 : R_F_PS0;
             p->dynb = 0;
             mt_autotune(p);
             if (p->tthr <= 1) {

@@ -1,0 +1,36 @@
+impl/L13_rader.c: In function ‘fft3d_execute’:
+impl/L13_rader.c:1861:21: warning: implicit declaration of function ‘l13r_ntcopy’; did you mean ‘l13r_now’? [-Wimplicit-function-declaration]
+ 1861 |                     l13r_ntcopy(dst, s->sv, (size_t)2*NVOL);
+      |                     ^~~~~~~~~~~
+      |                     l13r_now
+impl/L13_rader.c: At top level:
+impl/L13_rader.c:1035:19: warning: ‘l13r_pool_new’ used but never defined
+ 1035 | static l13r_pool *l13r_pool_new(int nw, const cpu_set_t *msk, const int *hv);
+      |                   ^~~~~~~~~~~~~
+impl/L13_rader.c:1036:13: warning: ‘l13r_pool_del’ used but never defined
+ 1036 | static void l13r_pool_del(l13r_pool *pl);
+      |             ^~~~~~~~~~~~~
+impl/L13_rader.c:1037:13: warning: ‘l13r_pool_nap’ used but never defined
+ 1037 | static void l13r_pool_nap(l13r_pool *pl, int nap);
+      |             ^~~~~~~~~~~~~
+impl/L13_rader.c:1039:13: warning: ‘l13r_dwell’ used but never defined
+ 1039 | static void l13r_dwell(double ns);
+      |             ^~~~~~~~~~
+/usr/bin/ld: /tmp/ccVL135S.o: in function `fft3d_execute._omp_fn.0':
+L13_rader.c:(.text+0x2be0): undefined reference to `l13r_ntcopy'
+/usr/bin/ld: L13_rader.c:(.text+0x2c22): undefined reference to `l13r_ntcopy'
+/usr/bin/ld: /tmp/ccVL135S.o: in function `fft3d_create':
+L13_rader.c:(.text+0xe3d9): undefined reference to `l13r_pool_new'
+/usr/bin/ld: L13_rader.c:(.text+0xe411): undefined reference to `l13r_dwell'
+/usr/bin/ld: L13_rader.c:(.text+0xe537): undefined reference to `l13r_pool_del'
+/usr/bin/ld: L13_rader.c:(.text+0xf8fc): undefined reference to `l13r_pool_new'
+/usr/bin/ld: L13_rader.c:(.text+0xf919): undefined reference to `l13r_pool_nap'
+/usr/bin/ld: L13_rader.c:(.text+0xfcc0): undefined reference to `l13r_pool_del'
+/usr/bin/ld: L13_rader.c:(.text+0xfee5): undefined reference to `l13r_pool_del'
+/usr/bin/ld: L13_rader.c:(.text+0xfefc): undefined reference to `l13r_pool_nap'
+/usr/bin/ld: L13_rader.c:(.text+0xff09): undefined reference to `l13r_dwell'
+/usr/bin/ld: L13_rader.c:(.text+0x101bb): undefined reference to `l13r_pool_del'
+/usr/bin/ld: L13_rader.c:(.text+0x101da): undefined reference to `l13r_pool_new'
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:48: build/p55n3/bin/L13_rader] Error 1
+make: Target 'all' not remade because of errors.

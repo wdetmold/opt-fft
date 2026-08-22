@@ -1,0 +1,4 @@
+   L6_pfa                         0.220 us     0.220 us    38.15       0.5%    0.508s  ok 2.5e-16       1.00x
+   L6_pfa                         0.009 us    38.368 us   894.10       1.9%    1.430s  ok 2.4e-16       1.00x
+   L6_pfa                         0.039 us  2581.532 us   212.62     106.5%   12.807s  ok 2.4e-16       1.14x
+   L6_pfa                   Good-Thomas PFA 2x3 per axis, no twiddles, 2 cplx/ymm; mt batch-split, per-thread NUMA scratch, 2D-raced@pool (7 kernels x T<=32); variant=fused_pf_d2 T=32 disp=pool fork=14.17us raceT1=0.4080 raceBest=0.0092 omp=0.0117 pool=0.0092us/vol

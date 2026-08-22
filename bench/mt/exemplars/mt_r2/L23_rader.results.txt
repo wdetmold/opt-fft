@@ -1,0 +1,4 @@
+   L23_rader                     11.854 us    11.854 us    69.65       0.2%    0.079s  ok 3.8e-16       1.02x
+   L23_rader                      2.242 us   286.940 us   368.28       8.5%    0.192s  ok 3.8e-16       1.00x
+   L23_rader                      7.167 us 14677.723 us   115.19       0.9%    0.221s  ok 3.8e-16       1.21x
+   L23_rader                rader23 pool batch w4 team=32 pf=2 pw=1, tuner pick=2.74 inc=2.91 us/t nv=148
