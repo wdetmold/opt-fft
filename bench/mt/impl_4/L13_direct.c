@@ -1,0 +1,2340 @@
+/* Single-thread kernel carried over from the geometry competition (see
+ * ../../geom/strategies/L13_direct.md for its full history).
+ *
+ * mt_r4 -- STAGED-INPUT L2 TILE (the mt_r3 VERDICT SS6 construction, ported
+ *   from L36_pencilfused/L36_mixedradix mt_r3 whose "one volume through a
+ *   per-thread L2-resident scratch tile, in read once, out written once"
+ *   shape measured 137-151 GB/s where both L=13 entries sat at 69-72):
+ *   the streaming exec now runs a PACED DEMAND READ CURSOR -- between the
+ *   Y and Z groups of plane x it copies x-row x of the NEXT volume's input
+ *   into the per-thread tin tile (rows repadded 338 -> 344 doubles), so the
+ *   volume's DRAM read is one linear demand stream (unrdroppable, max MLP)
+ *   instead of 13 strided kernel streams plus droppable prefetcht1 hints,
+ *   and every X-pass load becomes 64 B aligned (at the caller's 338-double
+ *   row stride, 3/4 of the X pass's zmm loads split a cache line).  All
+ *   three axes then run inside the ~77 KiB tile; out is NT-appended as
+ *   before.  Wallaby (one DDR5 socket, already at 206 GB/s) prices staging
+ *   +15%, so the unstaged r3 exec stays the create default and the governor
+ *   races the staged form (st/us) and full-vs-half team on the node's real
+ *   buffers, min-of-min immune; -DL13_STG=1 flips the default, FORCE=16/17
+ *   pin the staged execs.  Also mt_r4, per the VERDICT: the B=1 governor race
+ *   is DELETED (its t2g2 lock cost 2.3% in all three processes -- probe-
+ *   window minima at B=1 are biased by call index; serial is restored
+ *   unconditionally), and the tfw weighted-cut config is deleted (VERDICT
+ *   SS5 killed the placement mechanism it existed for: fr=0 everywhere).
+ *
+ * mt_r3 -- EXECUTE-TIME GOVERNOR (adopted from L8_fusedaxes mt_r2, the
+ *   entry whose gov{fr,nb} instrument the mt_r2 VERDICT called the round's
+ *   most valuable diagnostic).  The create-time surrogate arena cannot see
+ *   the caller's real page placement (VERDICT SS5: two placement regimes
+ *   exist on the node and decide more than every schedule choice combined),
+ *   so at the armed cells the plan now races a small set of BIT-IDENTICAL
+ *   configs on the driver's real buffers across the first execute calls and
+ *   locks the winner (hysteresis toward the create pick; min-of-min ignores
+ *   probe calls -- L8_fusedaxes' argument, and fftw3_patient's scored wins
+ *   are the same statistic).  Streaming cells (ws > socket L3) race
+ *   {tf: full-team static, th: half team, tfw: full team with WEIGHTED
+ *   adaptive cuts (their damped sqrt re-cut, so a socket that owns the
+ *   pages gets more volumes), and the opposite store discipline (nt<->pf)}.
+ *   B=1 races {t1g1 serial, t2g2 intra-split} -- the flip the node's ab[B1]
+ *   instrument has now priced at -8..-12% in 3 of 4 readings, decided in
+ *   the driver's own hot-loop regime instead of trusted blindly.  The first
+ *   armed call also reads the REAL buffers' page homes (get_mempolicy
+ *   sampling, a pure read -- the mt_r1 ruling allows reads, bans moves) and
+ *   /proc numa_balancing, published as gov{fr=..} -- the SS5 experiment the
+ *   verdict asked for, at L=13.  Every raced config writes identical bits,
+ *   so no lock flip can ever appear in output.  -DL13_GOV=0 removes it all;
+ *   any L13_FORCE also disables it.  L8_fusedaxes' rejection of the
+ *   "wait for AutoNUMA" scheme is adopted too (their arithmetic: migration
+ *   cannot complete inside one scored process; not rediscovered here).
+ *
+ * mt_r2 -- the DRAM-streaming tier (ws > 4x socket L3) switches to a staged-Z
+ *   NON-TEMPORAL store exec (adopted from L13_rader mt_r1's nts mode via the
+ *   mt_r1 verdict: at 32 threads the streaming cells are bandwidth-bound and
+ *   NT deletes the out-RFO third of the traffic; phase 1's per-core "hide
+ *   the RFO" verdict does not survive 32 threads).  The NT appender treats
+ *   each thread's contiguous output range as one byte stream with a
+ *   carried partial line, so plane/volume junctions cost no partial-line WC
+ *   flushes.  See the l13_ntw block.  -DL13_NT=0 rolls back.
+ *
+ * mt_r1 -- MULTICORE layer (the kernel arithmetic is untouched):
+ *   * Batch axis only.  Volumes are independent; thread t owns the
+ *     contiguous block [nb*t/T, nb*(t+1)/T) and runs the phase-1 serial
+ *     exec on it with its OWN scratch (l13_tls: pb/t1/sb per thread,
+ *     page-sized slots, allocated AND first-touched by the owning thread
+ *     inside fft3d_create()'s pool-warming parallel region -> NUMA-local,
+ *     no false sharing, no thread creation inside execute).
+ *   * B=1 stays SERIAL (nuse=1: execute has no parallel region at all).
+ *     An intra-volume worker exists (split the X pass's 43 chunk units,
+ *     one barrier, split the 13 kx-planes; bit-identical output) but on
+ *     wallaby every team size LOSES: serial 5.09 us-equivalent vs t2 +71%,
+ *     t8 +132%, t32 +625% in the in-plan sweep, and 3.40 vs 2.52 us
+ *     driver-level at g8 -- fork+barrier dwarfs 2.5 us of work.  -DL13_B1T=n
+ *     re-enables it; the in-plan ab sweep prints the node's own B=1 curve
+ *     (t1..t32) on every leaderboard line so the choice can be re-audited
+ *     on the machine that counts.
+ *   * Team size: min(batch, 32) threads, gsplit=1 (L13_GSM=g arms the
+ *     per-volume split for small batches, measured a loss on wallaby;
+ *     L13_TCAP=n caps the team for node NUMA A/Bs -- in/out are first-
+ *     touched by the driver's thread, so they live on ONE socket and the
+ *     far 16 threads pay UPI; wallaby (single 32-core socket teams) says
+ *     t32 > t16 at B=512, the node must answer for itself).
+ *   * Determinism: the decomposition is a pure function of batch and the
+ *     harness-fixed thread count, and every volume's arithmetic DAG is
+ *     identical no matter which thread runs it, so output is bit-identical
+ *     across runs AND across team sizes.
+ */
+/* =============================================================================
+ * L13_direct -- 13^3 complex-double forward DFT as three dense 13x13 matrix
+ *               passes, conjugate-pair folded, vectorised across whole lines
+ *               (SIMD lanes = independent lines).
+ *
+ * TECHNIQUE (adopted wholesale from L17_matrixsimd, rounds 1-5 -- see
+ * strategies/L17_matrixsimd.md; this entry is that design re-derived for L=13)
+ *   Row-column: one dense length-13 DFT matrix applied along each axis.  The
+ *   j <-> 13-j conjugate pair is folded first (FFTW's dft-generic form):
+ *
+ *     u_j = x_j + x_{13-j},  v_j = x_j - x_{13-j}          (j = 1..6)
+ *     P_k = x_0 + sum_{j=1..6} cos(2pi kj/13) u_j          (k = 0..6)
+ *     R_k =       sum_{j=1..6} sin(2pi kj/13) (-i v_j)     (k = 1..6)
+ *     X_k = P_k + R_k,  X_{13-k} = P_k - R_k,  X_0 = P_0
+ *
+ *   Every surviving coefficient is REAL, so the driver's interleaved complex
+ *   layout is already the right SIMD layout: one vector FMA per coefficient,
+ *   no cross-lane arithmetic.  The only permutes are the re/im swap in (-i v)
+ *   (integer XOR for the sign flip -- port 5, off the FMA port) and the plane
+ *   transposes fused into the stores of passes Y and Z.
+ *
+ * WHY L=13 IS EASIER THAN L=17 (the one structural difference)
+ *   The folded transform needs 7 P + 6 R = 13 accumulators.  L17's 17
+ *   accumulators + temporaries spilled (its round-1 record: 342-805 stack refs
+ *   in the monolithic kernel, fixed by k-blocking); 13 accumulators + 6 pinned
+ *   sine constants + temporaries peak at ~26 of 32 EVEX registers, the same
+ *   count as L17's winning pinned-nested kernel, so the monolithic form is
+ *   used directly and no k-blocking is required.
+ *
+ * OPERATION COUNT (per 13^3 volume = 3*169 = 507 lines)
+ *   Per chunk (WC lines at once): 6 u-adds + 42 cos FMA + 6 v-subs + 36 sin
+ *   FMA + 12 combine = 102 vector FP ops.  Per line: 78 FMAs (156 flop) + 12
+ *   complex add/sub (48 flop) = 204... in real flops per line at WC lanes:
+ *   102 ops * 2*WC doubles include the lane width; per line = 360 flop.
+ *   Compare: naive dense complex 13x13 matvec = 1352 flop/line (169 cMACs);
+ *   folded = 360 flop/line (3.8x less).  Per volume: 507 * 360 = 182.5 kflop
+ *   (yardstick 5 N log2 N = 121.9 kflop, so "GF/s" x1.5 = real Gflop/s).
+ *
+ *   Chunk economics on the scoring node (ONE 512-bit FMA unit, TWO 256-bit
+ *   ports -- L17_rader r4 / L17_matrixsimd r5 "mixed tail", adopted):
+ *     pure zmm:  13-long index = 4 chunks (offsets 0,4,8,9; last recomputes 3)
+ *                volume = 2*13*4 + 43 = 147 chunks * 102 ops = 15.0k ops
+ *     mixed:     Z groups 3 zmm + 1 XMM tail per 13 (offsets 0,4,8 + 12,
+ *                panel_r11 -- the tail covers the ONE remaining line; through
+ *                r10 it was a ymm chunk at 11 recomputing a line, same
+ *                51-cycle port cost but its 32 B accesses at byte 48 (mod 64)
+ *                split cache lines and its pb loads straddled two Y-pass
+ *                stores, blocking store-forwarding at the plane junction);
+ *                X pass 42 zmm + 1 xmm at 168; Y groups ZSOLID -- 4 zmm at
+ *                0,4,8,9 so pb is written 100% as 64 B tiles and the Z pass
+ *                store-forwards cleanly (the xmm tail in the Y position was
+ *                a measured catastrophe, see the macro comments).
+ *                volume = 133 zmm + 14 xmm = 133*102 + 14*51 = 14.3k cycles
+ *                at 1 zmm-op/cycle == xmm pairs on 2 ports.
+ *   Node floor ~14.3k cycles = 4.94 us at 2.9 GHz (the r10 all-mixed census
+ *   was 13.6k = 4.7 -- zsolid trades +663 port cycles for zero SF blocks and
+ *   zero tail splits).  On wallaby (TWO 512-bit units) the 4th zmm chunk is
+ *   port-free and zsolid won outright; the +663 is a node-only cost.
+ *
+ * LAYOUT / PASSES (L17_matrixsimd's, unchanged)
+ *   WC complex per vector (4 = zmm, 2 = ymm); lanes hold WC different lines
+ *   from a contiguous run of a free index; tail chunks OVERLAP the previous
+ *   chunk and rewrite identical values (never reads out of range, no masks).
+ *     Y : in[x][y][z]  --lanes over z --> pb[z][ky]        (transposing store)
+ *     Z : pb[z][ky]    --lanes over ky--> t1[x][ky][kz]    (transposing store)
+ *     X : t1[x][p]     --lanes over p (169 wide)--> out[kx][p]  (plain store)
+ *   A 13x13 plane is 2.6 KiB (L1-resident); a volume is 34.3 KiB (fits L1 on
+ *   wallaby, 1.07x L1 on the node, comfortably in L2 everywhere).
+ *   X-FIRST variant when in+out exceed this host's L2 (L17_matrixsimd r3 via
+ *   L13_rader's sysconf gate): X from `in` into t1, then per-kx-plane Y,Z
+ *   straight into `out`, so at streaming batch the output writes spread
+ *   across the volume's compute instead of bursting.
+ *   PINNED SINES (L17_matrixsimd r3 <- L17_winograd r2, adopted): the 6
+ *   distinct sine magnitudes s_m = sin(2pi m/13) are broadcast once per
+ *   execute into 6 registers made asm-opaque, and the sine sweep is fully
+ *   unrolled with the signs sin(2pi kj/13) = +-s_{fold(kj)} baked in at
+ *   compile time; 36 coefficient loads per chunk gone.  Cosines stay a
+ *   PRE-SPLATTED table read as full-width memory operands in a rolled j-loop
+ *   (L17_matrixsimd r1 item 1: scalar table + embedded broadcast makes gcc 11
+ *   materialise every splat into a stack slot -- do not retry).
+ *
+ * DETERMINISM
+ *   mt_r3 amends the r1/r2 "no runtime tuner" rule: at the governor-armed
+ *   cells (ws > L3, and B=1) the DECOMPOSITION is now locked by a timed race
+ *   on the caller's real buffers (see the mt_r3 header note) -- but every
+ *   raced config writes bit-identical output, so the OUTPUT remains
+ *   deterministic at every batch, and the r2 create-time pick is the
+ *   incumbent that a challenger must beat by a margin.  The KERNEL choice
+ *   below is still a pure function of batch/ISA/sysconf:
+ *   the exec is a pure function of the batch size, the
+ *   compile-time ISA, and the host's sysconf L3 size (ws = in+out bytes:
+ *   ws <= L3 X-first plain, ws > L3 X-first with the streaming prefetch
+ *   schedule; mixed tail iff AVX-512), so repeated runs of the same binary
+ *   are bit-identical by construction.  The X-LAST cache-resident tier was
+ *   deleted in panel_r10 (its r6 justification predated the r8 t1 pad; see
+ *   the selection comment in create()).  The in-plan timed discriminator in
+ *   create() is INSTRUMENT ONLY (never changes the pick, so no pick lottery);
+ *   panel_r11 slots: y2 (r10 ymm tails), xf (default), zs (zsolid Y), xl.
+ *   -DL13_FORCE=n pins one variant; -DL13_PW=0 / -DL13_PFIN=0 kill the
+ *   write/read halves of the prefetch schedule; -DL13_AB=0 removes the
+ *   discriminator.
+ *
+ * ASSUMPTIONS
+ *   gcc/clang vector extensions, -ffp-contract=fast (gnu11 default) for FMA
+ *   formation; no intrinsics, so the same source builds (and can be verified,
+ *   emulated) without AVX-512.  Template instantiated 3x by self-#include
+ *   (zmm, ymm, and -- panel_r11 -- the xmm tail width).
+ * =============================================================================
+ */
+/* panel_r9: the `#pragma GCC optimize("unroll-loops")` shipped in r8 is GONE.
+ * The r8 verdict (§3c) showed the scored build has carried -funroll-loops all
+ * along (the r7 "build-flag gap" never existed), and L17_rader measured the
+ * pragma form as a ~2% TAX (optimize() rebuilds the whole per-function option
+ * set, not just the named flag).  The kernels' deliberately-rolled loops are
+ * protected by asm-opaque bounds and stay rolled either way. */
+
+#ifdef L13_TEMPLATE_PASS
+/* ===========================================================================
+ *  TEMPLATE BODY -- instantiated once per vector width.
+ *  Inputs: WC (complex per vector), SUF(x) (name mangler).
+ * ===========================================================================
+ */
+#define VDW (2 * WC) /* doubles per vector */
+
+typedef double SUF(vd) __attribute__((vector_size(8 * VDW), aligned(8)));
+typedef long long SUF(vi) __attribute__((vector_size(8 * VDW)));
+typedef double SUF(v2) __attribute__((vector_size(16), aligned(8)));
+#define VT SUF(vd)
+#define IT SUF(vi)
+
+#define VLD(p) (*(const VT *)(p))
+#define VST(p, v) (*(VT *)(p) = (v))
+
+#if defined(__clang__)
+#  define SHUF1(a, ...) __builtin_shufflevector(a, a, __VA_ARGS__)
+#  define SHUF2(a, b, ...) __builtin_shufflevector(a, b, __VA_ARGS__)
+#else
+#  define SHUF1(a, ...) __builtin_shuffle(a, (IT){__VA_ARGS__})
+#  define SHUF2(a, b, ...) __builtin_shuffle(a, b, (IT){__VA_ARGS__})
+#endif
+
+/* MULI(t): the -i*t for interleaved complex used to be swap re/im + an
+ * integer XOR flipping the imaginary lanes' signs (6 vpxor per chunk).
+ * panel_r9: the sign pattern is PER-LANE and constant, so it is folded into
+ * the sine tables instead -- stab8/stab4 hold lane-alternating (s,-s,s,-s,..)
+ * splats and MULI is just the swap.  (-sigma*s)*v = sigma*s*(-v) exactly in
+ * IEEE, so the output is bit-identical; ~880 vector XORs per volume gone at
+ * zero register cost. */
+#if WC == 4
+#  define SWAPRI(x) SHUF1(x, 1, 0, 3, 2, 5, 4, 7, 6)
+#elif WC == 2
+#  define SWAPRI(x) SHUF1(x, 1, 0, 3, 2)
+#else
+#  define SWAPRI(x) SHUF1(x, 1, 0)
+#endif
+#define MULI(t) SWAPRI(t)
+
+/* Pin the 6 sine constants in registers across a whole execute (empty asm =
+ * opaque to gcc: no rematerialisation, no folding back to memory operands).
+ * Only on a 32-register EVEX file; elsewhere it is a no-op and the constants
+ * decay gracefully to stack/memory operands. */
+#if (WC == 4 && defined(__AVX512F__)) || (WC == 2 && defined(__AVX512VL__))
+#  define L13_PIN_ASM() __asm__("" : "+v"(K0), "+v"(K1), "+v"(K2), "+v"(K3),  \
+                                     "+v"(K4), "+v"(K5))
+#  define L13_PIN12_ASM() __asm__("" : "+v"(C0), "+v"(C1), "+v"(C2), "+v"(C3),\
+                                       "+v"(C4), "+v"(C5), "+v"(S0), "+v"(S1),\
+                                       "+v"(S2), "+v"(S3), "+v"(S4), "+v"(S5))
+#else
+#  define L13_PIN_ASM() do { } while (0)
+#  define L13_PIN12_ASM() do { } while (0)
+#endif
+
+/* Cosine coefficients from a PRE-SPLATTED table (full-width memory operands;
+ * see the header block for why not scalar + embedded broadcast). */
+#define CGET(base, i) VLD((base) + (size_t)(i) * VDW)
+#define CSTEP_C (7 * VDW)
+#if WC == 4
+#  define CTAB(p) ((p)->ctab8)
+#  define STAB(p) ((p)->stab8)
+#  define CTD(p) ((p)->ctd8)
+#else
+#  define CTAB(p) ((p)->ctab4)
+#  define STAB(p) ((p)->stab4)
+#  define CTD(p) ((p)->ctd4)
+#endif
+
+/* ---- WCxWC transpose of complex (i.e. of 128-bit blocks) ----------------
+ * WC==1 needs no transpose at all: one lane, so tr=1 and tr=0 stores are the
+ * same 13 xmm stores at stride db (db is 2 at every tr=1 call site). */
+#if WC == 4
+#  define TTILE(x, y)                                                          \
+      do {                                                                     \
+          VT q0 = SHUF2((x)[0], (x)[1], 0, 1, 2, 3, 8, 9, 10, 11);             \
+          VT q1 = SHUF2((x)[2], (x)[3], 0, 1, 2, 3, 8, 9, 10, 11);             \
+          VT q2 = SHUF2((x)[0], (x)[1], 4, 5, 6, 7, 12, 13, 14, 15);           \
+          VT q3 = SHUF2((x)[2], (x)[3], 4, 5, 6, 7, 12, 13, 14, 15);           \
+          (y)[0] = SHUF2(q0, q1, 0, 1, 4, 5, 8, 9, 12, 13);                    \
+          (y)[1] = SHUF2(q0, q1, 2, 3, 6, 7, 10, 11, 14, 15);                  \
+          (y)[2] = SHUF2(q2, q3, 0, 1, 4, 5, 8, 9, 12, 13);                    \
+          (y)[3] = SHUF2(q2, q3, 2, 3, 6, 7, 10, 11, 14, 15);                  \
+      } while (0)
+#elif WC == 2
+#  define TTILE(x, y)                                                          \
+      do {                                                                     \
+          (y)[0] = SHUF2((x)[0], (x)[1], 0, 1, 4, 5);                          \
+          (y)[1] = SHUF2((x)[0], (x)[1], 2, 3, 6, 7);                          \
+      } while (0)
+#endif
+
+/* Combine + store, shared by both kernels.  Expects P0..P6, R1..R6, dst, da,
+ * db, tr in scope.  Output index m: X_0 = P_0, X_k = P_k + R_k,
+ * X_{13-k} = P_k - R_k.  For tr=1, 13 outputs = 3 full WCxWC tiles + one
+ * overlapping tile that rewrites its shared columns with identical bits
+ * (same registers, same shuffles). */
+#define XP_(k) (P##k + R##k)
+#define XM_(k) (P##k - R##k)
+#if WC == 4
+#  define L13_STORE_BODY()                                                     \
+    do {                                                                       \
+        if (!tr) {                                                             \
+            VST(dst + 0 * db, P0);                                             \
+            VST(dst + 1 * db, XP_(1));  VST(dst + 2 * db, XP_(2));             \
+            VST(dst + 3 * db, XP_(3));  VST(dst + 4 * db, XP_(4));             \
+            VST(dst + 5 * db, XP_(5));  VST(dst + 6 * db, XP_(6));             \
+            VST(dst + 7 * db, XM_(6));  VST(dst + 8 * db, XM_(5));             \
+            VST(dst + 9 * db, XM_(4));  VST(dst + 10 * db, XM_(3));            \
+            VST(dst + 11 * db, XM_(2)); VST(dst + 12 * db, XM_(1));            \
+        } else {                                                               \
+            TILE4_(0, P0, XP_(1), XP_(2), XP_(3));                             \
+            TILE4_(4, XP_(4), XP_(5), XP_(6), XM_(6));                         \
+            TILE4_(8, XM_(5), XM_(4), XM_(3), XM_(2));                         \
+            LASTCOL_(XM_(1));                                                  \
+        }                                                                      \
+    } while (0)
+/* Column m=12 straight from the one register that holds it: 4 16-byte
+ * extract-stores instead of a 4th overlapping tile (8 shuffles + 4 wide
+ * stores rewriting 3 identical columns).  Panel_r7; addresses are 16B
+ * aligned for every da used here (26 and L13_PBROW doubles). */
+#  define LASTCOL_(e)                                                          \
+      do {                                                                     \
+          VT c_ = (e);                                                         \
+          *(SUF(v2) *)(dst + 0 * da + 24) = (SUF(v2)){c_[0], c_[1]};           \
+          *(SUF(v2) *)(dst + 1 * da + 24) = (SUF(v2)){c_[2], c_[3]};           \
+          *(SUF(v2) *)(dst + 2 * da + 24) = (SUF(v2)){c_[4], c_[5]};           \
+          *(SUF(v2) *)(dst + 3 * da + 24) = (SUF(v2)){c_[6], c_[7]};           \
+      } while (0)
+#  define TILE4_(m0, e0, e1, e2, e3)                                           \
+      do {                                                                     \
+          VT xx[4], yy[4];                                                     \
+          xx[0] = (e0); xx[1] = (e1); xx[2] = (e2); xx[3] = (e3);              \
+          TTILE(xx, yy);                                                       \
+          VST(dst + 0 * da + (m0) * 2, yy[0]);                                 \
+          VST(dst + 1 * da + (m0) * 2, yy[1]);                                 \
+          VST(dst + 2 * da + (m0) * 2, yy[2]);                                 \
+          VST(dst + 3 * da + (m0) * 2, yy[3]);                                 \
+      } while (0)
+#elif WC == 2
+#  define L13_STORE_BODY()                                                     \
+    do {                                                                       \
+        if (!tr) {                                                             \
+            VST(dst + 0 * db, P0);                                             \
+            VST(dst + 1 * db, XP_(1));  VST(dst + 2 * db, XP_(2));             \
+            VST(dst + 3 * db, XP_(3));  VST(dst + 4 * db, XP_(4));             \
+            VST(dst + 5 * db, XP_(5));  VST(dst + 6 * db, XP_(6));             \
+            VST(dst + 7 * db, XM_(6));  VST(dst + 8 * db, XM_(5));             \
+            VST(dst + 9 * db, XM_(4));  VST(dst + 10 * db, XM_(3));            \
+            VST(dst + 11 * db, XM_(2)); VST(dst + 12 * db, XM_(1));            \
+        } else {                                                               \
+            TILE2_(0, P0, XP_(1));                                             \
+            TILE2_(2, XP_(2), XP_(3));                                         \
+            TILE2_(4, XP_(4), XP_(5));                                         \
+            TILE2_(6, XP_(6), XM_(6));                                         \
+            TILE2_(8, XM_(5), XM_(4));                                         \
+            TILE2_(10, XM_(3), XM_(2));                                        \
+            LASTCOL_(XM_(1));                                                  \
+        }                                                                      \
+    } while (0)
+#  define LASTCOL_(e)                                                          \
+      do {                                                                     \
+          VT c_ = (e);                                                         \
+          *(SUF(v2) *)(dst + 0 * da + 24) = (SUF(v2)){c_[0], c_[1]};           \
+          *(SUF(v2) *)(dst + 1 * da + 24) = (SUF(v2)){c_[2], c_[3]};           \
+      } while (0)
+#  define TILE2_(m0, e0, e1)                                                   \
+      do {                                                                     \
+          VT xx[2], yy[2];                                                     \
+          xx[0] = (e0); xx[1] = (e1);                                          \
+          TTILE(xx, yy);                                                       \
+          VST(dst + 0 * da + (m0) * 2, yy[0]);                                 \
+          VST(dst + 1 * da + (m0) * 2, yy[1]);                                 \
+      } while (0)
+#else /* WC == 1 -- panel_r11 xmm tail: one lane, tr irrelevant (db is 2 at
+       * every tr=1 call site), 13 16-byte stores on 16-byte-aligned complex
+       * addresses.  16 B accesses never split a cache line, and each store is
+       * fully containable by a later exact-address 16 B load, so the Z pass's
+       * tail loads store-forward cleanly out of the Y pass's stores. */
+#  define L13_STORE_BODY()                                                     \
+    do {                                                                       \
+        (void)da; (void)tr;                                                    \
+        VST(dst + 0 * db, P0);                                                 \
+        VST(dst + 1 * db, XP_(1));  VST(dst + 2 * db, XP_(2));                 \
+        VST(dst + 3 * db, XP_(3));  VST(dst + 4 * db, XP_(4));                 \
+        VST(dst + 5 * db, XP_(5));  VST(dst + 6 * db, XP_(6));                 \
+        VST(dst + 7 * db, XM_(6));  VST(dst + 8 * db, XM_(5));                 \
+        VST(dst + 9 * db, XM_(4));  VST(dst + 10 * db, XM_(3));                \
+        VST(dst + 11 * db, XM_(2)); VST(dst + 12 * db, XM_(1));                \
+    } while (0)
+#endif
+
+/* -----------------------------------------------------------------------
+ *  One chunk: the length-13 DFT of WC lines at once.
+ *  (not instantiated at WC==1: the pre-splatted table rows are laid out per
+ *   splat width, and the tail only ever runs the all-pinned kernel anyway)
+ *    src, rs : element (j=0, lane 0); rs doubles between successive j
+ *    dst, da, db : output element (m) of lane (f) is at dst + f*da + m*db
+ *    tr : 1 -> lanes are separate rows of dst (in-register transpose fused
+ *             into the store);  0 -> lanes contiguous in dst (plain stores)
+ *    K0..K5 : s_1..s_6 = sin(2pi m/13), splatted (pinned by the caller)
+ * --------------------------------------------------------------------- */
+#if WC != 1
+static inline __attribute__((always_inline)) void
+SUF(chunk13)(const double *restrict src, long rs, double *restrict dst, long da,
+             long db, const double *restrict ct,
+             VT K0, VT K1, VT K2, VT K3, VT K4, VT K5, int tr)
+{
+    VT P0, P1, P2, P3, P4, P5, P6, R1, R2, R3, R4, R5, R6;
+
+    /* ---- symmetric half: 7 accumulators, 6 rank-1 updates, rolled ---- */
+    {
+        VT v0 = VLD(src);
+        P0 = v0; P1 = v0; P2 = v0; P3 = v0; P4 = v0; P5 = v0; P6 = v0;
+/* Do NOT unroll: the rolled loop keeps the table row pointer advancing (no
+ * loop-invariant vector loads for gcc to hoist and spill; L17_matrixsimd r1
+ * items 1 and 7). */
+#pragma GCC unroll 1
+        for (int j = 1; j <= 6; ++j) {
+            VT u = VLD(src + (long)j * rs) + VLD(src + (long)(13 - j) * rs);
+            const double *c = ct + (size_t)(j - 1) * CSTEP_C;
+            P0 += CGET(c, 0) * u;
+            P1 += CGET(c, 1) * u;
+            P2 += CGET(c, 2) * u;
+            P3 += CGET(c, 3) * u;
+            P4 += CGET(c, 4) * u;
+            P5 += CGET(c, 5) * u;
+            P6 += CGET(c, 6) * u;
+        }
+    }
+
+    /* ---- antisymmetric half: fully unrolled, pinned constants, the signs
+     * sin(2pi kj/13) = +-s_{fold(kj mod 13)} baked in at compile time.
+     * Row j updates R_k with sign/index from the fold of (k*j) mod 13. ---- */
+    {
+        VT w = MULI(VLD(src + 1 * rs) - VLD(src + 12 * rs));            /* j=1 */
+        R1 = K0 * w; R2 = K1 * w; R3 = K2 * w;
+        R4 = K3 * w; R5 = K4 * w; R6 = K5 * w;
+        w = MULI(VLD(src + 2 * rs) - VLD(src + 11 * rs));               /* j=2 */
+        R1 += K1 * w; R2 += K3 * w; R3 += K5 * w;
+        R4 -= K4 * w; R5 -= K2 * w; R6 -= K0 * w;
+        w = MULI(VLD(src + 3 * rs) - VLD(src + 10 * rs));               /* j=3 */
+        R1 += K2 * w; R2 += K5 * w; R3 -= K3 * w;
+        R4 -= K0 * w; R5 += K1 * w; R6 += K4 * w;
+        w = MULI(VLD(src + 4 * rs) - VLD(src + 9 * rs));                /* j=4 */
+        R1 += K3 * w; R2 -= K4 * w; R3 -= K0 * w;
+        R4 += K2 * w; R5 -= K5 * w; R6 -= K1 * w;
+        w = MULI(VLD(src + 5 * rs) - VLD(src + 8 * rs));                /* j=5 */
+        R1 += K4 * w; R2 -= K2 * w; R3 += K1 * w;
+        R4 -= K5 * w; R5 -= K0 * w; R6 += K3 * w;
+        w = MULI(VLD(src + 6 * rs) - VLD(src + 7 * rs));                /* j=6 */
+        R1 += K5 * w; R2 -= K0 * w; R3 += K4 * w;
+        R4 -= K1 * w; R5 += K3 * w; R6 -= K2 * w;
+    }
+
+    L13_STORE_BODY();
+}
+#endif /* WC != 1 */
+
+/* -----------------------------------------------------------------------
+ *  chunk13p: the same transform with the WHOLE folded matrix register-
+ *  resident.  L=13 has only 6 distinct cosine magnitudes c_m = cos(2pi m/13)
+ *  (cos is even, so cos(2pi kj/13) = c_{fold(kj mod 13)} with the sign inside
+ *  the value) and 6 distinct sines; all 12 are pinned, and a SINGLE fused
+ *  sweep loads each input line exactly once: 13 line loads per chunk and
+ *  ZERO coefficient loads (the table kernel above reads 42 splatted vectors
+ *  = 2.6 KiB of table per chunk, which the first wallaby measurement showed
+ *  to be the bottleneck -- only 102 FP ops to hide it under).  Liveness:
+ *  13 accumulators + 12 pinned + a,b,u,w = 29 of 32 EVEX registers.  This is
+ *  the one thing L=13 can do that L=17 could not (8+8 constants + 17
+ *  accumulators do not fit).  The k=0 cosine row is 1.0: P0 += u, a plain
+ *  add, same port and throughput as the FMA it replaces.
+ * --------------------------------------------------------------------- */
+/* Accumulation rows j=1..5 of the all-pinned kernel: loads each line once,
+ * updates all 13 accumulators.  fold/sign tables: index m of (k*j mod 13)
+ * folded to 1..6; sine sign is -1 when (k*j mod 13) > 6.  Cosine has no sign
+ * (cos is even).  Same expression DAG as the r9 chunk13p body, so the default
+ * kernel's values stay bit-identical through this refactor. */
+#define L13_ACC15()                                                            \
+    {                                                                          \
+        VT v0 = VLD(src);                                                      \
+        P0 = v0; P1 = v0; P2 = v0; P3 = v0; P4 = v0; P5 = v0; P6 = v0;         \
+    }                                                                          \
+    {                                                                          \
+        VT a = VLD(src + 1 * rs), b = VLD(src + 12 * rs);           /* j=1 */  \
+        VT u = a + b, w = MULI(a - b);                                         \
+        P0 += u;                                                               \
+        P1 += C0 * u; P2 += C1 * u; P3 += C2 * u;                              \
+        P4 += C3 * u; P5 += C4 * u; P6 += C5 * u;                              \
+        R1 = S0 * w; R2 = S1 * w; R3 = S2 * w;                                 \
+        R4 = S3 * w; R5 = S4 * w; R6 = S5 * w;                                 \
+    }                                                                          \
+    {                                                                          \
+        VT a = VLD(src + 2 * rs), b = VLD(src + 11 * rs);           /* j=2 */  \
+        VT u = a + b, w = MULI(a - b);                                         \
+        P0 += u;                                                               \
+        P1 += C1 * u; P2 += C3 * u; P3 += C5 * u;                              \
+        P4 += C4 * u; P5 += C2 * u; P6 += C0 * u;                              \
+        R1 += S1 * w; R2 += S3 * w; R3 += S5 * w;                              \
+        R4 -= S4 * w; R5 -= S2 * w; R6 -= S0 * w;                              \
+    }                                                                          \
+    {                                                                          \
+        VT a = VLD(src + 3 * rs), b = VLD(src + 10 * rs);           /* j=3 */  \
+        VT u = a + b, w = MULI(a - b);                                         \
+        P0 += u;                                                               \
+        P1 += C2 * u; P2 += C5 * u; P3 += C3 * u;                              \
+        P4 += C0 * u; P5 += C1 * u; P6 += C4 * u;                              \
+        R1 += S2 * w; R2 += S5 * w; R3 -= S3 * w;                              \
+        R4 -= S0 * w; R5 += S1 * w; R6 += S4 * w;                              \
+    }                                                                          \
+    {                                                                          \
+        VT a = VLD(src + 4 * rs), b = VLD(src + 9 * rs);            /* j=4 */  \
+        VT u = a + b, w = MULI(a - b);                                         \
+        P0 += u;                                                               \
+        P1 += C3 * u; P2 += C4 * u; P3 += C0 * u;                              \
+        P4 += C2 * u; P5 += C5 * u; P6 += C1 * u;                              \
+        R1 += S3 * w; R2 -= S4 * w; R3 -= S0 * w;                              \
+        R4 += S2 * w; R5 -= S5 * w; R6 -= S1 * w;                              \
+    }                                                                          \
+    {                                                                          \
+        VT a = VLD(src + 5 * rs), b = VLD(src + 8 * rs);            /* j=5 */  \
+        VT u = a + b, w = MULI(a - b);                                         \
+        P0 += u;                                                               \
+        P1 += C4 * u; P2 += C2 * u; P3 += C1 * u;                              \
+        P4 += C5 * u; P5 += C0 * u; P6 += C3 * u;                              \
+        R1 += S4 * w; R2 -= S2 * w; R3 += S1 * w;                              \
+        R4 -= S5 * w; R5 -= S0 * w; R6 += S3 * w;                              \
+    }
+
+/* row j=6 with its sine contributions accumulated into R (chunk13p) */
+#define L13_ACC6R()                                                            \
+    {                                                                          \
+        VT a = VLD(src + 6 * rs), b = VLD(src + 7 * rs);            /* j=6 */  \
+        VT u = a + b, w = MULI(a - b);                                         \
+        P0 += u;                                                               \
+        P1 += C5 * u; P2 += C0 * u; P3 += C4 * u;                              \
+        P4 += C1 * u; P5 += C3 * u; P6 += C2 * u;                              \
+        R1 += S5 * w; R2 -= S0 * w; R3 += S4 * w;                              \
+        R4 -= S1 * w; R5 += S3 * w; R6 -= S2 * w;                              \
+    }
+
+static inline __attribute__((always_inline)) void
+SUF(chunk13p)(const double *restrict src, long rs, double *restrict dst, long da,
+              long db, VT C0, VT C1, VT C2, VT C3, VT C4, VT C5,
+              VT S0, VT S1, VT S2, VT S3, VT S4, VT S5, int tr)
+{
+    VT P0, P1, P2, P3, P4, P5, P6, R1, R2, R3, R4, R5, R6;
+    L13_ACC15();
+    L13_ACC6R();
+    L13_STORE_BODY();
+}
+
+/* panel_r10's association twins (chunk13q "T1", chunk13s "TS") are DELETED
+ * in panel_r11: the r10 node instrument priced them at q +0.5..0.7%,
+ * s +3.7..3.8% over xf, and the r10 VERDICT SS5 bounded the L=6 association
+ * mechanism to "joins that feed stores" and closed the propagation ask.
+ * Their derivation and numbers live in strategies/L13_direct.md r10. */
+
+/* The whole-width execs below are not instantiated at WC==1 (the w1 kernel
+ * exists only as the mixed execs' tail). */
+#if WC != 1
+
+/* chunk start offsets covering a 13-long index; the last one overlaps the
+ * previous chunk and rewrites identical values */
+#if WC == 4
+static const int SUF(off13)[4] = {0, 4, 8, 9};
+#  define NOFF13 4
+#else
+static const int SUF(off13)[7] = {0, 2, 4, 6, 8, 10, 11};
+#  define NOFF13 7
+#endif
+
+/* ---- X-last: Y,Z per x-plane (L1-resident), then X with the long
+ * sequential stores into the caller's out.  Used for batch < L13_XF_MIN. ---- */
+static __attribute__((unused)) void
+SUF(exec_xl)(const fft3d_plan *restrict p, const double _Complex *restrict in,
+             double _Complex *restrict out, int b0, int b1,
+             const l13_tls *restrict ts)
+{
+    const double *restrict ct = CTAB(p);
+    const double *restrict st = STAB(p);
+    double *restrict pb = ts->pb;
+    double *restrict t1 = ts->t1;
+    VT K0 = CGET(st, 0), K1 = CGET(st, 1), K2 = CGET(st, 2),
+       K3 = CGET(st, 3), K4 = CGET(st, 4), K5 = CGET(st, 5);
+    L13_PIN_ASM();
+
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = vin + (long)x * 338;
+            double *pt = t1 + (long)x * L13_T1P;
+            /* Y: along y (row stride 26), lanes over z, store transposed */
+            for (int t = 0; t < NOFF13; ++t) {
+                long f0 = SUF(off13)[t];
+                SUF(chunk13)(pin + 2 * f0, 26, pb + f0 * L13_PBROW, L13_PBROW,
+                             2, ct, K0, K1, K2, K3, K4, K5, 1);
+            }
+            /* Z: along z (row stride PBROW), lanes over ky, store transposed */
+            for (int t = 0; t < NOFF13; ++t) {
+                long f0 = SUF(off13)[t];
+                SUF(chunk13)(pb + 2 * f0, L13_PBROW, pt + f0 * 26, 26,
+                             2, ct, K0, K1, K2, K3, K4, K5, 1);
+            }
+        }
+        /* X: along x (t1 row stride T1P, out 338), lanes over the 169
+         * contiguous (ky,kz) */
+        for (int i = 0; i < 169 / WC; ++i) {
+            long f0 = (long)i * WC;
+            SUF(chunk13)(t1 + 2 * f0, L13_T1P, vout + 2 * f0, 2, 338,
+                         ct, K0, K1, K2, K3, K4, K5, 0);
+        }
+#if (169 % WC) != 0
+        SUF(chunk13)(t1 + 2 * (169 - WC), L13_T1P, vout + 2 * (169 - WC), 2,
+                     338, ct, K0, K1, K2, K3, K4, K5, 0);
+#endif
+    }
+}
+
+/* ---- X-first: X from in into t1, then per-kx-plane Y,Z straight into out,
+ * spreading the output writes across the volume's compute (L17_matrixsimd r3;
+ * wins only at streaming batch, loses ~5% cache-resident). ---- */
+static __attribute__((unused)) void
+SUF(exec_xf)(const fft3d_plan *restrict p, const double _Complex *restrict in,
+             double _Complex *restrict out, int b0, int b1,
+             const l13_tls *restrict ts)
+{
+    const double *restrict ct = CTAB(p);
+    const double *restrict st = STAB(p);
+    double *restrict pb = ts->pb;
+    double *restrict t1 = ts->t1;
+    VT K0 = CGET(st, 0), K1 = CGET(st, 1), K2 = CGET(st, 2),
+       K3 = CGET(st, 3), K4 = CGET(st, 4), K5 = CGET(st, 5);
+    L13_PIN_ASM();
+
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+
+        for (int i = 0; i < 169 / WC; ++i) {
+            long f0 = (long)i * WC;
+            SUF(chunk13)(vin + 2 * f0, 338, t1 + 2 * f0, 2, L13_T1P,
+                         ct, K0, K1, K2, K3, K4, K5, 0);
+        }
+#if (169 % WC) != 0
+        SUF(chunk13)(vin + 2 * (169 - WC), 338, t1 + 2 * (169 - WC), 2,
+                     L13_T1P, ct, K0, K1, K2, K3, K4, K5, 0);
+#endif
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            double *pt = vout + (long)x * 338;
+            for (int t = 0; t < NOFF13; ++t) {
+                long f0 = SUF(off13)[t];
+                SUF(chunk13)(pin + 2 * f0, 26, pb + f0 * L13_PBROW, L13_PBROW,
+                             2, ct, K0, K1, K2, K3, K4, K5, 1);
+            }
+            for (int t = 0; t < NOFF13; ++t) {
+                long f0 = SUF(off13)[t];
+                SUF(chunk13)(pb + 2 * f0, L13_PBROW, pt + f0 * 26, 26,
+                             2, ct, K0, K1, K2, K3, K4, K5, 1);
+            }
+        }
+    }
+}
+
+/* ---- all-pinned variants of the two pass orders (chunk13p) ---- */
+static __attribute__((unused)) void
+SUF(exec_xlp)(const fft3d_plan *restrict p, const double _Complex *restrict in,
+              double _Complex *restrict out, int b0, int b1,
+              const l13_tls *restrict ts)
+{
+    const double *restrict cd = CTD(p);
+    const double *restrict st = STAB(p);
+    double *restrict pb = ts->pb;
+    double *restrict t1 = ts->t1;
+    VT C0 = CGET(cd, 0), C1 = CGET(cd, 1), C2 = CGET(cd, 2),
+       C3 = CGET(cd, 3), C4 = CGET(cd, 4), C5 = CGET(cd, 5);
+    VT S0 = CGET(st, 0), S1 = CGET(st, 1), S2 = CGET(st, 2),
+       S3 = CGET(st, 3), S4 = CGET(st, 4), S5 = CGET(st, 5);
+    L13_PIN12_ASM();
+
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = vin + (long)x * 338;
+            double *pt = t1 + (long)x * L13_T1P;
+            for (int t = 0; t < NOFF13; ++t) {
+                long f0 = SUF(off13)[t];
+                SUF(chunk13p)(pin + 2 * f0, 26, pb + f0 * L13_PBROW, L13_PBROW,
+                              2, C0, C1, C2, C3, C4, C5,
+                              S0, S1, S2, S3, S4, S5, 1);
+            }
+            for (int t = 0; t < NOFF13; ++t) {
+                long f0 = SUF(off13)[t];
+                SUF(chunk13p)(pb + 2 * f0, L13_PBROW, pt + f0 * 26, 26,
+                              2, C0, C1, C2, C3, C4, C5,
+                              S0, S1, S2, S3, S4, S5, 1);
+            }
+        }
+        for (int i = 0; i < 169 / WC; ++i) {
+            long f0 = (long)i * WC;
+            SUF(chunk13p)(t1 + 2 * f0, L13_T1P, vout + 2 * f0, 2, 338,
+                          C0, C1, C2, C3, C4, C5, S0, S1, S2, S3, S4, S5, 0);
+        }
+#if (169 % WC) != 0
+        SUF(chunk13p)(t1 + 2 * (169 - WC), L13_T1P, vout + 2 * (169 - WC), 2,
+                      338, C0, C1, C2, C3, C4, C5, S0, S1, S2, S3, S4, S5, 0);
+#endif
+    }
+}
+
+static __attribute__((unused)) void
+SUF(exec_xfp)(const fft3d_plan *restrict p, const double _Complex *restrict in,
+              double _Complex *restrict out, int b0, int b1,
+              const l13_tls *restrict ts)
+{
+    const double *restrict cd = CTD(p);
+    const double *restrict st = STAB(p);
+    double *restrict pb = ts->pb;
+    double *restrict t1 = ts->t1;
+    VT C0 = CGET(cd, 0), C1 = CGET(cd, 1), C2 = CGET(cd, 2),
+       C3 = CGET(cd, 3), C4 = CGET(cd, 4), C5 = CGET(cd, 5);
+    VT S0 = CGET(st, 0), S1 = CGET(st, 1), S2 = CGET(st, 2),
+       S3 = CGET(st, 3), S4 = CGET(st, 4), S5 = CGET(st, 5);
+    L13_PIN12_ASM();
+
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+
+        for (int i = 0; i < 169 / WC; ++i) {
+            long f0 = (long)i * WC;
+            SUF(chunk13p)(vin + 2 * f0, 338, t1 + 2 * f0, 2, L13_T1P,
+                          C0, C1, C2, C3, C4, C5, S0, S1, S2, S3, S4, S5, 0);
+        }
+#if (169 % WC) != 0
+        SUF(chunk13p)(vin + 2 * (169 - WC), 338, t1 + 2 * (169 - WC), 2,
+                      L13_T1P, C0, C1, C2, C3, C4, C5,
+                      S0, S1, S2, S3, S4, S5, 0);
+#endif
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            double *pt = vout + (long)x * 338;
+            for (int t = 0; t < NOFF13; ++t) {
+                long f0 = SUF(off13)[t];
+                SUF(chunk13p)(pin + 2 * f0, 26, pb + f0 * L13_PBROW, L13_PBROW,
+                              2, C0, C1, C2, C3, C4, C5,
+                              S0, S1, S2, S3, S4, S5, 1);
+            }
+            for (int t = 0; t < NOFF13; ++t) {
+                long f0 = SUF(off13)[t];
+                SUF(chunk13p)(pb + 2 * f0, L13_PBROW, pt + f0 * 26, 26,
+                              2, C0, C1, C2, C3, C4, C5,
+                              S0, S1, S2, S3, S4, S5, 1);
+            }
+        }
+    }
+}
+
+#undef NOFF13
+#endif /* WC != 1 */
+#undef CTAB
+#undef STAB
+#undef CTD
+#undef CSTEP_C
+#undef CGET
+#undef L13_PIN_ASM
+#undef L13_PIN12_ASM
+#undef L13_STORE_BODY
+#undef L13_ACC15
+#undef L13_ACC6R
+#undef XP_
+#undef XM_
+#undef LASTCOL_
+#if WC == 4
+#  undef TILE4_
+#elif WC == 2
+#  undef TILE2_
+#endif
+#undef MULI
+#undef SWAPRI
+#undef TTILE
+#undef SHUF1
+#undef SHUF2
+#undef VLD
+#undef VST
+#undef VT
+#undef IT
+#undef VDW
+
+#else /* !L13_TEMPLATE_PASS =================================================== */
+
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+#if defined(__linux__)
+#  include <sys/syscall.h> /* SYS_get_mempolicy for the mt_r3 fr scan */
+#endif
+#ifdef _OPENMP
+#  include <omp.h>
+#endif
+
+/* long-double trig so the splatted tables are good to ~1e-19 */
+#include <math.h>
+
+#include "../fft3d_api.h"
+
+/* plane buffer row stride, in doubles: 13 complex padded to 16 (rows stay
+ * 64-byte aligned relative to the base; 13 rows = 3.3 KiB, L1-resident) */
+enum { L13_PBROW = 32 };
+
+/* t1 x-plane stride, in doubles: 169 complex (338) padded to 344 = 2752 B =
+ * 43 cache lines (panel_r8; L23_rader panel_r6's padding rule applied to the
+ * one big stride this plan owns).  At the driver's natural 338 (2704 B =
+ * 42.25 lines) every X-pass vector access to t1 at plane j sits at byte
+ * 16*j (mod 64), so 3/4 of the X pass's zmm loads (X-last) or stores
+ * (X-first) SPLIT a cache line.  344 doubles makes them all 64-byte aligned,
+ * and 2752 mod 4096 differs from in/out's 2704 residue comb, so the X pass's
+ * t1 stream can no longer 4K-alias the driver-buffer stream it runs against.
+ * The pad tail (doubles 338..343 of each plane) is never read. */
+enum { L13_T1P = 344 };
+
+/* mt_r1: per-thread scratch.  One slot per OpenMP thread, allocated AND
+ * first-touched by its owning thread inside fft3d_create()'s warmup parallel
+ * region, so each slot is NUMA-local to the core that will use it (the
+ * benchmark node is two sockets; PANEL_BRIEF "NUMA").  Slots are page-sized
+ * blocks, so no two threads' scratch shares a cache line. */
+typedef struct {
+    double *pb;    /* 13 x PBROW plane buffer (pass Y -> pass Z)          */
+    double *t1;    /* one 13^3 complex volume of scratch, x-planes at T1P */
+    double *sb;    /* 13x13 hot staging plane (pass Z -> burst memcpy)    */
+    double *tin;   /* mt_r4 staged-input tile: one volume, x-rows at T1P  */
+    void *blk;
+} l13_tls;
+
+enum { L13_MAXT = 64 };
+
+struct fft3d_plan {
+    int L, batch;
+    int nthr;   /* OMP threads available (harness gives 32)              */
+    int nuse;   /* team size execute() launches (1 = fully serial path)  */
+    int gsplit; /* threads cooperating on ONE volume (1 = batch-parallel)*/
+    void (*exec)(const struct fft3d_plan *, const double _Complex *,
+                 double _Complex *, int, int, const l13_tls *);
+    double *ctab8; /* 6 rows x 7 cosines, j-major, each splatted 8x (zmm) */
+    double *stab8; /* s_1..s_6, each splatted 8x (zmm)                    */
+    double *ctd8;  /* the 6 DISTINCT cosines c_1..c_6, splatted 8x (zmm)  */
+    double *ctab4; /* the same three, splatted 4x (ymm)                   */
+    double *stab4;
+    double *ctd4;
+    /* ---- mt_r3 execute-time governor (adopted from L8_fusedaxes mt_r2).
+     * All raced configs are bit-identical, so a lock flip can never change
+     * output.  gov_mode 0 = off (execute is the plain r2 dispatch). ---- */
+    int gov_mode;   /* 0 off, 1 streaming (ws > L3), 2 batch==1            */
+    int gov_state;  /* 0 probing, 1 locked                                 */
+    int gov_ncfg, gov_lock, gov_ru, gov_rvleft, gov_next;
+    long gov_call;
+    int gov_cnt[4], gov_bud[4];
+    double gov_best[4];
+    void (*gov_exec[4])(const struct fft3d_plan *, const double _Complex *,
+                        double _Complex *, int, int, const l13_tls *);
+    int gov_nuse[4], gov_gs[4], gov_wtf[4];
+    const char *gov_nm[4];
+    int gov_fri, gov_fro, gov_frl, gov_nb; /* % remote pages of in/out; nb */
+    int run_wt;               /* current call uses the weighted cuts       */
+    int cuts[L13_MAXT + 1];   /* weighted-mode volume boundaries           */
+    double wts[L13_MAXT];
+    struct { double v; char pad[56]; } tsec[L13_MAXT]; /* padded: no false
+                                sharing on the per-thread chunk timings    */
+    size_t desc_len;          /* g_desc length before the gov{} tail       */
+    l13_tls tls[L13_MAXT];
+    void *block;
+};
+
+/* ---- instantiate the kernel at 512-bit and 256-bit ---- */
+#if defined(__has_include)
+#  if __has_include("L13_direct.c")
+#    define L13_SELF "L13_direct.c"
+#  elif __has_include("impl/L13_direct.c")
+#    define L13_SELF "impl/L13_direct.c"
+#  endif
+#else
+#  define L13_SELF "L13_direct.c"
+#endif
+
+#ifdef L13_SELF
+#  define L13_TEMPLATE_PASS 1
+#  define WC 4
+#  define SUF(x) x##_w4
+#  include L13_SELF
+#  undef SUF
+#  undef WC
+#  undef L13_TEMPLATE_PASS
+
+#  define L13_TEMPLATE_PASS 2
+#  define WC 2
+#  define SUF(x) x##_w2
+#  include L13_SELF
+#  undef SUF
+#  undef WC
+#  undef L13_TEMPLATE_PASS
+
+/* panel_r11: xmm width, kernels only -- the mixed execs' tail chunks */
+#  define L13_TEMPLATE_PASS 3
+#  define WC 1
+#  define SUF(x) x##_w1
+#  include L13_SELF
+#  undef SUF
+#  undef WC
+#  undef L13_TEMPLATE_PASS
+#else
+#  error "L13_direct.c must be able to #include itself"
+#endif
+
+/* =============================================================================
+ * Mixed-width execs: 512-bit chunk body, 256-bit (ymm) tail chunks.
+ * Adopted from L17_rader panel_r4 ("512t") via L17_matrixsimd panel_r5: the
+ * scoring node's Gold 5218 has ONE fused 512-bit FMA unit but TWO 256-bit FMA
+ * ports, so a ymm chunk retires its 102 FP ops in ~51 cycles where a zmm chunk
+ * needs ~102.  A 13-long index costs 3 zmm + 1 ymm tail (offsets 0,4,8 + 11,
+ * one line recomputed) instead of 4 zmm (0,4,8,9, three recomputed); the X
+ * pass 42 zmm + 1 ymm at 167.  On a 2x512-bit-FMA machine (wallaby) the mix
+ * is FP-neutral and slightly worse on instruction count: it is a node bet.
+ * Only the zmm K set is asm-pinned; the ymm Q set spilling a little on 1
+ * chunk in 4 is cheaper than holding 12 of 32 registers everywhere.
+ * =============================================================================
+ */
+#if defined(__AVX512F__)
+#  define L13_PIN_W4M() __asm__("" : "+v"(K0), "+v"(K1), "+v"(K2), "+v"(K3),   \
+                                     "+v"(K4), "+v"(K5))
+#else
+#  define L13_PIN_W4M() do { } while (0)
+#endif
+
+#define L13_MIX_DECLS                                                          \
+    const double *restrict ct8 = p->ctab8, *restrict st8 = p->stab8;           \
+    const double *restrict ct4 = p->ctab4, *restrict st4 = p->stab4;           \
+    double *restrict pb = ts->pb;                                              \
+    double *restrict t1 = ts->t1;                                              \
+    vd_w4 K0 = *(const vd_w4 *)(st8 + 0),  K1 = *(const vd_w4 *)(st8 + 8),     \
+          K2 = *(const vd_w4 *)(st8 + 16), K3 = *(const vd_w4 *)(st8 + 24),    \
+          K4 = *(const vd_w4 *)(st8 + 32), K5 = *(const vd_w4 *)(st8 + 40);    \
+    vd_w2 Q0 = *(const vd_w2 *)(st4 + 0),  Q1 = *(const vd_w2 *)(st4 + 4),     \
+          Q2 = *(const vd_w2 *)(st4 + 8),  Q3 = *(const vd_w2 *)(st4 + 12),    \
+          Q4 = *(const vd_w2 *)(st4 + 16), Q5 = *(const vd_w2 *)(st4 + 20);    \
+    L13_PIN_W4M()
+
+/* Mixed decls for the ALL-PINNED zmm kernel: 12 zmm constants pinned; the
+ * ymm tail runs the all-pinned w2 kernel with its own UNPINNED 12 ymm
+ * constants (panel_r9 -- previously the tail ran the table-cosine kernel at
+ * 42 ct4 loads + 6 Q reloads per chunk; the unpinned D/Q set spills, but 12
+ * spill-reloads per tail chunk beat 48 loads, a pure load deletion, and NOT
+ * pinning them keeps the zmm body's registers intact).  Bit-exact swap: the
+ * two kernels share the fold, the accumulation order, and the store body
+ * (the table kernel's k=0 row is FMA(1.0,u,P0), exact). */
+#if defined(__AVX512F__)
+#  define L13_PIN12_W4M() __asm__("" : "+v"(C0), "+v"(C1), "+v"(C2), "+v"(C3),\
+                                       "+v"(C4), "+v"(C5), "+v"(K0), "+v"(K1),\
+                                       "+v"(K2), "+v"(K3), "+v"(K4), "+v"(K5))
+#else
+#  define L13_PIN12_W4M() do { } while (0)
+#endif
+
+/* ---- streaming prefetch (panel_r8) --------------------------------------
+ * prefetchw on the out stream, one plane ahead of the Z-pass stores that
+ * will RFO it (adopted from the r7 verdict rule "hide the RFO with
+ * prefetchw, do not avoid it with NT stores" -- node-selected at every
+ * streaming cell at L=6/8/23/36/64; the L=13-local evidence is L13_rader
+ * panel_r7's pw A/B at wallaby B=2048: -6.0%).  Plus a t1-hint read
+ * prefetch of the NEXT volume's input, paced one plane-slice per plane
+ * (L17_winograd r2's cross-volume prefetch, -4.4% streaming; L64_radix8's
+ * node-picked slabpf).  Both fire only from the _pf exec, which create()
+ * selects only when in+out exceed this host's L3 (L13_rader r7 measured
+ * pfw at L3-resident batch as a ~3% LOSS; same gate).  -DL13_PW=0 /
+ * -DL13_PFIN=0 kill either half for node A/Bs. */
+#ifndef L13_PW
+#  define L13_PW 1
+#endif
+#ifndef L13_PFIN
+#  define L13_PFIN 1
+#endif
+#if L13_PW
+#  define L13_PW1(P, OFF)                                                      \
+      do { if (P) __builtin_prefetch((const char *)(P) + (OFF), 1, 3); } while (0)
+#else
+#  define L13_PW1(P, OFF) do { (void)(P); } while (0)
+#endif
+
+/* a 13x13 complex plane at row stride 338 doubles spans 43 line boundaries
+ * for every base offset the driver's layout produces (16x mod 64 <= 48) */
+static inline void l13_pfw43(const double *p)
+{
+#if L13_PW
+    for (int i = 0; i < 43; ++i)
+        __builtin_prefetch((const char *)p + 64 * i, 1, 3);
+#else
+    (void)p;
+#endif
+}
+static inline void l13_pfr43(const double *p)
+{
+#if L13_PFIN
+    for (int i = 0; i < 43; ++i)
+        __builtin_prefetch((const char *)p + 64 * i, 0, 2);
+#else
+    (void)p;
+#endif
+}
+
+/* mt_r4 staged input (see the header block): copy one x-row (338 doubles)
+ * from the caller's layout (row bases rotate 16 mod 64) into the per-thread
+ * tin tile at row stride T1P, whose bases are all 64 B aligned.  Unaligned
+ * wide loads, aligned stores, INLINE -- a memcpy call here would make gcc
+ * spill the callers' 12 pinned zmm constants around every call (the same
+ * reason the xsp execs tolerate it only per-plane).  The loads this issues
+ * are the volume's one linear demand stream. */
+typedef double l13_cvd __attribute__((vector_size(64), aligned(8)));
+static inline void l13_cprow(double *restrict d, const double *restrict s)
+{
+    int n = 42;
+    __asm__("" : "+r"(n));
+    for (int i = 0; i < n; ++i)
+        *(l13_cvd *)(d + 8 * i) = *(const l13_cvd *)(s + 8 * i);
+    d[336] = s[336];
+    d[337] = s[337];
+}
+
+/* pointer-free constant loads, shared by the range execs (which add pb/t1
+ * from their per-thread scratch) and the mt_r1 intra-volume worker (which
+ * takes pb from its own slot but t1 from the volume group's slot 0) */
+#define L13_MIXP_CONSTS                                                        \
+    const double *restrict cd8 = p->ctd8, *restrict st8 = p->stab8;            \
+    const double *restrict cd4 = p->ctd4, *restrict st4 = p->stab4;            \
+    vd_w4 C0 = *(const vd_w4 *)(cd8 + 0),  C1 = *(const vd_w4 *)(cd8 + 8),     \
+          C2 = *(const vd_w4 *)(cd8 + 16), C3 = *(const vd_w4 *)(cd8 + 24),    \
+          C4 = *(const vd_w4 *)(cd8 + 32), C5 = *(const vd_w4 *)(cd8 + 40);    \
+    vd_w4 K0 = *(const vd_w4 *)(st8 + 0),  K1 = *(const vd_w4 *)(st8 + 8),     \
+          K2 = *(const vd_w4 *)(st8 + 16), K3 = *(const vd_w4 *)(st8 + 24),    \
+          K4 = *(const vd_w4 *)(st8 + 32), K5 = *(const vd_w4 *)(st8 + 40);    \
+    vd_w2 D0 = *(const vd_w2 *)(cd4 + 0),  D1 = *(const vd_w2 *)(cd4 + 4),     \
+          D2 = *(const vd_w2 *)(cd4 + 8),  D3 = *(const vd_w2 *)(cd4 + 12),    \
+          D4 = *(const vd_w2 *)(cd4 + 16), D5 = *(const vd_w2 *)(cd4 + 20);    \
+    vd_w2 Q0 = *(const vd_w2 *)(st4 + 0),  Q1 = *(const vd_w2 *)(st4 + 4),     \
+          Q2 = *(const vd_w2 *)(st4 + 8),  Q3 = *(const vd_w2 *)(st4 + 12),    \
+          Q4 = *(const vd_w2 *)(st4 + 16), Q5 = *(const vd_w2 *)(st4 + 20);    \
+    /* panel_r11: xmm-tail constants -- lane pair (c,c) / (s,-s) is the first  \
+     * 16 B of each 4-splat table row.  Unpinned like the w2 set; whichever    \
+     * width an exec's tails do not use is a dead load gcc deletes. */         \
+    vd_w1 E0 = *(const vd_w1 *)(cd4 + 0),  E1 = *(const vd_w1 *)(cd4 + 4),     \
+          E2 = *(const vd_w1 *)(cd4 + 8),  E3 = *(const vd_w1 *)(cd4 + 12),    \
+          E4 = *(const vd_w1 *)(cd4 + 16), E5 = *(const vd_w1 *)(cd4 + 20);    \
+    vd_w1 F0 = *(const vd_w1 *)(st4 + 0),  F1 = *(const vd_w1 *)(st4 + 4),     \
+          F2 = *(const vd_w1 *)(st4 + 8),  F3 = *(const vd_w1 *)(st4 + 12),    \
+          F4 = *(const vd_w1 *)(st4 + 16), F5 = *(const vd_w1 *)(st4 + 20);    \
+    L13_PIN12_W4M()
+
+#define L13_MIXP_DECLS                                                         \
+    double *restrict pb = ts->pb;                                              \
+    double *restrict t1 = ts->t1;                                              \
+    L13_MIXP_CONSTS
+
+/* One 13-long free index, transposing store: 3 zmm chunks at 0,4,8 and one
+ * ymm tail at 11 (lines 11,12; line 11 recomputed).  The asm-opaque bound
+ * keeps the zmm loop rolled (gcc 11 ignores `#pragma GCC unroll 1` around an
+ * always_inline callee -- L17_rader r4). */
+#define L13_MIX_GROUP(SRCB, RS, DSTB, DA)                                      \
+    do {                                                                       \
+        int nt_ = 3;                                                           \
+        __asm__("" : "+r"(nt_));                                               \
+        for (int t_ = 0; t_ < nt_; ++t_) {                                     \
+            long f0_ = 4L * t_;                                                \
+            chunk13_w4((SRCB) + 2 * f0_, (RS), (DSTB) + f0_ * (DA), (DA), 2,   \
+                       ct8, K0, K1, K2, K3, K4, K5, 1);                        \
+        }                                                                      \
+        chunk13_w2((SRCB) + 2 * 11, (RS), (DSTB) + 11 * (DA), (DA), 2,         \
+                   ct4, Q0, Q1, Q2, Q3, Q4, Q5, 1);                            \
+    } while (0)
+
+/* The X pass, mixed: 42 zmm chunks cover lines 0..167 of the 169-long free
+ * index, one ymm tail at 167 covers 167,168 (167 recomputed).  SRS/DRS are
+ * the x-row strides of the two buffers (338 for in/out, L13_T1P for t1). */
+#define L13_MIX_XPASS(SRCB, SRS, DSTB, DRS)                                    \
+    do {                                                                       \
+        int nx_ = 42;                                                          \
+        __asm__("" : "+r"(nx_));                                               \
+        for (int i_ = 0; i_ < nx_; ++i_) {                                     \
+            long f0_ = 4L * i_;                                                \
+            chunk13_w4((SRCB) + 2 * f0_, (SRS), (DSTB) + 2 * f0_, 2, (DRS),    \
+                       ct8, K0, K1, K2, K3, K4, K5, 0);                        \
+        }                                                                      \
+        chunk13_w2((SRCB) + 2 * 167, (SRS), (DSTB) + 2 * 167, 2, (DRS),        \
+                   ct4, Q0, Q1, Q2, Q3, Q4, Q5, 0);                            \
+    } while (0)
+
+static __attribute__((unused)) void
+l13_exec_xl_mx(const fft3d_plan *restrict p, const double _Complex *restrict in,
+               double _Complex *restrict out, int b0, int b1,
+               const l13_tls *restrict ts)
+{
+    L13_MIX_DECLS;
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = vin + (long)x * 338;
+            double *pt = t1 + (long)x * L13_T1P;
+            L13_MIX_GROUP(pin, 26, pb, L13_PBROW);
+            L13_MIX_GROUP(pb, L13_PBROW, pt, 26);
+        }
+        L13_MIX_XPASS(t1, L13_T1P, vout, 338);
+    }
+}
+
+static __attribute__((unused)) void
+l13_exec_xf_mx(const fft3d_plan *restrict p, const double _Complex *restrict in,
+               double _Complex *restrict out, int b0, int b1,
+               const l13_tls *restrict ts)
+{
+    L13_MIX_DECLS;
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+        L13_MIX_XPASS(vin, 338, t1, L13_T1P);
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            double *pt = vout + (long)x * 338;
+            L13_MIX_GROUP(pin, 26, pb, L13_PBROW);
+            L13_MIX_GROUP(pb, L13_PBROW, pt, 26);
+        }
+    }
+}
+
+/* ---- the same two pass orders with the ALL-PINNED zmm kernel ----
+ * panel_r11: the tail chunk is now the WC==1 (xmm) kernel at offset 12/168
+ * covering the ONE line the 3/42 zmm chunks leave, instead of a ymm chunk at
+ * 11/167 recomputing a line to deliver it.  Port-identical (102 xmm ops pair
+ * on two ports = 51 cycles, exactly the ymm tail's cost) and bit-identical
+ * (same DAG per lane, same constant values), and a pure deletion of tail
+ * split accesses: 16 B ops on 16 B-aligned complex addresses NEVER split a
+ * cache line, where the ymm tails sat at byte 48 (mod 64) -- every Z-group
+ * tail load from pb split (169/volume), the X tail's stores split (13), the
+ * Y tails' loads split (~52).  It also deletes the ymm-tail store-forward
+ * BLOCK: the Z group's 32 B tail load spanned the Y group's zmm tile store
+ * AND its 16 B LASTCOL_ store (~169 blocked loads/volume at the plane-hot pb
+ * junction -- the standing suspect for the B=1 residue, r8/r9 "next").
+ *
+ * BUT the xmm tail is only safe where nothing soon LOADS WIDE what it
+ * stored.  In the Y position it writes pb row 12 as 13 xmm stores, and the
+ * Z group's three zmm chunks each load that row 64 B at a time -- a load
+ * spanning four narrow stores cannot forward, and on wallaby/SPR that form
+ * (FORCE=9, "xt") measured a catastrophe: +44% at B=1, +17% at B=16, +29%
+ * at B=512, driver-level pinned.  So the DEFAULT pairs the xmm tail (Z and
+ * X positions, whose outputs go to `out`/t1 and are not wide-loaded hot)
+ * with the ZSOLID Y group below.  The r10 ymm-tail shape is kept verbatim
+ * as the _Y2 macros (FORCE=13 and the discriminator) so the node can price
+ * both changes directly. */
+#define L13_MIXP_GROUP(SRCB, RS, DSTB, DA)                                     \
+    do {                                                                       \
+        int nt_ = 3;                                                           \
+        __asm__("" : "+r"(nt_));                                               \
+        for (int t_ = 0; t_ < nt_; ++t_) {                                     \
+            long f0_ = 4L * t_;                                                \
+            chunk13p_w4((SRCB) + 2 * f0_, (RS), (DSTB) + f0_ * (DA), (DA), 2,  \
+                C0, C1, C2, C3, C4, C5, K0, K1, K2, K3, K4, K5, 1);            \
+        }                                                                      \
+        chunk13p_w1((SRCB) + 2 * 12, (RS), (DSTB) + 12 * (DA), (DA), 2,        \
+            E0, E1, E2, E3, E4, E5, F0, F1, F2, F3, F4, F5, 1);                \
+    } while (0)
+
+/* zsolid Y group (panel_r11, THE DEFAULT's Y position): 4 zmm chunks at
+ * 0,4,8,9 -- the overlap chunk rewrites rows 9..11 with identical bits and
+ * delivers row 12 as full 64 B tile stores, so EVERY Z-group load out of pb
+ * (zmm or xmm) is exactly contained in one Y store: ZERO store-forward
+ * blocks at the pb junction, by construction.  Costs +51 port cycles/plane
+ * (+663/volume, only on the node's single 512-bit unit -- on wallaby's two
+ * units a 4th zmm chunk and a tail cost the same 51 cycles).  Wallaby,
+ * pinned, disjoint distributions: beats the r10 shape -1.6/-2.5/-1.8% at
+ * B=1/16/512.  Node bet: SF stalls are latency, not port pressure, and B=1
+ * sits 1.21x over its port floor with ~2.9k cycles of slack. */
+#define L13_MIXP_GROUP_ZS(SRCB, RS, DSTB, DA)                                  \
+    do {                                                                       \
+        int nt_ = 4;                                                           \
+        __asm__("" : "+r"(nt_));                                               \
+        for (int t_ = 0; t_ < nt_; ++t_) {                                     \
+            long f0_ = (t_ == 3) ? 9L : 4L * t_;                               \
+            chunk13p_w4((SRCB) + 2 * f0_, (RS), (DSTB) + f0_ * (DA), (DA), 2,  \
+                C0, C1, C2, C3, C4, C5, K0, K1, K2, K3, K4, K5, 1);            \
+        }                                                                      \
+    } while (0)
+
+/* the r10 default's ymm tail, verbatim (rollback + discriminator reference) */
+#define L13_MIXP_GROUP_Y2(SRCB, RS, DSTB, DA)                                  \
+    do {                                                                       \
+        int nt_ = 3;                                                           \
+        __asm__("" : "+r"(nt_));                                               \
+        for (int t_ = 0; t_ < nt_; ++t_) {                                     \
+            long f0_ = 4L * t_;                                                \
+            chunk13p_w4((SRCB) + 2 * f0_, (RS), (DSTB) + f0_ * (DA), (DA), 2,  \
+                C0, C1, C2, C3, C4, C5, K0, K1, K2, K3, K4, K5, 1);            \
+        }                                                                      \
+        chunk13p_w2((SRCB) + 2 * 11, (RS), (DSTB) + 11 * (DA), (DA), 2,        \
+            D0, D1, D2, D3, D4, D5, Q0, Q1, Q2, Q3, Q4, Q5, 1);                \
+    } while (0)
+
+/* PFW0: optional prefetchw target (the first out plane, one pfw line per
+ * chunk = perfectly paced); pass 0 to elide. */
+#define L13_MIXP_XPASS(SRCB, SRS, DSTB, DRS, PFW0)                             \
+    do {                                                                       \
+        int nx_ = 42;                                                          \
+        __asm__("" : "+r"(nx_));                                               \
+        for (int i_ = 0; i_ < nx_; ++i_) {                                     \
+            long f0_ = 4L * i_;                                                \
+            chunk13p_w4((SRCB) + 2 * f0_, (SRS), (DSTB) + 2 * f0_, 2, (DRS),   \
+                C0, C1, C2, C3, C4, C5, K0, K1, K2, K3, K4, K5, 0);            \
+            L13_PW1((PFW0), 64 * i_);                                          \
+        }                                                                      \
+        chunk13p_w1((SRCB) + 2 * 168, (SRS), (DSTB) + 2 * 168, 2, (DRS),       \
+            E0, E1, E2, E3, E4, E5, F0, F1, F2, F3, F4, F5, 0);                \
+        L13_PW1((PFW0), 64 * 42);                                              \
+    } while (0)
+
+#define L13_MIXP_XPASS_Y2(SRCB, SRS, DSTB, DRS, PFW0)                          \
+    do {                                                                       \
+        int nx_ = 42;                                                          \
+        __asm__("" : "+r"(nx_));                                               \
+        for (int i_ = 0; i_ < nx_; ++i_) {                                     \
+            long f0_ = 4L * i_;                                                \
+            chunk13p_w4((SRCB) + 2 * f0_, (SRS), (DSTB) + 2 * f0_, 2, (DRS),   \
+                C0, C1, C2, C3, C4, C5, K0, K1, K2, K3, K4, K5, 0);            \
+            L13_PW1((PFW0), 64 * i_);                                          \
+        }                                                                      \
+        chunk13p_w2((SRCB) + 2 * 167, (SRS), (DSTB) + 2 * 167, 2, (DRS),       \
+            D0, D1, D2, D3, D4, D5, Q0, Q1, Q2, Q3, Q4, Q5, 0);                \
+        L13_PW1((PFW0), 64 * 42);                                              \
+    } while (0)
+
+static __attribute__((unused)) void
+l13_exec_xlzs_mx(const fft3d_plan *restrict p, const double _Complex *restrict in,
+                 double _Complex *restrict out, int b0, int b1,
+                 const l13_tls *restrict ts)
+{
+    L13_MIXP_DECLS;
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = vin + (long)x * 338;
+            double *pt = t1 + (long)x * L13_T1P;
+            L13_MIXP_GROUP_ZS(pin, 26, pb, L13_PBROW);
+            L13_MIXP_GROUP(pb, L13_PBROW, pt, 26);
+        }
+        L13_MIXP_XPASS(t1, L13_T1P, vout, 338, (double *)0);
+    }
+}
+
+static __attribute__((unused)) void
+l13_exec_xfp_mx(const fft3d_plan *restrict p, const double _Complex *restrict in,
+                double _Complex *restrict out, int b0, int b1,
+                const l13_tls *restrict ts)
+{
+    L13_MIXP_DECLS;
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+        L13_MIXP_XPASS(vin, 338, t1, L13_T1P, (double *)0);
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            double *pt = vout + (long)x * 338;
+            L13_MIXP_GROUP(pin, 26, pb, L13_PBROW);
+            L13_MIXP_GROUP(pb, L13_PBROW, pt, 26);
+        }
+    }
+}
+
+/* ---- xfp_y2: the r10 default verbatim (ymm tails), FORCE=13 and the
+ * discriminator's y2 slot -- prices this round's change on the node.
+ * xfzs: THE DEFAULT (ws <= L3): zsolid Y groups + xmm Z/X tails.
+ * Both bit-identical to l13_exec_xfp_mx. ---- */
+static __attribute__((unused)) void
+l13_exec_xfp_y2_mx(const fft3d_plan *restrict p, const double _Complex *restrict in,
+                   double _Complex *restrict out, int b0, int b1,
+                   const l13_tls *restrict ts)
+{
+    L13_MIXP_DECLS;
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+        L13_MIXP_XPASS_Y2(vin, 338, t1, L13_T1P, (double *)0);
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            double *pt = vout + (long)x * 338;
+            L13_MIXP_GROUP_Y2(pin, 26, pb, L13_PBROW);
+            L13_MIXP_GROUP_Y2(pb, L13_PBROW, pt, 26);
+        }
+    }
+}
+
+static __attribute__((unused)) void
+l13_exec_xfzs_mx(const fft3d_plan *restrict p, const double _Complex *restrict in,
+                 double _Complex *restrict out, int b0, int b1,
+                 const l13_tls *restrict ts)
+{
+    L13_MIXP_DECLS;
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+        L13_MIXP_XPASS(vin, 338, t1, L13_T1P, (double *)0);
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            double *pt = vout + (long)x * 338;
+            L13_MIXP_GROUP_ZS(pin, 26, pb, L13_PBROW);
+            L13_MIXP_GROUP(pb, L13_PBROW, pt, 26);
+        }
+    }
+}
+
+/* X-first with the streaming prefetch schedule (panel_r8; see the comment at
+ * l13_pfw43).  Per plane x: prefetchw the NEXT out plane before the Y group
+ * (lead time = one Y+Z group, ~700 node cycles); read-prefetch plane-slice x
+ * of the next volume's input between the groups.  Plane 0's out lines are
+ * prefetched from inside the X pass, one line per chunk.  43 lines per
+ * plane-slice covers the volume's 550 lines with margin; prefetch never
+ * faults, so running a few lines past the last volume's tail is harmless. */
+static __attribute__((unused)) void
+l13_exec_xfzs_pf_mx(const fft3d_plan *restrict p, const double _Complex *restrict in,
+                    double _Complex *restrict out, int b0, int b1,
+                    const l13_tls *restrict ts)
+{
+    L13_MIXP_DECLS;
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+        const double *vnx =
+            (b + 1 < b1) ? (const double *)(in + (size_t)(b + 1) * 2197) : 0;
+        L13_MIXP_XPASS(vin, 338, t1, L13_T1P, vout);
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            double *pt = vout + (long)x * 338;
+            if (x < 12) l13_pfw43(vout + (long)(x + 1) * 338);
+            L13_MIXP_GROUP_ZS(pin, 26, pb, L13_PBROW);
+            if (vnx) l13_pfr43(vnx + (long)x * 43 * 8);
+            L13_MIXP_GROUP(pb, L13_PBROW, pt, 26);
+        }
+    }
+}
+
+/* mt_r4 STAGED-INPUT variant of the pf exec (see the header block): the
+ * paced read cursor replaces l13_pfr43's droppable hints with demand copies
+ * into tin, the X pass runs from tin's 64 B-aligned rows, and the write side
+ * (plain stores + prefetchw schedule) is unchanged.  Bit-identical output
+ * (the copy preserves values exactly).  Raced by the governor at the
+ * merely-past-L3 tier; FORCE=17. */
+static __attribute__((unused)) void
+l13_exec_xcpf_mx(const fft3d_plan *restrict p, const double _Complex *restrict in,
+                 double _Complex *restrict out, int b0, int b1,
+                 const l13_tls *restrict ts)
+{
+    L13_MIXP_DECLS;
+    double *restrict tin = ts->tin;
+    if (b0 < b1) {
+        const double *v0 = (const double *)(in + (size_t)b0 * 2197);
+        for (int j = 0; j < 13; ++j)
+            l13_cprow(tin + (long)j * L13_T1P, v0 + 338L * j);
+    }
+    for (int b = b0; b < b1; ++b) {
+        double *vout = (double *)(out + (size_t)b * 2197);
+        const double *vnx =
+            (b + 1 < b1) ? (const double *)(in + (size_t)(b + 1) * 2197) : 0;
+        L13_MIXP_XPASS(tin, L13_T1P, t1, L13_T1P, vout);
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            double *pt = vout + (long)x * 338;
+            if (x < 12) l13_pfw43(vout + (long)(x + 1) * 338);
+            L13_MIXP_GROUP_ZS(pin, 26, pb, L13_PBROW);
+            if (vnx) l13_cprow(tin + (long)x * L13_T1P, vnx + 338L * x);
+            L13_MIXP_GROUP(pb, L13_PBROW, pt, 26);
+        }
+    }
+}
+
+/* X-first with the Z pass STAGED: the transposing tile stores land in a hot
+ * 2.7 KB plane, which is then burst-copied sequentially into out (adopted
+ * from L13_rader panel_r6 / L8_radix8 via L17_rader r4: kernel-store
+ * patterns into a cold/streaming `out` are the expensive thing; a sequential
+ * memcpy of full lines is the cheap way to touch it). */
+static __attribute__((unused)) void
+l13_exec_xsp_mx(const fft3d_plan *restrict p, const double _Complex *restrict in,
+                double _Complex *restrict out, int b0, int b1,
+                const l13_tls *restrict ts)
+{
+    L13_MIXP_DECLS;
+    double *restrict sb = ts->sb;
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+        L13_MIXP_XPASS(vin, 338, t1, L13_T1P, (double *)0);
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            /* ZS in BOTH positions: the memcpy's 64 B reads of sb would
+             * otherwise straddle an xmm-tail row (the same SF-block the
+             * zsolid group exists to delete) */
+            L13_MIXP_GROUP_ZS(pin, 26, pb, L13_PBROW);
+            L13_MIXP_GROUP_ZS(pb, L13_PBROW, sb, 26);
+            memcpy(vout + (long)x * 338, sb, 338 * sizeof(double));
+        }
+    }
+}
+
+/* staged Z + the full streaming prefetch schedule (FORCE=12): pfw still pays
+ * under the memcpy's RFOs even though the kernel stores land in hot sb. */
+static __attribute__((unused)) void
+l13_exec_xsp_pf_mx(const fft3d_plan *restrict p, const double _Complex *restrict in,
+                   double _Complex *restrict out, int b0, int b1,
+                   const l13_tls *restrict ts)
+{
+    L13_MIXP_DECLS;
+    double *restrict sb = ts->sb;
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        double *vout = (double *)(out + (size_t)b * 2197);
+        const double *vnx =
+            (b + 1 < b1) ? (const double *)(in + (size_t)(b + 1) * 2197) : 0;
+        L13_MIXP_XPASS(vin, 338, t1, L13_T1P, vout);
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            if (x < 12) l13_pfw43(vout + (long)(x + 1) * 338);
+            L13_MIXP_GROUP_ZS(pin, 26, pb, L13_PBROW);
+            if (vnx) l13_pfr43(vnx + (long)x * 43 * 8);
+            L13_MIXP_GROUP_ZS(pb, L13_PBROW, sb, 26);
+            memcpy(vout + (long)x * 338, sb, 338 * sizeof(double));
+        }
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * mt_r2: staged Z + NON-TEMPORAL streaming append for the DRAM-streaming tier.
+ * ADOPTED from L13_rader mt_r1 (nts mode, -21% wallaby B=8192; its node race
+ * priced nt-off at +30%) and the mt_r1 verdict SS4/SS6 (six entries measured
+ * the NT inversion at 32 threads; L13's B=8192 loss to fftw3_patient is the
+ * RFO third of the out traffic).  Phase 1 rejected NT stores at every round
+ * -- that was the one-core fill-buffer regime; at 32 threads the streaming
+ * cells are aggregate-bandwidth bound and deleting the out-RFO cuts
+ * per-volume traffic from ~105 KB to ~70 KB.
+ *
+ * Shape: X-first into t1, per kx-plane zsolid Y then zsolid Z into the hot
+ * 2.7 KB sb (both groups pure zmm so nothing reloads across narrow stores),
+ * then the plane is APPENDED to out with NT stores.  The appender treats the
+ * thread's whole contiguous output range as ONE byte stream (planes and
+ * volumes are contiguous in out), carrying the partial cache line from one
+ * plane into the next, so every line of the range is written by exactly one
+ * full-line NT burst -- no partial-line WC flushes at plane or volume
+ * junctions (L13_rader stages per volume and eats 2 partial lines per
+ * volume; the carry deletes those too).  Head/tail of the range use 16 B NT
+ * stores (volume bases are 16 B aligned: 35152 mod 64 = 16).  One sfence per
+ * thread per execute, before the join (a fence orders only the issuing
+ * core's stores -- L8_radix8 mt_r1).
+ * prefetchw is GONE in this exec (nothing RFOs out any more); the paced
+ * read-prefetch of the next volume's input stays (L13_rader's node race
+ * prices pf-off at +13% in the threaded streaming regime).
+ * Intrinsics are confined to this block (NT stores have no vector-extension
+ * form); it compiles only under __AVX512F__, so the portable build is
+ * unchanged.  The copy writes identical bits, so output stays bit-identical
+ * to every other exec.
+ * ---------------------------------------------------------------------------
+ */
+#if defined(__AVX512F__)
+#include <immintrin.h>
+
+typedef struct {
+    double buf[8] __attribute__((aligned(64))); /* pending partial line     */
+    long fill;                                  /* doubles buffered (even)  */
+    double *dst;                                /* next unwritten out slot  */
+} l13_ntw;
+
+/* Append n doubles (n even; every plane is 338) to the NT stream.  dst is
+ * 64 B aligned whenever fill == 0 after the first call; all quantities move
+ * in 16 B units, so _mm_stream_pd alignment always holds. */
+static inline void l13_nt_append(l13_ntw *restrict w, const double *restrict s,
+                                 long n)
+{
+    long i = 0;
+    if (w->fill > 0) {
+        while (w->fill < 8 && i < n) {
+            w->buf[w->fill] = s[i];
+            w->buf[w->fill + 1] = s[i + 1];
+            w->fill += 2; i += 2;
+        }
+        if (w->fill == 8) {
+            _mm512_stream_pd(w->dst, _mm512_load_pd(w->buf));
+            w->dst += 8; w->fill = 0;
+        }
+    } else {
+        while (((uintptr_t)w->dst & 63) && i < n) {
+            _mm_stream_pd(w->dst, _mm_loadu_pd(s + i));
+            w->dst += 2; i += 2;
+        }
+    }
+    long m = (n - i) & ~7L;
+    for (long k = 0; k < m; k += 8)
+        _mm512_stream_pd(w->dst + k, _mm512_loadu_pd(s + i + k));
+    w->dst += m; i += m;
+    while (i < n) {
+        w->buf[w->fill] = s[i];
+        w->buf[w->fill + 1] = s[i + 1];
+        w->fill += 2; i += 2;
+    }
+}
+
+static inline void l13_nt_flush(l13_ntw *restrict w)
+{
+    for (long k = 0; k < w->fill; k += 2)
+        _mm_stream_pd(w->dst + k, _mm_load_pd(w->buf + k));
+    w->dst += w->fill;
+    w->fill = 0;
+}
+
+static __attribute__((unused)) void
+l13_exec_xsnt_pf_mx(const fft3d_plan *restrict p, const double _Complex *restrict in,
+                    double _Complex *restrict out, int b0, int b1,
+                    const l13_tls *restrict ts)
+{
+    L13_MIXP_DECLS;
+    double *restrict sb = ts->sb;
+    l13_ntw w;
+    w.fill = 0;
+    w.dst = (double *)(out + (size_t)b0 * 2197);
+    for (int b = b0; b < b1; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 2197);
+        const double *vnx =
+            (b + 1 < b1) ? (const double *)(in + (size_t)(b + 1) * 2197) : 0;
+        L13_MIXP_XPASS(vin, 338, t1, L13_T1P, (double *)0);
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            L13_MIXP_GROUP_ZS(pin, 26, pb, L13_PBROW);
+            if (vnx) l13_pfr43(vnx + (long)x * 43 * 8);
+            L13_MIXP_GROUP_ZS(pb, L13_PBROW, sb, 26);
+            l13_nt_append(&w, sb, 338);
+        }
+    }
+    l13_nt_flush(&w);
+    _mm_sfence();
+}
+
+/* mt_r4 STAGED-INPUT NT exec, the new streaming-tier default (header block;
+ * -DL13_STG=0 restores the r2/r3 exec above, FORCE=16 pins this one).
+ * Identical to l13_exec_xsnt_pf_mx except that the read side is the paced
+ * demand cursor into tin: the prologue copies volume b0's 13 x-rows, then
+ * plane x of every volume copies x-row x of the NEXT volume between the Y
+ * and Z groups (tin is fully consumed by the X pass before the x loop
+ * starts refilling it, so one buffer pipelines cleanly).  l13_pfr43 is gone
+ * -- the copy IS the read.  Bit-identical output. */
+static __attribute__((unused)) void
+l13_exec_xcnt_mx(const fft3d_plan *restrict p, const double _Complex *restrict in,
+                 double _Complex *restrict out, int b0, int b1,
+                 const l13_tls *restrict ts)
+{
+    L13_MIXP_DECLS;
+    double *restrict sb = ts->sb;
+    double *restrict tin = ts->tin;
+    l13_ntw w;
+    w.fill = 0;
+    w.dst = (double *)(out + (size_t)b0 * 2197);
+    if (b0 < b1) {
+        const double *v0 = (const double *)(in + (size_t)b0 * 2197);
+        for (int j = 0; j < 13; ++j)
+            l13_cprow(tin + (long)j * L13_T1P, v0 + 338L * j);
+    }
+    for (int b = b0; b < b1; ++b) {
+        const double *vnx =
+            (b + 1 < b1) ? (const double *)(in + (size_t)(b + 1) * 2197) : 0;
+        L13_MIXP_XPASS(tin, L13_T1P, t1, L13_T1P, (double *)0);
+        for (int x = 0; x < 13; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            L13_MIXP_GROUP_ZS(pin, 26, pb, L13_PBROW);
+            if (vnx) l13_cprow(tin + (long)x * L13_T1P, vnx + 338L * x);
+            L13_MIXP_GROUP_ZS(pb, L13_PBROW, sb, 26);
+            l13_nt_append(&w, sb, 338);
+        }
+    }
+    l13_nt_flush(&w);
+    _mm_sfence();
+}
+#endif /* __AVX512F__ */
+
+/* ---------------------------------------------------------------------------
+ * mt_r1: intra-volume worker -- G = p->gsplit threads cooperate on one
+ * volume (used when batch < thread count; the scored case is B=1).  Thread
+ * t handles volume v = t/G, part g = t%G:
+ *   part 1: X-pass units [43g/G, 43(g+1)/G) of the volume's 43 chunk units
+ *           (42 zmm + the xmm tail), all writing the GROUP's shared t1.
+ *           Units write disjoint 64-byte tiles (unit u owns bytes
+ *           [64u,64u+64) of each of the 13 t1 planes; planes are 43 lines
+ *           exactly, T1P pad), so no false sharing inside t1.
+ *   BARRIER (team-wide; every group hits it once per execute)
+ *   part 2: kx-planes [13g/G, 13(g+1)/G): zsolid Y group into the thread's
+ *           OWN pb, Z group into out.  Adjacent out planes share one line
+ *           (338 doubles = 42.25 lines), so G-1 boundary lines may bounce
+ *           once per call -- measured in the noise.
+ * Same arithmetic DAG per line as the serial default (chunk13p zsolid
+ * shape), so the output is bit-identical to the serial exec.
+ * ---------------------------------------------------------------------------
+ */
+#if defined(__AVX512F__)
+static void
+l13_intra_worker(const fft3d_plan *restrict p,
+                 const double _Complex *restrict in,
+                 double _Complex *restrict out, int t)
+{
+    const int G = p->gsplit;
+    const int v = t / G, g = t - v * G;
+    const l13_tls *restrict ts = &p->tls[t];
+    double *restrict pb = ts->pb;
+    double *restrict t1 = p->tls[v * G].t1;
+    L13_MIXP_CONSTS;
+    const double *vin = (const double *)(in + (size_t)v * 2197);
+    double *vout = (double *)(out + (size_t)v * 2197);
+
+    {
+        int u0 = (43 * g) / G, u1 = (43 * (g + 1)) / G;
+        for (int u = u0; u < u1; ++u) {
+            if (u < 42) {
+                long f0 = 4L * u;
+                chunk13p_w4(vin + 2 * f0, 338, t1 + 2 * f0, 2, L13_T1P,
+                            C0, C1, C2, C3, C4, C5,
+                            K0, K1, K2, K3, K4, K5, 0);
+            } else {
+                chunk13p_w1(vin + 2 * 168, 338, t1 + 2 * 168, 2, L13_T1P,
+                            E0, E1, E2, E3, E4, E5,
+                            F0, F1, F2, F3, F4, F5, 0);
+            }
+        }
+    }
+#ifdef _OPENMP
+#pragma omp barrier
+#endif
+    {
+        int x0 = (13 * g) / G, x1 = (13 * (g + 1)) / G;
+        for (int x = x0; x < x1; ++x) {
+            const double *pin = t1 + (long)x * L13_T1P;
+            double *pt = vout + (long)x * 338;
+            L13_MIXP_GROUP_ZS(pin, 26, pb, L13_PBROW);
+            L13_MIXP_GROUP(pb, L13_PBROW, pt, 26);
+        }
+    }
+}
+#endif /* __AVX512F__ */
+
+/* ---------------------------------------------------------------------------
+ * plumbing
+ * ---------------------------------------------------------------------------
+ */
+static char g_desc[768] =
+    "conj-folded dense 13x13 per axis, lanes=lines, pinned sines";
+
+const char *fft3d_name(void) { return "L13_direct"; }
+const char *fft3d_description(void) { return g_desc; }
+int fft3d_supports(int L) { return L == 13; }
+
+#define L13_ALIGN64(q) ((double *)(((uintptr_t)(q) + 63u) & ~(uintptr_t)63u))
+
+/* ---- mt_r1: the execute dispatch (also raced by the in-plan instrument).
+ * nuse==1 -> the phase-1 serial path, no parallel region at all.
+ * gsplit>1 -> intra-volume worker (batch*gsplit threads, one barrier).
+ * else -> batch-parallel: thread t owns the CONTIGUOUS volume block
+ * [nb*t/T, nb*(t+1)/T) with its own NUMA-local scratch, no synchronisation
+ * inside the region beyond the implicit join.  Team sizes are computed from
+ * the ACTUAL team OpenMP delivers, so a squeezed team still computes the
+ * whole batch (the intra worker needs the exact team and falls back to the
+ * serial exec on thread 0 if squeezed -- uniform branch, so the barrier
+ * inside the worker is either reached by everyone or by no one). */
+static void l13_run(const fft3d_plan *p, const double _Complex *in,
+                    double _Complex *out)
+{
+#ifdef _OPENMP
+    if (p->nuse > 1) {
+#pragma omp parallel num_threads(p->nuse)
+        {
+            int T = omp_get_num_threads();
+            int t = omp_get_thread_num();
+#if defined(__AVX512F__)
+            if (p->gsplit > 1) {
+                if (T == p->nuse) l13_intra_worker(p, in, out, t);
+                else if (t == 0) p->exec(p, in, out, 0, p->batch, &p->tls[0]);
+            } else
+#endif
+            if (p->run_wt && T == p->nuse) {
+                /* mt_r3 weighted cuts (L8_fusedaxes' adaptive re-cut): the
+                 * boundaries come from p->cuts, and each thread times its
+                 * own chunk so the main thread can re-cut after the join.
+                 * Contiguous blocks are preserved; every volume's DAG is
+                 * identical, so the output is bit-identical to any cut. */
+                int b0 = p->cuts[t];
+                int b1 = p->cuts[t + 1];
+                struct timespec w0, w1;
+                clock_gettime(CLOCK_MONOTONIC, &w0);
+                if (b1 > b0) p->exec(p, in, out, b0, b1, &p->tls[t]);
+                clock_gettime(CLOCK_MONOTONIC, &w1);
+                ((struct fft3d_plan *)(uintptr_t)p)->tsec[t].v =
+                    (double)(w1.tv_sec - w0.tv_sec) +
+                    1e-9 * (double)(w1.tv_nsec - w0.tv_nsec);
+            } else {
+                long long nb = p->batch;
+                int b0 = (int)(nb * t / T);
+                int b1 = (int)(nb * (t + 1) / T);
+                if (b1 > b0) p->exec(p, in, out, b0, b1, &p->tls[t]);
+            }
+        }
+        return;
+    }
+#endif
+    p->exec(p, in, out, 0, p->batch, &p->tls[0]);
+}
+
+/* =============================================================================
+ * mt_r3: execute-time governor (adopted from L8_fusedaxes mt_r2 -- see the
+ * header block).  Everything below is a no-op unless create() armed gov_mode.
+ * =============================================================================
+ */
+#ifndef L13_GOV
+#  define L13_GOV 1
+#endif
+#if L13_GOV && defined(_OPENMP) && defined(__AVX512F__) && !defined(L13_FORCE)
+
+static double l13_now(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec;
+}
+
+/* %% of ~96 sampled pages of [base, base+bytes) resident on a node other
+ * than 0, via get_mempolicy(MPOL_F_NODE|MPOL_F_ADDR) -- a pure READ of the
+ * existing placement (the mt_r1 ruling: reads allowed, move_pages banned).
+ * -1 if the syscall is unavailable.  Borrowed from L8_fusedaxes mt_r2. */
+static int l13_fr_scan(const void *base, size_t bytes)
+{
+#if defined(__linux__) && defined(SYS_get_mempolicy)
+    enum { NS = 96 };
+    long remote = 0, seen = 0;
+    size_t step = bytes / NS;
+    if (step < 4096) step = 4096;
+    for (int i = 0; i < NS; ++i) {
+        size_t off = step * (size_t)i;
+        if (off >= bytes) break;
+        void *pg = (void *)(((uintptr_t)base + off) & ~(uintptr_t)4095);
+        int nd = -1;
+        if (syscall(SYS_get_mempolicy, &nd, NULL, 0UL, pg,
+                    3UL /* MPOL_F_NODE|MPOL_F_ADDR */) == 0 && nd >= 0) {
+            ++seen;
+            remote += (nd != 0);
+        }
+    }
+    return seen ? (int)(100 * remote / seen) : -1;
+#else
+    (void)base; (void)bytes;
+    return -1;
+#endif
+}
+
+/* Damped weighted re-cut (L8_fusedaxes' recipe: per-step factor
+ * sqrt(v_avg/v_t) clamped [0.75,1.33], weight clamped [0.02,4], floor of
+ * one volume per thread so a starved thread keeps producing a measurement
+ * and can recover if the placement drifts). */
+static void l13_recut(fft3d_plan *p, int T)
+{
+    double v[L13_MAXT], vavg = 0;
+    int n = 0;
+    for (int t = 0; t < T; ++t) {
+        int nv = p->cuts[t + 1] - p->cuts[t];
+        v[t] = (nv > 0 && p->tsec[t].v > 0) ? p->tsec[t].v / (double)nv : 0;
+        if (v[t] > 0) { vavg += v[t]; ++n; }
+    }
+    if (n < 2) return;
+    vavg /= n;
+    double tot = 0;
+    for (int t = 0; t < T; ++t) {
+        if (v[t] > 0) {
+            double f = sqrt(vavg / v[t]);
+            if (f < 0.75) f = 0.75; else if (f > 1.33) f = 1.33;
+            p->wts[t] *= f;
+            if (p->wts[t] < 0.02) p->wts[t] = 0.02;
+            else if (p->wts[t] > 4.0) p->wts[t] = 4.0;
+        }
+        tot += p->wts[t];
+    }
+    int b = p->batch;
+    double acc = 0;
+    p->cuts[0] = 0;
+    for (int t = 0; t < T - 1; ++t) {
+        acc += p->wts[t];
+        int c = (int)((double)b * acc / tot + 0.5);
+        if (c < p->cuts[t] + 1) c = p->cuts[t] + 1;
+        p->cuts[t + 1] = c;
+    }
+    p->cuts[T] = b;
+    for (int t = T - 1; t >= 1; --t)
+        if (p->cuts[t] > b - (T - t)) p->cuts[t] = b - (T - t);
+}
+
+static void l13_gov_desc(fft3d_plan *p)
+{
+    size_t n = p->desc_len;
+    int m;
+    if (!n || n + 16 >= sizeof g_desc) return;
+#define L13_GD_ADD(...)                                                        \
+    do {                                                                       \
+        m = snprintf(g_desc + n, sizeof g_desc - n, __VA_ARGS__);              \
+        if (m < 0 || (size_t)m >= sizeof g_desc - n) return;                   \
+        n += (size_t)m;                                                        \
+    } while (0)
+    L13_GD_ADD("; gov{");
+    if (p->gov_mode == 1)
+        L13_GD_ADD("fr=%d/%d,frl=%d,nb=%d,", p->gov_fri, p->gov_fro,
+                   p->gov_frl, p->gov_nb);
+    for (int c = 0; c < p->gov_ncfg; ++c)
+        L13_GD_ADD("%s:%.0f,", p->gov_nm[c],
+                   p->gov_best[c] < 1e299
+                       ? p->gov_best[c] * 1e9 / (double)p->batch
+                       : -1.0);
+    L13_GD_ADD("lock=%s}", p->gov_nm[p->gov_lock]);
+#undef L13_GD_ADD
+}
+
+static void l13_gov_set(fft3d_plan *p, int c)
+{
+    p->exec = p->gov_exec[c];
+    p->nuse = p->gov_nuse[c];
+    p->gsplit = p->gov_gs[c];
+    p->run_wt = p->gov_wtf[c];
+}
+
+static void l13_gov_run(fft3d_plan *p, const double _Complex *in,
+                        double _Complex *out)
+{
+    if (p->gov_state == 0) {
+        /* first armed call: read the REAL buffers' page homes (mode 1) */
+        if (p->gov_call == 0 && p->gov_mode == 1) {
+            size_t bytes = (size_t)p->batch * 2197u * 16u;
+            p->gov_fri = l13_fr_scan(in, bytes);
+            p->gov_fro = l13_fr_scan(out, bytes);
+            p->gov_frl = p->gov_fro;
+        }
+        int c = -1;
+        for (int k = 0; k < p->gov_ncfg; ++k) {
+            int cand = (p->gov_next + k) % p->gov_ncfg;
+            if (p->gov_cnt[cand] < p->gov_bud[cand]) { c = cand; break; }
+        }
+        if (c >= 0) {
+            ++p->gov_call;
+            p->gov_next = c + 1;
+            l13_gov_set(p, c);
+            double t0 = l13_now();
+            l13_run(p, in, out);
+            double dt = l13_now() - t0;
+            if (p->run_wt) l13_recut(p, p->nuse);
+            ++p->gov_cnt[c];
+            if (dt < p->gov_best[c]) {
+                /* self-extend a config that is still improving >2%
+                 * (weighted cuts need calls to converge); cap 8 probes
+                 * per config at streaming cells (the driver's B=8192 run
+                 * is only ~53 calls), B=1 keeps its fixed 64 */
+                int cap = (p->gov_mode == 2) ? 64 : 8;
+                if (p->gov_best[c] < 1e299 && dt < 0.98 * p->gov_best[c] &&
+                    p->gov_bud[c] + 2 <= cap)
+                    p->gov_bud[c] += 2;
+                p->gov_best[c] = dt;
+            }
+            return;
+        }
+        /* budgets exhausted: lock (hysteresis toward the create pick --
+         * 1.5% streaming, 3% at B=1 where serial is the safe incumbent) */
+        int best = 0;
+        for (int k = 1; k < p->gov_ncfg; ++k)
+            if (p->gov_best[k] < p->gov_best[best]) best = k;
+        double margin = (p->gov_mode == 2) ? 0.97 : 0.985;
+        p->gov_lock =
+            (best != 0 && p->gov_best[best] < margin * p->gov_best[0]) ? best
+                                                                       : 0;
+        p->gov_ru = -1;
+        for (int k = 0; k < p->gov_ncfg; ++k)
+            if (k != p->gov_lock &&
+                (p->gov_ru < 0 || p->gov_best[k] < p->gov_best[p->gov_ru]))
+                p->gov_ru = k;
+        p->gov_rvleft = (p->gov_mode == 1) ? 6 : 0;
+        p->gov_state = 1;
+        l13_gov_desc(p);
+        /* fall through: run the locked config this call */
+    }
+    ++p->gov_call;
+    int c = p->gov_lock, timed = 0;
+    if (p->gov_rvleft > 0 && p->gov_ru >= 0 && (p->gov_call % 48) == 0) {
+        c = p->gov_ru; /* runner-up revisit: late migration is not missed */
+        timed = 1;
+        --p->gov_rvleft;
+    }
+    l13_gov_set(p, c);
+    if (timed) {
+        double t0 = l13_now();
+        l13_run(p, in, out);
+        double dt = l13_now() - t0;
+        if (p->run_wt) l13_recut(p, p->nuse);
+        if (dt < p->gov_best[c]) p->gov_best[c] = dt;
+        if (p->gov_mode == 1)
+            p->gov_frl = l13_fr_scan(out, (size_t)p->batch * 2197u * 16u);
+        if (c != p->gov_lock &&
+            p->gov_best[c] < 0.97 * p->gov_best[p->gov_lock]) {
+            p->gov_ru = p->gov_lock;
+            p->gov_lock = c;
+            p->gov_rvleft = 6;
+        } else {
+            l13_gov_set(p, p->gov_lock);
+        }
+        l13_gov_desc(p);
+    } else {
+        l13_run(p, in, out);
+        if (p->run_wt) l13_recut(p, p->nuse);
+    }
+}
+#endif /* L13_GOV && _OPENMP && __AVX512F__ && !L13_FORCE */
+
+fft3d_plan *fft3d_create(int L, int batch)
+{
+    if (L != 13 || batch < 1) return NULL;
+    fft3d_plan *p = calloc(1, sizeof *p);
+    if (!p) return NULL;
+    p->L = 13;
+    p->batch = batch;
+
+    /* tables only: ctab8 6*7*8 + stab8 6*8 + ctd8 6*8 + ctab4 6*7*4 +
+     * stab4 6*4 + ctd4 6*4 (mt_r1: pb/sb/t1 moved to per-thread slots) */
+    size_t nd = 6 * 7 * 8 + 6 * 8 + 6 * 8 + 6 * 7 * 4 + 6 * 4 + 6 * 4;
+    p->block = malloc(nd * sizeof(double) + 64);
+    if (!p->block) { free(p); return NULL; }
+    double *q = L13_ALIGN64((double *)p->block);
+    p->ctab8 = q; q += 6 * 7 * 8;
+    p->stab8 = q; q += 6 * 8;
+    p->ctd8 = q;  q += 6 * 8;
+    p->ctab4 = q; q += 6 * 7 * 4;
+    p->stab4 = q; q += 6 * 4;
+    p->ctd4 = q;
+
+    /* ---- mt_r1: thread count, decomposition, per-thread NUMA scratch ----
+     * The harness gives OMP_NUM_THREADS=32, PROC_BIND=close, PLACES=cores.
+     * Take what is given, never more (PANEL_BRIEF rule 2). */
+    int nthr = 1;
+#ifdef _OPENMP
+    nthr = omp_get_max_threads();
+#endif
+    if (nthr > L13_MAXT) nthr = L13_MAXT;
+    if (nthr < 1) nthr = 1;
+    p->nthr = nthr;
+
+    /* Per-thread scratch (pb 13*PBROW + sb 344 + t1 13*T1P = 42 KiB),
+     * allocated and FIRST-TOUCHED by its owning thread inside a full-width
+     * parallel region -- this also spins up the OpenMP pool so the first
+     * timed execute does not pay thread creation.  Page-sized slots: no
+     * false sharing, and each slot is resident on its owner's socket. */
+    {
+        /* mt_r4: + one tin volume (13 x T1P rows).  Whole slot 77.6 KiB --
+         * still well inside one node core's 1 MiB L2. */
+        size_t snd = 13 * L13_PBROW + 344 + 13 * L13_T1P + 13 * L13_T1P;
+        size_t sbytes = (snd * sizeof(double) + 4095) & ~(size_t)4095;
+#ifdef _OPENMP
+#pragma omp parallel num_threads(nthr)
+        {
+            int t = omp_get_thread_num();
+            if (t < nthr) {
+                double *s = aligned_alloc(4096, sbytes);
+                if (s) {
+                    memset(s, 0, sbytes); /* first touch by the owner */
+                    p->tls[t].blk = s;
+                    p->tls[t].pb = s;
+                    p->tls[t].sb = s + 13 * L13_PBROW;
+                    p->tls[t].t1 = s + 13 * L13_PBROW + 344;
+                    p->tls[t].tin = s + 13 * L13_PBROW + 344 + 13 * L13_T1P;
+                }
+            }
+        }
+#else
+        double *s = aligned_alloc(4096, sbytes);
+        if (s) {
+            memset(s, 0, sbytes);
+            p->tls[0].blk = s;
+            p->tls[0].pb = s;
+            p->tls[0].sb = s + 13 * L13_PBROW;
+            p->tls[0].t1 = s + 13 * L13_PBROW + 344;
+            p->tls[0].tin = s + 13 * L13_PBROW + 344 + 13 * L13_T1P;
+        }
+#endif
+        for (int t = 0; t < nthr; ++t)
+            if (!p->tls[t].blk) { fft3d_destroy(p); return NULL; }
+    }
+
+    const long double PI2 = 6.283185307179586476925286766559L;
+    for (int j = 1; j <= 6; ++j)
+        for (int k = 0; k <= 6; ++k) {
+            double c = (double)cosl(PI2 * (long double)((k * j) % 13) / 13.0L);
+            for (int i = 0; i < 8; ++i) p->ctab8[((j - 1) * 7 + k) * 8 + i] = c;
+            for (int i = 0; i < 4; ++i) p->ctab4[((j - 1) * 7 + k) * 4 + i] = c;
+        }
+    /* sine tables are LANE-ALTERNATING (s at re lanes, -s at im lanes): the
+     * -i sign of MULI lives here now, not in a per-chunk XOR (panel_r9). */
+    for (int m = 1; m <= 6; ++m) {
+        double s = (double)sinl(PI2 * (long double)m / 13.0L);
+        double c = (double)cosl(PI2 * (long double)m / 13.0L);
+        for (int i = 0; i < 8; ++i) p->stab8[(m - 1) * 8 + i] = (i & 1) ? -s : s;
+        for (int i = 0; i < 4; ++i) p->stab4[(m - 1) * 4 + i] = (i & 1) ? -s : s;
+        for (int i = 0; i < 8; ++i) p->ctd8[(m - 1) * 8 + i] = c;
+        for (int i = 0; i < 4; ++i) p->ctd4[(m - 1) * 4 + i] = c;
+    }
+
+    /* Deterministic selection: a pure function of batch size and compile-time
+     * ISA, so repeated runs are bit-identical by construction (no wall-clock
+     * tuner; see the header block). */
+    /* ...from the batch working set (in+out bytes) against THIS machine's L2,
+     * read once via sysconf (adopted from L13_rader panel_r6: a fixed batch
+     * threshold tuned on wallaby's 2 MB L2 is wrong on the node's 1 MB;
+     * sysconf is a fixed property of the host, so runs stay bit-identical).
+     *   ws <= L2 : everything cache-hot -> X-last (plain kernel stores)
+     *   ws >  L2 : out stores leave L2  -> X-first (stores in a plane window)
+     * Node (1 MB): B=1 X-last, B=16/512 X-first.  Wallaby (2 MB): B=1/16
+     * X-last, B=512 X-first.  The staged-Z variant (FORCE=10) measured +16%
+     * on wallaby's L3-resident B=512 and is NOT shipped as a default; it is
+     * kept for the monitor to A/B on the node's truly streaming B=512. */
+    /* Three tiers now (panel_r8): past L3 the out stores truly stream and
+     * the pf exec's prefetchw/read-prefetch schedule turns on; between L2
+     * and L3 prefetch is a measured loss (L13_rader r7: pfw at L3-resident
+     * batch ~ -3%, input pf -4%) and plain X-first stays. */
+    long l2c = sysconf(_SC_LEVEL2_CACHE_SIZE);
+    if (l2c <= 0) l2c = 1 << 20;
+    long l3c = sysconf(_SC_LEVEL3_CACHE_SIZE);
+    if (l3c <= 0) l3c = 22l << 20;
+    unsigned long long ws = 32ull * (unsigned long long)batch * 2197ull;
+    (void)l2c;
+    const char *pick;
+    /* panel_r10: the cache-resident X-LAST tier is GONE.  Its justification
+     * was r6's "X-first +28% at B=1" -- measured BEFORE the r8 t1 pad, whose
+     * whole point was to fix the X pass's split/4K-aliased t1 accesses, i.e.
+     * exactly the accesses that penalised X-first.  Re-measured pinned on
+     * wallaby (driver-level, interleaved, min over 8 instances): X-first
+     * 2.571 vs X-last 3.021 us at B=1 (-15%), 41.6 vs 50.0 us/call at B=16
+     * (-17%).  Node evidence pending; FORCE=8 is the X-last rollback and the
+     * in-plan discriminator below prints the node's own xl-vs-xf on every
+     * leaderboard line. */
+    /* panel_r11: the default shape is ZSOLID-Y + xmm tails (see the macro
+     * comments): Y groups pure zmm so pb is written 100% as 64 B tiles (zero
+     * store-forward blocks at the pb junction), Z/X tails xmm (zero split
+     * accesses, no recompute).  Wallaby, pinned, min over >=6 interleaved
+     * instances: 2.535/40.47/1578 vs the r10 shape's 2.575/41.50/1607 at
+     * B=1/16(call)/512(call).  The all-xmm-tail form (FORCE=9) LOST big
+     * there (+17..29%: Z's 64 B loads straddle the Y tail's 13 xmm stores);
+     * kept in the discriminator so the node prices both. */
+    /* mt_r2: past FOUR socket-L3s the batch truly streams both sockets and
+     * the staged-NT exec deletes the out-RFO (gate adopted from L13_rader
+     * mt_r1: NT at merely-past-L3 batch is a measured loss -- its node race
+     * read nt +33% at B=512 -- while at B=8192 nt-off cost +30%).  Node
+     * (22 MB L3): B=512 (34 MB) stays pf, B=8192 (549 MB) goes NT.
+     * -DL13_NT=0 rolls back to the r1 pf exec at every batch. */
+#ifndef L13_NT
+#  define L13_NT 1
+#endif
+    /* mt_r4: the STAGED-INPUT exec (paced demand read cursor into the
+     * per-thread tin tile -- the VERDICT SS6 L2-tile construction) exists at
+     * the streaming tiers.  Wallaby prices it +15% at B=8192 (one DDR5
+     * socket already at 206 GB/s, so the extra L2 round trip is pure cost),
+     * so the create default stays the unstaged r3 exec and the governor
+     * races the staged form on the node's REAL buffers, where the theory it
+     * was built on (71 GB/s achieved of one socket's ~128: latency/MLP-
+     * starved strided reads, not channel saturation) actually lives.
+     * -DL13_STG=1 makes staged the default instead. */
+#ifndef L13_STG
+#  define L13_STG 0
+#endif
+#if defined(__AVX512F__)
+    if (L13_NT && ws > 4ull * (unsigned long long)l3c) {
+        if (L13_STG) { p->exec = l13_exec_xcnt_mx; pick = "512b zsolid staged-in+NT X-first"; }
+        else         { p->exec = l13_exec_xsnt_pf_mx; pick = "512b zsolid staged-NT X-first+pfin"; }
+    }
+    else if (ws > (unsigned long long)l3c) { p->exec = l13_exec_xfzs_pf_mx; pick = "512b all-pinned zsolidY+xmm-tail X-first+pf"; }
+    else                              { p->exec = l13_exec_xfzs_mx; pick = "512b all-pinned zsolidY+xmm-tail X-first"; }
+#else
+    if (ws > (unsigned long long)l2c) { p->exec = exec_xf_w2; pick = "256b X-first"; }
+    else                              { p->exec = exec_xl_w2; pick = "256b X-last"; }
+#endif
+
+    /* ---- mt_r1 decomposition (deterministic: pure function of batch, the
+     * thread count the harness fixed, and compile-time ISA -- no tuner, so
+     * no pick lottery across the monitor's processes):
+     *   batch >= nthr : batch-parallel, contiguous volume blocks, full team.
+     *   1 < batch < nthr : one volume per thread, plus a G-way per-volume
+     *       split when it fits (G = L13_GSM, wallaby-tuned default below).
+     *   batch == 1 : intra-volume split, team of L13_B1T (43 X units +
+     *       13 planes split across the team, one barrier).
+     * -DL13_B1T=n / -DL13_GSM=n override for dev A/Bs. */
+#ifndef L13_B1T
+#  define L13_B1T 1
+#endif
+#ifndef L13_GSM
+#  define L13_GSM 1
+#endif
+#ifndef L13_TCAP
+#  define L13_TCAP 64
+#endif
+    int tcap = nthr < (int)L13_TCAP ? nthr : (int)L13_TCAP;
+    if (tcap < 1) tcap = 1;
+    int nuse = 1, gs = 1;
+#ifdef _OPENMP
+#  if defined(__AVX512F__)
+    if (batch == 1) {
+        gs = L13_B1T;
+        if (gs > tcap) gs = tcap;
+        if (gs < 1) gs = 1;
+        nuse = gs;
+    } else if (batch < tcap) {
+        gs = L13_GSM;
+        while (gs > 1 && batch * gs > tcap) --gs;
+        if (gs < 1) gs = 1;
+        nuse = batch * gs;
+    } else {
+        nuse = tcap;
+        gs = 1;
+    }
+#  else
+    nuse = batch < tcap ? batch : tcap;
+    gs = 1;
+#  endif
+#endif
+    p->nuse = nuse;
+    p->gsplit = gs;
+
+#if defined(L13_FORCE)
+    switch ((int)L13_FORCE) {
+    case 0: p->exec = exec_xl_w4;     pick = "FORCED 512b table X-last"; break;
+    case 1: p->exec = exec_xf_w4;     pick = "FORCED 512b table X-first"; break;
+    case 2: p->exec = exec_xl_w2;     pick = "FORCED 256b X-last"; break;
+    case 3: p->exec = exec_xf_w2;     pick = "FORCED 256b X-first"; break;
+    case 4: p->exec = l13_exec_xl_mx; pick = "FORCED 512b table+ymm-tail X-last"; break;
+    case 5: p->exec = l13_exec_xf_mx; pick = "FORCED 512b table+ymm-tail X-first"; break;
+    case 6: p->exec = exec_xlp_w4;    pick = "FORCED 512b all-pinned pure X-last"; break;
+    case 7: p->exec = exec_xfp_w4;    pick = "FORCED 512b all-pinned pure X-first"; break;
+    case 8: p->exec = l13_exec_xlzs_mx; pick = "FORCED 512b zsolidY+xmm-tail X-last"; break;
+    case 9: p->exec = l13_exec_xfp_mx; pick = "FORCED 512b all-xmm-tail X-first (r11 failed form)"; break;
+    case 10: p->exec = l13_exec_xsp_mx; pick = "FORCED 512b zsolid X-first staged"; break;
+    case 11: p->exec = l13_exec_xfzs_pf_mx; pick = "FORCED 512b zsolidY+xmm-tail X-first+pf"; break;
+    case 12: p->exec = l13_exec_xsp_pf_mx; pick = "FORCED 512b zsolid X-first staged+pf"; break;
+    /* panel_r11: 13-16 (the association twins) are retired; 13/14 reused */
+    case 13: p->exec = l13_exec_xfp_y2_mx; pick = "FORCED 512b all-pinned+ymm-tail(r10) X-first"; break;
+    case 14: p->exec = l13_exec_xfzs_mx; pick = "FORCED 512b zsolidY+xmm-tail X-first (=default)"; break;
+    case 15: p->exec = l13_exec_xsnt_pf_mx; pick = "FORCED 512b zsolid staged-NT X-first+pfin"; break;
+    case 16: p->exec = l13_exec_xcnt_mx; pick = "FORCED 512b zsolid staged-in+NT X-first"; break;
+    case 17: p->exec = l13_exec_xcpf_mx; pick = "FORCED 512b zsolid staged-in X-first+pfw"; break;
+    default: break;
+    }
+    /* a forced serial-shape exec runs batch-parallel, never intra-split */
+    p->gsplit = 1;
+    p->nuse = batch < p->nthr ? batch : p->nthr;
+    if (p->nuse < 1) p->nuse = 1;
+#endif
+    snprintf(g_desc, sizeof g_desc,
+             "conj-folded dense 13x13 per axis, pinned sines; %s; mt t%d g%d",
+             pick, p->nuse, p->gsplit);
+
+    /* ---- in-plan timed instrument (INSTRUMENT ONLY: never changes the
+     * pick, so there is no pick lottery across the monitor's processes; the
+     * phase-1 caveat stands -- read these as kernel-relative, not
+     * cell-predictive).  mt_r1: the phase-1 kernel-shape slots are replaced
+     * by a DECOMPOSITION sweep -- the one thing the node must answer this
+     * round is its own team-size curve.  Races l13_run on private buffers
+     * at tb = min(batch,64) volumes across candidate (team, gsplit)
+     * configs; reports ns/volume for each as "t<team>g<split>".
+     * -DL13_AB=0 removes it entirely. */
+#ifndef L13_AB
+#  define L13_AB 1
+#endif
+#if L13_AB && defined(__AVX512F__) && defined(_OPENMP)
+    {
+        int tb = batch < 64 ? batch : 64;
+        size_t vs = ((size_t)tb * 2197 * 16 + 63) & ~(size_t)63;
+        double _Complex *ti = aligned_alloc(64, vs);
+        double _Complex *to = aligned_alloc(64, vs);
+        if (ti && to) {
+            uint64_t s = 0x9E3779B97F4A7C15ull;
+            double *d = (double *)ti;
+            for (size_t i = 0; i < (size_t)tb * 2197 * 2; ++i) {
+                s = s * 6364136223846793005ull + 1442695040888963407ull;
+                d[i] = (double)(int64_t)(s >> 17) * 0x1p-40;
+            }
+            int cnu[6], cgs[6], nc = 0;
+            if (tb == 1) {
+                for (int g = 1; g <= nthr && nc < 6; g *= 2) {
+                    cnu[nc] = g; cgs[nc] = g; ++nc;
+                }
+            } else if (tb < nthr) {
+                cnu[nc] = 1;  cgs[nc] = 1; ++nc;
+                cnu[nc] = tb; cgs[nc] = 1; ++nc;
+                if (tb >= 4) { cnu[nc] = tb / 2; cgs[nc] = 1; ++nc; }
+                for (int g = 2; g <= 4 && tb * g <= nthr && nc < 6; g *= 2) {
+                    cnu[nc] = tb * g; cgs[nc] = g; ++nc;
+                }
+            } else {
+                cnu[nc] = 1; cgs[nc] = 1; ++nc;
+                for (int n = nthr; n >= 4 && nc < 6; n /= 2) {
+                    cnu[nc] = n; cgs[nc] = 1; ++nc;
+                }
+            }
+            fft3d_plan tp = *p;
+            tp.batch = tb;
+            double best[6];
+            for (int c = 0; c < nc; ++c) best[c] = 1e300;
+            int reps = tb >= 8 ? 4 : 16;
+            for (int c = 0; c < nc; ++c) {                 /* licence warm */
+                tp.nuse = cnu[c]; tp.gsplit = cgs[c];
+                for (int r = 0; r < 2 * reps; ++r) l13_run(&tp, ti, to);
+            }
+            for (int t = 0; t < 7; ++t)
+                for (int c = 0; c < nc; ++c) {
+                    tp.nuse = cnu[c]; tp.gsplit = cgs[c];
+                    struct timespec t0, t1;
+                    clock_gettime(CLOCK_MONOTONIC, &t0);
+                    for (int r = 0; r < reps; ++r) l13_run(&tp, ti, to);
+                    clock_gettime(CLOCK_MONOTONIC, &t1);
+                    double ns = (double)(t1.tv_sec - t0.tv_sec) * 1e9 +
+                                (double)(t1.tv_nsec - t0.tv_nsec);
+                    ns /= (double)reps * (double)tb;
+                    if (ns < best[c]) best[c] = ns;
+                }
+            size_t n = strlen(g_desc);
+            snprintf(g_desc + n, sizeof g_desc - n, "; ab[B%d]", tb);
+            for (int c = 0; c < nc; ++c) {
+                n = strlen(g_desc);
+                snprintf(g_desc + n, sizeof g_desc - n, "%ct%dg%d:%.0f",
+                         c ? ',' : '=', cnu[c], cgs[c], best[c]);
+            }
+        }
+        free(ti);
+        free(to);
+    }
+#endif
+
+    /* ---- mt_r3: arm the execute-time governor (see l13_gov_run above).
+     * Probes are full correct executes on the caller's real buffers; every
+     * raced config is bit-identical; min-of-min ignores the probe calls.
+     * Armed only where the surrogate arena cannot answer: the streaming
+     * cells (whose regime is the real buffers' page placement) and B=1
+     * (whose regime is the driver's hot fork/join, which the create-time
+     * ab sweep has consistently mis-scaled 2.5x). */
+#if L13_GOV && defined(_OPENMP) && defined(__AVX512F__) && !defined(L13_FORCE)
+    for (int t = 0; t < L13_MAXT; ++t) p->wts[t] = 1.0;
+    {
+        FILE *nf = fopen("/proc/sys/kernel/numa_balancing", "r");
+        p->gov_nb = -1;
+        if (nf) {
+            if (fscanf(nf, "%d", &p->gov_nb) != 1) p->gov_nb = -1;
+            fclose(nf);
+        }
+    }
+    p->gov_fri = p->gov_fro = p->gov_frl = -1;
+    for (int c = 0; c < 4; ++c) p->gov_best[c] = 1e300;
+    /* mt_r4: NO race at B=1 any more -- the mt_r3 node data (VERDICT SS3.5)
+     * showed the t2g2 lock cost 2.3% in all three processes: at B=1 the
+     * probe window's 64 early calls are frequency-ramp-biased against the
+     * incumbent's post-lock thousands, so the race statistic is structurally
+     * unfair there.  Serial is restored unconditionally.  The tfw weighted
+     * cut is deleted too (SS5: fr=0 everywhere; its regime does not exist). */
+    if (p->nuse > 1 && p->gsplit == 1 && nthr >= 4 &&
+        batch >= p->nuse && ws > (unsigned long long)l3c) {
+        p->gov_mode = 1;
+        int nc = 0;
+        p->gov_exec[nc] = p->exec; p->gov_nuse[nc] = p->nuse;
+        p->gov_gs[nc] = 1; p->gov_wtf[nc] = 0; p->gov_nm[nc] = "tf";
+        ++nc;                                  /* create pick, full team  */
+        p->gov_exec[nc] = p->exec; p->gov_nuse[nc] = p->nuse / 2;
+        p->gov_gs[nc] = 1; p->gov_wtf[nc] = 0; p->gov_nm[nc] = "th";
+        ++nc;         /* half team = one socket under close binding (the
+                       * L8/L36_pfa mt_r3 on-buffer races read 19-35% for it
+                       * at their streaming cells; priced here every round) */
+        if (p->exec == l13_exec_xcnt_mx) {
+            /* staged-in NT is the pick: price the unstaged r3 exec (us) --
+             * the direct rollback of this round's change */
+            p->gov_exec[nc] = l13_exec_xsnt_pf_mx; p->gov_nm[nc] = "us";
+            p->gov_nuse[nc] = p->nuse; p->gov_gs[nc] = 1; p->gov_wtf[nc] = 0;
+            ++nc;
+        } else if (p->exec == l13_exec_xsnt_pf_mx) {
+            /* NT tier default: price the staged form at BOTH team widths --
+             * if the strided read is MLP-starving the far socket, staged+
+             * half-team is the combination none of the r3 races covered */
+            p->gov_exec[nc] = l13_exec_xcnt_mx; p->gov_nm[nc] = "st";
+            p->gov_nuse[nc] = p->nuse; p->gov_gs[nc] = 1; p->gov_wtf[nc] = 0;
+            ++nc;
+            p->gov_exec[nc] = l13_exec_xcnt_mx; p->gov_nm[nc] = "sh";
+            p->gov_nuse[nc] = p->nuse / 2; p->gov_gs[nc] = 1;
+            p->gov_wtf[nc] = 0;
+            ++nc;
+        } else {
+            /* pf tier (node B=512): staged-input pf, and the NT discipline
+             * (the r3 exec -- wallaby prices the staged NT form worse) */
+            p->gov_exec[nc] = l13_exec_xcpf_mx; p->gov_nm[nc] = "st";
+            p->gov_nuse[nc] = p->nuse; p->gov_gs[nc] = 1; p->gov_wtf[nc] = 0;
+            ++nc;
+            p->gov_exec[nc] = l13_exec_xsnt_pf_mx; p->gov_nm[nc] = "nt";
+            p->gov_nuse[nc] = p->nuse; p->gov_gs[nc] = 1; p->gov_wtf[nc] = 0;
+            ++nc;
+        }
+        p->gov_ncfg = nc;
+        for (int c = 0; c < nc; ++c) p->gov_bud[c] = 4;
+        for (int t = 0; t <= p->nuse; ++t)
+            p->cuts[t] = (int)((long long)batch * t / p->nuse);
+    }
+#endif
+    p->desc_len = strlen(g_desc);
+    return p;
+}
+
+void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex *out)
+{
+#if L13_GOV && defined(_OPENMP) && defined(__AVX512F__) && !defined(L13_FORCE)
+    if (plan->gov_mode) { l13_gov_run(plan, in, out); return; }
+#endif
+    l13_run(plan, in, out);
+}
+
+void fft3d_destroy(fft3d_plan *p)
+{
+    if (!p) return;
+    for (int t = 0; t < L13_MAXT; ++t) free(p->tls[t].blk);
+    free(p->block);
+    free(p);
+}
+
+#endif /* L13_TEMPLATE_PASS */

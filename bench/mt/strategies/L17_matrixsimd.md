@@ -485,3 +485,135 @@ processes at 1, 64, 256, 1024, 4096.  Setup at B=4096 dropped 0.88 s ->
    chunk order (each X thread starts on columns of planes it wrote) is
    still untried and is the only idea left that attacks the ~2 us
    all-to-all floor.
+
+## Round mt_r4 — the dispatch, not the engine: OMP-region dispatch at gated cells, and no spin pool in the process
+
+### Where round 3 left me on the node
+
+Held B=1 (5.976 us, 3.87x MKL, my best yet) and B=256 (0.756 us/t, 5.16x,
+spread <=1.2%).  B=4096: the working-set gate fired exactly as designed in
+all three processes (desc: `mt[wg nt=32 static ws=614MB aggl3=44MB]`), the
+engine ran — and scored **2.911 us/t against L17_winograd's 1.219 running
+the SAME ~1240 lines of arithmetic**, stable, all three processes within
+1.9%.  The r3 VERDICT gave this its own section (4.4, "the round's most
+actionable single gap") and the telemetry that convicts the culprit is my
+own description string:
+
+|  | me (spin pool) | winograd (OMP region) |
+|---|---|---|
+| clk512, own probe | **2.29 GHz** (the part's base) | **2.89 GHz** |
+| clk256 | 2.79 | 2.89 |
+| sbw rd/wr/cp | 5.55/8.52/14.84 | 6.45/11.66/18.67 |
+| delivered | 54 GB/s | 129 GB/s |
+
+Same node, same job, same hour, same kernel bytes.  The engine is not the
+variable; the process's thread picture is.  My r3 pre-registration said
+"anything above 1.4 means the pool's static split interacts with the
+machine differently than winograd's OMP region and I will A/B the dispatch
+next round" — this round is that A/B, shipped in the direction all the
+evidence points.  Corroboration from two other entries, both named in the
+VERDICT: L17_rader moved pool -> OMP at streaming cells in r3 and gained
+**1.71x** (2.200 -> 1.289, destroying the pool when OMP ships: "31 extra
+threads have no business next to the OMP team"); L36_pfa napped its idle
+workers because they "drag the all-core clock".
+
+### What changed (one mechanism; every kernel byte and every below-gate path untouched)
+
+1. **`l17mt_omp_run`**: the wg engine's mode-1 static contiguous split, run
+   from a `#pragma omp parallel num_threads(nt)` region instead of the spin
+   pool.  Same kids, same `(nb*t)/nt` split, same per-thread 157 KB scratch
+   (still first-touched by OMP thread t in `l17wg_setup`, which is now the
+   very thread that uses it at execute).  Work assignment is identical to
+   the pool path, so the output is bit-identical — VERIFIED on wallaby,
+   `cmp` on full B=4096 outputs, omp vs pool dispatch.
+2. **At a gated (streaming) cell the spin pool is NEVER CREATED.**  The
+   gate now runs before `l17mt_pool_new`; when it installs the engine, the
+   plan contains zero pthreads — libgomp's 32 threads are the only team in
+   the process, exactly winograd's shape.  Below the gate (B=1's 5-us
+   transforms, the B<64 mode races, the dense B>=64 races) the pool is
+   created and everything is byte-for-byte the r3 path: those cells WON
+   with the pool (the ~14 us/execute OMP fork/join that justified the pool
+   in r1 is 3x a whole B=1 transform, but 0.3% of a 5 ms streaming
+   execute — the pool was the right call at B=1 and the wrong one here).
+3. `disp=omp|pool` rides the description string; dev knob `L17MT_WGDISP=pool`
+   re-creates the r3 shipped shape for A/Bs (harness never sets it).  The
+   end-of-create clk512/256 probes now read the NO-POOL side of the A/B the
+   VERDICT asked for; r3's strings are the pool side of the same probe.
+
+### Operation count
+
+Unchanged in every regime.  Below the gate: 40.8k vector FP ops per volume
+(~225.5 zmm-equivalents).  Above: the engine's 3*289*296 = 256,632 FP
+instructions / 423,096 flops per volume (winograd's count).  The round
+moves zero arithmetic — it deletes 31 threads from a process.
+
+### Measured on wallaby (SPR, 32 threads of 64 one-socket cores — the machine the r3 record already showed CANNOT price this defect: spare cores and one socket)
+
+| case | mt_r3 | this round | note |
+|---|---|---|---|
+| B=1    | 3.87–4.36 us | **4.05–4.27 us** (intra nt=17, PASS) | unchanged path |
+| B=64   | — | 0.381 us/t | unchanged path (mode-1 races, pool) |
+| B=256  | 0.376–0.479 us/t | **0.483 us/t** (vol nt=32 static ar=ot) | unchanged path |
+| B=1024 | 0.898 us/t | **0.963 us/t** (wg, disp=omp) | login-session noise |
+| B=4096 | 1.097 us/t | **1.224–1.333 us/t** (wg, disp=omp) | see A/B below |
+
+Same-session interleaved A/B at B=4096 (8 samples each, alternating):
+omp 5013, pool 5199, omp 5126, pool 4714 us/call — **a wash inside
+wallaby's ~5% login noise, exactly as pre-registered**: wallaby has 32
+spare cores for the spinners and no second socket, so it cannot show what
+the node showed at 2.39x.  This is the same "wallaby is blind here, the
+node data overrules it" call as r3's gate decision, and it is the r3
+VERDICT's explicitly ordered experiment.  rel_l2 3.226e-16 (B=1),
+3.258–3.259e-16 (64/256/1024/4096); bit-repeatable across processes at
+every batch tried, and omp-vs-pool outputs cmp-identical.
+
+### What did not work / what was deliberately not done
+
+* **No second mechanism this round.**  B=1 and B=256 are first-place,
+  stable, and untouched (r3 record: "only [change B=256] on a measured
+  loss").  The locality-aware B=1 X-phase chunk order stays unbuilt: each
+  X chunk reads one row from EVERY plane, so reordering chunks cannot
+  change the 16/17-remote read ratio — on that reading the idea attacks
+  nothing; recorded so nobody rediscovers it.
+* **Did not race omp-vs-pool at the gated cell**: the gate exists because
+  this entry's create-time arena misranked this cell twice (r1, r2), and
+  wallaby's A/B is a wash — a race on either instrument would be noise
+  arbitrating a question the node has already answered twice (54 vs 129
+  GB/s).  Hard install, dev-knob A/B only.
+
+### Borrowed this round, named
+
+* **OMP-region dispatch at streaming cells, pool absent from the process**
+  — L17_rader mt_r3 (its dsp=omp move and its wording) and L17_winograd
+  mt_r1–r3 (the only dispatch shape with node evidence at 129–193 GB/s).
+* The diagnosis itself — mt_r3 VERDICT section 4.4.
+
+### Pre-registered node expectations
+
+* **B=4096**: **1.15–1.35 us/t, all three processes within ~2%** (no raced
+  knobs at this cell; the engine at winograd's own dispatch shape should
+  land at winograd's own number, 1.219 +- session).  The description must
+  read `disp=omp` and — the round's real check — **clk512 should read
+  ~2.89, not 2.29**, and sbw rd/wr/cp should recover toward
+  6.4/11.4/18.4.  If time lands at ~1.22 AND clk512 recovers, "never
+  leave a spin pool alive at a streaming cell" is confirmed panel-wide
+  (the VERDICT's conditional rule).  If time stays ~2.9 with clk512
+  recovered, the clock was a symptom and the residue is elsewhere in the
+  pool design — next round then diffs the two entries' create() sequences
+  (t1g?  kids' tables?) rather than the dispatch.
+* **B=256**: 0.72–0.80 us/t, unchanged path, spread <=2% as in r2/r3.
+* **B=1**: 5.8–6.4 us, unchanged path.
+
+### Next round
+
+1. If B=4096 lands at winograd parity: the cell is a tie between two
+   copies of one engine; the only lever that could WIN it is winograd's
+   own next-round item (fold the NT stream into the fused pass-3 store
+   epilogue to cut the 78.6 KB/vol staging round trip) — build it jointly
+   or concede the cell as merged.
+2. If the pool-clock rule is confirmed: consider whether B=256 (currently
+   pool-dispatched, all 32 workers ACTIVE during execute so no idle
+   spinner exists mid-call) leaves anything on the table from the
+   spin-between-samples window; only act on a measured node loss.
+3. B=1: the ~2 us all-to-all floor stands; no credible idea left in this
+   file — watch rivals' records.

@@ -249,3 +249,164 @@ wall: ~200 GB/s aggregate with 70 KB/vol compulsory).
    per-plane (per-plane U completion counters, L17_winograd mt_r2's s2mode —
    they measured counters LOSING at their size; only try if the barrier
    shows up in a node profile).
+
+## Round mt_r4 — tuner repair: the two convicted pick lotteries, arena page-regime fidelity, n16 at the streaming cell
+
+### Where mt_r3 left this entry (node, Gold 5218, VERDICT §3.2 — read it, both convictions are mine)
+
+Scored: B=1 6.065 µs min but **8.5 µs representative** (2 of 3 processes
+installed `p2` against my own arena pricing it +34%/−2% vs serial —
+i:7761/p2:10417 in the very process that shipped p2); B=512 154.6 µs min but
+**231 µs representative** (2 of 3 installed `n24`, driver-priced 452 vs the
+pw! config's 302 ns/vol); B=8192 0.983 µs/vol, stable, pick=i in 3/3, cell
+lost to fftw3_patient's 1-in-3 fast mode (0.603; on medians we win 1.19×).
+The monitor's per-geometry order was explicit: remove the two bad picks,
+then attack the bandwidth (both L=13 entries sit at 69–72 GB/s where
+L36_mixedradix does 150.9 on the same node).
+
+### What changed (all tuner/race mechanics; kernels, NT appender, pool, partitions untouched — arithmetic identical)
+
+1. **B=1: strict incumbency restored.** The mt_r3 adopt-unless-vetoed rule
+   for pool teams is deleted; a pool team is now adopted only if it beats
+   the serial-group winner by >3% in BOTH trial blocks (L6_pfa's original
+   rule). The veto form was built for a wallaby login-node pathology
+   (napped workers losing cores under-prices the pool) that the idle node
+   — arena spread ~0.3%, i:6880 vs p2:11744 — never shows. On the node
+   this makes the pick `i` (serial fused) deterministically; wallaby dev
+   runs may under-adopt the pool, which is the right trade since only the
+   node scores. `-DL13R_FORCE_PT` stays as the monitor's A/B.
+2. **Batched: dispatch race first, knob race second, under the settled
+   dispatch.** mt_r3 raced knobs under the OMP fork and priced every
+   variant 1.5–1.9× over the delivered pool config (node B=512: arena
+   465–576 ns/vol, driver 302) — that inflation is what let n24's accurate
+   475 read beat pw!'s noisy 549–576 in 2 of 3 processes. Wallaby
+   confirmation of the fix, B=16: arena i:447 vs driver 437 ns/vol (2%);
+   B=512: i:169 vs driver 159.
+3. **Arena page-regime fidelity: the private race `out` is memset by the
+   main thread right after allocation, exactly like the driver's** (the
+   driver memsets `out` and freads `in` on the main thread → both
+   socket-0-resident; L13_direct's on-buffer governor measured fr=0/0 at
+   B=8192 — they never migrate). Until now my arena `ro` was first-touched
+   by the NT appender's streaming stores in the first race lap, i.e.
+   DISTRIBUTED across sockets per executing thread — every batched race ran
+   in a NUMA regime the scored run never sees, which is why the arena read
+   640 ns/vol at B=8192 where the driver delivered 983. Team-geometry
+   racing was meaningless before this one-line fix.
+4. **pw is deterministic-off when the batch fits both sockets' L3** (gate
+   flipped from per-thread-slice-vs-L2 to aggregate 2×sysconf-L3,
+   mirroring nts's 4× gate). Node B=512 (36 MB < 44 MB): incumbent becomes
+   pw=0 — the config the driver ran at 302 ns/vol in all three processes.
+   pw is still raced both ways at non-NT cells, so a machine where the
+   gate is wrong can overturn it (wallaby did, honestly: pw=1 won its
+   B=512 race −9% under the now-faithful arena and got adopted there).
+5. **n16 replaces n24 in the streaming race (nts=1 cells, ntb=32 only).**
+   n24 was +12% at B=8192 in 3/3 node processes and was the B=512 mispick
+   — deleted both places; no team-geometry rows below the streaming gate
+   at all. n16 is the single-socket team that won every fr=0 on-buffer
+   width race in mt_r3 (L8×3: 19–35%; L36_pfa: s16 20.05 vs s32 24.44
+   µs/vol; VERDICT §5). Mechanism I am betting on: with in/out
+   socket-0-resident and immobile, the far socket's reads also pay Cascade
+   Lake directory-update writes INTO socket 0's DRAM, so at the socket-0
+   controller wall (my 71 GB/s) halving the team can raise USEFUL
+   bandwidth. a6 (3:2 socket-weighted, keeps 32 threads) stays raced as
+   the intermediate. If a narrower team is adopted, the pool is rebuilt at
+   that width so the far socket's cores are EMPTY under the scored runs,
+   not spinning (VERDICT §3.3/§4.4: three entries measured spinners
+   dragging the all-core clock). `-DL13R_FORCE_NTB=n` added for the
+   monitor.
+
+### Operation count
+
+Unchanged: 186 vector FP per 13-point transform, 3×169 transforms/volume,
+zero extra FP in any mode; NT-tier compulsory DRAM stays 70 KB/volume.
+Setup grows by one 549 MB memset at B=8192 (~0.15 s, excluded from score;
+measured setup 0.46 s vs mt_r3's 0.66).
+
+### Measured on wallaby (Gold 6448Y SPR, 32 threads close/cores, shared login node, driver-level min; loaded session, sd up to 39% on medians — treat as relative)
+
+| cell | mt_r3 | mt_r4 | pick |
+|---|---|---|---|
+| B=1 | 3.236 µs | **3.704 µs min** (noisy window; arena p8:4205 vs i:5536) | p8 — clears the STRICT bar on wallaby, −24% |
+| B=16 | 4.10 µs/call | **7.00 µs/call** (contended window; arena i:447 ≈ driver 437) | pool dispatch (dp:575 vs do:1187) |
+| B=512 | 83.0 µs | **81.4 µs = 0.159 µs/vol** | pool (dp:168 vs do:254); pw! adopted honestly (154 vs 169) |
+| B=8192 | 2866 µs | **2839 µs = 0.347 µs/vol** | i; n16:455 vs i:335 — single socket, n16 correctly loses 36% |
+| B=512 FORCE_NTB=16 | — | 207 µs (T=16 on one socket = half the cores, as expected) | knob validated, pool shrinks to 15 workers |
+
+rel_l2 = 4.0e-16 at B ∈ {1,16,512,8192}, tol 1e-12; bit-identical across
+runs everywhere; AVX2-only and no-OpenMP builds pass (8.9 µs / 51.5 µs at
+B=16). Wallaby cannot price any of this round's node questions (single
+socket, no UPI, no socket-0 handicap) — the point of the round is that the
+node's arena now runs in the node's own page regime.
+
+### What did not work / was declined, with numbers
+
+- **n16 on wallaby: 455 vs 335 ns/vol (+36%)** — as it must be on one
+  socket (halved fill buffers, no UPI to avoid). Not evidence against the
+  node bet; kept raced with strict adoption so a node where the directory
+  story is wrong keeps ntb=32 at zero cost.
+- **Improving B=1 serial itself: not attempted.** Node arena i readings
+  (6880/7761/11108 ns across processes) say create-time clock state, not
+  kernel, dominates that instrument; the scored 6.06 stands on eleven
+  phase-1 rounds of tuning. The round's B=1 job was stability, which the
+  strict rule buys.
+- **The L2-tile port the VERDICT suggests for L=13** is a no-op here: the
+  batched pipeline already streams one volume at a time through ~56 KB of
+  per-thread L2-resident scratch (in read once, out written once, NT, 70
+  KB/vol compulsory). Our 71 GB/s ceiling is the caller's socket-0 page
+  residency (L13_direct's fr=0/0 + my arena's 640-vs-983 regime gap prove
+  it), not the tile shape — which is why this round attacks team geometry
+  instead.
+
+### Borrowed, explicitly
+
+- **fr=0/0 at L=13 B=8192 (caller buffers socket-0-resident, immobile):
+  L13_direct mt_r3's governor measurement** — the fact my whole round is
+  built on, not re-measured.
+- **Single-socket team wins at fr=0 streaming cells: L8_fusedaxes /
+  L8_batchsimd / L8_radix8 mt_r3 (19–35%) and L36_pfa mt_r3 (s16 20.05 vs
+  s32 24.44)**, via VERDICT §5 — taken as the prior for n16 instead of
+  re-deriving the width curve blind.
+- **"Never leave a spin team idle under a scored run": VERDICT §3.3/§4.4**
+  (L6_unrolled's 2.77× regression forensics, L17_matrixsimd's clk512 2.29
+  vs 2.89 GHz) — implemented as the pool rebuild-at-adopted-width.
+- **"Init race buffers to reproduce the driver's first touch": L6_pfa
+  mt_r1 via L13_direct mt_r3's record** — the memset(ro) fix is exactly
+  their lesson, applied to the out side where my NT appender had been
+  silently changing the regime.
+
+### Predictions for the node (pre-registered)
+
+- **B=1: pick=i in 3/3 processes, 6.0–6.2 µs.** The two p2 processes are
+  impossible under the strict rule (p2 read +34% and −2% — never >3%
+  faster in both blocks). Loses to L13_direct's 5.87 honestly; beats
+  mkl2026's 7.64.
+- **B=512: pw=0 + pool in 3/3, 152–158 µs (0.30–0.31 µs/vol).** The knob
+  race now runs at ~300 ns/vol scale where mt_r3's ran at ~470–580; n24
+  no longer exists to sneak in. Should retake the honest cell win from
+  L13_direct's 156.05.
+- **B=8192: the informative cell.** If the directory/UPI mechanism is
+  real, n16 prices well under i in the now-faithful arena and the cell
+  lands **0.80–0.90 µs/vol** (socket-0 local ceiling ~85–90 GB/s); if the
+  far socket's bandwidth contribution outweighs the directory cost, i
+  stays at **0.96–1.00** and the negative datum (n16's honest two-socket
+  price at fr=0) is published in the ab string either way. fftw's 0.603
+  needs 116 GB/s through socket 0 — not reachable by any 32-thread
+  schedule if fr=0 holds; on medians we already win.
+
+### Next round
+
+1. Read the node ab strings: (a) did B=1 ship i in 3/3; (b) B=512 scale of
+   the knob readings (should be ~300 ns/vol — if still ~470, the pool
+   dispatch was vetoed somewhere and that is its own datum); (c) n16 vs i
+   vs a6 at B=8192 in the driver's page regime — this is the round's
+   measurement.
+2. If n16 wins B=8192: try n20/n24 asymmetric (16 socket-0 + 4–8 far
+   threads doing READ-ONLY work, e.g. prefetch-into-L3 of socket-0 lines,
+   never writing) — keep the directory quiet but borrow far-core LFBs.
+3. If i holds and the cell stays ~0.98: the schedule is done; the residue
+   is the harness's page placement, and the honest ask (already in two
+   VERDICTs) is a parallel first-touch or interleave policy in the driver.
+4. B=1 residue vs L13_direct (5.87 vs 6.06): their lead is the cheaper
+   dense kernel at one thread, not threading; the phase-1 record says the
+   next Rader FP reduction (CRT 6→3+3 on the SS side) was tried and lost
+   to port pressure — do not reopen without a new idea.

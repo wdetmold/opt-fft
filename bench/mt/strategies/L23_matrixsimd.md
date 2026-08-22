@@ -531,3 +531,197 @@ exist for the node, like mt_r2's asymmetric-NT rows.
 4. If the harness ever interleaves caller pages, re-head everything: the
    T=16 row dies, dyn's margin doubles, and the serial arena fill must
    switch to the driver's new placement, first thing.
+
+## Round mt_r4
+
+### Where mt_r3 landed on the node (read off results/mt_r3, telemetry + verdict)
+
+Scored: B=1 **11.956 us — lost by 0.8%** to rader's 11.865 (verdict calls it
+a tie; both picks are fused T=16, my tuner 11.90-12.15 vs inc 12.94-13.02,
+and rader's tree barrier lost everywhere — bar=0 in all nine of their
+description strings, so the T=16 two-barrier floor now stands measured by
+two independent kernels AND a purpose-built tree barrier); B=128 **2.268 —
+won** (pick plain static T=32, dy correctly not installed); B=2048
+**5.893 — lost by 1.4%** to rader's 5.810 (another verdict-declared tie:
+both of us shipped the same shape, nt1/batchNT static T=32 at nv=640 —
+they adopted my aggregate arena and recovered 1.23x).  My mt_r3 rows all
+lost on the node: dy (pick=inc=5.47 at B=2048, dy0 everywhere), T=16/T=24
+team rows, nt2.  The verdict (section 5) declares team width and page
+placement DEAD — four entries raced narrow-vs-wide on real buffers and the
+mechanism story is closed; "stop building placement instruments."
+
+The order that set this round (verdict section 6, L=23 item): both L23
+entries sit at **65-67 GB/s, the LOWEST streaming bandwidth of any geometry
+in the round**, while three L=36-class entries reach 137-151 GB/s on the
+same node with the section-4.3 L2-tile construction.  My volume-parallel
+mode has had the tile itself since mt_r1 (191 KiB t1 per thread inside a
+1 MiB L2, all three axes inside it, NT out).  What it does NOT have is the
+sequential input read: the X pass loads `in` at an 8464-B stride — every j
+of a chunk in a different 4 KiB page, 23 interleaved page streams,
+latency-bound over UPI for the far 16 threads (all caller pages socket-0,
+fr=0, two verdicts running).  Both L23 records have carried "staged input"
+as an unbuilt next-item since mt_r1.  This round builds it.
+
+### What changed (zero new FP; kernel, schedule, decompositions frozen)
+
+1. **Staged sequential input (`si` knob), volume-parallel path.**  With
+   si engaged, a thread claims a volume and first copies its `in` (24334
+   doubles, 190 KiB) sequentially into thread-local 64-aligned L2 scratch
+   (`vs`, first-touched by the owner like all ctx scratch), then runs the
+   settled X-first schedule reading the copy.  Same compulsory DRAM/UPI
+   bytes; ONE hardware-prefetchable stream instead of 23 strided page
+   streams; the price is one extra L2-resident 190 KiB copy per volume.
+   pf2 is forced off under si (vs is L2-resident, the prefetch is pure
+   uop tax there).  **si=2 stages on the FAR socket only** — near threads
+   read local DRAM where the strided walk is cheap and the copy is pure
+   tax (wallaby measured it: below), far threads convert strided UPI reads
+   into one stream; same asymmetric shape as mt_r2's nt=2.  BORROWED: the
+   sequential-read discipline of every >=100 GB/s mt_r3 entry
+   (L36_pencilfused's paced read cursor, L36_mixedradix's sntp), per the
+   verdict's explicit L=23 port order; the far-only asymmetry is my own
+   nt=2 pattern reapplied to the read side.
+2. **Parked non-participants.**  After the pick is final (end of create(),
+   after env overrides), pool threads with tid >= tw — which every job
+   returns immediately and which take part in NO barrier — poll the
+   generation word with nanosleep(200us) instead of pause-spinning.
+   Motive: verdict section 4.4 — my own clk512 probe reads 2.29 GHz
+   (base) on the node; three entries independently blame busy spinners
+   for clock drag; the node's scored B=1 pick (fused T=16) leaves 16
+   workers spinning for the entire run.  Parked threads are never used,
+   so this cannot cost the participants anything; a stale generation read
+   only delays their empty workfn call, and the catch-up loop tolerates
+   missed generations.  During create()/tuning parkfrom=32 (nobody
+   parks), so every raced candidate is measured exactly as before.
+   L23_PARK=0 disables for forced A/Bs.
+3. **Streaming walk re-headed and re-pruned to 12 rows**: node picks lead
+   (nt1 static, plain static), then the si ladder (nt1+si1, nt1+si1+dy1,
+   plain+si1, and numa-gated nt1+si2 static/dy), the surviving dy rows,
+   nt1+pf2 (wallaby heritage), w2+si sanity.  DROPPED after two losing
+   node rounds: nt2+dy, pf2pw1, and the T=24 row; T=16 survives only
+   fused with si1 (the one team-width shape the walk still asks about,
+   now with sequential IO).  Canonical order + 4% hysteresis unchanged:
+   every si row must displace an honest incumbent.
+4. Plumbing: `vs` in l23_ctx (+190 KiB/thread, ctx block still one
+   allocation), `parkfrom` line in the pool, `si` plan knob + `L23_SI`
+   (0/1/2) + `L23_PARK` env, si in tune telemetry, si/pk in the
+   description string.
+
+### Operation count
+
+Unchanged: 594 real flop/line, 943 kflop/volume, 409 zmm chunks.  si adds
+one bit-exact 24334-double copy per volume when engaged (3042 vector
+load/store pairs, zero FP, L2-resident destination); park adds nothing to
+any participant.
+
+### Bit class (ONE, cmp-verified on wallaby this round, not assumed)
+
+The staging copy is bit-exact and the X pass reads identical values in the
+identical order; si only changes WHERE the operands are read from, park
+only changes how unused threads wait.  cmp full outputs at B=128 across
+forced {plain static (ref), plain si1, nt1 si1, nt1 si1 dy1, w2 nt1 si1,
+nt1 si1 T=7 (ragged), nt1 si1 T=7 PARK=0, nt1 si2}: all IDENTICAL.  B=1
+across {fused T=32, fused T=16 PARK=1, fused T=16 PARK=0}: IDENTICAL.
+B=2048 forced {nt1 si0} vs {nt1 si1}: IDENTICAL.  PASS rel_l2
+3.767e-16..3.808e-16 at B = 1, 8, 128, 2048; repeatable (bit-identical
+across runs) everywhere.
+
+### Measured on wallaby (Xeon 6448Y, one socket at 32 close threads; quiet-ish windows)
+
+| case | mt_r3 | mt_r4 | note |
+|---|---|---|---|
+| B=1    | 5.28-5.60 us | 5.34-5.61 us | unchanged path (fused T=32, pk inactive at T=32) |
+| B=8    | 2.53 us/vol  | 2.44 us/vol  | unchanged path |
+| B=128  | 1.08-1.16 us/t | 1.24 us/t driver (158.4 us/call) | pick = plain static (pf2pw1 row deleted; this window's walk: plain 1.673, plain+si 1.953) |
+| B=2048 | 2.02-2.06 us/t | 2.06 us/t (4225.7 us/call) | pick = **nt1 dy1 si0** 1.614 in-arena — same pick as mt_r3 |
+
+B=2048 streaming walk, one window (nv=640, us/t): nt1-static 1.756,
+**nt1-si1 1.926, nt1-si1-dy1 1.885** — si LOSES ~10% in-arena on this
+one-socket host, exactly as designed-for: there is no UPI here, so si is
+pure copy tax; nt1-dy1 1.614 <- kept (mt_r3's wallaby pick, again),
+plain 2.894, plain-si1 3.015, nt1-pf2 1.658, w2-nt1-si1 2.175.  Driver-
+level forced A/B, same story: nt1-si1 4594 vs nt1-si0 4226 us/call
+(+8.7%).  si=2 rows are numa-gated and invisible here, like mt_r2's nt=2
+and mt_r3's T rows — the node arbitrates, and its far socket is the
+mechanism si exists for.
+
+Park A/B at forced fused T=16, B=1 (the node's shape, 16 idle workers):
+PARK=1 7.634/7.662 vs PARK=0 7.704/7.732 us (min/median) — **~1% here**.
+Wallaby is SPR with per-core turbo and a shared login load; the node is
+CLX where this entry's own clk512 probe reads exactly base clock with 31
+spinners up, so the honest statement is: parking is free by construction,
+measured >= 0 on wallaby, and the node's clk512 telemetry (printed in the
+description string, now with pk=) will say whether the 2.29 GHz was the
+spinners or the governor.
+
+One flagged wallaby oddity, not explained away: a forced driver-level
+plain-si1 run at B=128 beat plain-si0 173.2 vs 197.7 us/call (-12%) in one
+window, while the in-walk arena read si1 WORSE (1.953 vs 1.673) in
+another.  B=128 is L3-resident on wallaby and its windows swing 10%+
+(mt_r1 note); the walk row exists and the node decides.
+
+### What did NOT work (numbers attached)
+
+* **si on one socket**: +8.7% driver-level at B=2048 (4594 vs 4226), +10%
+  in-arena.  Expected and pre-registered as the wallaby outcome; if the
+  NODE also rejects si everywhere (including si=2), then strided reads
+  were never the L=23 wall and the 65 GB/s residual is something else —
+  that is a real answer too, and the walk's canonical order guarantees
+  the incumbent survives it.
+* **Nothing else attempted at B=1.**  mt_r3's parked conclusion stands:
+  two kernels and one tree barrier all measure the fused-T=16 floor at
+  ~11.6-11.9; the only lever this round is the clock (park), which costs
+  nothing.  fus3/pt/T=23 stay dead (mt_r2 numbers), per the brief's
+  don't-rediscover rule.
+
+### Borrowed this round (attributions)
+
+* **Sequential input staging** (the shape and the reason it should work):
+  L36_pencilfused mt_r3 (paced read cursor, 43.9->137.5 GB/s) and
+  L36_mixedradix mt_r3 (sntp, 150.9 GB/s 3-of-3), via the mt_r3 verdict
+  section 4.3/6's explicit L=23 port order.  Both L23 records carried the
+  idea since mt_r1 (rader's "idea 2", my next-item 4); the tile half was
+  already in this file, the read half is theirs.
+* **Parking idle workers**: mt_r3 verdict section 4.4 — L36_pfa's
+  nap-after-1ms ("a locked s16 no longer drags the all-core clock"),
+  L17_rader's pool->OMP move (+1.71x), and the L6_unrolled bisect suspicion;
+  plus my own clk512=2.29 GHz node telemetry as the direct symptom.
+* **What I did NOT rebuild, on rivals' evidence**: rader's tree barrier
+  (bar=0 in all nine node strings, mt_r3) and weighted near/far splits
+  (wt=0 everywhere); team-width rows beyond the one si-paired T=16
+  (verdict section 5, four independent refutations).
+
+### Node predictions (pre-registered)
+
+* **B=2048**: the walk asks one question in four rows: does sequential UPI
+  read conversion move the 64 GB/s floor?  If si2 (far-only) wins:
+  expect **4.6-5.4 us/vol** (far threads currently pace the run; a 25-40%
+  far-volume speedup shows up nearly 1:1 under dy, less under static).
+  If full si1 wins instead, near-socket strided reads were also binding
+  — more upside, 4.2-5.0.  If ALL si rows lose to nt1 static/dy 5.8-5.9,
+  the read pattern is exonerated and next round goes after the write side
+  or accepts the UPI ceiling; either way the question closes with numbers.
+  Secondary: dy vs static at T=32 re-races with si in the mix.
+* **B=128**: plain static should hold (2.27-2.29); plain+si is the only
+  plausible mover (it converts remote strided reads at a cell that is
+  half cache-resident) — if it displaces, expect 2.0-2.2.
+* **B=1**: same pick (fused T=16, ~11.6-12.0) but now with pk=1 and 16
+  parked far-socket workers.  If the scored number lands under ~11.3 or
+  clk512 in the description string rises above 2.3, parking bought real
+  clock; if both are flat, the 2.29 GHz was the governor/AVX licence and
+  the parking stays as a free hygiene measure.  Rader should stay within
+  1% — the cell is latency-closed.
+
+### Next round
+
+1. Read the si pick off the node strings (si/dy/T + clk512/pk).  If si
+   won B=2048, tune the staging (NT loads? interleave copy with X of the
+   previous volume? stage in half-volumes to halve the L2 footprint?);
+   if it lost, measure the write side: out is already one sequential NT
+   stream per volume, so the remaining lever is claim granularity >1
+   volume for UPI stream continuity across volumes (claim 4, stage 4).
+2. If parking moved B=1 or clk512, propose the panel-wide rule the
+   verdict floated ("never leave a spin pool alive at a streaming cell")
+   with my B=1 number as the latency-cell counterpart; if not, write the
+   null down.
+3. If the harness ever fixes caller-page placement, si's premise changes
+   (interleaved pages halve the far penalty) — re-race, do not assume.
