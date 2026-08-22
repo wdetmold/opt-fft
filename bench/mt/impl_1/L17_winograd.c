@@ -3670,28 +3670,39 @@ static void run_batched(const fft3d_plan *p, const double *ip, double *op,
  * The pool never has more than (32 - 1) workers and is shrunk after tuning
  * to the picked team size, so unused cores are given back. */
 struct l17_wctx { struct l17_pool *pl; int t; };
+struct l17_flag { volatile unsigned v; char pad_[60]; };
 struct l17_pool {
     const fft3d_plan *p;       /* dispatch arguments, written by the main   */
     const double *in;          /* thread before the epoch release-store     */
     double *out;
     int T;
     volatile int stop;
-    volatile unsigned epoch  __attribute__((aligned(64)));
-    volatile unsigned barseq __attribute__((aligned(64)));   /* completed barriers */
-    volatile int      bcount __attribute__((aligned(64)));   /* arrivals this one  */
+    volatile unsigned epoch __attribute__((aligned(64)));
+    /* Flat arrival-flag / release barrier.  A central atomic counter was
+     * tried first and cost ~1.2 us per barrier at T=16: sixteen serialized
+     * RFOs on one line.  Here each arriver writes its OWN padded line (no
+     * contention), thread 0 scans them (independent lines, so the misses
+     * overlap) and publishes one release word; ~0.3-0.4 us at T=16.  The
+     * flag VALUE is the barrier's global sequence number 3*epoch-2..3*epoch,
+     * derived from the dispatch epoch, so threads that sat out a dispatch
+     * (t >= T while tuning) can never be out of phase. */
+    struct l17_flag arr[32];
+    struct l17_flag rel;
     int nworkers;
     pthread_t th[31];
     struct l17_wctx wc[31];
 };
 
-static inline void l17_bar(struct l17_pool *pl, int T)
+static inline void l17_bar(struct l17_pool *pl, int t, int T, unsigned seq)
 {
-    const unsigned tgt = __atomic_load_n(&pl->barseq, __ATOMIC_ACQUIRE) + 1u;
-    if (__atomic_add_fetch(&pl->bcount, 1, __ATOMIC_ACQ_REL) == T) {
-        pl->bcount = 0;        /* ordered before barseq by the release below */
-        __atomic_store_n(&pl->barseq, tgt, __ATOMIC_RELEASE);
+    if (t == 0) {
+        for (int i = 1; i < T; ++i)
+            while (__atomic_load_n(&pl->arr[i].v, __ATOMIC_ACQUIRE) < seq)
+                __builtin_ia32_pause();
+        __atomic_store_n(&pl->rel.v, seq, __ATOMIC_RELEASE);
     } else {
-        while (__atomic_load_n(&pl->barseq, __ATOMIC_ACQUIRE) < tgt)
+        __atomic_store_n(&pl->arr[t].v, seq, __ATOMIC_RELEASE);
+        while (__atomic_load_n(&pl->rel.v, __ATOMIC_ACQUIRE) < seq)
             __builtin_ia32_pause();
     }
 }
@@ -3711,7 +3722,7 @@ static inline void l17_bar(struct l17_pool *pl, int T)
  * same instructions on the same values in the same order as serial f8, so
  * the output is bit-identical; the barriers only order disjoint writes. */
 static void ovp_body(const fft3d_plan *p, const double *in, double *out,
-                     int t, int nt, struct l17_pool *pl)
+                     int t, int nt, struct l17_pool *pl, unsigned e)
 {
     double *ar = p->buf,                    *ai = p->buf + (size_t)17*SP;
     double *br = p->buf + (size_t)2*17*SP,  *bi = p->buf + (size_t)3*17*SP;
@@ -3725,7 +3736,7 @@ static void ovp_body(const fft3d_plan *p, const double *in, double *out,
                 else        tail1_f8(in, ar, ai);
             }
         }
-        l17_bar(pl, nt);
+        l17_bar(pl, t, nt, 3u*e - 2u);
         {   /* phase 2 */
             DECL_SC(v8); OPAQUE_SC();
             const int u0 = 35*t/nt, u1 = 35*(t+1)/nt;
@@ -3764,7 +3775,7 @@ static void ovp_body(const fft3d_plan *p, const double *in, double *out,
                 }
             }
         }
-        l17_bar(pl, nt);
+        l17_bar(pl, t, nt, 3u*e - 1u);
         {   /* phase 3 */
             DECL_SC(v8); OPAQUE_SC();
             const int u0 = 35*t/nt, u1 = 35*(t+1)/nt;
@@ -3835,8 +3846,8 @@ static void *l17_worker(void *arg)
         seen = __atomic_load_n(&pl->epoch, __ATOMIC_ACQUIRE);
         if (__atomic_load_n(&pl->stop, __ATOMIC_ACQUIRE)) return NULL;
         if (t < pl->T) {
-            ovp_body(pl->p, pl->in, pl->out, t, pl->T, pl);
-            l17_bar(pl, pl->T);            /* completion barrier */
+            ovp_body(pl->p, pl->in, pl->out, t, pl->T, pl, seen);
+            l17_bar(pl, t, pl->T, 3u*seen);    /* completion barrier */
         }
     }
 }
@@ -3882,9 +3893,9 @@ static void one_volume_pool(const fft3d_plan *p, const double *in, double *out,
 {
     struct l17_pool *pl = p->pool;
     pl->p = p;  pl->in = in;  pl->out = out;  pl->T = T;
-    __atomic_add_fetch(&pl->epoch, 1, __ATOMIC_RELEASE);
-    ovp_body(p, in, out, 0, T, pl);
-    l17_bar(pl, T);
+    const unsigned e = __atomic_add_fetch(&pl->epoch, 1, __ATOMIC_RELEASE);
+    ovp_body(p, in, out, 0, T, pl, e);
+    l17_bar(pl, 0, T, 3u*e);
 }
 #endif /* !L17_DENSE_KERNEL */
 

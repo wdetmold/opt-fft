@@ -1,8 +1,29 @@
-/* Carried over from the SINGLE-THREAD competition, where this file finished as
- * written below. Your job in the multicore phase is to parallelise it across
- * 32 cores without losing its single-core efficiency -- read
- * ../PANEL_BRIEF.md, and read ../../geom/strategies/L13_rader.md for the full
- * history of how this kernel got here.
+/* MULTICORE (mt_r1).  The phase-1 kernel below is untouched; 32 cores are
+ * applied where they pay:
+ *   batch>1: volumes are embarrassingly parallel -- contiguous static split
+ *     over up to 32 OpenMP threads, each with its OWN 64B-aligned scratch
+ *     replica allocated and first-touched INSIDE create()'s parallel region
+ *     (NUMA-local; the caller's in/out are socket-0 resident and out of our
+ *     control).  Contiguous chunks keep each thread on the same volumes
+ *     every call and keep the cross-volume pf prefetch in-chunk.
+ *   nts: in the DRAM-streaming cells the y pass stages each volume into an
+ *     L2-hot per-thread buffer and one movntpd burst writes it out, killing
+ *     the RFO read (a third of the out-side traffic).  Phase 1's "hide the
+ *     RFO, don't NT-avoid it" verdict was the single-core LATENCY regime;
+ *     at 32 threads the streaming cells are BANDWIDTH bound and NT measured
+ *     -21% at B=8192 on wallaby (2948 vs 3731 us).  Gated on the batch
+ *     streaming past both sockets' L3, raced at batch.
+ *   B=1: a 3-phase intra-volume split (x blocks / z blocks / y planes, two
+ *     barriers, U deepened to 13 live planes) exists behind p->t1 and is
+ *     RACED at plan time against the serial fused incumbent -- on wallaby
+ *     the region+barrier overhead loses 2-3x (t4: 13.7 vs 6.3 us), which is
+ *     the brief's predicted outcome; the race lets the idle node decide
+ *     for itself.
+ *   ntb: 16-vs-32-thread team at batch is also raced -- whether the 16
+ *     cross-socket threads pay for their UPI hop to socket-0-resident
+ *     in/out is a node-only question.
+ * Read ../PANEL_BRIEF.md, and ../../geom/strategies/L13_rader.md for the
+ * full single-thread history.
  */
 /* L13_rader -- forward 3D DFT of a 13^3 cube, batched, single-threaded.
  *
@@ -1271,7 +1292,7 @@ fft3d_plan *fft3d_create(int L, int batch)
                 win = k;
         if (p->um != v[win].um) l13r_zdum(p, v[win].um);
         p->fuse = v[win].fuse; p->pw = v[win].pw; p->pf = v[win].pf;
-        p->t1 = v[win].t1; p->nts = v[win].nts;
+        p->t1 = v[win].t1; p->nts = v[win].nts; p->ntb = v[win].ntb;
         {
             int off = snprintf(abuf, sizeof abuf, " ab[B%d]=", batch);
             for (int k = 0; k < nv && off < (int)sizeof abuf; ++k)
@@ -1287,10 +1308,10 @@ fft3d_plan *fft3d_create(int L, int batch)
 #endif
     snprintf(l13r_desc, sizeof l13r_desc,
              "Rader-13 split cyc/nega (186 FP/pt), X-first, %d-bit, "
-             "batch-parallel nt=%d NUMA-local scratch, B1 team t1=%d; "
+             "batch-parallel ntb=%d/%d NUMA-local scratch, B1 team t1=%d; "
              "fuse=%d um=%d ys=%d pf=%d pw=%d nts=%d pace=%d znb=%d%s",
-             VW * 64, p->nt, p->t1, p->fuse, p->um, p->ys, p->pf, p->pw,
-             p->nts, (int)L13R_PACE, p->znb, abuf);
+             VW * 64, p->ntb, p->nt, p->t1, p->fuse, p->um, p->ys, p->pf,
+             p->pw, p->nts, (int)L13R_PACE, p->znb, abuf);
     return p;
 }
 

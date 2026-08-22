@@ -101,3 +101,8 @@ bench/gpu/leases/
 bench/gpu/.reservation_payload.sh
 
 bench/gpu/build/
+
+# consolidated best-of library: build products (sources ARE tracked)
+bench/geom/best/obj/
+bench/geom/best/libfft3d_best.a
+bench/geom/best/verify_best

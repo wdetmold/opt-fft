@@ -1,9 +1,3 @@
-/* Carried over from the SINGLE-THREAD competition, where this file finished as
- * written below. Your job in the multicore phase is to parallelise it across
- * 32 cores without losing its single-core efficiency -- read
- * ../PANEL_BRIEF.md, and read ../../geom/strategies/L17_matrixsimd.md for the full
- * history of how this kernel got here.
- */
 /* =============================================================================
  * L17_matrixsimd -- 17^3 complex-double forward DFT as three dense 17x17
  *                   matrix passes, conjugate-pair folded, vectorised across
@@ -1309,10 +1303,6 @@ L17_EXEC_P(SUF(exec20), 1, 1)
 
 #else /* ================= main body ================= */
 
-#ifndef _GNU_SOURCE
-#  define _GNU_SOURCE /* pthread_setaffinity_np, sched_getaffinity */
-#endif
-
 #include <complex.h>
 #include <math.h>
 #include <stdint.h>
@@ -1321,12 +1311,6 @@ L17_EXEC_P(SUF(exec20), 1, 1)
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-
-#ifdef _OPENMP
-#  include <omp.h>
-#  include <pthread.h>
-#  include <sched.h>
-#endif
 
 #include "../fft3d_api.h"
 
@@ -1406,27 +1390,6 @@ struct fft3d_plan {
     void *block;
     double _Complex *ti, *to; /* transient buffers used only by the plan-time tuner */
     size_t tn;
-    /* ---- multicore phase (round mt_r1) ------------------------------------
-     * mode 0: single thread, master exec (the phase-1 path, unchanged)
-     * mode 1: volume-parallel -- each thread runs the SAME selected exec on
-     *         its own contiguous run of volumes (static) or on dynamically
-     *         grabbed blocks of dynb volumes, with fully private scratch
-     * mode 2: intra-volume -- the X-last class-B transform decomposed into
-     *         17*B independent (plane: Y+Z) units, one barrier, then 73*B
-     *         independent X-chunk units, all chunk-for-chunk identical to
-     *         l17_execm_xla, so the bits match class B exactly
-     * All tuning of (mode, nthr, dynb, kernel, flags) happens in create() by
-     * timing the real parallel path; every candidate within a batch regime
-     * is in one bit class, so the wall-clock pick cannot change the output. */
-    int mode;
-    int nthr;               /* team size for modes 1 and 2 */
-    int dynb;               /* mode 1: >0 = dynamic blocks of dynb volumes */
-    int nkids;
-    struct fft3d_plan **kids; /* per-thread plans: own tables + scratch,
-                               * first-touched by their own thread (NUMA) */
-    double *t1g;            /* mode 2: batch padded t1 volumes (17*640 dbl each) */
-    void *t1g_raw;
-    void *poolv;            /* persistent spin pool (l17mt_pool), created once */
     unsigned char astab[2][256]; /* per-volume t1 base shifts (round panel_r8):
                                   * astab[mode][((t1 - ref) & 4095) >> 4] is the
                                   * 64-byte-step shift minimizing X-pass 4K
@@ -2249,330 +2212,6 @@ l17_probe_x(const fft3d_plan *restrict p, const double *restrict src, long ss,
     L17_MIX_XPASS(src, ss, dst, 578, 0, 0);
 }
 
-/* =============================================================================
- * ROUND mt_r1: MULTICORE LAYER.
- *
- * Volume-parallel (mode 1, batch >= 64): volumes are independent, so each
- * thread runs the SAME plan-selected exec variant on its own contiguous run
- * of volumes (static split) or on dynamically grabbed blocks (dynb volumes
- * per grab; the caller's buffers are first-touched serially by the driver,
- * so on the two-socket node the remote socket's threads run slower and a
- * dynamic schedule rebalances that -- which of the two wins is measured).
- * Every thread has a fully private child plan (own coefficient tables, own
- * pb/sc/t1/stage scratch, first-touched by its own thread so it is
- * NUMA-local), so there is no shared mutable state at all and no false
- * sharing inside scratch.  Which thread computes a volume cannot change its
- * bits: the kernel and tables are identical, and the r8 address-shift is
- * address-only.
- *
- * Intra-volume (mode 2, batch < 64): one 17^3 volume is 78.6 KiB -- the
- * batch axis alone cannot use 32 cores at B=1.  The X-last class-B
- * transform decomposes into 17*B independent plane units (Y group + Z group
- * on a private plane buffer, in -> t1) and, after ONE barrier, 73*B
- * independent X-chunk units (t1 -> out).  Both phases run exactly the
- * chunk sequence of l17_execm_xla (mixed zmm+ymm tail, pinned sines, padded
- * t1 stride), so the output is bit-identical to class B -- the same
- * argument as the r4 pipelined variants: same chunks, same operands, same
- * per-value order, only the interleaving across independent units differs.
- * t1 uses the r8 padded plane stride (5120 B = 80 lines), so plane
- * boundaries never share a cache line between threads; the only remaining
- * sharing is the 17 out-lines at each phase-2 thread boundary (out rows
- * are 16 mod 64), which is bounded and measured, not guessed.
- * =============================================================================
- */
-enum { L17MT_T1VOL = 17 * L17_T1SP }; /* padded t1 volume, doubles (87 KiB) */
-
-static double l17_now(void);
-static int l17_verbose(void);
-
-/* one thread's share of the plane phase: global plane index g = 17*b + x */
-static __attribute__((noinline)) void
-l17mt_planes(const fft3d_plan *restrict p, const double *restrict inb,
-             double *restrict t1g, int g0, int g1)
-{
-    L17_MIX_DECLS;
-    (void)nb;
-    for (int g = g0; g < g1; ++g) {
-        int b = g / 17, x = g % 17;
-        const double *pin2 = inb + (size_t)b * 9826 + (long)x * 578;
-        double *pt = t1g + (size_t)b * L17MT_T1VOL + (long)x * L17_T1SP;
-        L17_MIX_GROUP(pin2, 34, pb, L17_PBROWM, 0, 0);
-        L17_MIX_GROUP(pb, L17_PBROWM, pt, 34, 0, 0);
-    }
-}
-
-/* one thread's share of the X pass: global slot index h = 73*b + i */
-static __attribute__((noinline)) void
-l17mt_xrange(const fft3d_plan *restrict p, const double *restrict t1g,
-             double *restrict outb, int h0, int h1)
-{
-    L17_MIX_DECLS;
-    (void)nb;
-    for (int h = h0; h < h1; ++h) {
-        int b = h / 73, i = h % 73;
-        const double *t1v = t1g + (size_t)b * L17MT_T1VOL;
-        double *vout = outb + (size_t)b * 9826;
-        if (i < 72) {
-            long f0 = 4L * i;
-            chunk17n_w4(t1v + 2 * f0, L17_T1SP, vout + 2 * f0, 2, 578,
-                        cn8, sn8, sc, K0, K1, K2, K3, K4, K5, K6, K7,
-                        0, 0, 1, 0);
-        } else {
-            chunk17n_w2(t1v + 2 * 287, L17_T1SP, vout + 2 * 287, 2, 578,
-                        cn4, sn4, sc, Q0, Q1, Q2, Q3, Q4, Q5, Q6, Q7,
-                        0, 0, 1, 0);
-        }
-    }
-}
-
-#ifdef _OPENMP
-/* ---- persistent spin pool ----------------------------------------------
- * gcc's fork/join for an execute-time OpenMP region measured 3.4 us (4
- * threads) to 13.9 us (32) per execute on wallaby -- more than the whole
- * parallel B=1 transform.  So the execute-time team is pthreads created
- * ONCE in create() (the brief: "thread pools belong in fft3d_create()"),
- * pinned to the SAME cores OpenMP was given (each OMP thread's affinity
- * mask is captured inside the child-building parallel region and copied to
- * the pool worker of the same index, so `close/cores` is reproduced
- * exactly).  A job is released by one atomic generation store and
- * collected by per-thread padded done flags; workers busy-spin (pause)
- * between back-to-back executes -- the driver's timing loop -- and decay
- * to a futex sleep after ~4 ms idle so the plan-time single-thread probes
- * and anything else on the machine are not perturbed. */
-enum { L17MT_MAXT = 64 };
-
-typedef struct { volatile int v; char pad[60]; } l17mt_flag;
-
-struct l17mt_pool;
-typedef struct l17mt_warg { struct l17mt_pool *pl; int t; } l17mt_warg;
-
-typedef struct l17mt_pool {
-    fft3d_plan *plan;                   /* job spec: written before release */
-    const double _Complex *in;
-    double _Complex *out;
-    int mode, nthr, dynb;
-    int gen;                            /* master generation (main thread only) */
-    volatile int quit;
-    volatile int next;                  /* mode-1 dynamic block counter */
-    int nwork;
-    struct { volatile int cnt; volatile int gen; char pad[56]; } bar;
-    /* per-worker release/ack flags, one cache line each: only the ACTIVE
-     * team's flags are touched per execute, idle workers never wake, never
-     * read the job fields, and cause no coherence traffic at all */
-    l17mt_flag gof[L17MT_MAXT];
-    l17mt_flag done[L17MT_MAXT];
-    pthread_t th[L17MT_MAXT];
-    l17mt_warg warg[L17MT_MAXT];
-    cpu_set_t mask[L17MT_MAXT];
-    int have_mask[L17MT_MAXT];
-} l17mt_pool;
-
-static inline void l17mt_pause(void)
-{
-#if defined(__x86_64__) || defined(__i386__)
-    __builtin_ia32_pause();
-#endif
-}
-
-/* sense-free central barrier: safe for reuse because a thread can only
- * re-enter after every participant left (the pool's done/go handshake
- * serializes executes), and cnt is reset before gen is released */
-static void l17mt_barrier(l17mt_pool *pl, int nt)
-{
-    int g = __atomic_load_n(&pl->bar.gen, __ATOMIC_ACQUIRE);
-    if (__atomic_add_fetch(&pl->bar.cnt, 1, __ATOMIC_ACQ_REL) == nt) {
-        pl->bar.cnt = 0;
-        __atomic_store_n(&pl->bar.gen, g + 1, __ATOMIC_RELEASE);
-    } else {
-        while (__atomic_load_n(&pl->bar.gen, __ATOMIC_ACQUIRE) == g)
-            l17mt_pause();
-    }
-}
-
-/* thread t's share of the current job (t == 0 is the caller's thread) */
-static void l17mt_work(l17mt_pool *pl, int t)
-{
-    fft3d_plan *p = pl->plan;
-    fft3d_plan *k = p->kids[t];
-    const int nt = pl->nthr, nb = p->batch;
-    const double _Complex *in = pl->in;
-    double _Complex *out = pl->out;
-    if (pl->mode == 2) {
-        const int NPL = 17 * nb, NCH = 73 * nb;
-        l17mt_planes(k, (const double *)in, p->t1g,
-                     (int)(((long)NPL * t) / nt),
-                     (int)(((long)NPL * (t + 1)) / nt));
-        l17mt_barrier(pl, nt);
-        l17mt_xrange(k, p->t1g, (double *)out,
-                     (int)(((long)NCH * t) / nt),
-                     (int)(((long)NCH * (t + 1)) / nt));
-    } else if (pl->dynb > 0) {
-        const int db = pl->dynb, nblk = (nb + db - 1) / db;
-        int blk;
-        while ((blk = __atomic_fetch_add(&pl->next, 1, __ATOMIC_RELAXED)) < nblk) {
-            int v0 = blk * db;
-            int nv = nb - v0 < db ? nb - v0 : db;
-            k->batch = nv;
-            k->exec(k, in + (size_t)v0 * 4913, out + (size_t)v0 * 4913);
-        }
-    } else {
-        int v0 = (int)(((long)nb * t) / nt);
-        int v1 = (int)(((long)nb * (t + 1)) / nt);
-        if (v1 > v0) {
-            k->batch = v1 - v0;
-            k->exec(k, in + (size_t)v0 * 4913, out + (size_t)v0 * 4913);
-        }
-    }
-}
-
-static double l17_now(void); /* fwd (defined with the tuner utilities) */
-
-static void *l17mt_worker(void *argp)
-{
-    l17mt_pool *pl = ((l17mt_warg *)argp)->pl;
-    const int t = ((l17mt_warg *)argp)->t;
-    if (pl->have_mask[t])
-        pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &pl->mask[t]);
-    volatile int *mygo = &pl->gof[t].v;
-    int myg = 0;
-    for (;;) {
-        int g;
-        long spins = 0;
-        double idle0 = 0.0;
-        while ((g = __atomic_load_n(mygo, __ATOMIC_ACQUIRE)) == myg) {
-            l17mt_pause();
-            if ((++spins & 8191) == 0) {
-                /* decay from a hot spin to a 0.1-1 ms poll after ~4 ms idle:
-                 * an idle worker then costs ~0.1% of a core and nothing on
-                 * the release path (no futex handshake); the up-to-1 ms wake
-                 * latency hits only the first execute after a long gap,
-                 * which the driver's discarded warmups absorb */
-                double tn = l17_now();
-                if (idle0 == 0.0) {
-                    idle0 = tn;
-                } else if (tn - idle0 > 4e-3) {
-                    struct timespec ts;
-                    ts.tv_sec = 0;
-                    ts.tv_nsec = (tn - idle0 > 0.1) ? 1000000 : 100000;
-                    nanosleep(&ts, NULL);
-                }
-            }
-        }
-        myg = g;
-        if (__atomic_load_n(&pl->quit, __ATOMIC_ACQUIRE)) break;
-        l17mt_work(pl, t); /* released <=> t < nthr, so no membership test */
-        __atomic_store_n(&pl->done[t].v, g, __ATOMIC_RELEASE);
-    }
-    return NULL;
-}
-
-static void l17mt_pool_run(fft3d_plan *p, const double _Complex *in,
-                           double _Complex *out)
-{
-    l17mt_pool *pl = p->poolv;
-    pl->plan = p;
-    pl->in = in;
-    pl->out = out;
-    pl->mode = p->mode;
-    pl->nthr = p->nthr > pl->nwork ? pl->nwork : p->nthr;
-    pl->dynb = p->dynb;
-    pl->next = 0;
-    const int g = ++pl->gen, nt = pl->nthr;
-    for (int t = 1; t < nt; ++t)
-        __atomic_store_n(&pl->gof[t].v, g, __ATOMIC_RELEASE);
-    l17mt_work(pl, 0);
-    for (int t = 1; t < nt; ++t)
-        while (__atomic_load_n(&pl->done[t].v, __ATOMIC_ACQUIRE) != g)
-            l17mt_pause();
-}
-
-static l17mt_pool *l17mt_pool_new(int nwork, const cpu_set_t *masks,
-                                  const int *have)
-{
-    if (nwork > L17MT_MAXT) nwork = L17MT_MAXT;
-    l17mt_pool *pl = calloc(1, sizeof *pl);
-    if (!pl) return NULL;
-    pl->nwork = nwork;
-    for (int t = 0; t < nwork; ++t) {
-        pl->mask[t] = masks[t];
-        pl->have_mask[t] = have[t];
-        pl->warg[t].pl = pl;
-        pl->warg[t].t = t;
-    }
-    for (int t = 1; t < nwork; ++t) {
-        if (pthread_create(&pl->th[t], NULL, l17mt_worker, &pl->warg[t]) != 0) {
-            __atomic_store_n(&pl->quit, 1, __ATOMIC_SEQ_CST);
-            for (int u = 1; u < t; ++u)
-                __atomic_store_n(&pl->gof[u].v, pl->gen + 1, __ATOMIC_SEQ_CST);
-            for (int u = 1; u < t; ++u) pthread_join(pl->th[u], NULL);
-            free(pl);
-            return NULL;
-        }
-    }
-    return pl;
-}
-
-static void l17mt_pool_free(l17mt_pool *pl)
-{
-    if (!pl) return;
-    __atomic_store_n(&pl->quit, 1, __ATOMIC_SEQ_CST);
-    for (int t = 1; t < pl->nwork; ++t)
-        __atomic_store_n(&pl->gof[t].v, pl->gen + 1, __ATOMIC_SEQ_CST);
-    for (int t = 1; t < pl->nwork; ++t) pthread_join(pl->th[t], NULL);
-    free(pl);
-}
-#endif /* _OPENMP */
-
-static void l17mt_dispatch(fft3d_plan *p, const double _Complex *in,
-                           double _Complex *out)
-{
-#ifdef _OPENMP
-    if (p->mode != 0 && p->poolv) { l17mt_pool_run(p, in, out); return; }
-#endif
-    p->exec(p, in, out);
-}
-
-#ifdef _OPENMP
-static void l17mt_set_kids(fft3d_plan *p,
-                           void (*fn)(const fft3d_plan *,
-                                      const double _Complex *,
-                                      double _Complex *),
-                           int pf, int pw, int pt)
-{
-    for (int t = 0; t < p->nkids; ++t)
-        if (p->kids[t]) {
-            p->kids[t]->exec = fn;
-            p->kids[t]->pf = pf;
-            p->kids[t]->pw = pw;
-            p->kids[t]->pt = pt;
-        }
-}
-
-/* seconds per transform for p AS CURRENTLY CONFIGURED (mode/nthr/dynb/kids),
- * on the tuner arena with nv volumes: 2 warmups (the first also calibrates an
- * inner count that clears timer resolution), min of 3 blocked samples. */
-static double l17mt_time_cfg(fft3d_plan *p, int nv)
-{
-    int sb = p->batch;
-    p->batch = nv;
-    l17mt_dispatch(p, p->ti, p->to);
-    double t0 = l17_now();
-    l17mt_dispatch(p, p->ti, p->to);
-    double dt = l17_now() - t0;
-    long inner = dt > 1e-9 ? (long)(2e-3 / dt) + 1 : 1000;
-    if (inner > 4000) inner = 4000;
-    double best = 1e30;
-    for (int r = 0; r < 3; ++r) {
-        t0 = l17_now();
-        for (long i = 0; i < inner; ++i) l17mt_dispatch(p, p->ti, p->to);
-        dt = l17_now() - t0;
-        if (dt < best) best = dt;
-    }
-    p->batch = sb;
-    return best / (double)inner / (double)nv;
-}
-#endif /* _OPENMP */
-
 /* -----------------------------------------------------------------------
  * ROUND panel_r10: in-plan STREAMING bandwidth decomposition (sbw), the
  * batch-regime sibling of r9's b1dec, same instrument (timed in create(),
@@ -2827,14 +2466,14 @@ static int l17_tune_nv(int batch)
     return batch < cap ? batch : cap;
 }
 
-/* Allocate the coefficient/scratch block and fill every table.  Factored out
- * of fft3d_create() for the multicore phase: each thread's child plan calls
- * this from inside the parallel region, so its scratch is first-touched (and
- * therefore homed) on that thread's own socket.  astab_src != NULL copies the
- * master's de-aliasing tables instead of rebuilding them (they are pure
- * integer arithmetic, identical on every thread). */
-static int l17_init_block(fft3d_plan *p, const void *astab_src)
+fft3d_plan *fft3d_create(int L, int batch)
 {
+    if (L != 17 || batch < 1) return NULL;
+    fft3d_plan *p = calloc(1, sizeof *p);
+    if (!p) return NULL;
+    p->L = L;
+    p->batch = batch;
+
     const size_t nc = 8 * 9, ns = 8 * 8;
     const size_t nnc = 4 * 8, nns = 8 * 8; /* nested kernel coefficient rows */
     const size_t nsc = 17 * 8;
@@ -2850,8 +2489,10 @@ static int l17_init_block(fft3d_plan *p, const void *astab_src)
     const size_t ntot = 12 * nc + 12 * ns + 12 * nnc + 12 * nns + nsc +
                         2 * npb + 2 * nt1e + 2 * nso + nt1 + 1024;
     void *blk = NULL;
-    if (posix_memalign(&blk, 64, ntot * sizeof(double)) != 0 || !blk)
-        return 0;
+    if (posix_memalign(&blk, 64, ntot * sizeof(double)) != 0 || !blk) {
+        free(p);
+        return NULL;
+    }
     memset(blk, 0, ntot * sizeof(double));
     p->block = blk;
 
@@ -2942,24 +2583,7 @@ static int l17_init_block(fft3d_plan *p, const void *astab_src)
 
     /* de-aliasing shift tables for the address-safe twins -- must exist
      * before the tuner runs them.  Pure integer arithmetic, ~30 ms. */
-    if (astab_src)
-        memcpy(p->astab, astab_src, sizeof p->astab);
-    else
-        l17_as_build(p->astab);
-    return 1;
-}
-
-fft3d_plan *fft3d_create(int L, int batch)
-{
-    if (L != 17 || batch < 1) return NULL;
-    fft3d_plan *p = calloc(1, sizeof *p);
-    if (!p) return NULL;
-    p->L = L;
-    p->batch = batch;
-    if (!l17_init_block(p, NULL)) {
-        free(p);
-        return NULL;
-    }
+    l17_as_build(p->astab);
 
     /* ---- pick the variant by measuring it, here, on this machine ----
      * Stage 1 chooses the compute structure: vector width (512/256-bit) x how
@@ -2973,15 +2597,6 @@ fft3d_plan *fft3d_create(int L, int batch)
         typedef void (*l17_fn)(const fft3d_plan *, const double _Complex *,
                                double _Complex *);
         enum { L17_NCAND = 50 };
-        /* round mt_r1: when OpenMP gives us a team, the batch>=64 kernel
-         * choice moves to the MULTITHREADED race below (the single-thread
-         * ranking does not predict the 32-thread, bandwidth-shared one), so
-         * the old single-thread stage 1b/2 run only as a no-OpenMP fallback. */
-#ifdef _OPENMP
-        const int l17mt_on = omp_get_max_threads() > 1;
-#else
-        const int l17mt_on = 0;
-#endif
         static const l17_fn cand[L17_NCAND] = {
             exec_w4, exec2_w4, exec3_w4, exec4_w4, exec6_w4, exec7_w4,
             exec10_w4, exec11_w4, exec12_w4, exec13_w4, exec14_w4, exec15_w4,
@@ -3191,7 +2806,7 @@ fft3d_plan *fft3d_create(int L, int batch)
          * different kernel outright.  Borrowed from L17_winograd round 2,
          * which measured a 90% penalty for trusting the small-set pick at
          * batch. */
-        if (batch >= 64 && !l17mt_on) {
+        if (batch >= 64) {
             int nv2 = l17_tune_nv(batch);
             if (l17_tune_alloc(p, nv2)) {
                 int sb = p->batch;
@@ -3230,7 +2845,7 @@ fft3d_plan *fft3d_create(int L, int batch)
          * interleaved X chunks already touch volume b+1's input); pw is
          * offered only to the variants that have the hook (the X-first
          * nested/mixed family and the mixed pipelined exec). */
-        if (batch >= 64 && !l17mt_on) {
+        if (batch >= 64) {
             const int pipewin = (bestv >= 24 && bestv <= 27) ||
                                 bestv == 30 || bestv == 31 || bestv == 35;
             /* r10: the staged twins' sequential copy IS the cross-volume
@@ -3335,217 +2950,6 @@ fft3d_plan *fft3d_create(int L, int batch)
 #  endif
         }
 #endif
-
-#ifdef _OPENMP
-        /* ============== round mt_r1: the multicore layer ==============
-         * Children first (per-thread plans, NUMA-local scratch), then the
-         * (mode, kernel, team, schedule, flags) choice by timing the REAL
-         * parallel path on this machine.  Every candidate raced within one
-         * batch regime is in that regime's bit class, so the wall-clock
-         * pick cannot change the output bits (the phase-1 discipline,
-         * carried over unchanged). */
-        if (l17mt_on) {
-            int maxt = omp_get_max_threads();
-            if (maxt > L17MT_MAXT) maxt = L17MT_MAXT;
-            p->nkids = maxt;
-            p->kids = calloc((size_t)maxt, sizeof *p->kids);
-            cpu_set_t *masks = calloc((size_t)maxt, sizeof *masks);
-            int *havem = calloc((size_t)maxt, sizeof *havem);
-            int okk = p->kids && masks && havem;
-            if (okk) {
-                int fail = 0;
-#pragma omp parallel num_threads(maxt) reduction(||: fail)
-                {
-                    int t = omp_get_thread_num();
-                    fft3d_plan *k = calloc(1, sizeof *k);
-                    if (k) {
-                        k->L = 17;
-                        k->batch = 1;
-                        if (!l17_init_block(k, p->astab)) {
-                            free(k);
-                            k = NULL;
-                        }
-                    }
-                    if (!k) fail = 1;
-                    p->kids[t] = k;
-                    /* capture this OMP thread's binding so the pool worker
-                     * of the same index runs on exactly the same core(s) */
-                    if (sched_getaffinity(0, sizeof(cpu_set_t), &masks[t]) == 0)
-                        havem[t] = 1;
-                }
-                okk = !fail;
-            }
-            if (okk) {
-                p->poolv = l17mt_pool_new(maxt, masks, havem);
-                okk = p->poolv != NULL;
-            }
-            free(masks);
-            free(havem);
-            if (okk && batch < 64) {
-                /* intra-volume t1: batch padded volumes, first-touched by the
-                 * same plane->thread mapping the intra phase 1 uses */
-                size_t nd = (size_t)batch * L17MT_T1VOL;
-                if (posix_memalign(&p->t1g_raw, 64, nd * sizeof(double)) != 0)
-                    p->t1g_raw = NULL;
-                p->t1g = (double *)p->t1g_raw;
-                if (p->t1g) {
-                    const int NPL = 17 * batch;
-#pragma omp parallel num_threads(maxt)
-                    {
-                        int t = omp_get_thread_num();
-                        int g0 = (int)(((long)NPL * t) / maxt);
-                        int g1 = (int)(((long)NPL * (t + 1)) / maxt);
-                        for (int g = g0; g < g1; ++g)
-                            memset(p->t1g + (size_t)(g / 17) * L17MT_T1VOL +
-                                       (size_t)(g % 17) * L17_T1SP,
-                                   0, L17_T1SP * sizeof(double));
-                    }
-                }
-            }
-
-            if (okk && batch >= 64 && l17_tune_alloc(p, batch < 1024 ? batch : 1024)) {
-                const int nv = batch < 1024 ? batch : 1024;
-                /* stage A: kernel race inside bit class D under the full
-                 * team.  dyn=2 as the racing schedule so the node's remote-
-                 * socket imbalance does not scramble the kernel ranking. */
-                p->mode = 1;
-                p->nthr = maxt;
-                p->dynb = 2;
-                int mbest = sel[0];
-                double bt = 1e30;
-                for (int s = 0; s < nsel; ++s) {
-                    int v = sel[s];
-                    l17mt_set_kids(p, cand[v], 0, 0, 0);
-                    double tt = l17mt_time_cfg(p, nv);
-                    if (l17_verbose())
-                        fprintf(stderr, "[L17_matrixsimd mtA nt=%d nv=%d] %-72s %8.3f us/t\n",
-                                maxt, nv, tags[v], tt * 1e6);
-                    if (tt < bt) { bt = tt; mbest = v; }
-                }
-                l17mt_set_kids(p, cand[mbest], 0, 0, 0);
-                bestv = mbest;
-                g_desc = tags[mbest];
-                /* stage B: team size x schedule on the winner.  Fewer threads
-                 * can win when the caller's serially-first-touched buffers
-                 * leave the remote socket bandwidth-starved; dynamic blocks
-                 * rebalance that at the cost of one atomic per grab. */
-                {
-                    const int ntc[4] = {maxt, (3 * maxt) / 4, maxt / 2, maxt / 4};
-                    const int dyc[4] = {0, 1, 2, 4};
-                    int bnt = maxt, bdy = 2;
-                    bt = 1e30;
-                    for (int a = 0; a < 4; ++a) {
-                        int dup = ntc[a] < 1;
-                        for (int a2 = 0; a2 < a; ++a2)
-                            if (ntc[a2] == ntc[a]) dup = 1;
-                        if (dup) continue;
-                        for (int d = 0; d < 4; ++d) {
-                            p->nthr = ntc[a];
-                            p->dynb = dyc[d];
-                            double tt = l17mt_time_cfg(p, nv);
-                            if (l17_verbose())
-                                fprintf(stderr, "[L17_matrixsimd mtB] nt=%d dyn=%d  %8.3f us/t\n",
-                                        ntc[a], dyc[d], tt * 1e6);
-                            if (tt < bt) { bt = tt; bnt = ntc[a]; bdy = dyc[d]; }
-                        }
-                    }
-                    p->nthr = bnt;
-                    p->dynb = bdy;
-                }
-                /* stage C: (pf,pw,pt) jointly on the final configuration --
-                 * same grid as the phase-1 stage 2, timed multithreaded */
-                {
-                    const int pipew = (mbest >= 24 && mbest <= 27) ||
-                                      mbest == 30 || mbest == 31 || mbest == 35;
-                    const int hpf = !pipew && mbest != 46 && mbest != 47 &&
-                                    mbest != 48 && mbest != 49;
-                    const int hpw = mbest == 9 || mbest == 11 || mbest == 21 ||
-                                    mbest == 23 || mbest == 28 || mbest == 29 ||
-                                    mbest == 34 || mbest == 35 || mbest == 37 ||
-                                    (mbest >= 44 && mbest <= 49);
-                    const int hpt = mbest == 34 || mbest == 37 ||
-                                    mbest == 44 || mbest == 45;
-                    int bpf = 0, bpw = 0, bpt = 0;
-                    if (hpf || hpw || hpt) {
-                        bt = 1e30;
-                        for (int fp = 0; fp <= hpf; ++fp)
-                            for (int fw = 0; fw <= hpw; ++fw)
-                                for (int ft = 0; ft <= hpt; ++ft) {
-                                    l17mt_set_kids(p, cand[mbest], fp, fw, ft);
-                                    double tt = l17mt_time_cfg(p, nv);
-                                    if (l17_verbose())
-                                        fprintf(stderr, "[L17_matrixsimd mtC] pf=%d pw=%d pt=%d  %8.3f us/t\n",
-                                                fp, fw, ft, tt * 1e6);
-                                    if (tt < bt) { bt = tt; bpf = fp; bpw = fw; bpt = ft; }
-                                }
-                    }
-                    l17mt_set_kids(p, cand[mbest], bpf, bpw, bpt);
-                    p->pf = bpf;
-                    p->pw = bpw;
-                    p->pt = bpt;
-                }
-                static char g_desc_mtv[380];
-                snprintf(g_desc_mtv, sizeof g_desc_mtv,
-                         "%s, mt[vol nt=%d dyn=%d pf=%d pw=%d pt=%d]",
-                         g_desc, p->nthr, p->dynb, p->pf, p->pw, p->pt);
-                g_desc = g_desc_mtv;
-            }
-
-            if (okk && batch < 64 && l17_tune_alloc(p, batch)) {
-                /* small batch: single-thread vs volume-parallel vs the
-                 * intra-volume decomposition, all bit class B */
-                l17mt_set_kids(p, p->exec, 0, 0, p->pt);
-                int bmode = 0, bnt = 1;
-                p->mode = 0;
-                double bt = l17mt_time_cfg(p, batch);
-                if (l17_verbose())
-                    fprintf(stderr, "[L17_matrixsimd mt] single       %8.3f us/t\n", bt * 1e6);
-                if (batch > 1) {
-                    int nt = batch < maxt ? batch : maxt;
-                    p->mode = 1;
-                    p->nthr = nt;
-                    p->dynb = 0;
-                    double tt = l17mt_time_cfg(p, batch);
-                    if (l17_verbose())
-                        fprintf(stderr, "[L17_matrixsimd mt] vol nt=%-3d   %8.3f us/t\n", nt, tt * 1e6);
-                    if (tt < bt) { bt = tt; bmode = 1; bnt = nt; }
-                }
-                if (p->t1g) {
-                    static const int ntl[5] = {2, 4, 8, 16, 32};
-                    p->mode = 2;
-                    for (int a = 0; a < 5 && ntl[a] <= maxt; ++a) {
-                        p->nthr = ntl[a];
-                        double tt = l17mt_time_cfg(p, batch);
-                        if (l17_verbose())
-                            fprintf(stderr, "[L17_matrixsimd mt] intra nt=%-3d %8.3f us/t\n",
-                                    ntl[a], tt * 1e6);
-                        if (tt < bt) { bt = tt; bmode = 2; bnt = ntl[a]; }
-                    }
-                }
-                p->mode = bmode;
-                p->nthr = bnt;
-                p->dynb = 0;
-                static char g_desc_mts[380];
-                snprintf(g_desc_mts, sizeof g_desc_mts, "%s, mt[%s nt=%d]",
-                         g_desc,
-                         bmode == 0 ? "single" : bmode == 1 ? "vol" : "intra",
-                         bnt);
-                g_desc = g_desc_mts;
-            }
-
-            /* dev-only overrides (never set by the harness), for bit-class
-             * verification: L17MT_MODE / L17MT_NT pin mode and team size. */
-            {
-                const char *em = getenv("L17MT_MODE");
-                const char *en = getenv("L17MT_NT");
-                if (em && *em) p->mode = atoi(em);
-                if (en && *en) p->nthr = atoi(en);
-                if (p->mode != 0 && p->nthr < 1) p->nthr = 1;
-                if (p->mode == 2 && !p->t1g) p->mode = 0;
-                if (p->mode != 0 && (!okk || !p->kids || !p->poolv)) p->mode = 0;
-            }
-        }
-#endif /* _OPENMP */
     }
     if (batch >= 64) {
         /* ROUND panel_r10: the streaming bandwidth decomposition (see the
@@ -3648,18 +3052,6 @@ void fft3d_destroy(fft3d_plan *p)
 {
     if (!p) return;
     l17_tune_free(p); /* normally already freed at the end of create() */
-#ifdef _OPENMP
-    l17mt_pool_free(p->poolv);
-#endif
-    if (p->kids) {
-        for (int t = 0; t < p->nkids; ++t)
-            if (p->kids[t]) {
-                free(p->kids[t]->block);
-                free(p->kids[t]);
-            }
-        free(p->kids);
-    }
-    free(p->t1g_raw);
     free(p->block);
     free(p);
 }
@@ -3683,7 +3075,7 @@ void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex 
                     (long)(((uintptr_t)out - (uintptr_t)in) & 4095u));
         }
     }
-    l17mt_dispatch(plan, in, out);
+    plan->exec(plan, in, out);
 }
 
 #endif /* L17_TEMPLATE_PASS */

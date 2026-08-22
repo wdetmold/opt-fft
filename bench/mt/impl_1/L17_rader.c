@@ -338,6 +338,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <sched.h>
+#include <immintrin.h>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -1185,49 +1186,210 @@ static __attribute__((noinline, noclone)) void l17r_plane_w8(
     }
 }
 
-/* mode 2 execute: nb*17 plane tasks, one barrier, nb*37 x-block tasks. */
-static void l17r_exec_vp(fft3d_plan *p, const double _Complex *in,
-                         double _Complex *out)
+/* ---- spin-wait worker pool -------------------------------------------
+ * Measured on wallaby (SPR, this round): one libgomp parallel region +
+ * barrier costs 2.7 us at nt=2 rising to 8.3 us at nt=32 -- the entire
+ * B=1 budget.  The pool replaces OpenMP at execute time: nt-1 workers are
+ * created ONCE in fft3d_create (thread creation is setup), pinned to the
+ * same cores the harness's OMP_PROC_BIND=close binding chose (recorded
+ * from inside the create-time OpenMP region), and dispatched through one
+ * release-store + spin-wait handshake.  Workers busy-poll with pause for
+ * ~20 ms after their last job, then park on a condvar (so an idle plan
+ * burns nothing); the first execute after an idle spell pays one futex
+ * wake, which the driver's warmup absorbs.  Total threads never exceed
+ * the given 32: the pool is main + 31 workers, and the create-time OpenMP
+ * pool sleeps whenever the worker pool runs (execute never enters an
+ * OpenMP region). */
+
+typedef void (*l17r_workfn)(fft3d_plan *, int, int,
+                            const double _Complex *, double _Complex *);
+
+typedef struct l17r_pool {
+    _Atomic int go   __attribute__((aligned(64)));   /* job sequence      */
+    _Atomic int done __attribute__((aligned(64)));   /* worker completions */
+    _Atomic int bcnt __attribute__((aligned(64)));   /* team barrier count */
+    _Atomic int bgen;                                /* team barrier gen   */
+    _Atomic int hold __attribute__((aligned(64)));   /* 1: park everyone  */
+    _Atomic int quit;
+    _Atomic int nparked;
+    struct {                                          /* current job */
+        fft3d_plan *p;
+        const double _Complex *in;
+        double _Complex *out;
+        l17r_workfn fn;
+        int nt;
+    } job __attribute__((aligned(64)));
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+    int nw;
+    pthread_t th[L17R_MAXT];
+    struct l17r_warg { struct l17r_pool *pl; int slot; int cpu; }
+        warg[L17R_MAXT];
+} l17r_pool;
+
+#define L17R_SPIN_LIMIT (1L << 19)   /* pauses before self-park: ~20 ms */
+
+static void *l17r_worker(void *argp)
 {
-    const int nt = p->nt, nb = p->batch;
-    const int np = nb * LN;
-    const int nx = nb * 37;
-#pragma omp parallel num_threads(nt)
-    {
-        const int t = omp_get_thread_num();
-        fft3d_plan *const q = p->sh[t];
-        const int p0 = l17r_cut(np, nt, t), p1 = l17r_cut(np, nt, t + 1);
-        for (int i = p0; i < p1; ++i) {
-            const int b = i / LN, x = i % LN;
-            l17r_plane_w8((const double *)in + (size_t)2*NVOL*b, x, q,
-                          p->vpar + (size_t)b*ABUF8,
-                          p->vpai + (size_t)b*ABUF8);
+    struct l17r_warg *a = argp;
+    l17r_pool *const pl = a->pl;
+    const int slot = a->slot;
+    if (a->cpu >= 0) {
+        cpu_set_t cs;
+        CPU_ZERO(&cs);
+        CPU_SET(a->cpu, &cs);
+        pthread_setaffinity_np(pthread_self(), sizeof cs, &cs);
+    }
+    int seen = 0;
+    for (;;) {
+        long spins = 0;
+        while (atomic_load_explicit(&pl->go, memory_order_acquire) == seen
+               && !atomic_load_explicit(&pl->quit, memory_order_relaxed)) {
+            __builtin_ia32_pause();
+            if (atomic_load_explicit(&pl->hold, memory_order_relaxed)
+                || ++spins > L17R_SPIN_LIMIT) {
+                pthread_mutex_lock(&pl->mu);
+                atomic_fetch_add(&pl->nparked, 1);
+                while (atomic_load_explicit(&pl->go,
+                                            memory_order_acquire) == seen
+                       && !atomic_load_explicit(&pl->quit,
+                                                memory_order_relaxed))
+                    pthread_cond_wait(&pl->cv, &pl->mu);
+                atomic_fetch_sub(&pl->nparked, 1);
+                pthread_mutex_unlock(&pl->mu);
+                spins = 0;
+            }
         }
-#pragma omp barrier
-        const int x0 = l17r_cut(nx, nt, t), x1 = l17r_cut(nx, nt, t + 1);
-        for (int i = x0; i < x1; ++i) {
-            const int b = i / 37, blk = i % 37;
-            xblk_run_w8(p->vpar + (size_t)b*ABUF8,
-                        p->vpai + (size_t)b*ABUF8,
-                        (double *)out + (size_t)2*NVOL*b, blk, 0);
-        }
+        if (atomic_load_explicit(&pl->quit, memory_order_relaxed))
+            return NULL;
+        seen = atomic_load_explicit(&pl->go, memory_order_acquire);
+        if (slot + 1 < pl->job.nt && pl->job.fn)
+            pl->job.fn(pl->job.p, slot + 1, pl->job.nt,
+                       pl->job.in, pl->job.out);
+        atomic_fetch_add_explicit(&pl->done, 1, memory_order_release);
     }
 }
 
-/* mode 1 execute: each thread runs its shadow plan's exec on its own
+static void l17r_pool_destroy(l17r_pool *pl)
+{
+    if (!pl) return;
+    atomic_store(&pl->quit, 1);
+    pthread_mutex_lock(&pl->mu);
+    pthread_cond_broadcast(&pl->cv);
+    pthread_mutex_unlock(&pl->mu);
+    for (int k = 0; k < pl->nw; ++k)
+        pthread_join(pl->th[k], NULL);
+    pthread_mutex_destroy(&pl->mu);
+    pthread_cond_destroy(&pl->cv);
+    free(pl);
+}
+
+/* cpus[t] = the core OMP thread t is bound to (cpus[0] is the caller's) */
+static l17r_pool *l17r_pool_create(int nw, const int *cpus)
+{
+    l17r_pool *pl = calloc(1, sizeof *pl);
+    if (!pl) return NULL;
+    pthread_mutex_init(&pl->mu, NULL);
+    pthread_cond_init(&pl->cv, NULL);
+    atomic_store(&pl->hold, 1);          /* born parked */
+    for (int k = 0; k < nw; ++k) {
+        pl->warg[k].pl = pl;
+        pl->warg[k].slot = k;
+        pl->warg[k].cpu = cpus ? cpus[k + 1] : -1;
+        if (pthread_create(&pl->th[k], NULL, l17r_worker, &pl->warg[k])) {
+            l17r_pool_destroy(pl);
+            return NULL;
+        }
+        pl->nw = k + 1;
+    }
+    return pl;
+}
+
+static void l17r_pool_hold(l17r_pool *pl, int hold)
+{
+    if (!pl) return;
+    atomic_store(&pl->hold, hold);
+}
+
+/* dispatch: publish the job, release-bump go, run share 0, wait for all
+ * nw workers to acknowledge (workers outside the team just acknowledge). */
+static void l17r_pool_run(fft3d_plan *p, l17r_workfn fn, int nt,
+                          const double _Complex *in, double _Complex *out)
+{
+    l17r_pool *const pl = p->pool;
+    if (!pl || nt <= 1) {
+        fn(p, 0, 1, in, out);
+        return;
+    }
+    pl->job.p = p;
+    pl->job.in = in;
+    pl->job.out = out;
+    pl->job.fn = fn;
+    pl->job.nt = nt;
+    atomic_store_explicit(&pl->done, 0, memory_order_relaxed);
+    atomic_fetch_add_explicit(&pl->go, 1, memory_order_release);
+    if (atomic_load_explicit(&pl->nparked, memory_order_acquire) > 0) {
+        pthread_mutex_lock(&pl->mu);
+        pthread_cond_broadcast(&pl->cv);
+        pthread_mutex_unlock(&pl->mu);
+    }
+    fn(p, 0, nt, in, out);
+    while (atomic_load_explicit(&pl->done, memory_order_acquire) < pl->nw)
+        __builtin_ia32_pause();
+}
+
+/* centralized sense-reversing barrier for the nt team members of a job */
+static inline void l17r_team_barrier(l17r_pool *pl, int nt)
+{
+    if (!pl || nt <= 1) return;
+    int g = atomic_load_explicit(&pl->bgen, memory_order_acquire);
+    if (atomic_fetch_add_explicit(&pl->bcnt, 1,
+                                  memory_order_acq_rel) == nt - 1) {
+        atomic_store_explicit(&pl->bcnt, 0, memory_order_relaxed);
+        atomic_store_explicit(&pl->bgen, g + 1, memory_order_release);
+    } else {
+        while (atomic_load_explicit(&pl->bgen, memory_order_acquire) == g)
+            __builtin_ia32_pause();
+    }
+}
+
+/* mode 2 work share: (b,x) plane tasks, team barrier, (b,blk) x tasks. */
+static void l17r_work_vp(fft3d_plan *p, int t, int nt,
+                         const double _Complex *in, double _Complex *out)
+{
+    const int nb = p->batch;
+    const int np = nb * LN;
+    const int nx = nb * 37;
+    fft3d_plan *const q = p->sh[t];
+    const int p0 = l17r_cut(np, nt, t), p1 = l17r_cut(np, nt, t + 1);
+    for (int i = p0; i < p1; ++i) {
+        const int b = i / LN, x = i % LN;
+        l17r_plane_w8((const double *)in + (size_t)2*NVOL*b, x, q,
+                      p->vpar + (size_t)b*ABUF8,
+                      p->vpai + (size_t)b*ABUF8);
+    }
+    l17r_team_barrier(p->pool, nt);
+    const int x0 = l17r_cut(nx, nt, t), x1 = l17r_cut(nx, nt, t + 1);
+    for (int i = x0; i < x1; ++i) {
+        const int b = i / 37, blk = i % 37;
+        xblk_run_w8(p->vpar + (size_t)b*ABUF8,
+                    p->vpai + (size_t)b*ABUF8,
+                    (double *)out + (size_t)2*NVOL*b, blk, 0);
+    }
+}
+
+/* mode 1 work share: thread t runs its shadow plan's exec on its own
  * contiguous chunk of volumes.  The shadows' batch/boff/pf/pfw/exec are
  * fixed at plan time, so every execute does identical work on identical
  * addresses -- repeatable by construction. */
-static void l17r_exec_batch(fft3d_plan *p, const double _Complex *in,
-                            double _Complex *out)
+static void l17r_work_batch(fft3d_plan *p, int t, int nt,
+                            const double _Complex *in, double _Complex *out)
 {
-#pragma omp parallel num_threads(p->nt)
-    {
-        fft3d_plan *const q = p->sh[omp_get_thread_num()];
-        if (q->batch > 0)
-            q->exec(q, in + (size_t)NVOL*q->boff,
-                    out + (size_t)NVOL*q->boff);
-    }
+    (void)nt;
+    fft3d_plan *const q = p->sh[t];
+    if (q && q->batch > 0)
+        q->exec(q, in + (size_t)NVOL*q->boff,
+                out + (size_t)NVOL*q->boff);
 }
 
 /* configure mode 1 for nv volumes over nt threads, variant f, knobs pf/pfw */
@@ -1330,11 +1492,14 @@ fft3d_plan *fft3d_create(int L, int batch)
     if (ntm < 1) ntm = 1;
     p->ntmax = ntm;
     int shok = 0;
+    int cpus[L17R_MAXT];
+    for (int t = 0; t < L17R_MAXT; ++t) cpus[t] = -1;
     if (ntm > 1) {
         shok = 1;
 #pragma omp parallel num_threads(ntm)
         {
             int t = omp_get_thread_num();
+            cpus[t] = sched_getcpu();  /* the harness's close binding */
             fft3d_plan *q = calloc(1, sizeof *q);
             if (q && !l17r_alloc_scratch(q)) {
                 free(q);
@@ -1345,6 +1510,10 @@ fft3d_plan *fft3d_create(int L, int batch)
         for (int t = 0; t < ntm; ++t)
             if (!p->sh[t]) shok = 0;   /* partial alloc: fall back, destroy
                                         * frees whatever succeeded */
+        if (shok) {
+            p->pool = l17r_pool_create(ntm - 1, cpus);
+            if (!p->pool) shok = 0;
+        }
     }
 
     if (batch == 1 || (!shok && batch < 64 && batch < L17R_XF_CUT)) {
@@ -1600,9 +1769,15 @@ fft3d_plan *fft3d_create(int L, int batch)
             for (int i = 0; i < ntc; ++i) us_vp[i] = 1e30;
             double us_st = 1e30;
             for (int pass = 0; pass < 2; ++pass) {   /* order-bias guard */
+                /* the incumbent is timed with the workers PARKED (idle
+                 * cores, full single-core turbo -- its real conditions if
+                 * it wins and the pool is torn down) and the vp candidates
+                 * with the workers spinning (their real conditions) */
+                l17r_pool_hold(p->pool, 1);
                 p->mode = 0;
                 double u = l17r_time_cfg(p, 1, 3);
                 if (u < us_st) us_st = u;
+                l17r_pool_hold(p->pool, 0);
                 for (int i = 0; i < ntc; ++i) {
                     p->mode = 2;
                     p->nt = tlist[i];
@@ -1647,6 +1822,7 @@ fft3d_plan *fft3d_create(int L, int batch)
             const int ncv = 6;
             double us[6];
             for (int v = 0; v < ncv; ++v) us[v] = 1e30;
+            l17r_pool_hold(p->pool, 0);
 
             /* clock settle with the real parallel shape (~150 ms) */
             l17r_set_mode1(p, nv2, nt1, l17r_cand_a[2], 0, 0);
@@ -1788,9 +1964,22 @@ fft3d_plan *fft3d_create(int L, int batch)
     p->pfw = (L17R_FORCE_PFW);
 #endif
 
-    /* measured sustained clock at both widths (unscored; VERDICT r4's ask) */
+    /* measured sustained clock at both widths (unscored; VERDICT r4's ask);
+     * workers parked so the probe sees the quiet-machine clock */
+    l17r_pool_hold(p->pool, 1);
     double g256 = l17r_probe_ghz(0);
     double g512 = l17r_probe_ghz(1);
+
+    /* pool disposition: modes 1/2 keep it (unheld); mode 0 tears it down so
+     * a single-thread plan leaves the other 31 cores truly idle */
+    if (p->pool) {
+        if (p->mode == 0) {
+            l17r_pool_destroy(p->pool);
+            p->pool = NULL;
+        } else {
+            l17r_pool_hold(p->pool, 0);
+        }
+    }
 
     {
         int n = snprintf(g_desc, sizeof g_desc,
@@ -1819,6 +2008,7 @@ fft3d_plan *fft3d_create(int L, int batch)
 void fft3d_destroy(fft3d_plan *p)
 {
     if (!p) return;
+    l17r_pool_destroy(p->pool);
     l17r_tune_free(p);   /* normally already freed at the end of create() */
     for (int t = 0; t < L17R_MAXT; ++t)
         if (p->sh[t]) {
@@ -1833,9 +2023,9 @@ void fft3d_destroy(fft3d_plan *p)
 void fft3d_execute(fft3d_plan *p, const double _Complex *in, double _Complex *out)
 {
     if (p->mode == 1)
-        l17r_exec_batch(p, in, out);
+        l17r_pool_run(p, l17r_work_batch, p->nt, in, out);
     else if (p->mode == 2)
-        l17r_exec_vp(p, in, out);
+        l17r_pool_run(p, l17r_work_vp, p->nt, in, out);
     else
         p->exec(p, in, out);
 }
@@ -2212,11 +2402,31 @@ static __attribute__((noinline, noclone)) void SFX(xblk_run)(
  * rivals' dense chunk/plane stores do structurally (L17_matrixsimd r3,
  * L17_winograd g8).  The rolled loop is 1228 iterations, ~30 B of code.
  * pfw composes: one write-intent prefetch per stored line, 512 B ahead
- * (prefetch never faults, so running past the last volume's end is safe). */
+ * (prefetch never faults, so running past the last volume's end is safe).
+ * nts (mt_r1): flush with NON-TEMPORAL stores.  Single-threaded the node
+ * rejected NT four rounds running (prefetchw hid the RFO more cheaply), but
+ * with 32 cores sharing DRAM the batched cases are bandwidth-bound and the
+ * out RFO is a third of the traffic; NT deletes it.  `out` is 64-B aligned
+ * (driver posix_memalign) and q steps by full lines, so every NT store is
+ * an aligned full-line store; the 2-double remainder goes through normal
+ * stores.  Same values to the same places: bit-identical.  sfence before
+ * returning so the worker's completion store publishes finished data. */
 static inline __attribute__((always_inline)) void SFX(vo_flush)(
-        const double *vo, double *dst, const int pfw)
+        const double *vo, double *dst, const int pfw, const int nts)
 {
     long q = 0;
+#if defined(__AVX512F__) && VW == 8
+    if (nts) {
+        for (; q + 8 <= 2L*NVOL; q += 8)
+            _mm512_stream_pd(dst + q, _mm512_loadu_pd(vo + q));
+        dst[q]     = vo[q];
+        dst[q + 1] = vo[q + 1];
+        _mm_sfence();
+        return;
+    }
+#else
+    (void)nts;
+#endif
     if (pfw) {
         for (; q + 8 <= 2L*NVOL; q += 8) {
             __builtin_prefetch((const char *)(dst + q) + 512, 1, 2);
@@ -2237,10 +2447,22 @@ static inline __attribute__((always_inline)) void SFX(vo_flush)(
  * immediate flush showed the serial burst fully exposed (no compute behind
  * it), which is exactly what pacing it under the FMA stream removes. */
 static inline __attribute__((always_inline)) void SFX(vo_flush_chunk)(
-        const double *vo, double *dst, const int x, const int pfw)
+        const double *vo, double *dst, const int x, const int pfw,
+        const int nts)
 {
     long q = 576L*x;
     const long qe = (x == 16) ? 2L*NVOL : q + 576;
+#if defined(__AVX512F__) && VW == 8
+    if (nts) {
+        for (; q + 8 <= qe; q += 8)
+            _mm512_stream_pd(dst + q, _mm512_loadu_pd(vo + q));
+        if (x == 16) { dst[q] = vo[q]; dst[q + 1] = vo[q + 1]; }
+        _mm_sfence();
+        return;
+    }
+#else
+    (void)nts;
+#endif
     if (pfw) {
         for (; q + 8 <= qe; q += 8) {
             __builtin_prefetch((const char *)(dst + q) + 512, 1, 2);
@@ -2462,7 +2684,7 @@ static inline __attribute__((always_inline)) void SFX(exec_body)(
                 }
                 wino17_w4(ar + (NPL - 4), ai + (NPL - 4), PS, 0, 0, 0, 0,
                           xd, NPL - 4, NPL, 0, 1, 0);
-                if (stg) SFX(vo_flush)(p->vo_w8, dst, p->pfw);
+                if (stg) SFX(vo_flush)(p->vo_w8, dst, p->pfw, stg == 2);
             } else
 #endif
             for (int blk = 0; blk < NXB; ++blk) {
@@ -2678,7 +2900,7 @@ static inline __attribute__((always_inline)) void SFX(exec_sp_body)(
  * output is BIT-IDENTICAL to every class-A candidate. */
 static inline __attribute__((always_inline)) void SFX(exec_stp_body)(
         fft3d_plan *p, const double _Complex *in, double _Complex *out,
-        const int pin, const int dey)
+        const int pin, const int dey, const int nts)
 {
     double *const ar = p->SFX(ar), *const ai = p->SFX(ai);
     double *const tr = p->SFX(tr), *const ti = p->SFX(ti);
@@ -2733,7 +2955,7 @@ static inline __attribute__((always_inline)) void SFX(exec_stp_body)(
 
             /* one dense flush chunk of the PREVIOUS volume's staged output */
             if (b > 0)
-                SFX(vo_flush_chunk)(pvo, pdst, x, pfw);
+                SFX(vo_flush_chunk)(pvo, pdst, x, pfw, nts);
         }
 
         /* staged x pass: kernel stores into vo (L2-hot, no pfw needed) */
@@ -2747,7 +2969,7 @@ static inline __attribute__((always_inline)) void SFX(exec_stp_body)(
 
     /* drain: the last volume's flush */
     SFX(vo_flush)(((nb - 1) & 1) ? p->vo2_w8 : p->vo_w8,
-                  (double *)out + (size_t)2*NVOL*(nb - 1), pfw);
+                  (double *)out + (size_t)2*NVOL*(nb - 1), pfw, nts);
 }
 
 /* Deferred-junction plane schedule ("dz"), mixed-width shape, panel_r7 --
@@ -2961,13 +3183,39 @@ static void __attribute__((unused)) SFX(exec_stmdy)(
 static void __attribute__((unused)) SFX(exec_stpm)(
         fft3d_plan *p, const double _Complex *in, double _Complex *out)
 {
-    SFX(exec_stp_body)(p, in, out, 0, 0);
+    SFX(exec_stp_body)(p, in, out, 0, 0, 0);
 }
 
 static void __attribute__((unused)) SFX(exec_stpmdy)(
         fft3d_plan *p, const double _Complex *in, double _Complex *out)
 {
-    SFX(exec_stp_body)(p, in, out, 0, 1);
+    SFX(exec_stp_body)(p, in, out, 0, 1, 0);
+}
+
+/* mt_r1: non-temporal flush twins of st / stp (RFO deletion for the
+ * 32-core bandwidth-bound batched cells; see vo_flush's nts note) */
+static void __attribute__((unused)) SFX(exec_stntm)(
+        fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    SFX(exec_body)(p, in, out, 0, 0, 1, 0, 0, 2);
+}
+
+static void __attribute__((unused)) SFX(exec_stntmdy)(
+        fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    SFX(exec_body)(p, in, out, 0, 0, 1, 1, 0, 2);
+}
+
+static void __attribute__((unused)) SFX(exec_stpntm)(
+        fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    SFX(exec_stp_body)(p, in, out, 0, 0, 1);
+}
+
+static void __attribute__((unused)) SFX(exec_stpntmdy)(
+        fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    SFX(exec_stp_body)(p, in, out, 0, 1, 1);
 }
 
 /* plan-time probes (panel_r9): NEVER candidates -- exec_xp reads whatever A
