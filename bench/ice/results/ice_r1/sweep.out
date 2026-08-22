@@ -76,3 +76,6 @@ mkl_dfti ==
    done L=6 B=64
    done L=8 B=64
    done L=13 B=32
+   done L=17 B=32
+   done L=23 B=16
+   done L=36 B=8

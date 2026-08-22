@@ -1,0 +1,2 @@
+   L13_rader                      6.131 us 250732.974 us    19.89       0.8%    0.009s  ok 4.0e-16       1.32x
+   L13_rader                Rader-13 split cyc/nega (186 FP/pt), X-first, 512-bit; fuse=0 um=1 ys=0 pf=0 pw=1 pace=1 znb=22 ab[B32]=i:5748,pw!:5455,pf!:5902,f1:5854 pick=pw!

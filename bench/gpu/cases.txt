@@ -1,2 +1,14 @@
-8:64
-17:8
+# <L>:<batch>.  Batch points are defined by WORKING SET rather than by round numbers, which
+# is how the GPU literature benchmarks these (VkFFT reports 500 MB - 1 GB) and makes the
+# geometries comparable to each other:
+#   B=1     the launch-overhead / latency case, scored separately and read as such
+#   B_L2    in+out ~= 32 MiB, so the whole problem lives in the A100's 40 MiB L2
+#   B_HBM   one buffer ~= 1 GiB, so it cannot: this is the primary score
+6:1     6:4854     6:310608
+8:1     8:2048     8:131072
+13:1    13:477     13:30549
+17:1    17:213     17:13660
+23:1    23:86      23:5515
+36:1    36:22      36:1438
+45:1    45:11      45:736
+64:1    64:4       64:256

@@ -1,0 +1,2 @@
+   L64_radix8                  1184.003 us 317312.847 us    19.93       3.2%    0.337s  ok 4.5e-16       1.16x
+   L64_radix8               radix-8^2 per axis, split-complex AVX-512, padded scratch; tuner pick[B=2]=fused-nt+slabpf1+pro0+p10+sc0+xb0+fo1
