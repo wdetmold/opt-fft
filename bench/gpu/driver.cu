@@ -227,6 +227,31 @@ int main(int argc, char **argv)
         fclose(g);
     }
 
+    /* ---- anti-memoization: the output must actually depend on the input ----
+     * Every timed call sees the same buffer, so an implementation that computed the answer
+     * once and returned a cached copy would be both fast and "correct". Perturb the input
+     * and require the output to change. */
+    {
+        double2 poke;
+        poke.x = 1.0e0;
+        poke.y = -2.0e0;
+        CUDA_OK(cudaMemcpy(d_in, &poke, sizeof poke, cudaMemcpyHostToDevice));
+        CUDA_OK(cudaMemset(d_out, 0, bytes));
+        fft3d_gpu_execute(plan, d_in, d_out);
+        CUDA_OK(cudaDeviceSynchronize());
+        double2 *h_poked = (double2 *)malloc(bytes);
+        if (!h_poked) { fprintf(stderr, "driver: out of host memory\n"); return 2; }
+        CUDA_OK(cudaMemcpy(h_poked, d_out, bytes, cudaMemcpyDeviceToHost));
+        int changed = memcmp(h_poked, h_out, bytes) != 0;
+        free(h_poked);
+        if (!changed) {
+            fprintf(stderr, "%s: output did not change when the input changed -- the "
+                            "transform is not being computed from the input\n",
+                    fft3d_gpu_name());
+            return 5;
+        }
+    }
+
     double mean = 0.0;
     for (int s = 0; s < samples; ++s) mean += per_execute[s];
     mean /= (double)samples;

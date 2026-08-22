@@ -99,6 +99,25 @@ sed -i 's/DFTI, sequential/DFTI, threaded/' "$MT/Makefile" 2>/dev/null || true
 sed -i "s|/\\*nthreads=\\*/1|/*nthreads=*/$THREADS|; s|ducc0 0.41 c2c, no planning, 1 thread|ducc0 0.41 c2c, no planning, $THREADS threads|" \
   "$MT/sota/ducc0_c2c.cc" 2>/dev/null || true
 
+# ---- tryout: the DEV loop must compile with OpenMP too ------------------------------
+# Without -fopenmp the pragmas are silently ignored, so every implementer would be measuring
+# a single-threaded build of a multi-threaded kernel, see no speedup, and conclude that
+# parallelism does not pay. Nothing would look wrong. Patched with sed (not a python
+# heredoc) to keep the quoting simple, and verified immediately below.
+sed -i 's|^if ! gcc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops |if ! gcc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -fopenmp |' \
+  "$MT/tryout.sh"
+sed -i "s|^source /home/lqcd/wdetmold/fft/env.sh >/dev/null 2>\&1|source /home/lqcd/wdetmold/fft/env.sh >/dev/null 2>\&1\n\n# The same threading the scored sweep uses, so a dev measurement means something.\nexport OMP_NUM_THREADS=$THREADS\nexport OMP_PROC_BIND=close\nexport OMP_PLACES=cores\nexport OMP_DYNAMIC=false\nexport MKL_NUM_THREADS=$THREADS|" \
+  "$MT/tryout.sh"
+if ! grep -q -- '-fopenmp' "$MT/tryout.sh"; then
+  LOG "FATAL: could not add -fopenmp to tryout.sh -- the dev loop would build single-threaded"
+  exit 1
+fi
+if ! grep -q 'OMP_PROC_BIND' "$MT/tryout.sh"; then
+  LOG "FATAL: could not add the OMP environment to tryout.sh"
+  exit 1
+fi
+LOG "tryout.sh patched for OpenMP (-fopenmp, $THREADS threads, pinned)"
+
 # ---- sweep: pin the threads identically for every backend --------------------------
 python3 - "$MT/sweep.sh" "$THREADS" <<'PY'
 import sys

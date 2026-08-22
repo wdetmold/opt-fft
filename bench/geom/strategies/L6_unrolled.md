@@ -763,3 +763,150 @@ switch for their own node A/Bs.
    nt=64 exactly (not the 16384 cap) with 15 rounds instead of 7, and see whether
    the pick stabilizes; if the node's B=64 pick flaps in r5, raise per-candidate
    rounds for L2-resident sizes only.
+
+---
+
+## Round panel_r6 (dev machine = wallaby, Sapphire Rapids Gold 6448Y)
+
+### Where round panel_r5 left me — three node facts set this round's agenda
+
+1. **All eight zmm candidates rejected, all four cells, all three processes** (picks:
+   `fused` / `fused_pf` / `fused_pf|pfw` / `fused_pfw`), and the probe pair read
+   `clk=3.89/2.89GHz` — clk512 = 2.89 is now settled panel-wide (four probes, three
+   entries). The r5 VERDICT synthesis: **the cost is the licence transition, not the
+   width**. zmm at L=6 is dead; my own r5 fork resolved on its falsifying branch.
+2. **My B=1 regressed 0.219 → 0.227 typical (0.227/0.227/0.220) with an IDENTICAL
+   pick string**, while L6_pfa read 0.219 in all three runs — the VERDICT scores them
+   as reproducibly owning the non-batched cell by ~3.5%. Same disease the VERDICT
+   names at L36_mixedradix B=1 (+3.1%, identical pick): a regression that arrives
+   with code that the cell never executes.
+3. **The one number that decides whether B=1 is finished is unsettled: clk256.**
+   Five node probes read 3.89 / 3.89 / 3.89 / 3.27 / **2.89**; the structured reading
+   is that sparse chains never engage the AVX2 licence and read the non-AVX clock.
+   At 3.89 GHz my B=1 is 852 cycles vs the 486 FP floor (1.75×, real headroom); at
+   2.89 it is 633 (1.30×, nearly closed). The VERDICT's L=6 instruction is explicit:
+   *"settle clk256, then profile. Stop shipping kernels."* This round obeys it.
+
+### What I changed (no new kernels — a measurement round plus two mechanism fixes)
+
+1. **Clock-density ladder, the round's headline.** Five probes, one process, reported
+   in every leaderboard line: `clk256=<sparse,mid,sat> clk512=<sparse,sat>` =
+   {1, 5, 8} × 256-bit and {1, 4} × 512-bit independent latency-4 FMA chains =
+   0.25 / 1.25 / 2.0 FMA-per-cycle at 256-bit and 0.25 / 1.0 at 512-bit. Every chain
+   count satisfies C ≤ 4·throughput on both machines, so each probe is latency-bound
+   at exactly 4 cycles per iteration and freq = iters·4/dt uniformly. The saturating
+   design and the 256-before-512 issue order are **adopted from L17_winograd** (whose
+   2.89/2.89 reading is the crux of the dispute); the sparse chain is my r4 probe, so
+   the disagreeing designs finally run back to back in one process. `mid` (1.25/cy)
+   is new and is the decision-relevant point: it brackets the real kernel's FP density
+   (972 FP uops over 633–852 cycles ≈ 1.1–1.5/cy). Ladder runs twice, per-probe max
+   (wallaby can spend ~1 s of a session ramping; validated below).
+2. **Licence-tail fix — my mechanism hypothesis for r5's B=1 regression, and it fits
+   every symptom.** r5's `create()` ENDED with the 512-bit probe, returning to the
+   driver with the core in the AVX-512 licence. At B=1 the driver's whole sample set
+   is ~0.5 ms of work — small enough to complete inside the licence-recovery window;
+   at large B a single sample exceeds it, which is why only small-B cells got noisy
+   (B=1 spread 3.1%, B=64 3.3% in r5, vs 0.5–1.2% before the 512 probe existed in
+   r4... where my B=1 spread was already visible the round I added the *256-bit*
+   probe — consistent, since that probe is harmless). Fix: `create()` now ends with
+   ~20 ms of active 256-bit FMA so the 512 licence expires before the driver ever
+   times. Falsifiable: **if the mechanism is right, my B=1 returns to ≈0.219–0.220
+   in ALL THREE processes; if it still reads ≈0.227 typical, the hypothesis is dead.**
+3. **Grid pruned 32 → 10, and every kernel entry pinned to a 64-byte boundary** —
+   the layout defence, the second suspect for (2). Kept: {3pass,fused} ×
+   {plain, pfT0·1, pfT0+W} (the only shapes the node has EVER picked, 4 rounds of
+   stable pick strings), `3pass_s`/`fused_s` unprefetched (wallaby dev references;
+   0-for-12 on the node), `3pass_nt_pf` (single NT representative; NT 0-for-4
+   rounds), and `z2s` as the one zmm survivor — kept ONLY as the `L6_FORCE` target
+   for the perf-counter A/B the r5 VERDICT §6 asks the monitor to run. Deleted:
+   pf2/pft1/pft1w/pfw2 rows, 4 NT kernels, `fused_s_pf`, `*_s_pfw`, `z2p*`, `z3t*`
+   (the whole 4×6 zmm transpose pass), and the zmm prefetch hooks. Setup drops
+   0.60 → ~0.3–0.55 s.
+4. **Settle spin before the tournament** (100 ms of 256-bit FMA) — adopted from
+   **L17_rader**'s r5 finding (a fixed-order table on a ramping clock mis-ranked
+   bit-identical work by 76%; their fix alone was worth −3.6% at B=1). My round-robin
+   + per-candidate-minimum already blunts drift, but round 0 was still rankable on a
+   cold clock and the spin costs nothing scored.
+
+### Operation count
+
+Unchanged and closed since round 1: PFA 2×3, 48 flops / 36 instructions per line,
+972 vector FP uops per 6³ volume, 486-cycle two-port floor on the node. This round
+adds zero uops to any kernel; everything above is plan-time or address-level.
+
+### What was measured (wallaby; same-window statistics quoted per the r5 VERDICT rule)
+
+* **B=1: 0.108 µs** (full-clock window; picks `z2s`, which on SPR is legitimately
+  fastest and on the node will keep losing the race by the licence margin — by
+  design). Forced `fused` in a half-clock window: 0.2635 µs with the ladder reading
+  2.10 across — kernel and probes now agree in BOTH clock states.
+* **The headline validation: driver median collapsed onto the min.** Before this
+  round: min 0.114 / median 0.222 / sd 29.5% at B=1. After the licence-tail fix +
+  settle spin: **min 0.108–0.114, median = min, sd 0.04%** across invocations in the
+  same windows. The bimodal-median artifact my r2 record first flagged is gone from
+  the B=1 driver statistics on wallaby.
+* B=64: 8.365 µs/call = **0.1307 µs/vol** (sd 0.05%), matches r4/r5.
+* B=4096: **0.190 µs/vol**, matches r5's 0.191.
+* B=32768: driver 0.275 µs/vol this session (r5: 0.249); the race table matches r5
+  (`3pass_nt_pf` 0.254, `fused_pfw` 0.321, `3pass_pfw` 0.325) so I read the driver
+  delta as session state, not code. Node-relevant rows unchanged.
+* rel L2 vs numpy: 2.342e-16 (B=1), 2.428e-16 (B=64), 2.425e-16 (B=4096), 2.424e-16
+  (B=32768); bit-identical across re-runs; all PASS.
+* Cross-compile `-march=cascadelake`: all 10 vector kernels spill-free (0 stack refs
+  except `3pass_nt_pf`'s callee-save frame), every kernel entry at a 64-byte-aligned
+  address (verified in the object's symbol table), `prefetchw` emitted.
+
+### What was tried and did NOT work (with the number that killed it)
+
+1. **First ladder implementation kept the FMA chains in a local ARRAY (`__m256d
+   x[C]`), and gcc kept the array in memory** — every FMA gained a store-forward
+   round trip and the probe under-read the clock by an exact ~2×: it reported
+   **2.10 GHz in the same process whose kernel timing implied ≥3.9** (0.108 µs B=1
+   needs ≥3.2 GHz even at wallaby's 351-cycle zmm floor). Identical readings across
+   runs made it look like a real clock state; it was a codegen artifact. Fixed by
+   writing every chain as a named local. **Lesson for anyone porting the ladder:
+   chains must be named variables, never arrays — and validate the probe against a
+   kernel whose cycle count you know.**
+2. Nothing else was attempted, deliberately: the r5 VERDICT told L=6 to stop
+   shipping kernels, and both structural hypotheses (uop count via zmm; OoO window
+   via L6_pfa's `fused_sp`) are already node-falsified at B=1.
+
+### Borrowed / lent
+
+Borrowed: the saturating multi-chain probe design and the 256-before-512 issue order
+from **L17_winograd** (r5); the pre-race settle spin from **L17_rader** (r5). Lent /
+lendable: the full ladder (5 probes + spin, ~120 lines, self-validating against the
+known-answer machine) — L=17 and L=36 both build cycle models on the contested
+clk256, and any entry can paste it; also the licence-tail warning: **any entry whose
+`create()` ends with 512-bit work (a zmm probe, a zmm tournament candidate racing
+last) hands the driver a licence-degraded core, and at small B the whole measurement
+can fit inside the recovery window.** Check your own create() tail.
+
+### Node predictions (falsifiable via the description strings)
+
+* Every L=6 cell carries `clk256=a,b,c clk512=d,e`. Expected: a≈3.89 (sparse, the
+  non-AVX clock), c≈2.89 if L17_winograd's reading is right; **b (mid, 1.25 FMA/cy)
+  is the decision number.** If b≈3.89: dense-enough-for-L=6 ymm runs at 3.89, B=1 is
+  852 cycles = 1.75× floor, and the 366-cycle gap is real — next round asks the
+  monitor for `perf stat` (uops_issued vs cycles) on forced `fused` vs `z2s`, which
+  both switches already support. If b≈2.89: B=1 is 633 cycles = 1.30× floor, the gap
+  is 147 cycles, and I will argue L=6 B=1 is within ~1.3× of closed and support
+  redeploying effort. If e≠2.89 the r5 consensus itself is in trouble (not expected).
+* **B=1: 0.219–0.220 in all three processes** (licence-tail + layout fixes restore
+  the r4 distribution). Pick `fused`. If it still reads 0.227 typical, both of my
+  regression hypotheses are wrong and the remaining suspect is something in the
+  driver's process state that only the monitor's perf counters can see.
+* B=64 `fused_pf` ≈0.214; B=4096 `fused_pf(w)` ≈0.39; B=32768 `fused_pfw` ≈0.566
+  (unchanged; no kernel differences on the node's picks).
+
+### Next
+
+1. Read the ladder off the r6 leaderboard; branch on `mid256` as above. Either way
+   the clk256 dispute ends this round — same process, both probe designs, plus the
+   density point that actually matters.
+2. If B=1 lands back at 0.219×3, propose the licence-tail check to L6_pfa and any
+   entry with end-of-create 512-bit work; if it stays 0.227, request the monitor's
+   perf A/B (`L6_FORCE=fused` vs `z2s`, B=1) — the switches are shipped and the
+   grid is small enough that setup is fast in forced mode.
+3. The B=32768 cell remains at the compulsory-traffic floor for both entries; per
+   my r5 note and L6_pfa's, nobody should spend another round there.

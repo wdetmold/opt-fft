@@ -756,3 +756,161 @@ comparison will say whether multi-KB unrolled kernels pay a decode tax on the no
    run. One measurement ends a three-round argument.
 4. The B=32768 cell is at the compulsory-traffic floor for both entries; do not
    spend another round there.
+
+---
+
+## Round panel_r6 (2026-08-21, dev machine = wallaby, Sapphire Rapids Gold 6448Y)
+
+### Where round panel_r5 landed (node), and what this round is for
+
+On the run distributions I now **own B=1 outright (0.2187 in all three runs, 0.0%
+spread**, vs L6_unrolled's 0.2271/0.2271/0.2203) and B=4096 (0.3905–0.3944 vs their
+0.3966–0.4068); they own B=64 (their 0.2146–0.2217 vs my 0.2173–0.2262) and B=32768
+(0.5657–0.5723 vs my 0.5740–0.5768). Promoted for the first time (r5 VERDICT §7
+reversed the r4 "near-duplicate" judgement). My r5 experiment resolved half-negative:
+`fused_sp`/`fused_sp2` were **rejected at B=1, the cell they were built for** — the
+OoO-window hypothesis is dead there — but `fused_sp2_pf` was **selected at B=64
+(3/3), beating my own `fused_pf` by ≥1.5%**, and sp2-over-sp also settles the DSB
+question (the rolled form won; code footprint matters on CLX). The `_u2` class: zero
+picks anywhere, as my r5 record promised, so it dies this round.
+
+The VERDICT's L=6 instruction is explicit: **settle `clk256`, then profile; stop
+shipping speculative kernels.** Five r5 clock probes split 3.89/2.89/3.27 GHz on the
+256-bit question, and the difference decides whether B=1's 0.219 µs is 852 cycles
+(1.75× the 486-cycle FP floor, 43% unexplained) or 633 (1.30×, 23%). Everything
+cycle-derived in five rounds of records hangs on it.
+
+### What changed (one evidence-based kernel mechanism, one measurement, two pieces of housekeeping)
+
+1. **`_xa` kernels — x-pass in strictly ascending address order — ADOPTED FROM
+   L6_unrolled.** Reading their file for the B≥64 same-shape gap (their `fused_pf`
+   0.215 vs mine ≈0.23 at B=64 three rounds running; their `fused_pfw` 0.566 vs my
+   0.574 at B=32768) turned up exactly ONE structural difference in these nominally
+   identical kernels: their `L6_PASS_X` walks the 18 groups at offsets `4g`,
+   g = 0..17 — loads and stores in strictly ascending 32 B steps — where mine is
+   zp-outer/y-inner (a +0.6% *Haswell B=1* measurement from my round 1 that I never
+   re-examined). Ascending is friendlier to CLX's L2 streamer in the streaming
+   regime; wallaby (SPR) measures parity between the orders, which is consistent
+   with r4's observed cross-file parity at fused_pfw (0.3114 == 0.3114) while the
+   node kept a gap. New twins: `fused_xa`, `fused_pf_xa`, `fused_pfw_xa`,
+   `fused_sp2_pf_xa`. Ordering bet: the xa twin sits BEFORE its zp twin for the
+   prefetch shapes (streaming regime, where their file's numbers say ascending
+   wins), and AFTER for plain `fused` (B=1 is the cell I reproducibly hold with
+   zp-outer — their ascending `fused` runs 0.227 there).
+2. **Four back-to-back clock probes in one process — the r5 VERDICT's #1 ask —
+   reported via the description string in every cell:**
+   * `clkS256` = 1 serially dependent ymm FMA chain (4 cy/iter): L6_unrolled's
+     sparse design, read 3.89 on the node.
+   * `clkD256` = 12 independent ymm chains, throughput-bound 2/cy (6 cy/iter):
+     L17_winograd's saturating design, read 2.89.
+   * `clkS512` = serial zmm chain (settled: 2.89), for cross-checking.
+   * **`kclk` — my addition, and the number the panel actually needs: dwell ~2 ms
+     in the CHOSEN kernel, then immediately time a ~140 µs sparse ymm chain,
+     alternate 9×, median.** CLX licence transitions persist >600 µs, so the short
+     chain reads the licence the real kernel established: this is the clock the
+     scored kernel runs at, measured directly rather than inferred from a synthetic
+     chain's density. Probe order sparse-first with ~4–8 ms scalar-spin gaps so a
+     heavier licence cannot leak backward (winograd's r5 rationale).
+   Wallaby validation, both clock-lottery states: pinned session
+   `clkS256/D256/S512/kclk = 2.10/1.92/2.10/2.10`; turbo session
+   `4.10/3.74/4.10/4.10`. The machinery discriminates: dense-FMA pulls SPR below
+   max turbo (3.74) while the real kernel does not (kclk = 4.10, FMA density ~50%)
+   — precisely the distinction the node question turns on. If the node reports
+   kclk = 2.89 the B=1 headroom story shrinks to 147 cycles and L=6 is nearly
+   closed; if 3.89, the 366-cycle hunt stays open and rename/pass-boundary are the
+   remaining suspects.
+3. **`L6_FORCE=<name>` env switch — adopted from L6_unrolled's r5 round**: forced
+   pick by name, skips the race (fast setup), still passes the correctness gate,
+   reports `variant=<name>!`. For the monitor's `perf stat` A/Bs, which the r5
+   VERDICT wants at B=1 (`fused` vs alternates). Verified on wallaby: forced and
+   raced outputs bit-identical, description carries the bang.
+4. **Pruned on node evidence**: all six `_u2` kernels (0 picks in r5; promised in
+   my r5 record), `fused_sp`, `fused_sp_pf`, `fused_sp_pfw` (node chose sp2 over sp
+   at ≥1.5%, 3/3 — the fully-unrolled ~7 KB pipeline loses to the DSB-resident
+   rolled form). Grid: 22 → 17 candidates, setup shrinks accordingly.
+
+### Operation count
+
+Unchanged and closed since round 1: DFT6 = 2·DFT3 + 3·DFT2 = 44 flops / 36
+scalar-shaped FP instructions per line; 4752 flops / 972 ymm FP instructions per 6³
+volume. `_xa` is a loop-order change over independent lines — identical arithmetic,
+bit-identical output (verified by the plan-time gate and tryout).
+
+### What was measured (wallaby; same-process race tables are the trustworthy statistic)
+
+Base-clock (2.10 GHz) session, B=64 race: fused_sp2_pf_xa 0.2508, fused_pf_xa
+0.2531, fused_pf 0.2539, fused_sp2_pf 0.2518, fused 0.2566 (chosen — everything
+inside the anti-drift margin chain) — xa ≈ zp within noise, as expected on SPR.
+Turbo session, B=32768 race: fused_pfw_xa 0.3103 ≈ fused_pfw 0.3104 (parity, exactly
+like r4's cross-file parity), 3pass_nt_pf 0.2076 chosen (wallaby DRAM is still NT
+country; irrelevant to the node, 0-for-5 there). Driver numbers (clock lottery
+caveat): B=1 0.129 µs (turbo), B=3 0.127 µs/vol, B=64 0.270 µs/vol (base-clock
+invocation), B=4096 0.188 µs/vol (turbo), B=32768 0.256 µs/vol (turbo).
+Correctness: rel L2 2.24–2.43e-16 at B ∈ {1, 3, 64, 4096, 32768}, all PASS,
+bit-identical across re-runs. Cross-compile at `-march=cascadelake`: clean, all 17
+kernels vector-spill-free (1 rsp ref = callee-save), prefetchw/prefetcht0 emitted.
+Setup ≤1.2 s at B=32768 including ~0.1 s of probes (unscored).
+
+### Node predictions (falsifiable via the description strings)
+
+* **The probes are the round.** Prediction, betting on winograd's density theory
+  plus Intel's turbo table: `clkS256=3.89 clkD256=2.89 clkS512=2.89`, and
+  **kclk = 2.89** (the fused kernel's ~50% FMA density is enough to hold the AVX2
+  heavy licence). If kclk = 2.89: B=1 = 633 cycles = 1.30× floor, the "366 missing
+  cycles" halve by measurement alone, and the r4 reopening deflates. If kclk = 3.89:
+  the kernel runs in the non-AVX licence band and the 852-cycle accounting stands —
+  then the monitor's perf-stat rename/window numbers are the only path left.
+  Either way every L=6 (and most L=8) cycle number in the corpus gets its
+  denominator fixed.
+* B=1: `fused` again at 0.219 (xa sits behind it and SPR-parity says it won't leap
+  the 1.5% margin; their ascending `fused` reads 0.227 on the node, so zp-outer
+  should hold this cell).
+* B=64: `fused_sp2_pf_xa` or `fused_pf_xa`; if the x-order hypothesis is right the
+  cell drops to ≈0.215 and finally closes the three-round gap. If it stays
+  `fused_sp2_pf` at 0.226, x-order was not the difference and the remaining suspect
+  is codegen/code-placement (diff the .s on the node next).
+* B=4096: `fused_pf_xa` or `fused_pf`, ≈0.387–0.392.
+* B=32768: `fused_pfw_xa` at ≈0.566 (matching L6_unrolled, whose kernel it now
+  mirrors) or `fused_pfw` at 0.574 if x-order was irrelevant.
+
+### What was tried and did NOT work (with the number)
+
+1. Nothing failed outright — by design a measurement round plus one adopted
+   mechanism. The r5 negatives that shaped it: `_u2` 0 picks in 4 cells (class
+   deleted), `fused_sp` unrolled pipeline lost to rolled sp2 (deleted), NT 0-for-5
+   rounds on the node (two representatives kept), W-at-B=64 non-transfer (r4),
+   MADV_HUGEPAGE (r2, kernel 5.15).
+2. **Not attempted, and recorded as consciously rejected: any new B=1 mechanism.**
+   Both B=1 hypotheses (uop count via L6_unrolled's zmm; OoO window via my sp) are
+   now node-falsified, and the honest next step is the clock + perf measurement,
+   not a third guess. The kclk probe is this round's B=1 work.
+3. Consciously skipped: xa twins for the 3pass shapes (node picks fused-family in
+   all cells, 5 rounds) and for `fused_sp2_pfw` (B=32768 pick is plain fused_pfw;
+   grid discipline).
+
+### Borrowed / lent
+
+Borrowed: the ascending x-pass order (L6_unrolled — named mechanism, their file's
+one structural difference from mine at the shapes that beat me); the `L6_FORCE`
+switch (L6_unrolled r5); the sparse-chain probe design (L6_unrolled r4) and the
+saturating-chain design plus sparse-first ordering (L17_winograd r5). Mine and
+lendable: **the kclk kernel-context licence probe** — any entry can paste it (it
+needs only its own chosen kernel and ~30 lines) and it answers "what clock does MY
+kernel run at" per geometry, which no synthetic chain can; L=17's and L=36's cycle
+models want exactly this number.
+
+### Next
+
+1. **Read kclk off the r6 leaderboard** and re-derive B=1 cycles. If 2.89: L=6 B=1
+   is ≈1.30× floor, declare the remaining ~147 cycles (call overhead + pass-boundary
+   fill + the z-pass p5 tail) not worth a round and propose following the r4
+   VERDICT's redeployment suggestion. If 3.89: request the monitor's
+   `perf stat -e uops_issued.any,cycles,resource_stalls.rs` on `L6_FORCE=fused` at
+   B=1 — the switch is now in place.
+2. Read the B=64/B=32768 picks: xa selected → propagate the ascending-order lesson
+   to the strategy records of L=8/L=36 (any strided pass raced on CLX); xa rejected
+   → the same-shape gap is code placement, and the next step is diffing the two
+   entries' node-compiled .s for the fused_pf kernel, not more variants.
+3. If the node picks `fused_pf_xa` at B=4096 AND `fused_pfw_xa` at B=32768 and both
+   cells match L6_unrolled's, the two L=6 entries are converged at every batch size
+   and the geometry is done pending the B=1 clock verdict.

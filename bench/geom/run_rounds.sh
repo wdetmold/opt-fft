@@ -464,7 +464,17 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" && log "committed round $
 
 # ---------------------------------------------------------------- the cycle
 
-while [ "$NEXT" -le "$LAST" ]; do
+while : ; do
+  # Re-read the series end from disk every iteration. Holding LAST in memory for hours means
+  # a series extended on disk gets silently truncated back when this process next writes the
+  # state file -- and the series-completion hook then fires early. A long-lived runner must
+  # not out-vote the file.
+  if [ -f "$STATE" ]; then
+    read -r _disk_next _disk_last < "$STATE"
+    [ -n "${_disk_last:-}" ] && [ "$_disk_last" != "$LAST" ] && \
+      log "series end changed on disk: $LAST -> $_disk_last" && LAST=$_disk_last
+  fi
+  [ "$NEXT" -le "$LAST" ] || break
   stop_requested && break
   ROUND="$ROUND_PREFIX$NEXT"
   SEED=$((20260821 + NEXT * 1013))
@@ -530,7 +540,14 @@ while [ "$NEXT" -le "$LAST" ]; do
 
   NEXT=$((NEXT + 1))
   if [ "$DRYRUN" = 1 ]; then log "[dry-run] stopping after one simulated round"; break; fi
-  printf '%s %s\n' "$NEXT" "$LAST" > "$STATE"
+  # Preserve the series end as it stands on disk rather than stamping our stale copy over it.
+  _keep_last=$LAST
+  if [ -f "$STATE" ]; then
+    read -r _ _disk_last < "$STATE"
+    [ -n "${_disk_last:-}" ] && _keep_last=$_disk_last
+  fi
+  printf '%s %s\n' "$NEXT" "$_keep_last" > "$STATE"
+  LAST=$_keep_last
   log "---------- $ROUND complete; next is $ROUND_PREFIX$NEXT of $ROUND_PREFIX$LAST ----------"
 done
 

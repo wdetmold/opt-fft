@@ -19,7 +19,10 @@ L=${2:-$(echo "$NAME" | sed -n 's/^L\([0-9]\+\)_.*/\1/p')}
 B=${3:-64}
 [ $# -ge 3 ] && shift 3 || shift $#
 
-WORK=${TMPDIR:-/tmp}/fft_gpu_tryout_$NAME
+# On the SHARED filesystem, not /tmp. This builds here and then runs on the reserved node
+# over ssh, and /tmp is node-local -- a binary built into /tmp simply is not there when it
+# lands. That exact mistake already killed a slurm job earlier in this project.
+WORK=$(pwd)/build/tryout/$NAME
 mkdir -p "$WORK"
 NVCC=${CUDA_HOME:-/opt/software/cuda-12.2.1}/bin/nvcc
 

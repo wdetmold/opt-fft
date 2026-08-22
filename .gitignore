@@ -99,3 +99,5 @@ bench/gpu/RESERVATION
 bench/gpu/RESERVATION.heartbeat
 bench/gpu/leases/
 bench/gpu/.reservation_payload.sh
+
+bench/gpu/build/

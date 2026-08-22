@@ -907,3 +907,146 @@ PASSed individually (each structure × spread, NT+spread for all three, burst fo
 4. The `perf stat` clock question (open since r3) is partially answered by L6_unrolled's
    probe (node AVX2 clock = 3.89 GHz); the AVX-512 licence clock is still unmeasured and
    still bounds what B=1 work is worth doing.
+
+---
+
+## Round panel_r6
+
+### Where round 5 left me (node numbers, panel_r5)
+
+B=1 **0.574 — third in the standing three-way tie** (radix8 0.570, fusedaxes 0.573; all
+inside spread).  Every batched cell lost to L8_fusedaxes, and by a lot in streaming:
+B=64 0.610 reported (2nd) **but read down by the VERDICT to ≈0.655 and fourth** — the
+0.610 came from the one run in three whose tuner picked LANEX3+s0; the two runs that
+kept my shipped LANEX2S default measured 0.655/0.660 (fusedaxes 0.594, radix8 0.619).
+B=2048 **1.096 vs fusedaxes' 0.910** (−17%); B=16384 **1.388 vs 1.254** (−10%).  My own
+round worked exactly as designed — spread prefetch was picked 3/3 in both streaming
+cells and beat all three of my predictions (VERDICT §4 scores it "correct and slightly
+conservative") — but fusedaxes' `fused+pfs+pfw` moved the frontier further: the first
+node selection of **write-intent prefetch** at L=8, confirmed independently the same
+round by L36_pfa's `pf=2` (−16.6% at B=256).  The VERDICT's §6 instruction for L=8 is
+explicit and is this round's brief: fusedaxes changed pass count AND store policy in one
+round, so **add a pfw candidate to L8_batchsimd's LANEX3+s0** and let the node separate
+the fusion win from the pfw win.  Also: NT lost on the node for the fourth consecutive
+round, everywhere; burst t0 was picked nowhere in r5.
+
+### What changed this round (one mechanism + one default fix)
+
+**1. PF_SW — spread read prefetch + spread WRITE-INTENT prefetch, borrowed from
+L8_fusedaxes round 5** (who took prefetchw from L6_unrolled/L6_pfa; L36_pfa confirmed it
+independently).  With plain stores every output line pays an RFO read; NT avoids the RFO
+and loses on the node (4 rounds of picks), so the winning move is to HIDE it:
+`__builtin_prefetch(p, 1, 3)` (emits `prefetchw` on CLX/SPR) issues the next volume's
+128 OUTPUT lines one volume early, interleaved at the exact cadence of the existing s0
+read prefetch — LANEX3: 6/6, 5/5, 5/5 read/write lines per iteration of passes 1/2/3;
+LANEX2/2S: 8/8 per iteration of both passes.  Three new plain-store runners (l2/l2s/l3
+`_psw`); NT+pfw is not instantiated (NT avoids the RFO that pfw hides — nonsense by
+construction).  prefetchw on cache-resident output is pure uop tax (L36_pfa +11–13%
+in-arena, fusedaxes +3%), so PF_SW is offered ONLY in the streaming candidate set.
+Streaming set is now: **LANEX3+s0w (default), LANEX3+s0 (my node-verified 1.096/1.388),
+LANEX2S+s0w, LANEX2+s0w, LANEX2S+s0, LANEX3+nt+s0 (insurance), LANEX3+none** — with
+LANEX2S+s0w as the "fusion arm": LANEX2S is my 2-pass sequential-store twin of
+fusedaxes' fused shape, so the node tournament L3+s0w vs L2S+s0w vs L3+s0 is exactly
+the VERDICT's isolating experiment run inside one entry.
+
+**2. Mid-batch (B=64) default flipped LANEX2S → LANEX3+s0, on the node's own r5 numbers**
+(LANEX3+s0 0.610 measured vs LANEX2S+s0 0.655/0.660 — a 7% gap my wallaby tuner calls a
+coin flip; the r2–r5 records say the 2/2S/3 choice at B=64 is noise on wallaby and it
+demonstrably is NOT on the node).  Mid set shrunk to 6 (three structures × {s0, none});
+burst t0 deleted from every candidate set (zero r5 node picks; s0 won 3/3 streaming);
+streaming NT candidates cut to one.
+
+Arithmetic, transposes, interleaves, scratch, B=1 path: untouched — 1248 vector FP +
+896 shuffles per volume (LANEX2/2S 256+256 mem ops, LANEX3 384+384).  PF_SW adds 128
+`prefetchw` uops/volume on ports 2/3 (+7 with slack); asm audit at `-march=cascadelake`:
+warning-free, 16 static prefetchw per rolled psw runner (6/5/5 ✓), **zero vector spills
+in all 18 runners** (two 8-byte scalar pointer saves per volume loop in l3_run_psw —
+integer bookkeeping, ~4 uops per 1250-cycle volume, ignored).
+
+### What was measured (wallaby, Xeon Gold 6448Y SPR; the documented 2× clock lottery is
+still present — same-process in-tuner tables are the only numbers I trust, driver mins
+quoted from the fastest window seen)
+
+| B | r5 code | this round | wallaby pick | key same-process in-tuner comparison |
+|---|---|---|---|---|
+| 1 | 0.305 µs | **0.305** | LANEX2 plain | byte-identical path |
+| 64 | 0.306 | **0.306** | LANEX3 s0 (new default, won in-tuner) | L3/s0 0.431 < L2/s0 0.453 < L2S/s0 0.454 < L3/none 0.443* (*ordering stable, L3/s0 first 2/2 runs) |
+| 2048 (0.53×L3 → mid set here) | 0.451 | 0.467 | LANEX2 s0 | wallaby-only regime; no pfw by design |
+| 16384 (4.4×L3) | 0.597 | **0.540** | LANEX3 **nt1**/s0 (SPR keeps NT, as every round) | **plain column: L3/s0w 0.754–0.764 vs L3/s0 1.066–1.093 → pfw −29/−31%**; L2/s0w 0.725–0.734, L2S/s0w 0.743–0.751 |
+
+The B=16384 in-tuner table, twice reproduced, is the round's result: **on wallaby's
+plain-store column pfw is worth −29 to −31% on my structure**, the same sign and
+comparable size to fusedaxes' r5 wallaby measurement (plain+pfs+pfw 0.637 vs plain+pfs
+1.107, −42%) that correctly predicted their node win.  Wallaby's *final* pick is still
+NT (0.452–0.485), which four rounds of node evidence say does not transfer — on the node
+the plain column is the contest and s0w owns it here by a wide margin.  All three
+2-pass/3-pass s0w variants sit within 4% of each other on wallaby (L2 0.725 < L2S 0.743
+< L3 0.754), so wallaby cannot rank the structures under pfw; the node tournament will.
+
+Correctness: rel_l2 = 1.30–1.92e-16 (tolerance 1e-12) at B = 1, 5, 7, 17, 64, 2048,
+5632, 16384; bit-identical re-runs everywhere.  Every new runner forced and PASSed
+individually (LANEX3+s0w at B=5632/16384, LANEX2S+s0w at B=5632, LANEX2+s0w at B=2048);
+the `-DL8_EMU8` build forced through PF_SW on all three structures PASSes (the PFW
+macro is a no-op there, so this exercises the branch/index logic in plain C); AVX2
+(wombat) and `-DL8_SCALAR` builds PASS.  Warning-free under `-Wall -Wextra`.
+
+### What was tried and did NOT work
+
+1. Nothing new failed; this was again a single-mechanism round by design.  One
+   measurement worth flagging as UNTRUSTWORTHY rather than failed: my forced
+   cross-process A/B of LANEX3+s0 vs LANEX3+s0w at B=5632 read 1.100 vs 0.574 µs/vol —
+   a 1.9× "win" that is mostly the clock lottery (the two runs' MKL companions differ
+   1.8×).  Per L17_winograd's r5 proof (2.10 ↔ 4.10 GHz windows), only the same-process
+   in-tuner numbers above are quotable.
+2. Not retried, per the records: everything in the r1–r5 failure lists (burst+NT clog,
+   NT as default, separate shuffle-only output pass, interleaved-complex lanes, in-lane
+   butterflies, gather, batch-in-lanes, double-buffered scratch, cross-volume software
+   pipelining).
+
+### Borrowed / lent
+
+* **L8_fusedaxes r5**: the entire pfw mechanism — `__builtin_prefetch(p,1,3)`, the
+  one-volume distance, pairing it with plain stores + spread t0 reads, and the gate
+  that keeps it out of cache-resident regimes.  Their node numbers (0.910/1.254,
+  fused+pfs+pfw 3/3) are the existence proof this round acts on.
+* **L6_unrolled / L6_pfa** (via fusedaxes) and **L36_pfa** (independent confirmation,
+  `pf=2` −16.6%): the RFO-hiding idea itself — the r5 VERDICT elevates it to the rule
+  "hide the RFO (prefetchw) rather than avoid it (NT)" for Cascade Lake.
+* **panel_r5 VERDICT §3a**: the B=64 default fix — reading my own two-of-three node
+  runs as the honest value instead of the lucky min.
+* For others: the s0w cadence generalises trivially to any structure that already has
+  a spread read prefetch (add the output line at the same index); and one more entry
+  for the transfer-warning file — wallaby's tuner still terminates at NT in every
+  streaming cell, so a wallaby *pick* is uninformative at L=8 streaming even when the
+  in-tuner plain column is decisive.
+
+### Prediction for the node (stated to be scored)
+
+* B=1: **0.570–0.574 stands** (byte-identical path, protected default).
+* B=64: the default now IS the configuration that measured 0.610 in r5's lucky run,
+  and the set around it is smaller.  Expect **0.60–0.62** with pick LANEX3/s0 3/3; the
+  instability cost (VERDICT 3a) should disappear.  fusedaxes at 0.594 stays favourite.
+* B=2048: if pfw carries fusedaxes' win, LANEX3+s0w (or L2S+s0w) lands **0.91–1.00**;
+  if fusion contributed materially, I land 1.00–1.09 and the residue is the shape.
+  Either outcome answers §6's question — the pick string and the gap to 0.910 are the
+  two numbers to read.
+* B=16384: same logic from 1.388 vs their 1.254: **1.25–1.35** if pfw carries it.
+
+### Next
+
+1. Read the node's streaming pick strings: (a) s0w picked + gap to fusedaxes closed →
+   pfw carried it, §4.3's fusion story at L=8 is dead, and the remaining streaming gap
+   (if any) is bandwidth-floor territory; (b) s0w picked but 5–10% short of fusedaxes →
+   fusion (or their 16-iteration shape's interaction with the prefetch stream) is real,
+   and the honest next move is porting the fused phase structure as a fourth mode, as
+   radix8 already did in r5 (their `1f`); (c) s0w NOT picked → the pfw win is
+   structure-specific, which would be new information for the corpus.
+2. B=64: if LANEX3/s0 3/3 lands ≈0.61 and fusedaxes holds 0.594, the gap is their
+   fused shape's shuffle placement (16 light shuffles in the load pass, heavy networks
+   against L1 scratch — radix8's r5 analysis); the `1f` port covers that cell too.
+3. B=1 remains frozen: 0.570 = 1648 cycles at the now-measured 2.89 GHz clk512 vs the
+   1248-cycle p0 floor (1.32×).  The one untried compute lever on this part is mixed
+   width — move part of the codelet to ymm to co-issue on port 1 (the licence is
+   already paid; L17's mixed shapes won −7.4% on exactly this argument).  On paper the
+   balanced split is ~832 cycles of FP.  Big rewrite, only worth it if the monitor's
+   clock/port data says B=1 is actually port-bound rather than latency-bound.

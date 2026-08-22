@@ -166,6 +166,27 @@ int main(int argc, char **argv)
         fclose(g);
     }
 
+    /* ---- anti-memoization: the output must depend on the input ----
+     * Every timed call sees the same buffer, so an implementation that computed the answer
+     * once and returned a cached copy would be fast AND pass the correctness check. Perturb
+     * the input and require the output to change. Runs after the timed region, so it costs
+     * the measurement nothing. */
+    {
+        double _Complex *reference = malloc(bytes);
+        if (!reference) { fprintf(stderr, "driver: out of memory\n"); return 2; }
+        memcpy(reference, out, bytes);
+        in[0] = in[0] + (1.0 - 2.0 * I);
+        memset(out, 0, bytes);
+        fft3d_execute(plan, in, out);
+        int changed = memcmp(reference, out, bytes) != 0;
+        free(reference);
+        if (!changed) {
+            fprintf(stderr, "%s: output did not change when the input changed -- the "
+                            "transform is not being computed from the input\n", fft3d_name());
+            return 5;
+        }
+    }
+
     double mean = 0.0;
     for (int s = 0; s < samples; ++s) mean += per_execute[s];
     mean /= (double)samples;
