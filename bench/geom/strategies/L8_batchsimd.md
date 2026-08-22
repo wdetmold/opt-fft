@@ -596,3 +596,164 @@ Next).
    put demand loads under compute — fusedaxes' r2 "Next" item 1; my r2 double-buffer
    null result was for the 3-pass shape, so it is worth one retry in the streaming
    regime only.
+
+---
+
+## Round panel_r4
+
+### Where round 3 left me (node numbers, panel_r3)
+
+B=1 **0.570 — first** (fusedaxes 0.577, radix8 0.583, MKL 0.652); the restructure won
+the cell back exactly as predicted.  But the 2-pass **lost all three batched cells I had
+held in r2**: B=64 0.663 (2nd, fusedaxes 0.642), B=2048 1.283 (2nd, radix8 1.243),
+B=16384 1.748 (3rd, fusedaxes 1.580, +12.3% on my own r2 1.557).  The VERDICT's
+diagnosis, which I accept in full: I shipped the 2-pass as a *replacement* instead of a
+*candidate*, so the node had no way to keep the 3-pass where the 3-pass was winning; and
+the underlying mechanism is **output store order** — my r2 3-pass writes the volume
+front-to-back sequentially, the r3 2-pass writes it as 8 interleaved 1-KiB-strided
+streams, and L8_radix8's opposite move (2→3 passes to make stores sequential, −18.5% at
+B=2048) plus §4.3's verdict ("what pays is the order traffic is issued in, not its
+volume") nail it.  The VERDICT's §6 instruction for L=8 is explicit: ship both
+structures and let the node choose — "the single largest guaranteed gain available
+anywhere on the board", since both targets (1.205 at B=2048, 1.557 at B=16384) are my
+own already-measured node numbers.
+
+### What changed this round
+
+**1. Three structures compiled, tuner-selected — the VERDICT's process lesson applied
+literally ("add candidates; do not replace structures").**
+
+* **LANEX2** — the r3 2-pass, byte-identical hot path.  Node-verified 0.570 at B=1;
+  strided output stores.  Stays the B=1 default.
+* **LANEX3** — the r2 3-pass, resurrected from `exemplars/panel_r2/L8_batchsimd.c` and
+  re-expressed with the current (copy-free, SW-composed) interleave macros: pass 1 per
+  slow plane = transposing load + fast-axis DFT to scratch `(c*9+a)`; pass 2 per c =
+  slow-axis DFT **in place** in the scratch column, shuffle-free; pass 3 per
+  slow-spectral plane s = transpose pair + mid-axis DFT + interleave + **sequential**
+  1-KiB plane stores, s ascending.  Node-verified 1.205 µs at B=2048 / 1.557 at
+  B=16384 (panel_r2) — still the best numbers ever taken in those cells.
+* **LANEX2S** — new this round: a 2-pass with the axis roles swapped so it gets
+  LANEX3's sequential stores at LANEX2's memory-op count.  Pass A per **mid row b**:
+  transposing load of the 8 rows `(a=0..7, b)` (reads strided 1 KiB apart), fast-axis
+  DFT, one transpose pair, **slow-axis** DFT, store scratch `(s*9+b)`.  Pass B per
+  slow-spectral plane s: mid-axis DFT (shuffle-free), interleave, sequential stores.
+  The strided traffic moves to the *read* side, which pays no RFO and sits under the
+  next-volume software prefetch that the batched regime runs anyway.  Same op count as
+  LANEX2 (1248 FP + 896 shuffles + 256 loads + 256 stores); the SW-residue algebra
+  needed no new pieces (the rename absorbs it identically, and VILVLO/VILVHI2's
+  SW-composed indices already match pass B's lane state).
+
+Per-volume counts: LANEX2/LANEX2S **1248 FP, 896 shuffles, 256+256 mem ops**;
+LANEX3 **1248 FP, 896 shuffles, 384+384** (the extra 256 are 9-KiB-L1-scratch traffic).
+DRAM-facing traffic identical (8 KiB in + 8 KiB out, 16 KiB with NT); only the order
+differs.
+
+**2. BATCH deleted from the W=8 build entirely** (my r3 "Next" item 1): the node tuner
+never picked it in any cell, 3/3 runs × 4 batches, readable from the r3 description
+strings.  It remains the W=4/scalar path (`#if VW != 8`), so the AVX2 and portable
+builds still work; the W=8 candidate list halves and the staging machinery disappears
+from the graded binary.
+
+**3. Tuner: one untimed state-setting pass per candidate per trial — borrowed from
+L8_fusedaxes round 3.**  Plain and NT candidates leave different cache states behind, so
+timing candidate c right after c′ biases the sample; each candidate now runs once
+untimed immediately before its timed block.  Candidates remain round-robin-interleaved,
+min of 7 trials, 3% hysteresis toward the default.  Candidate list: B=1 → the three
+structures plain; B>1 → + each with pf=t0; working set > 6 MiB → + nt1×t0 for all
+three and nt1×t1 for the two sequential-store structures (11 total).
+
+**4. Defaults are node-verified configurations.**  B=1 → LANEX2/plain (0.570 measured);
+streaming (ws > 12 MiB) → **LANEX3/nt/t0** — the exact configuration that measured
+1.205/1.557 on the node in r2 — so with 3% hysteresis the node keeps r2's numbers
+unless something beats them by a clear margin; in between → LANEX2S/plain/t0 (the
+on-paper best; candidates cover both verified shapes if it disappoints).
+
+### What was measured (wallaby, Xeon Gold 6448Y SPR, fast-state min over repeated runs;
+the 2× bimodality documented in r2 is still present and the in-tuner candidate ordering
+is preserved inside the slow state, so the picks are state-robust)
+
+| B | r3 code | this round | tuner pick (wallaby) | in-tuner runners-up |
+|---|---|---|---|---|
+| 1 | 0.321 µs | **0.305** | LANEX2 plain | L2S 0.334, L3 slower |
+| 64 | 0.324 | **0.306** | LANEX3 nt0/t0 (0.306) | L2 t0 0.322, L2S t0 0.323 |
+| 2048 | 0.433 | 0.442 | LANEX2 nt1/t0 (0.440) | L2S nt1/t0 0.448, L3 nt1/t0 0.497 |
+| 5632 (node-B2048 analog, 1.5×L3) | — | **0.438** | LANEX2 nt1/t0 (0.449) | L2S 0.455, L3 0.533 |
+| 16384 | 0.597 | **0.597** | LANEX2 nt1/t0 (0.446) | L2S 0.454, L3 0.497 |
+
+Correctness: rel_l2 = 1.32–1.95e-16 (tolerance 1e-12) across B = 1, 3, 5, 7, 33, 64,
+2048, 5632, 16384; bit-identical re-runs everywhere; all three structures forced and
+PASSed individually (LANEX2S/LANEX3 share the C,A,B axis order and give identical
+rel_l2 = 1.900e-16 at B=7 — the axis-order last-digit effect from my r1 record); forced
+NT+t1 and NT+t0 paths PASS; the `-DL8_EMU8`, AVX2 (wombat) and `-DL8_SCALAR` builds all
+PASS.  Warning-free under `-Wall -Wextra` on all four instantiations.  cascadelake asm
+audit: **0 spills in all 15 runners**, 32 vpermt2pd per runner (= the 16 interleaves ×
+2 inlined volume bodies, unchanged from r3).
+
+### What this round's wallaby numbers do and do not say
+
+Wallaby (2-FMA SPR, 60 MiB L3, full-clock AVX-512) picked LANEX2 — the *strided*-store
+structure — in every streaming cell, while the node evidence (r2 vs r3, and radix8's
+r3 experiment) says sequential stores win there by 6–12%.  So **wallaby cannot decide
+the node's streaming structure**, which is exactly why the streaming default is the
+node-verified LANEX3/nt/t0 rather than wallaby's favourite: on the node the tuner
+starts from the configuration that measured 1.205/1.557 and must be beaten by >3% in
+its own measurement to move off it.  LANEX2S beat LANEX2 on wallaby in the nt0/t0
+column at every large batch (0.657 vs 0.691 at 5632, 0.674 vs 0.753 at 16384) and lost
+narrowly in the nt1 column — on the node's 1-FMA, RFO-expensive memory system its
+sequential writes should be worth more than on wallaby.  Whether LANEX2S or LANEX3
+wins the node's streaming cells is the round's real experiment; both are candidates.
+
+### What was tried and did NOT work
+
+1. **LANEX2S as an outright wallaby win in the streaming regime**: it trails LANEX2 by
+   1–2% under nt1 there (0.454 vs 0.446 at B=16384 in-tuner) — the sequential-store
+   advantage does not show on SPR's memory system, consistent with every store-order
+   observation in this file transferring badly *toward* wallaby.  Not a failure of the
+   structure; the node decides.  (Numbers above.)
+2. **LANEX3 at B=1 on wallaby** measured 0.595 forced vs LANEX2's 0.305 in an
+   adjacent-but-possibly-different machine state — radix8's r3 record has the 3-pass
+   *winning* B=1 on the same machine, so treat this single number as unresolved wallaby
+   noise rather than a fact; the B=1 default (LANEX2) is node-verified anyway.
+3. Not retried, per the records: everything in the r1–r3 failure lists (separate
+   shuffle-only output pass, interleaved-complex lanes, in-lane butterflies, gather,
+   batch-in-lanes, double-buffered LANEX scratch at L1 residency).
+
+### Borrowed / lent
+
+* **The panel_r3 VERDICT §6**: the whole shape of this round — both structures as
+  candidates, defaults = node-verified configs.
+* **L8_radix8 r3**: the store-order diagnosis (their 2p→3p A/B is the controlled
+  experiment my r2→r3 regression mirrors), and their finding that the sequential-store
+  3-pass can win even compute-bound cells on some machines — hence LANEX3 is a
+  candidate at *every* batch size, not just streaming.
+* **L8_fusedaxes r3**: the per-candidate untimed state-setting pass in the tuner.
+* For others: **LANEX2S** — sequential output stores are compatible with the 2-pass op
+  count if you fuse (fast, slow) in pass A and do the mid axis last; the residue
+  algebra is unchanged.  If it wins on the node, the 3-pass's extra 256 L1 ops were
+  never necessary for the store-order win.
+
+### Prediction for the node
+
+* B=1 **0.570 stands** (same default, same code path, hysteresis protects it).
+* B=64: LANEX3/t0 and LANEX2S/t0 now available; radix8's isomorphic 3p-pf scored 0.671
+  there, my r3 LANEX2/t0 0.663, fusedaxes' plain 0.642 — expect **0.62–0.66**, pick
+  uncertain.
+* B=2048: default = r2's exact winning config → **≤1.21** unless the node tuner finds
+  LANEX2S >3% better, in which case lower.  MKL is at 1.335.
+* B=16384: default = r2's config → **≤1.56**; LANEX2S is the upside case (fusedaxes
+  holds 1.580; the bandwidth bound argument in the VERDICT puts the floor near 1.37).
+
+### Next
+
+1. **Read the node's picks off the descriptions** (`pick[B=…]: mode=… nt=… pf=…` is in
+   every t_*.json).  The decisive datum is B=2048/16384: LANEX3 vs LANEX2S settles
+   whether the 3-pass's extra L1 round trip costs anything once store order is equal.
+2. If LANEX2S wins streaming on the node, delete LANEX3 next round (it is then strictly
+   dominated) and spend the freed tuner budget on nt0/t1 columns at mid batch.
+3. The un-overlapped-memory lever (2-volume software pipeline, pass B of volume v
+   against pass A of v+1, double-buffered scratch) remains the only untried structural
+   idea for streaming; the VERDICT's bandwidth arithmetic says B=16384 is within 16% of
+   the stream bound, so it pays at most ~0.2 µs — attempt only if the cells are still
+   lost after this round.
+4. The `perf stat -e cycles,ref-cycles` clock question (r3 Next item 2) is still open
+   and still owned by the monitor; it bounds what B=1 work is worth doing at all.

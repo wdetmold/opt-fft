@@ -527,3 +527,152 @@ column) and the SW-residue bookkeeping across the split passes are mine.
   measurable edit.
 4. Still do not touch the codelet: three entries and two rounds of node data say
    B=1 is not instruction-bound; the 52-instruction module stays.
+
+---
+
+## Round panel_r4
+
+### Where round 3 landed (node, panel_r3)
+
+**Won B=2048 outright: 1.243 µs** (batchsimd 1.283, fusedaxes 1.291, MKL 1.335) — the
+3-pass sequential-store restructure did what it was built to do.  B=16384 **1.647 —
+second** (fusedaxes 1.580, floor ≈1.365 at the node's 12 GB/s).  B=64 **0.671 —
+third** (fusedaxes 0.642).  B=1 0.583 — third in the standing three-way tie.  The
+node's pick strings (read from the r3 `t_*.json`): **2p at B=1 (3/3)**, 3p/3p-pf
+flip-flopping at B=64, **3p-pf — regular stores, NOT NT — at B=2048 and B=16384
+(3/3 each)**.  Two diagnoses fall straight out of those strings plus the VERDICT:
+
+1. **Tuner instability cost real time at B=64**: run 1 picked 3p (0.671, the cell
+   min), runs 2–3 picked 3p-pf (0.716, 0.715) — a +6.7 % coin-flip that the VERDICT
+   called out by name.  Prefetch at a cache-resident batch size is a *documented*
+   loser (fusedaxes r2: prefetching L3-resident input = 1.6× disaster), and my tuner
+   kept offering it there anyway, letting arena noise ship it.
+2. **My NT candidates lost on the node even at B=16384** (ws = 11.6×L3!), where
+   fusedaxes WON the cell with NT+pf_t0 — and their r2 record documents the exact
+   mechanism that separates us: their prefetches are embedded in compute, spread
+   through the volume; mine were a 128-line burst in pass 1, and **a prefetch burst
+   and the NT store drain fight for the same ~12 fill buffers**.  So it was not
+   "NT loses on this node" (my r3 reading); it was "NT loses *with a prefetch
+   burst*".
+
+### What changed (three edits)
+
+1. **Spread prefetch placement** (borrowed from **L8_fusedaxes**, whose
+   compute-embedded prefetch + NT owns B=16384): new kernel instantiations issue the
+   same 128 lines of volume b+1 as 6/5/5 lines per iteration of passes 1/2/3
+   (48+40+40, each 64-B line exactly once) instead of 16 per pass-1 iteration —
+   ~1 prefetch per 11 cycles, never competing with the pass-1 demand-load burst or
+   the NT drain.  Burst placement is kept for the plain-store path (it is what won
+   B=2048 on the node, 3/3 picks).  The burst+NT combination is deliberately no
+   longer a candidate — that is the documented fill-buffer clog.  Candidates now:
+   3p-pf (burst, plain), 3p-pfs (spread, plain), 3p-nt-pfs (spread, NT), 3p-nt, 3p.
+2. **Regime-gated candidate sets** (the VERDICT's tuner-instability ask, plus
+   fusedaxes' L3-relative gating): pf/NT candidates are offered **only when
+   in+out > 0.9×L3** (`sysconf(_SC_LEVEL3_CACHE_SIZE)`, fallback 22 MiB).  Below the
+   gate the set is just {3p, 2p} (B>1) or {2p, 3p} (B=1); at B=64 the pf coin-flip
+   is now structurally impossible.  The FIRST candidate is the node-validated
+   default for the regime (2p at B=1, 3p small-batch, 3p-pf big — the r3 pick
+   strings), and displacing it requires a >2 % argmin win.  No scored node cell sits
+   in the excluded 0.25–0.9×L3 band (B=64 = 0.045×L3, B=2048 = 1.45×L3), so the
+   gate cannot mis-regime a scored cell.  `L8R_ALLCAND=1` un-gates for dev A/Bs.
+3. **Per-candidate run functions** (r3 "Next" item 3, closing the last structural
+   difference to L8_batchsimd's `lanex_run`): the batch loop now lives in a
+   `DEFRUN`-generated function per candidate, kernel `always_inline`d, prefetch
+   flag a compile-time constant — one indirect call per *execute* instead of one
+   per volume, and no per-volume `(pf && b+1<nb)` branch.  The tuner times these
+   exact run functions, so what is measured is what ships.  Tuner protocol also
+   adopts fusedaxes r3's **one untimed pass before each timed block** (a candidate
+   is measured against its own cache state — plain and NT leave different L3
+   contents) and their machine-relative arena cap (4×L3 of volumes, clamped to
+   [4096, 8192]; 5632 on the node, so the B=16384 arena is a faithful 4×L3 stream).
+
+Arithmetic, transposes, scratch padding (SCRX=144), t0 hint, and both kernel shapes
+are untouched: 1248 vector FP + 896 shuffles per volume, rel_l2 unchanged.
+
+### Operation count per volume
+
+Unchanged from r3 (3-pass: 1248 FP, 896 shuffles, 384+384 L1 accesses, 0 copies,
+0 spills; 2-pass: 256+256).  The spread-pf kernels issue the identical 128
+`prefetcht0` uops, just distributed; run functions delete ~5 instructions of
+call/branch overhead per volume.  DRAM-facing traffic unchanged.
+
+### What was measured (wallaby, Gold 6448Y SPR, tryout.sh, best of ≥3 runs)
+
+Wallaby was strongly bimodal again this session (B=64 38.8 → 19.8 µs across
+back-to-back runs, states ~2× apart); every number below is best-of-runs, sd within
+a run ≤0.7 %.
+
+| B | r3 best | this round | pick (in-tuner table) |
+|---|---|---|---|
+| 1     | 0.309 µs | **0.308 µs** | 3p, tuned (0.601 vs 2p 0.633 in-tuner; node default stays 2p) |
+| 64    | 0.320    | **0.310**    | 3p default, **stable by construction** (pf not offered) |
+| 2048  | 0.474    | 0.502        | 3p (wallaby gate: ws=0.53×L3 → small set; NODE gets the big set here) |
+| 5632 (node-B2048 analog) | 0.476 | **0.436** | 3p-nt-pfs (in-tuner: nt-pfs 0.490, nt 0.570, pfs 0.948, pf 0.965, 3p 0.960) |
+| 16384 | 0.638    | **0.575**    | 3p-nt-pfs (in-tuner: nt-pfs 0.495, nt 0.570, plain ≈1.03–1.07) |
+
+**Spread prefetch is worth 13–14 % on top of NT** (0.490 vs 0.570 at B=5632,
+0.495 vs 0.570 at B=16384, in-tuner same-process) — that is the fill-buffer
+mechanism, measured in isolation for the first time.  The r3 wallaby B=16384 gap to
+batchsimd (~8–10 %) is closed: 9.43 ms best vs their r3-session 9.41–9.78 ms.
+Correctness: PASS at B = 1, 3, 64, 2048, 5632, 16384, rel_l2 = 1.32e-16 … 1.92e-16,
+rel_max ≤ 2.9e-16, bit-identical re-runs everywhere, including the NT+spread path at
+B=5632/16384 and the alignment-fallback twins.  AVX2 path (`-mno-avx512f`, incl.
+NT+spread at B=5632) and portable path (`-mno-avx512f -mno-avx2 -mno-fma`) PASS.
+Builds warning-free under `-Wall -Wextra` at cascadelake / haswell / x86-64.
+Setup grew 0.39 → 0.55–0.82 s at the largest batches (arena 4×L3 + state passes);
+plan time is unscored but noted per the VERDICT's watch item.
+
+### What was tried and did NOT work
+
+* **Wallaby's B=2048 regressed 0.474 → 0.502 by design**: the 0.9×L3 gate puts
+  wallaby's B=2048 (ws = 0.53×L3) in the small set, and NT genuinely wins there on
+  wallaby (fusedaxes r3 measured the same inversion and killed their 0.55×L3 gate
+  for it).  I kept the 0.9 gate anyway because on the *node* no scored cell sits in
+  the 0.25–0.9×L3 band, and the gate is what buys the B=64 stability.  If the
+  driver ever scores a cell in that band, lower the gate to 0.25×L3 and re-check
+  B=64 stability.  Recorded so the next round does not read the wallaby 2048 number
+  as a regression.
+* Nothing else new failed; the r1–r3 failure lists all stand.
+
+### Attribution summary
+
+Spread/compute-embedded prefetch placement and its fill-buffer rationale, the
+L3-relative gating idea, the own-cache-state untimed pass, and the 4×L3 arena cap:
+**L8_fusedaxes** (r2 failure 4, r3 protocol).  Run-function/direct-call structure:
+**L8_batchsimd**'s `lanex_run` (via my r3 "Next" list).  Regime-default-first with
+2 % displacement hysteresis: the **panel_r3 VERDICT**'s tuner-instability finding.
+The burst-vs-spread split by store type (burst kept for plain stores, spread
+required for NT) is mine, from reading my own r3 node pick strings against
+fusedaxes'.
+
+### Node predictions (stated to be scored)
+
+* **B=1: 0.583 µs, unchanged** — default 2p, same kernel; 3p would need a >2 % win
+  to displace, which three rounds of node data say it does not have.
+* **B=64: 0.67 µs median-stable** (the min was already 0.671; the fix is that 2/3
+  runs no longer ship 0.716).  Any improvement beyond that is the direct-call gain,
+  ≤2 %.
+* **B=2048: 1.20–1.25 µs.**  Default 3p-pf (the 1.243 winner) is protected by
+  hysteresis; 3p-nt-pfs is the live challenger and wins only if it beats 1.243 by
+  2 % on the node itself.
+* **B=16384: 1.55–1.62 µs** if the spread fix transfers (fusedaxes' NT+pf_t0 =
+  1.580 is the existence proof on this exact node and cell); 1.647 (the r3 number)
+  if the node's tuner keeps plain 3p-pf.  The pick string will say which.
+
+### Next
+
+1. **Read the node's pick at B=16384 first.**  If it is 3p-nt-pfs and the time is
+   ≈1.58, the fill-buffer story is confirmed on CLX and the remaining gap to the
+   1.365 bandwidth floor (~14 %) is read-side scheduling — then try issuing the
+   spread prefetches from pass 2 only (pure L1 compute, load ports idlest) as a
+   sixth placement, or a 2-volume software pipeline.  If it stays 3p-pf/1.647, the
+   clog theory is wrong on CLX and the honest next step is `L8R_ALLCAND` forced-run
+   A/Bs on the node.
+2. **The `-DL8R_SCRX=128` node A/B is still outstanding** (asked in r3, seconded by
+   the VERDICT §5, not run).  One flag, B=2048/16384, settles LITERATURE §4.5.
+3. **B=64's remaining 4 % to fusedaxes (0.642)** is structural (their fused 2-phase
+   does 256+256 L1 accesses vs my 384+384, zero-shuffle y/x DFTs): not reachable by
+   tuning.  Closing it means adopting their lane-in-z fused shape as a third kernel
+   — a full rewrite, only worth it if the direct-call gain does not already close
+   most of the gap.
+4. Still do not touch the codelet or the transpose networks.

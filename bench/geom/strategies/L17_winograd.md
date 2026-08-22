@@ -628,3 +628,170 @@ end including forced f4 and f8 (f8 via gcc's 2×ymm emulation): PASS at
    says so.
 3. c-lite for c4 is now moot (f4 occupies the 256-bit slot with kernel B and
    beats b4 by 10%); do not spend a round on it.
+
+---
+
+## Round panel_r4 (2026-08-21)
+
+Node standings going in (panel_r3): **2nd in all four cells**, behind
+L17_matrixsimd's clean sweep (B=1 18.169 vs 16.386; B=8 20.267 vs 17.930;
+B=256 23.905 vs 21.444; B=2048 24.470 vs 22.697). The r3 lesson for this entry
+was blunt: the pass-2+3 fusion that won −6.2% on wallaby transferred at
+**−0.4/−0.5%** on the node, and the node *declined the fused variant entirely
+at B=1* (its picks, from the r3 JSONs: `var=a8, pf=0` at B=1 and B=8, `var=f4,
+pf=0` at B=256 and B=2048). The r3 VERDICT (§6) quantified where the batched
+time actually is: compute floor ~16.4 µs, compulsory traffic ~13.1 µs at
+12 GB/s, measured 22.7-24.5 → **~6.3 µs/volume of un-overlapped memory time at
+B=2048**, and named cross-volume software pipelining as the highest-value L=17
+move. That is what was built.
+
+### What changed (three things, all additive -- nothing replaced)
+
+1. **Software-pipelined variants p4/p8 (tuner indices 8/9).** Identical
+   arithmetic and store addresses to f4/f8 for the current volume, but the
+   NEXT volume's pass 1 -- after r3's fusion, the only remaining front-loaded
+   DRAM read burst (78.6 KB of `in` at the top of each volume, over only ~1/3
+   of the volume's compute) -- is executed one vector group at a time inside
+   the current volume's fused pass-2 loops, into a second, ping-ponged A
+   buffer (scratch grows 161→242 KB; the a/b/c/f variants never touch the new
+   pair). The slot counts match exactly: w=4 has 4x17 z-iterations + 4
+   tail-block iterations = 72 slots for 72 pass-1 groups; w=8 has 34+2 = 36
+   slots for 36 groups; the scalar pass-1 tail runs after the last slot. The
+   interleaved groups are REAL loads, which the memory system cannot drop --
+   unlike the `prefetcht1` scheme (pf) that the node's tuner rejected in
+   rounds 2 and 3. Volumes are independent and each volume's operations are
+   unchanged on disjoint buffers, so **p4/p8 are bit-identical to f4/f8** --
+   verified by `cmp` on output files across forced variants (p4==f4, p8==f8,
+   f4==f8), on wallaby AND on the AVX2 host. The tuner's choice still cannot
+   change the answer.
+
+2. **Two-slot-lookahead `prefetcht0` inside the interleaved group** (part of
+   the p-variant definition, not a flag; the plain pass-1 loop does not do
+   it, per round 1's same-volume-prefetch dead end). This was forced by a
+   measured failure, see below: without it the interleaved group's loads are
+   demand misses whose consumers follow immediately, so the DRAM latency
+   lands in the *middle* of the host volume's compute instead of under it.
+   Each slot prefetches group g+2's 17 rows (~600-1200 cycles of lead), 34
+   extra prefetch µops per slot at w=8, 17 at w=4.
+
+3. **Stage-2 (in-regime) tuning threshold lowered 64 → 8.** The B=8
+   leaderboard cell was being tuned on a single L2-resident volume -- out of
+   regime, which is exactly the mistake my own round-2 record warns about;
+   the node's B=8 pick (a8, 20.2-20.3 µs, 3rd place) had never been tested
+   against the alternatives on an actual 8-volume stream. Stage 2 now times
+   all 10 variants on nv = min(batch, 384) volumes, blocked as before; p
+   variants skip the meaningless pf=1 column (selection now guards against
+   unmeasured cells). Stage-1 also stops timing p variants at nv=1, where
+   they are definitionally identical to f. Plan time at B=2048: 0.97 s
+   (was 1.63 s in r3).
+
+### Operation count
+
+Unchanged: 296 FP instructions / 488 flops per 17-point transform, 3·289
+kernels per volume. The p variants move **zero arithmetic** -- they move
+*when* the input read is issued (spread across ~2/3 of the previous volume's
+compute as 36/72 evenly-spaced group-sized chunks, instead of one 78.6 KB
+burst) -- plus the lookahead prefetch µops above.
+
+### What was measured (wallaby, Gold 6448Y, gcc 11.4, panel flags; HEAVILY contended today -- B=1 medians swung 9.3→18.5 µs within a run; min over a session is the only statistic)
+
+Forced, blocked, matched windows (the honest A/B):
+
+| case | f4 | p4 | note |
+|---|---|---|---|
+| B=2048, window 1 | 18.051 | **17.794** | p4 −1.4% |
+| B=2048, window 2 | 18.474 | **18.169** | p4 −1.7% |
+| B=2048, window 3 (later) | 19.05-19.14 | **18.24-18.40** (min 18.236) | p4 −4.3% |
+| B=2048, p4 WITHOUT lookahead pf | 18.14 | 18.80 | **p4 +3.6% = the failure** |
+| B=256, window 1 | 13.549-13.585 | **11.992** | p4 −11.7% |
+| B=256, window 2 | 11.898 | 11.964 | tie (see below) |
+
+Autotuned, full tryout (min over the session): B=1 **9.22-9.49 µs**, B=8
+**9.28 µs/t**, B=256 **11.27 µs/t**, B=2048 **18.39 µs/t** -- the last is this
+entry's best-ever wallaby B=2048 (r3: 18.83). Picks observed on wallaby:
+f8 at B=1/8/256, **p8 at B=2048** (one session also picked f8 at 256 -- the
+candidates are within noise of each other on wallaby at 256, defensible
+either way: wallaby's L3 is 60 MB, and B=256 in+out = 77 MB barely streams
+there; on the node, 22 MB L3, B=256 streams like B=2048 does here).
+Correctness: rel_l2 = 3.256e-16 … 3.269e-16 at B ∈ {1,8,256,2048}, PASS and
+bit-repeatable at every batch on wallaby and on the AVX2 host (Haswell,
+including forced p4/p8 via gcc's 2xymm emulation); `-Wall -Wextra` clean
+(one pre-existing ABI *note* for by-value v8 params on the AVX2 host;
+always_inline makes it moot); `-DL17_DENSE_KERNEL` build still compiles.
+
+### What was tried and did NOT work -- with the number that killed it
+
+1. **Naive interleave (real loads, no lookahead prefetch): p4 18.80 vs f4
+   18.14 µs/t at B=2048** -- the interleave made things 3.6% WORSE. Reason,
+   worked out after the fact: in the dedicated pass-1 loop the 17 hardware
+   prefetch streams advance every ~150 cycles and stay locked, so its loads
+   mostly hit; interleaved one-group-per-slot they advance every ~600+
+   cycles, the streams go cold, and each slot inserts a chain of demand
+   misses whose consumers (the deinterleave shuffles) are 2 instructions
+   away. The two-slot software lookahead restores the lead time and flipped
+   the sign: 18.80 → 18.17 in the same window. **Anyone interleaving
+   DRAM-touching work at coarse granularity into a compute loop: pair it
+   with an explicit lookahead prefetch; the hardware prefetcher alone does
+   not survive the dilution.**
+2. Nothing else failed; the round was deliberately narrow. The a/b/c/f
+   variants and the old pf flag are untouched and still selectable -- per the
+   r3 VERDICT's process lesson (L8_batchsimd shipped a replacement instead of
+   a candidate and lost three cells): **add candidates, never replace.**
+
+### Borrowed from other entries (attribution)
+
+* **The move itself is the r3 VERDICT §6 recommendation** (monitor), which
+  quantified the 6.3 µs/volume un-overlapped memory gap and named
+  cross-volume software pipelining -- originally proposed as
+  L17_matrixsimd's next step for its own structure. Conceptually it is the
+  read-side dual of **L17_matrixsimd's X-first write-spreading** (r3's
+  biggest winner, −10.8% at B=256): same principle -- change no arithmetic
+  and no traffic volume, only *when* the traffic is issued -- applied to the
+  input burst, which in my fused structure is the counterpart burst (my
+  out-writes were already spread by r3's kx-block fusion).
+* **VERDICT §4's process lesson** (from L8_batchsimd's regression vs
+  L8_fusedaxes/L8_radix8's hits): both new variants ship as additional tuner
+  candidates; the node can decline them at zero cost.
+
+### Expectations for the node, and what to read off the next leaderboard
+
+* **B=256/B=2048 is where this round should pay.** r3 node picks were f4 in
+  both; if the node's tuner picks p4 (or p8) there, the interleave is
+  hiding read latency the node could not hide on its own -- and the node has
+  *less* per-core DRAM concurrency than wallaby, so the spread should be
+  worth more there, not less (the same asymmetry that made my r2 pf win
+  −4.4% on wallaby yet get rejected on the node cuts the other way here:
+  real loads cannot be dropped). Wallaby says −1.4 to −4.3% at B=2048;
+  against the node's 24.470 that is ~23.4-24.1, still short of matrixsimd's
+  22.697 -- the honest expectation is *closing* the gap, not taking the
+  cell, unless the node's burst cost is bigger than wallaby's.
+* **B=8 is a free look**: first round this cell is tuned in-regime. If the
+  pick moves off a8 and the time drops below ~20, the stage-2 threshold
+  change alone did it.
+* **B=1 should be unchanged** (~18.2, var=a8): nothing in the a8 path was
+  touched. Deliberate -- three rounds of evidence (matrixsimd's −11.9% FP →
+  −0.8%, my fusion's −6.2% → −0.5%) say B=1 on the node is closed to
+  everything except the store network, which no one has attacked yet.
+* Read `var=`/`pf=` in the descriptions as always; p4 vs p8 at batch is also
+  an L1-capacity readout (f4's 18.5 KB mini-buffer fits the node's 32 KB L1d,
+  f8's 37 KB does not, and the p variants inherit this).
+
+### Next (in order)
+
+1. Read the node's picks. If p4 wins batched but the gap to the ~16.4 µs
+   overlap ceiling persists, go finer: interleave HALF a pass-1 group per
+   slot using the pass-3 h-loops as additional slots (68+68 slots at w=4),
+   and/or deepen the lookahead to 3-4 slots. The slot arithmetic in this
+   round's design makes that a small change.
+2. If the node rejects p4 at batch (picks f4 again), the un-overlapped time
+   is the *write* RFO stream, not the read -- then the move is matrixsimd's
+   trick in my structure: emit each kx-block's output stores earlier/finer,
+   or revisit partially-NT full-line stores in pass 3 (my r1 "next" item 4;
+   both rivals' NT attempts lost on the node, so only with the tuner
+   deciding).
+3. B=1: the only untried lever anywhere on this geometry is the store/shuffle
+   network (port 5 at w=8, store port at w=4) and the pass-1 deinterleave.
+   A pass-1 that loads re/im already split from a one-time repacked input is
+   impossible (the driver hands interleaved data), but the deinterleave can
+   move from 2 shuffles/2 loads to masked/blend forms; expected small. Do it
+   only if matrixsimd stalls too.

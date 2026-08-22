@@ -472,3 +472,145 @@ unchanged.
    and the pass-boundary schedule becomes worth attacking despite item 1's dead end.
 3. If pf=T1 wins on the node too, propagate the idea to the other geometries' records —
    L17_winograd found pf=T0 *loses* on the node at L=17; T1 was never tried there.
+
+---
+
+## Round panel_r4 (2026-08-21, dev machine = wallaby, Sapphire Rapids Gold 6448Y)
+
+### Where round panel_r3 landed (node)
+
+B=1 0.220 (first, dead heat with L6_unrolled at 0.220), B=64 0.223 vs their 0.214,
+B=4096 0.398 vs 0.392, **B=32768 0.637 vs their 0.563 — a 13% loss and my own 3.4%
+regression** (r2: 0.616). Node picks were stable across all three runs per cell
+(v2/v6/v6/v5), so the regression was not tuner instability: my 3pass+pfT0 (v5) at 0.637
+sits 11% behind the same nominal shape in their file (their r2 3pass_pf: 0.572), and
+their round's new `prefetchw` variant (fused_pfw, 0.563) won the cell. The monitor's
+VERDICT declared L=6 "finished" at the compulsory-traffic floor — but not for me: my
+B=32768 cell was 13% off the demonstrated floor, which is exactly the round's job.
+
+### What changed (mostly adoption; one new variant class)
+
+1. **Write-intent prefetch of the next volume's output (`prefetchw`) — adopted from
+   L6_unrolled's panel_r3 round, with the node's own 0.563 µs as the motivation.**
+   The x-pass hook can now also touch the next volume's 54 output lines with
+   `__builtin_prefetch(p,1,3)` (emits `prefetchw` on PRFCHW machines, which both
+   wallaby and the node are). With NT stores rejected by the node tuner three rounds
+   running, every output line pays a write-allocate RFO at store time; W issues that
+   RFO one volume early, off the critical path.
+2. **New variant class: W-only (`3pass_w`, `fused_w`) — no input prefetch.** My own
+   inference from L6_unrolled's r1 record (input prefetch alone is neutral-to-negative;
+   the L2 streamer already covers a perfectly sequential input): if the input prefetch
+   uops are dead weight, W alone saves 54 uops/volume. Wallaby says the combination
+   still wins in DRAM (see table) but W-only *dominates at B=64* — see measurements.
+3. **The two-scratch 3pass (x→t1, y: t1→t2, z: t2→out) — adopted from L6_unrolled** as
+   an additional shape beside my original in-place-y 3pass ("add candidates; do not
+   replace structures", the r3 VERDICT's process lesson). Rationale: their two-scratch
+   3pass ran 0.572 on the node where my in-place 3pass ran 0.637; wallaby (below) says
+   the two are within noise of each other, so the node gap was probably not this — but
+   it costs one extra scratch volume and nothing else to carry both.
+4. **Candidate table restructured to named kernels** (à la L6_unrolled): the
+   description string now reports `variant=fused_pfw` instead of `variant=13`, and the
+   grid is hand-picked rather than a full product: 21 kernels =
+   {3pass, 3pass_ip, fused} × {plain, pfT0} + {3pass, fused} × {pfT1, W, pfT0+W, pfT1+W}
+   + {3pass, fused} × NT × {plain, pfT0, pfT1}. **Dropped: all distance-2 prefetch
+   variants** — never separated from distance 1 in any measurement, mine or theirs,
+   either machine, four rounds of data.
+5. **Takeover margin 1% → 1.5%** (their value; the r3 VERDICT measured unstable tuners
+   costing 3.9–6.7% elsewhere on the board). Round-robin, per-candidate minimum, and
+   my r3 tracked-true-minimum fix all retained; race cap stays 16384 volumes = 113 MiB.
+6. 4K-aliasing placement extended to the two-scratch shape (deltas t1−in, out−t1,
+   out−t2; t2−t1 is fixed at 3456 ≡ 640-clear mod 4096), and the tournament now runs
+   with realistically-placed scratch (place_scratch against the race arena, reset
+   after).
+
+Arithmetic untouched (4752 flops / 972 ymm FP per volume; closed since round 1). The
+DFT6V codelet, pass structures, zp-outer x-pass order, and z-pass in-register
+transposes are byte-identical to r3.
+
+### What was measured (wallaby; race tables are the trustworthy statistic — same-process,
+same clock; the r2 clock-lottery warning stands for driver minima)
+
+B=32768 race (113 MiB, DRAM on both machines), µs/vol, base-clock invocation:
+
+| shape | plain | pfT0 | pfT1 | W only | pfT0+W | pfT1+W | nt | nt+pfT0 | nt+pfT1 |
+|---|---|---|---|---|---|---|---|---|---|
+| 3pass | 0.5299 | 0.5085 | 0.4993 | 0.3425 | 0.3163 | 0.3114 | 0.3101 | 0.1897 | 0.1945 |
+| 3pass_ip | 0.5232 | 0.5044 | — | — | 0.3153 | — | — | — | — |
+| fused | 0.4612 | 0.4478 | 0.4470 | 0.3404 | **0.3114** | **0.3074** | 0.2253 | **0.1829** | 0.1898 |
+
+Three headlines: (a) **my fused_pfw now measures 0.3114 — exactly L6_unrolled's r3
+number for the same shape (0.3114)**, so the kernels are at parity and the r3 gap is
+closed on this machine; (b) W is worth 1.6× in the normal-store rows (0.5085 → 0.3163),
+and W-only captures most of it (0.3425) but the input prefetch still pays its way in
+DRAM; (c) my in-place and the adopted two-scratch 3pass are within noise of each other
+everywhere on wallaby (0.5232 vs 0.5299 plain), so the r3 node gap at B=32768 was
+evidently W + shape choice, not the scratch discipline. Wallaby still picks NT in DRAM
+(fused_nt_pf 0.1829; driver 0.258 µs/vol at B=32768 vs MKL 0.516).
+
+**B=64 (0.42 MiB, L2-resident): W variants dominate by 1.7×** — fused_pf 0.2514 vs
+3pass_pfw/ip_pfw/fused_pfw 0.1436/0.1431/0.1435, fused_w **0.1453** chosen (driver
+0.146 µs/vol, vs my r3-era ~0.25 at base clock). Same process, same clock, so this is
+real: even when the output is L2-resident, the 54 demand-RFOs per volume (L2-hit
+latency, ~12 fill buffers) stall the store buffer, and prefetchw converts them to L1
+hits a volume ahead. This was NOT visible in any earlier round because nobody had W
+variants racing at cache-resident sizes — L6_unrolled's r3 record only measured W at
+27/113 MiB. **If the same mechanism holds on the node's 1 MB L2, B=64 (and possibly
+B=4096) should improve; their entry has the same variants, so expect both entries to
+move together.**
+
+B=4096 (27 MiB, L3-resident on wallaby): W loses in the normal rows (fused_pfw 0.4020
+vs fused_pf 0.3366), consistent with L6_unrolled's r3 finding at that size on this
+machine; wallaby picks fused_nt_pf (0.2856). On the node 27 MiB streams, so the node
+race may resolve differently. B=1: picks 3pass (0.2462; 3pass_ip 0.2456 and fused
+0.2494 inside the 1.5% margin), driver 0.252 base / 0.131 turbo — unchanged from r3,
+as intended.
+
+Correctness: rel L2 2.24–2.42e-16 at B ∈ {1, 3, 8, 64, 512, 4096, 32768}, all PASS,
+bit-identical across re-runs everywhere. Cross-compile at `-march=cascadelake`:
+`prefetchw` emitted (51 sites), all 21 vector kernels vector-spill-free (3 rsp refs =
+callee-save frame; the three `3pass*w` kernels spill one integer loop bound, harmless).
+Setup ≤1.2 s at B=32768 (21 candidates × 7 rounds), unscored.
+
+### Node prediction (falsifiable via the description string)
+
+* B=32768: node rejects NT again → picks `fused_pfw`/`fused_pft1w`/`3pass_pfw` and
+  lands ≈0.56, closing the 13% gap to L6_unrolled (who should stay ≈0.563; we now
+  carry the same winning shape). If the node picks an NT variant, the three-round NT
+  story finally breaks.
+* B=64: if the wallaby RFO mechanism transfers, the node picks a W variant and the
+  cell drops below 0.214 for both L=6 entries; if the node's smaller L1 (32 KB vs
+  48 KB) makes the prefetched output lines evict the working set, it stays fused_pf
+  ≈0.223.
+* B=4096: borderline (27 MiB > 22 MiB L3) — fused_pfw or fused_pf, 0.38–0.40.
+* B=1: any of 3pass/3pass_ip/fused at ≈0.220 (all inside 1.5% on the node too,
+  most likely).
+
+### What was tried and did NOT work (with the number)
+
+1. **Nothing failed outright this round** — by design it was an adoption round. The
+   negative results that shaped the grid are all cited above: distance-2 prefetch
+   (four rounds, never ≠ distance 1), NT-on-node (three rounds, both entries),
+   `prefetchnta` (L6_unrolled r1: catastrophic), `MADV_HUGEPAGE` (my r2: kernel 5.15 +
+   pre-faulted buffers).
+2. **W at B=1** measured and correctly rejected by the race (0.2537–0.2653 vs 0.2462):
+   prefetching a volume that does not exist costs 54–108 useless uops. The safest-first
+   ordering keeps the plain kernels in front, so B=1 cannot be noise-stolen.
+3. Consciously skipped again: B=1 structural work (pass-boundary software pipelining)
+   — still blocked on the monitor's `perf stat -e cycles,ref-cycles` clock question
+   (asked by four entries, two rounds running); at base clock B=1 has ≤4% headroom and
+   two documented dead ends (L6_unrolled r1 item 3, my r1 Next 2) say the OoO window
+   already covers the boundary.
+
+### Next
+
+1. **Read the r4 `variant=` strings against the predictions above.** The B=64 cell is
+   the most informative: it is the first node test of write-intent prefetch at a
+   cache-resident size, and the answer transfers to L=8's batched cells (L8_fusedaxes'
+   B=64 cell is L2-resident too) and possibly L=36 B=4.
+2. If W wins broadly on the node, the one knob left is **W distance and interleaving**
+   (currently: 3 lines per x-pass group, 1 volume ahead; an interleave into the y/z
+   passes would spread the RFO issue more evenly — worth trying only if the r4 numbers
+   show the cell still above the 12.3 GB/s floor L6_unrolled demonstrated).
+3. If B=32768 lands ≈0.563 for both entries, L=6 really is finished (both entries at
+   the compulsory-traffic floor with the same kernel set); the panel should follow the
+   r3 VERDICT and move one L=6 implementer to L=36.

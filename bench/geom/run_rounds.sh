@@ -126,6 +126,46 @@ stop_requested() {
   return 1
 }
 
+# ---------------------------------------------------------------- per-round source dirs
+
+# Round N's implementers work in impl_N, so every round's code is preserved instead of
+# being overwritten in place. `impl` is a symlink to the current round's directory, which
+# means the Makefile, sweep.sh, tryout.sh, promote.sh and probe_node.sh all keep working
+# unchanged -- they glob impl/*.c and resolve through the link.
+#
+# This exists because panel_r1's sources were lost: its monitor died before promoting
+# anything, and the next round's implementers then rewrote all eleven files in place.
+setup_impl_dir() {
+  local round=$1
+  local n=${round##*_r}
+  local prev=$((n - 1))
+  local dir="$GEOM/impl_$n"
+
+  if [ ! -L "$GEOM/impl" ]; then
+    # First cutover: rename the live directory to the round that produced its contents,
+    # which preserves that round's code, then branch this round off it.
+    if [ -d "$GEOM/impl" ]; then
+      if [ -d "$GEOM/impl_$prev" ]; then
+        cp "$GEOM"/impl/*.c "$GEOM/impl_$prev/" 2>/dev/null || true
+        rm -rf "$GEOM/impl"
+      else
+        mv "$GEOM/impl" "$GEOM/impl_$prev"
+        log "preserved the sources that produced panel_r$prev in impl_$prev"
+      fi
+    fi
+    mkdir -p "$dir"
+    cp "$GEOM/impl_$prev"/*.c "$dir/" 2>/dev/null || true
+    ln -sfn "impl_$n" "$GEOM/impl"
+  else
+    if [ ! -d "$dir" ]; then
+      mkdir -p "$dir"
+      cp "$GEOM/impl_$prev"/*.c "$dir/" 2>/dev/null || true
+    fi
+    ln -sfn "impl_$n" "$GEOM/impl"
+  fi
+  log "$round works in impl_$n ($(ls "$dir"/*.c 2>/dev/null | wc -l) sources carried over from impl_$prev)"
+}
+
 # ---------------------------------------------------------------- context for implementers
 
 # What previous generations did. Every implementer is pointed at ALL of it, not just its
@@ -424,6 +464,8 @@ while [ "$NEXT" -le "$LAST" ]; do
     wait_for_quiet || break
   fi
   mkdir -p "$GEOM/results/$ROUND"
+
+  [ "$DRYRUN" != 1 ] && setup_impl_dir "$ROUND"
 
   build_context "$ROUND" "$GEOM/results/$ROUND/context.md"
   log "context pack: $(wc -l < "$GEOM/results/$ROUND/context.md") lines"

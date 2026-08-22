@@ -20,10 +20,12 @@ __pycache__/
 *.bin
 
 # --- panel working area -------------------------------------------------------
-# impl/ is scratch: twelve implementers rewrite it every round.  Only the harness
-# floor is tracked here; the entries worth keeping are promoted into
-# bench/geom/exemplars/ (see docs/CURATION.md).  Strategy records in
-# bench/geom/strategies/ are tracked in full -- they are the panel's memory.
+# Round N's implementers work in impl_N/, which IS tracked: per-round directories are
+# the provenance record of what each generation actually wrote, and losing panel_r1's
+# sources to in-place overwriting is exactly why they exist.  `impl` is a symlink to the
+# current round's directory (so the Makefile and the scripts need no changes); the
+# symlink itself is not tracked because it rotates every round.
+bench/geom/impl
 bench/geom/impl/*
 !bench/geom/impl/baseline_matrix.c
 

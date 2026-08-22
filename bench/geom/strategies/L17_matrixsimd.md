@@ -683,3 +683,176 @@ node the 256-bit X-first candidates stay selectable and the tuner decides.
    the halves) is the fallback. Worth ~32 loads/chunk.
 4. B=1 floor: 148 ops × 243 chunks at 1/cycle = 15.6 µs at 2.30 GHz. If the
    node shows pinned B=1 at ~15.6, stop optimizing B=1 — it is done.
+
+---
+
+## Round panel_r4 (2026-08-21)
+
+### Standing after round panel_r3
+
+Swept all four L=17 cells on the node (B=1 16.386, B=8 17.930, B=256 21.444,
+B=2048 22.697 µs), 3.70–4.99× the best library — the largest margin on the
+board. The node's picks, read off the description strings: B=1/B=8 = 512-bit
+pinned sines, X-last, C **in registers** (exec14_w4); B=256/B=2048 = 512-bit
+pinned, X-first, plain stores, **pf=0** (exec15_w4). NT and prefetch both
+rejected by the node. The r3 VERDICT (§6) closed the arithmetic question —
+B=1 is at 1.05× its own FMA-port floor (15.6 µs at 2.30 GHz) — and quantified
+the remaining prize: **6.3 µs/volume of un-overlapped memory time at B=2048**
+(22.697 measured vs a ~16.4 µs ceiling), with the named move being to
+software-pipeline volume b+1's X pass into volume b's plane phase, inside bit
+class D. That is what this round builds.
+
+### What changed (three things, all batch >= 64; B=1/B=8 untouched)
+
+1. **Cross-volume software pipelining** (exec18/19/20, both widths).
+   *Adopted from the r3 VERDICT §6 (the monitor's named move), with
+   attribution.* X-first still opens every volume with a serial 78.6 KiB
+   DRAM read burst — the 73 X chunks — with nothing to hide the misses
+   under. The pipelined variants double-buffer t1 (new t1b, +78.6 KiB) and
+   execute volume b+1's X chunks *during* volume b's plane phase: NX/17 =
+   4–5 chunks per plane, split across **two insertion points** (before the
+   Y group and between Y and Z), so the read stream never bursts more than
+   2–3 chunks between compute-bound plane chunks. Volume 0's X pass runs
+   un-overlapped as a prologue (cost ~1/nb). Pure scheduling: every chunk
+   computes the same values on the same operands in the same per-value
+   order. exec18 = C-in-registers, exec19 = C-parked, exec20 = C-parked +
+   NT staging with a **per-plane** ntcopy (578 doubles after each plane's Z
+   group, spreading the NT writes the same way the plain stores are spread).
+   pf is meaningless here (the X chunks *are* the prefetch, doing real work)
+   and is ignored; the pf A/B is skipped when a pipelined variant wins.
+
+2. **The NT variants moved INTO the batch>=64 selection class** (selD is now
+   12 candidates: plain/pipelined/NT × both widths), and the old stage-2
+   winner-then-A/B NT step is deleted. Reason, measured on wallaby at
+   nv=1000: NT loses without pipelining in the L3-resident regime and the
+   two decisions **do not factorize** — at B=2048 the full 2×2 was
+   {plain 15.72, pipelined 15.33, NT 12.66, pipelined+NT 14.45} µs/t. A
+   tuner that picks the plain winner first and then A/Bs NT on it can reach
+   only two corners of that square. All 12 candidates were **cmp-verified
+   bit-identical** (class D) on identical inputs at B=256, so the tuner may
+   select freely among them without breaking cross-process repeatability.
+   r3's warning stands and was re-checked after every structural edit: the
+   two-insertion-point version was re-cmp'd (all 6 pipelined variants ==
+   class D) — derive nothing, cmp everything.
+
+3. **L3-scaled tuner arena.** *Adopted from L36_mixedradix's machine-relative
+   tuner arena (its r2/r3 record), with attribution.* The fixed 384-volume
+   (60 MB) streaming arena is exactly wallaby's L3 size, so on wallaby the
+   "streaming" tuner was actually tuning L3-resident and **inverted the NT
+   decision**: at nv=384 it kept plain (r3 table: 13.75 NT vs 12.58 plain)
+   where the driver's steady state at B=2048 has NT 13% faster. Now
+   nv = min(batch, clamp(2.5·L3 / 157 KB, 384, 1024)) via
+   sysconf(_SC_LEVEL3_CACHE_SIZE): wallaby (60 MB L3) → 1000 volumes, the
+   node (22 MB) → 384, i.e. **node behaviour is bit-for-bit identical to
+   r3's tuner**; only machines with big L3 change. Plan time at B=2048 on
+   wallaby grew 0.7 → 2.5 s (32 candidates × 4 execs × 1000 volumes); on
+   the node it stays ~1.2 s as in r3. Setup is unscored but noted.
+
+### Operation count
+
+Unchanged: 148 vector FP ops per chunk, 243 chunks, 35 964 vector FP ops per
+volume, 488 flop/line. Pipelining moves no arithmetic and adds none — the 73
+X chunks per volume are relocated in time, not duplicated. The NT-pipelined
+variant adds the same staging copy NT always cost (78.6 KiB L1/L2 read + NT
+write per volume), now issued per plane instead of per volume.
+
+### What was measured — wallaby (Gold 6448Y, shared; noisy again today, sd up
+to 32% within runs; min-across-runs is the only statistic)
+
+Forced, per transform, min of 3 runs (V numbers are -DL17_FORCE indices):
+
+| variant | B=256 | B=2048 |
+|---|---|---|
+| exec15_w4 = r3 winner class, plain (V21) | 9.87 | 16.80 |
+| exec18_w4 pipelined plain, C in regs (V32) | **9.36** (split interleave; 9.64 single) | 17.20 |
+| exec19_w4 pipelined plain, C parked (V33) | 9.78 | 17.18 |
+| exec20_w4 pipelined + NT (V34) | 14.09 | 14.50 (single-point; 15.67 split, noisy) |
+
+Tuner's own >L3 table at nv=1000 (B=2048 plan), the round's cleanest window:
+plain X-first 15.72 / pipelined 15.33 / **NT 12.66 <== kept** / pipelined+NT
+14.45; the 256-bit column landed 14.75–16.52 and lost every cell to its
+512-bit twin except plain X-first (14.75), which the class makes selectable
+anyway. Autotuned end-to-end (the shipping config), per transform, all PASS
+rel_l2 = 3.226e-16 … 3.259e-16 and bit-repeatable across processes:
+
+| case | this round (best of runs) | r3 same machine | picked |
+|---|---|---|---|
+| B=1 | 9.76 µs | 8.88 | X-last pinned (unchanged path; delta is machine noise) |
+| B=8 | 10.04 µs/t | 8.86 | same |
+| B=256 | 9.66 µs/t (9.36 forced) | 9.95 | **512-bit pipelined plain** |
+| B=2048 | **13.45 µs/t** | 17.19 | **512-bit X-first + NT** (via the nv=1000 arena) |
+
+B=2048 is a −22% round-over-round move on this machine, but read it
+honestly: most of it is the **arena fix letting NT be chosen**, not the
+pipelining; pipelining is what won B=256. AVX2 host (Haswell): PASS
+3.255e-16…3.258e-16, repeatable, B=8 and B=64.
+
+### What was tried / observed that did NOT work
+
+1. **Pipelining the plain-store path does not help wallaby's B=2048**
+   (17.2 vs 16.8 non-pipelined) even though it helps B=256 (9.36 vs 9.87).
+   At full streaming on this machine the bottleneck is the RFO+writeback
+   write traffic, which pipelining does not touch and NT removes. Whether
+   the node — where NT has lost twice and writes are cheaper relative to
+   its slower DRAM reads — orders these the same way is exactly what the
+   description strings will report back.
+2. **NT + pipelining is slower than NT alone on wallaby** (14.45 vs 12.66 at
+   nv=1000). Plausible: the interleaved X reads now compete with the NT
+   write stream inside every plane, where the non-pipelined variant
+   alternates read-heavy and write-heavy phases that each get the full
+   memory pipe. Kept as a candidate anyway — the node's memory system is
+   different and the variant costs nothing when not picked.
+3. **A fixed 384-volume streaming arena silently tunes the wrong regime on
+   a 60 MB-L3 machine** — it kept plain stores at B=2048 while the driver's
+   steady state had NT 13% faster. Anyone with a tuner sized in absolute MB:
+   scale it to the machine's L3 (2.5× here) or you are measuring cache
+   behaviour, not streaming behaviour.
+4. **Winner-then-A/B tuning cannot find a non-factorizing corner.** The NT
+   decision flips sign depending on pipelining and on the arena size. If two
+   knobs interact, they must be in the candidate set jointly; this is the
+   generalisation of r1's blocked-measurement lesson and it cost r3 nothing
+   only by luck (the node rejected NT in every reachable corner).
+5. **A cmp scare that was an artifact, documented so nobody repeats the
+   panic:** after the two-insertion-point edit, all six pipelined variants
+   suddenly "differed" from class D — because tryout.sh regenerates
+   $W/in.bin at the last batch size it was run with (64), so the B=256
+   reference runs failed and cmp compared against garbage. Regenerating a
+   dedicated in256.bin restored bit-identity for all six. If you cmp across
+   tryout invocations, generate your own inputs with explicit names.
+6. **Not retried, on the strength of earlier records:** every arithmetic
+   split (r2/r3 dead-end lists), NT issued directly from pass-X stores (r1
+   item 10, alignment), paired-volume lane-tax elimination (r2 item 3),
+   cross-volume prefetcht1 as a substitute for real pipelined work (r3: pf=0
+   won on both machines; this round's X-chunk interleave is that idea done
+   with real work instead of hints).
+
+### Expectations for the node
+
+* B=1/B=8: bit-for-bit the r3 configuration; 16.386/17.930 should stand.
+* B=256/B=2048: the class now offers the node three new levers (pipelined
+  plain, pipelined NT, and — properly measured for the first time in a
+  correctly-sized arena — plain NT, though at 22 MB L3 the r3 arena was
+  already correct there, so the honest expectation is that NT still loses
+  on the node and **pipelined plain 512-bit is the likely pick**). If the
+  wallaby B=256 delta (−3 to −5%) transfers to the node's streaming cells,
+  B=256 ~20.4–20.9 and B=2048 ~21.5–22.0 µs. The ceiling remains 16.4; I do
+  not expect to reach it this round — plane-granularity interleave overlaps
+  the read latency but not the write bandwidth.
+* Prediction to score: node picks pipelined plain (exec18 or 19, 512-bit) at
+  B=256 and B=2048; B=2048 lands 21.0–22.3 µs. If instead the node picks NT
+  (plain or pipelined), that overturns two rounds of node NT rejections and
+  the write path becomes next round's whole story.
+
+### Next
+
+1. Read the node's picks and deltas. Three-way fork: (a) pipelined plain won
+   and gap narrowed → deepen the pipeline (run b+1's X chunks TWO planes
+   ahead so each read has ~1.3 µs of slack, still class D); (b) NT won →
+   attack the staging copy (fuse ntcopy into the Z-group stores via an
+   L1-resident plane, cutting the extra 78.6 KiB round trip); (c) nothing
+   moved → the remaining 6 µs is write-bandwidth-bound and the only lever
+   left is getting `out`'s RFO off the critical path, i.e. (b).
+2. The B=1 wall stands at 1.05× the port floor; leave it alone (r3 VERDICT).
+3. If a future round changes the interleave or insertion points: it is
+   scheduling-only, but **cmp anyway** (see item 5 above for how to do it
+   without fooling yourself).

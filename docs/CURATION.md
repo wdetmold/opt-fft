@@ -14,7 +14,8 @@ and **anything that took judgement to produce is**.
 | Test suites | `python/test_fft3d.py`, `python/verify_backends.py` | 34 checks against the definition; backend validation |
 | Benchmark harness | `bench/geom/{fft3d_api.h,driver.c,gen_input.py,check.py,leaderboard.py,Makefile,sweep.sh,submit.sh}` | the measurement apparatus — every number depends on it |
 | Library baselines | `bench/geom/sota/` | FFTW ×3 planner levels, MKL 2022 + 2026, ducc0 |
-| Harness floor | `bench/geom/impl/baseline_matrix.c` | the library-free reference implementation the harness is validated with |
+| **Per-round sources** | `bench/geom/impl_<N>/` | what each generation actually wrote. Round N works in `impl_N`, seeded from `impl_{N-1}`; `impl` is a symlink to the current one |
+| Harness floor | `impl_<N>/baseline_matrix.c` | the library-free reference implementation the harness is validated with |
 | Panel machinery | `bench/geom/{PANEL_BRIEF.md,panel_round.js,promote.sh}` | the brief, the workflow, the promotion tool |
 | **Strategy records** | `bench/geom/strategies/*.md` | the panel's memory: what was tried, what it measured, what failed and why |
 | **Promoted exemplars** | `bench/geom/exemplars/<round>/` | the implementations worth showing the next panel |
@@ -30,7 +31,6 @@ and **anything that took judgement to produce is**.
   `ext/requirements.txt` rebuild all of it. Note `pyvkfft` needs
   `VKFFT_BACKEND=cuda` (no OpenCL headers on this system) and `mpi4py` must be built
   from source against the CUDA-aware OpenMPI — both handled in `build_venv.sh`.
-* `bench/geom/impl/*` (except the floor) — scratch. Twelve agents rewrite it per round.
 * `*.bin` — input and output volumes, regenerated from `--seed` every round.
 * `bench/geom/build/<hostname>/` — binaries and objects, per build host. This directory
   is on a shared filesystem and is built from two machines with `-march=native` (the
@@ -43,6 +43,23 @@ and **anything that took judgement to produce is**.
   and the environment it was measured in are kept.
 * Login-node smoke rounds (`results/local_smoke/`) — the login node is shared, so its
   timings are not measurements; those runs only prove the pipeline works.
+
+## Why per-round source directories exist
+
+`panel_r1`'s eleven implementations are **gone**. Its monitor died before it could promote
+anything, `impl/` was a single shared scratch directory, and round 2's implementers rewrote
+all eleven files in place. Only the strategy records and the leaderboard survive for that
+round.
+
+So each round now gets its own directory: round N's implementers work in `impl_N`, seeded
+from `impl_{N-1}`, and `impl` is a symlink to the current round so the Makefile, `sweep.sh`,
+`tryout.sh`, `promote.sh` and `probe_node.sh` keep working unchanged. Every generation's code
+is preserved whether or not anyone remembered to promote it, and a regression can be
+diffed against the exact source that produced the previous round's numbers.
+
+`exemplars/` remains the *curated* view — the entries judged worth putting in front of the
+next panel, with their records and measured numbers alongside. `impl_N/` is the complete
+provenance; `exemplars/` is the reading list.
 
 ## Promoting exemplars from a panel round
 

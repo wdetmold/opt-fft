@@ -622,3 +622,195 @@ file, this round.
    now 1.76× ahead on wallaby; understand why before they do: my INPLACE
    y-first pass A appears to cost far less than their phase 1 when the volume
    set cycles through L3.
+
+---
+
+## Round panel_r4
+
+### Where round r3 landed, and the diagnosis
+
+Node (Gold 5218, panel_r3): **first at B=4** (127.3 vs pfa 129.2, mixedradix
+128.8), third-of-three-but-inside-spread at B=1 (121.5 vs 118.6/120.0), second
+at B=32 (221.2 vs pfa 218.4) and B=256 (236.8 vs pfa 227.5). The r3 headline —
+pass-order swap + mode-keyed pass-A variants — was the round's largest
+improvement (−16.6% at B=256) and it moved this file from last everywhere to
+contention everywhere. Predictions scored: 3 of 4 right (pw=4 everywhere,
+INPLACE at B=1/B=4, NT at B=32/B=256 — but **without XV**, which the node's
+own tuner rejected).
+
+The open prize is unchanged and quantified by the monitor twice now: at B=256
+the compulsory traffic is 1.49 MB/volume ≈ 124 µs at the node's demonstrated
+12 GB/s, the compute floor is ~119 µs, and the measured best is 227.5 —
+**1.83×, zero read/write-compute overlap**. Three entries threw prefetch
+variants at it in r3 and collectively bought 4.7% in one cell while losing
+7.7% in another. Why prefetch fails on the node but wins on wallaby, best
+current theory (mine, stated in the code header): pass B's NT drains hold the
+~12 fill buffers, and software prefetches issued behind full LFBs are simply
+**dropped** — the one circumstance where they were needed. (Secondary: on
+Skylake-SP-family parts `prefetcht2` fills L2, not L3, so my r3 XV was also
+fighting the 1 MB L2 for space against the 746 KB scratch.)
+
+### Technique (round r4): overlap by REAL work, not droppable prefetches
+
+Same PFA-4×9 interleaved-complex line kernel, same PW∈{2,4} template, same
+modes 0–3, same INPLACE small-batch path (byte-identical — B=1/B=4 are cells I
+hold or tie and they were not touched). Pass A (streaming variant) and pass B
+were refactored into per-template functions so different volume schedules can
+share them; three NEW modes were added as ADDITIONAL tuner candidates — the r3
+verdict's process lesson ("on this hardware pair, add candidates; do not
+replace structures", proven by L8_fusedaxes/L8_radix8 vs L8_batchsimd):
+
+* **Mode 4 PIPE** — the true cross-volume ping-pong pipeline (designed and
+  deferred by **L36_pfa r3** item 5; their own record says "if B=256 lands
+  ≥ 180 µs on the node, build it" — it landed 227.5). Two mid buffers; pass A
+  of volume v+1 interleaves with pass B (NT) of volume v at plane granularity
+  (1 pass-A plane, then 9 pass-B units, ×36). Demand loads cannot be dropped
+  the way prefetches can, so volume v+1's DRAM reads are FORCED to execute
+  between volume v's NT store bursts. Cost: the older mid is LRU-demoted, so
+  pass B's mid reads become L3 hits (pfd bumped 8→16 doubles there).
+* **Mode 5 SEQNT** — store-ORDER discipline: pass B runs **in place on mid**
+  (cached stores; PFA36 loads a whole line group before its first store, so
+  in-place is well-defined — same property INPLACE mode already relies on),
+  then one perfectly **sequential** NT copy mid→out. Rationale: modes 2–4
+  drain NT through 36 concurrent streams of stride 20 736 B — a DRAM
+  row-buffer-thrash pattern — while the node's demonstrated 12.3 GB/s
+  single-core stream (L6_unrolled) is sequential. Adopted from **L8_radix8
+  r3** (2-pass → 3-pass to sequentialize output stores, −18.5% at B=2048) and
+  the monitor's §4.3 verdict ("what actually pays at these sizes is the
+  *order* traffic is issued in, not its volume"). Cost: one extra
+  cache-resident volume round trip (746 KB through L2/L3; +23 328 vector
+  memory ops/volume at PW=4, zero extra FMA-port work).
+* **Mode 6 PIPESEQ** — mode 5 with the copy pipelined across volumes: the
+  sequential NT copy of volume v−1 is interleaved into pass B of volume v
+  (36 copy vectors per line group; the copy finishes exactly with the pass),
+  because pass B in-place on mid is pure cache-resident compute with an idle
+  memory system — the natural slot to hide the entire NT drain under. Pass
+  A's cold reads hide under its own compute via the existing plane-ahead T1
+  prefetch. Ideal node schedule: ~65 (pass A) + max(~60 compute, ~62 drain)
+  ≈ 130 µs/volume against the 124 ceiling. Ping-pong mids as in PIPE; last
+  volume's copy runs bare (amortized: 1/B).
+
+Also new: the SCRATCH-cached mode's pass B now issues a **write-intent
+prefetch** (`__builtin_prefetch(dst…, 1, 3)`, 4 lines ahead) on its 36 cold
+output streams, converting demand-RFO stalls into prefetched-exclusive lines —
+adopted from **L6_unrolled**'s `prefetchw` (the only prefetch variant a node
+tuner actually selected in r3). INPLACE's pass B is untouched (its dst lines
+are already M-state from pass A).
+
+Tuner: same interleaved-rounds + 1e-11 correctness interlock, now over
+{PW 2,4} × {modes 0–6} = 14 candidates; modes ≥ 2 still gated to streaming
+batches (batch × 1.46 MB > 16 MB). Setup cost 0.4–0.6 s on wallaby at B=256
+(unscored). Diagnostics unchanged, `FFT36PF_FORCE_MODE` now 0..6.
+
+### Operation count
+
+Line kernel unchanged: 248 FMA-port ops + 49 port-5 shuffles per 36-point line
+over PW lanes; 241k FMA-port vector ops/volume at PW=4, port floor ~105 µs at
+2.3 GHz. Modes 5/6 add 11 664 vector loads + 11 664 NT vector stores (the
+sequential copy) and retarget pass B's 11 664 stores from out to mid; no FP
+change. Mode 6's copy rides load/store ports during FMA-bound compute.
+
+### What was measured (wallaby, Gold 6448Y; same-window forced-mode A/Bs are
+the evidence; µs per transform, driver min; rel_l2 3.65–3.84e-16 and
+bit-identical re-runs on EVERY run listed)
+
+Same-window A/B chain, B=256, FORCE_PW=4, back-to-back:
+
+| mode | µs/vol | |
+|---|---|---|
+| 2 scratch+nt (r3 shipping config) | 110.3 | baseline |
+| 3 +xv | 107.9 | prefetch XV: −2% here, rejected by node in r3 |
+| 4 pipe | 118.1 | **loses at pw4 on wallaby** (see below) |
+| 5 seqnt, phase-serial | 168.2 | sequential stores ALONE lose 53% |
+| 6 pipeseq | **97.8** | **−11.3% vs mode 2** |
+
+The 5-vs-6 pair is the round's cleanest decomposition: the sequential-store
+rewrite is *worthless* (−53%) until the drain is hidden under compute, then it
+is the best thing on the board. Store order and drain placement are one
+lever, not two.
+
+Other cells, same windows unless noted:
+
+* pw2 B=256: mode 2 = 132.6, mode 4 = 126.8 (PIPE **wins** at pw2), mode 6 =
+  108.2. pw4 dominates pw2 in every mode.
+* B=32 pw4: mode 2 = 95.7, mode 4 = 99.4; mode 6 = 90.6 (adjacent window).
+* Auto-tuned full runs: **B=256 = 97.9** (tuner chose pw4/pipeseq; in-arena
+  table: pipeseq 81.6, scratch-cached 82.4, xv 95.7, pipe 97.2, nt 100.2),
+  **B=32 = 71.6** (tuner chose pw4/scratch-cached — correct on wallaby, where
+  46 MB half-fits the 60 MB L3; the node's 22 MB L3 will re-rank this, and
+  the 32-volume arena streams there), **B=1 = 52.7** in a fast window
+  (r3: 51.6 — INPLACE path untouched, parity confirmed), B=4 = 129.4 (slow
+  window; path untouched). vs r3 bests on this host: B=256 109.5 → 97.9
+  (−11%), B=32 80.2 → 71.6 (−11%).
+* Wallaby was in its documented bimodal ~2× slow placement state for most of
+  the session (B=1 100–106 µs, MKL 148 µs); all A/Bs above are within-window.
+* AVX2-only path exercised end-to-end on the Haswell login node (B=1, B=32
+  with all modes admitted): PASS, bit-repeatable. Clean builds under
+  `-march=cascadelake`, `-march=skylake-avx512`, `-march=haswell`, bare `-O2`.
+
+### What was tried and did NOT work — with the number that killed it
+
+1. **Mode 5 (sequential NT stores) as a phase-serial structure**: 168.2 vs
+   110.3 µs/vol at B=256/pw4 — adding an unhidden 62 µs drain phase loses far
+   more than store sequentiality gains on wallaby's DRAM. Only the pipelined
+   form (mode 6) wins. Kept as a tuner candidate anyway: it is the control
+   that separates "store order" from "drain hiding" in the node's data, and
+   on a controller where strided NT is truly row-thrash-bound it could rank
+   differently.
+2. **Mode 4 (PIPE) at pw4 on wallaby**: 118.1 vs 110.3 — interleaving pass A
+   demand reads into the NT pass costs more (mid demoted to L3, 2 MB L2
+   overflowed by two mids + streams) than it recovers on a machine whose
+   prefetches already survive. At pw2 it wins (126.8 vs 132.6). Kept: its
+   mechanism (undropable demand loads) targets the node's specific failure,
+   which wallaby cannot exhibit.
+3. Attempted nothing at B=1 this round (the software-pipeline-two-groups idea
+   remains untried by anyone); the INPLACE path ships byte-identical, so the
+   B=1/B=4 cells cannot regress from this round's changes — only the tuner's
+   candidate list grew, and modes ≥ 2 are physics-gated out at those batches.
+
+### Attribution summary
+
+Sequentialized output stores via an extra cache-resident pass: **L8_radix8
+r3** (+ the monitor's §4.3/§5 store-order verdict). Hide-the-drain-under-
+compute cross-volume pipelining: the monitor's r2/r3 §6 ceiling analysis;
+ping-pong two-scratch structure: **L36_pfa r3** (designed, deferred, and
+explicitly bequeathed at their measured 227.5). Write-intent prefetch on cold
+output streams: **L6_unrolled** (node-validated in r3). Add-candidates-never-
+replace process rule: **r3 VERDICT §4** (L8_fusedaxes/L8_radix8 vs
+L8_batchsimd evidence). The passB-in-place-on-mid trick and the
+copy-interleaved-into-passB schedule: this file, this round.
+
+### Predictions for the node (stated so they can be scored)
+
+* Picks: B=1/B=4 pw4 INPLACE (unchanged). B=32 and B=256: **pw4 pipeseq** if
+  the strided-NT row-thrash theory is right; pw4 scratch+nt if it is not. If
+  the node picks scratch-CACHED at B=32 like wallaby did, that is a mis-tuned
+  arena and I want to know (arena = 32 vols = 46 MB > 22 MB L3, so it should
+  stream correctly there).
+* B=256: **175–215 µs** (from 236.8). Mode 6 removes the exposed drain phase;
+  the node pays more than wallaby for the extra mid round trip (1 MB L2) but
+  also gains more from sequentializing NT (weaker memory controller). Under
+  175 would mean the drain really was the whole story; over 215 means the
+  exposed term is pass A's reads and the next lever is below.
+* B=32: **185–215 µs** (from 221.2, and pfa's 218.4 is the cell target — this
+  is the cell where the panel's margin over MKL fell to 1.01×).
+* B=1: 118–125, B=4: 125–130 (unchanged paths, spread only).
+
+### Next
+
+1. **Read the node's picks per cell** (plumbed since r3). The five-way mode
+   menu {nt, xv, pipe, seqnt, pipeseq} is itself the forced-variant
+   instrument the monitor asked for — whichever wins, the in-arena ranking
+   answers which mechanism the node actually lacks.
+2. **If pipeseq wins but lands > 175 at B=256**: pass A's cold reads are the
+   remaining exposed term; spread a fraction of the copy into pass A (copy
+   chunks between planes) so the drain also covers pass A's read stalls, or
+   revisit paced-prefetch distances inside pass A now that pass B no longer
+   competes for LFBs.
+3. **B=4 regime**: INPLACE wins it, but a cached-store variant of pipeseq
+   (copy with plain stores, no NT) would give B=4 the same drain-hiding
+   without the NT-at-small-batch penalty; worth one candidate if the node
+   shows B=4 memory-shaped.
+4. **B=1** remains a three-way tie 13% above the port floor; the only untried
+   structural lever is software-pipelining two line-groups (mixedradix r1
+   item 2). Somebody should finally measure it, even to kill it.

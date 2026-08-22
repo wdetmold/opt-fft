@@ -574,3 +574,157 @@ at create time, so the right answer installs itself either way.
    pf) the node tuner chose per batch — one `FFT36_VERBOSE=1` line. The
    pf0→pf1 in-arena delta on the node is the direct measurement of how much
    demand-miss serialization the Gold 5218 actually had; wallaby says 27%.
+
+---
+
+## Round panel_r4
+
+### Where round 3 stood, and what this round is
+
+Node, panel_r3: held **B=32 (218.351 µs, 1.01× over MKL — after a real +7.7%
+regression from r1/r2's 202.7-204.7)** and **B=256 (227.497, 1.09×)**; second at
+B=1 (120.042 vs mixedradix 118.626) and third at B=4 (129.242 vs 127.304), both
+inside the run spread. The r3 verdict's orders, followed literally this round:
+(a) `fft3d_description()` MUST report the tuner's pick — my B=32 regression was
+undiagnosable because it didn't; (b) B=256 is still the board's largest prize
+(~124 µs bandwidth ceiling vs 227.5 measured, 1.83×) and blind prefetch variants
+are exhausted; (c) the process lesson from L8: **add candidates, never replace
+structures** — the two entries that shipped both structures as tuner candidates
+hit every prediction, the one that replaced lost three cells.
+
+### Technique (round 4 delta) — no arithmetic change anywhere
+
+1. **`M_PIPE`, the cross-volume ping-pong pipeline, as a NEW tuner candidate**
+   (the design I costed and deferred in r3 item 5). Two plan-owned scratch
+   volumes S0/S1. Phase 1 and phase 2 both have exactly 36 outer iterations
+   per volume, so they interleave at plane granularity with zero restructuring
+   of either kernel:
+
+   ```
+   prologue: phase1(in[0] -> Sa)            (36 x-planes)
+   for b in 0..B-1:
+       for u in 0..35:
+           phase2_yplane(Sa -> out[b], y=u, NT stores)
+           phase1_plane (in[b+1] -> Sb, x=u, paced prefetch)   # if b+1 < B
+       swap(Sa, Sb)
+   ```
+
+   Why: the r3 node result says the compulsory read stream (phase 1) and the NT
+   write stream (phase 2) still run as *alternating full-rate bursts* — phase 2
+   needs ~20 GB/s of write for its 30% of the time while the read stream idles,
+   which is why prefetch alone bought 4.7% on the node against 24% on wallaby.
+   Interleaved, each stream runs at ~6.3 GB/s across 100% of the time; the sum
+   (12.6 GB/s) is exactly the node's demonstrated single-core rate, i.e. the
+   ~124 µs ceiling becomes reachable in principle. Phase 2 leads inside each
+   unit so its NT stores drain asynchronously under phase 1's compute. PFNX
+   (next-volume pre-coverage) is off in pipe mode — phase 1 of b+1 is itself
+   touching in[b+1] concurrently, superseding it. Cost: 1.5 MB of scratch (does
+   NOT fit the node's 1 MB L2 — the reason r3 deferred it), plus one extra
+   746 KB allocation in the plan. It ships as 4 more candidates
+   ({pw2,pw4}×{pf0,pf1}), correctness-gated at 1e-13 like everything else, so
+   the node's own tuner prices the L2-residency trade — the only machine that
+   can.
+2. **Tuner pick reported**: `fft3d_description()` now returns
+   "…tuner pick: pw=%d mode=%s pf=%d (B=%d, nv=%d)" filled at create() time
+   (static-buffer mechanism borrowed from **L36_mixedradix r2 / L6_pfa**).
+3. **Hysteresis**: among all correct candidates within **3%** of the best
+   in-arena time, the *simplest* installs (rank: pf=0 before pf=1, then
+   inplace < scratch < scratch+nt < pipe). Directly addresses (i) the verdict's
+   tuner-instability finding (coin-flips cost 3.9–6.7% elsewhere) and (ii) the
+   leading hypothesis for my own B=32 regression — pf=1 winning a marginal
+   in-arena comparison and losing end-to-end. Measured on wallaby: at B=32 the
+   pf=1-inplace vs pf=0-inplace gap was 2.4% (a coin-flip regime; now resolves
+   to pf=0), while every genuine win (pf at B=256: −11%; pipe vs scratch+nt
+   in-arena: −11%) is ≥10%, so the band gives up nothing real.
+4. **Run-time forcing for the monitor**: `FFT36_PW`, `FFT36_MODE`
+   (name or number), `FFT36_PF` environment variables filter the candidate list
+   at plan time — the forced-variant control runs the verdict asked for at B=32
+   need no recompile. Compile-time `FFT_FORCE_*` still works. Timing rounds
+   3 → 5 (min-of-5) for pick stability; setup stayed ~1.0 s at B=256.
+
+Mechanically, phase1/phase2 were split into per-plane functions
+(`phase1_plane`, `phase2_yplane`) with thin 36-iteration wrappers; the paced
+prefetch cursor and the PFNX cursor are recomputed per plane
+(cursor(x) = in + PFD + x·2592 etc.), reproducing the r3 address streams
+*exactly* — verified by the unchanged pf=0/pf=1 numbers and picks at B=1/B=4.
+
+### Attribution
+
+* Description-string plumbing: **L36_mixedradix** (g_desc mechanism, their r2).
+* "Add candidates, do not replace structures": the **r3 verdict's** reading of
+  **L8_fusedaxes/L8_radix8** (shipped both, hit predictions) vs
+  **L8_batchsimd** (replaced, lost three cells).
+* The pipeline itself is my own r3 item 5, finally built; the burst-vs-
+  concurrent-streams arithmetic is the monitor's r2/r3 ceiling analysis.
+
+### Operation count
+
+Unchanged: 248 FMA-port vector ops per 36-point line, 241 056 per volume at
+PW=4, ~105 µs port floor at 2.3 GHz. M_PIPE adds zero arithmetic — the same 72
+plane calls per volume, reordered across the volume boundary.
+
+### What was measured (wallaby, Gold 6448Y; windows varied — MKL swung 6%
+between runs, so cross-run deltas <6% are soft)
+
+All 16 candidates pass the 1e-13 create-time gate; end-to-end
+rel_l2 = 3.644–3.654e-16 at B=1/4/32/256; bit-identical re-runs; AVX2-only
+build verified end-to-end on wombat (PASS 3.651e-16, B=4).
+
+| B | end-to-end µs/vol | pick | notes |
+|---|---|---|---|
+| 1 | **51.2** (fast window) | pw4, inplace, pf=0 | = r3's 51.9; nothing regressed |
+| 4 | **74.6** | pw4, inplace, pf=0 | |
+| 32 | **83.0** | pw4, inplace, pf=1→(3% band)→pf edge was 2.4% | L3-resident on wallaby, streams on node |
+| 256 | **107.6** | pw4, scratch, pf=1 | MKL same window 212.7 → 1.96× |
+
+In-arena at B=256 (one tournament, back-to-back): pipe-pf1 **101.4** vs
+scratch+nt-pf1 113.8 (−11%) vs scratch-pf1 95.8. Forced end-to-end at B=256:
+scratch+nt **97.5**, pipe 109.3, tuner's scratch pick 107.6 — i.e. wallaby's
+**in-arena ranking inverts end-to-end** (NT worst in-arena, best end-to-end).
+Cause: the 64-volume arena (96 MB) is only marginally streaming against
+wallaby's 60 MB L3 — the exact effect my r3 record item 1 documented, one level
+up the hierarchy. On the node the same arena is 4.4× its 22 MB L3 and genuinely
+streams, so the node tournament is representative where this one is not. (Raising
+the cap to 128 volumes would fix wallaby's fidelity at 2× the plan time; not
+worth it — wallaby's pick is not the scored pick.)
+
+### What was tried and did NOT work — with the number that killed it
+
+1. **Judging the pipe on wallaby end-to-end**: forced pipe 109.3 vs forced
+   scratch+nt 97.5 µs/vol at B=256 (−11% for NT). Expected in hindsight: the
+   pipe's whole value is smoothing alternating DRAM bursts through a limited
+   single-core queue, and wallaby's memory system doesn't saturate on either
+   burst (it absorbed even the RFO traffic in r3). Both scratches also fit
+   wallaby's 2 MB L2, so wallaby cannot price the node's L2-eviction cost
+   either direction. This number is NOT evidence about the node; the node
+   tournament decides. Recorded so nobody reads the wallaby delta as a verdict.
+2. **A 2% hysteresis band**: at B=32 the pf=1-vs-pf=0 in-arena gap measured
+   2.4% — precisely inside the coin-flip zone it was meant to catch — so 2%
+   let the flip through. Widened to 3% after checking every genuine win on the
+   board is ≥10%.
+
+### Node predictions (stated so they can be scored)
+
+* **Pick reporting**: every leaderboard cell now shows pw/mode/pf. If B=32
+  shows pf=0 where r3's (invisible) pick was pf=1, the hysteresis fixed the
+  regression; expect **B=32 ≈ 203–212 µs** (recovery to r1/r2 level ±noise).
+* **B=256**: the interesting cell. If the node's tuner takes the pipe
+  (pw4-pipe-pf1) AND the burst-serialization theory is right, **185–205 µs**;
+  if it stays with scratch+nt+pf, expect **215–228** (r3 ±). I predict the
+  pipe is selected at B=256 and not at B=32 (at B=32 the out stream is
+  L3-marginal, weakening NT, and pipe is NT-based).
+* **B=1/B=4: unchanged**, 118–122 / 127–131, pick pw4-inplace-pf0 in all three
+  runs (hysteresis should also kill any pf coin-flip mixedradix-style).
+
+### Next
+
+1. If the node picks the pipe and lands ≤205 at B=256: the remaining gap to
+   ~124 is scratch-traffic latency (S now lives in L3, not L2) — try a
+   **half-volume pipe** (interleave at half-plane granularity with S split so
+   the hot halves fit 1 MB L2) or software-prefetch the S read streams in
+   phase 2 (they are 36 sequential streams; PF36 already covers the first line).
+2. If the node rejects the pipe everywhere: the B=256 story is closed from
+   this side; move to B=1, where the 88→80 DFT9 gap via genfft's DAG (~3%) and
+   the z-subloop staged transposes are the only levers left (r2 Next 1).
+3. The forced-variant control run at B=32/B=256 the verdict scheduled needs
+   only `FFT36_MODE`/`FFT36_PF`/`FFT36_PW` env vars now — no recompile.

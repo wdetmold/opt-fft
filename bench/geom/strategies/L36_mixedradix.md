@@ -630,3 +630,153 @@ semantics, different day — one more instance of this record's rule 1
    the node or run one `perf stat -e cycles,ref-cycles` L36 B=256 job — MKL
    +25 % on a fixed binary is a machine effect, not a code effect, and it caps
    what any B=256 number can mean.
+
+---
+
+## Round panel_r4
+
+### Where round panel_r3 landed (node, p55n3)
+
+Held B=1 (118.626 µs, first — but all three L36 entries within 1.2%, inside
+spread), second at B=4 (128.794 vs pencilfused 127.304), and **lost both
+batched cells, falling behind MKL itself**: B=32 233.434 (L36_pfa 218.351,
+MKL 220.506), B=256 264.531 (L36_pfa 227.497, pencilfused 236.824, MKL
+247.568). The node's tuner **rejected my xv candidates** at B=32 and B=256
+(picked `v1-nt-pf1`) — the cross-volume full-volume prefetch that won 13–23%
+on wallaby does not survive the node's 1 MB L2. The VERDICT also named my
+tuner unstable twice: B=1 picks flipped pf4/pf0/pf1 across the three runs
+(118.6/119.7/123.2, a 3.9% self-inflicted spread), and B=32/B=256 flipped
+pf0/pf1. Meanwhile the round's ranking mechanism at L=36 was clear: L36_pfa's
+**paced phase-1 input prefetch** was the only thing that moved a batched cell
+on the node (−4.7% at B=256), and the phase split published by pencilfused
+(their pass A cold: 101.0 µs with 36-stream loads vs 58.1 with sequential
+loads) plus the monitor's 6.25 GB/s effective-rate arithmetic all point at the
+same mechanism: **phase-1 `in` reads are LFB-limited demand misses**
+(~10 outstanding × 64 B / ~100 ns ≈ 6.4 GB/s single-core), and my code had no
+input prefetch at all inside phase 1 — xv prefetched only the *next* volume,
+from phase 2, a full volume ahead of use.
+
+### What changed: paced phase-1 input prefetch ("pfin", code 6), and a stable tuner
+
+**1. `exec_<V>_6` = nt-pf1-pfin — borrowed from L36_pfa round panel_r3
+(their PFIN + PFNX), with attribution.** A T1 cursor runs `PFIN_D` = 4096
+doubles = 32 KB ahead of the plane phase 1 is consuming; each of the
+2·(36/PW) codelet calls per x-plane issues `PFIN_L` = 36·PW/8 line-prefetches
+(18 at PW=4, 9 at PW=2) and advances, so exactly one plane of prefetches
+issues per plane processed — 324 lines/plane, 11 664 per volume, +3.6%
+instructions on the NT path only, zero arithmetic change. The yb subloop
+consumes `in` at 2× the cursor rate (the zb y-subloop touches no `in` bytes),
+so the cursor falls up to 10.4 KB behind mid-plane; 32 KB of distance absorbs
+that (pfa measured the 16–32 KB plateau; I shipped their 32 KB). At each
+volume boundary the cursor is naturally 32 KB into `in[b+1]`; because
+phase 2's 729 KB of scratch reads would evict that L2 window before phase 1
+returns to it, phase 2 re-covers it with 3 T1 lines per tile (324 tiles
+= 62 KB, pfa's PFNX shape). Cursor clamps at the batch end; prefetches are
+architecturally side-effect-free so all candidates still pass the 1e-13
+admission gate against `exec_0_0`, and `FFT36_PFIN=0|1` (read once at plan
+time) mirrors `FFT36_NT`/`FFT36_XV` for paired A/Bs. xv candidates are
+**kept**, ordered after pfin — the r3 VERDICT's process lesson ("add
+candidates; do not replace structures") applied literally.
+
+**2. Tuner hysteresis + more sampling.** Candidates are now listed
+simplest-first per kernel (pf0, pf1, pfin, xv) and a later candidate must
+beat the incumbent by **>1%** to be installed; small arenas get more work
+(reps 16 at nt<4, 4 at nt<16; rounds 6 below nt=16, 4 above). This directly
+attacks the VERDICT §3 finding: near-tied candidates flipping between runs
+now resolve to the simplest one, and a spurious win by an exotic candidate
+must clear a 1% bar. Verified on wallaby: three consecutive B=1 plans all
+picked `v1-cached-pf1` (r3's code flipped picks run to run).
+
+**3. Latent build break fixed.** The V2 variant's pragma was
+`target("avx512vl,avx512f")`, which does not imply FMA — under a bare `-O2`
+build (no `-march`) every `_mm256_fmadd_pd` in V2 failed with
+"target specific option mismatch". Never bit on the node (it builds
+`-march=native`), but the pragma now says `avx512vl,avx512f,fma`; verified
+clean under `-O3 -march=cascadelake -mtune=cascadelake` and bare `-O2`.
+
+### Operation count
+
+Unchanged: 248 FMA-port vector ops + 49 shuffles per 36-point line over PW
+lanes, 708 real flops/line, 2 752 704 flops/volume. pfin adds 11 664
+`prefetcht1` in phase 1 + 972 in phase 2 per volume (NT path only, when
+selected).
+
+### What was measured (wallaby, Sapphire Rapids Gold 6448Y, 2 MB L2, 60 MB L3)
+
+Paired back-to-back A/Bs at B=256 (382 MB, streams; µs/volume, driver min;
+same binary, forced candidate sets):
+
+| pair | pf1 only (`FFT36_PFIN=0 FFT36_XV=0`) | pfin (`FFT36_PFIN=1`) | xv (`FFT36_XV=1`) |
+|---|---|---|---|
+| 1 | 128.6 (sd 0.34%) | **99.7** | 114.2 (sd 0.92%) |
+| 2 | 126.5 (sd 0.49%) | **97.5** (sd 0.60%) | 123.6 |
+
+**pfin is −23% against pf1 and beats xv (r3's winner here) by 13–21%.** The
+full 12-candidate auto tournament picks `v1-nt-pf1-pfin` and the quiet-window
+end-to-end run gives **98.4 µs/vol (sd 0.08%)** — r3's best on this machine
+was 112.8. MKL in the same window: 212 µs/vol.
+
+B=32 forced-NT (the marginal regime where xv lost 12% in r3; 47.8 MB fits
+wallaby's L3 so `in` is L3-resident): pf1 102.2 / 87.0 vs pfin 94.4 / 88.1
+across wallaby's fast/slow toggling — i.e. **pfin is neutral-to-positive
+where xv was a 12% loss**, because it prefetches 32 KB ahead of use instead
+of parking a whole volume in L2. The 1% hysteresis decides the true ties.
+
+B=1: **50.4 µs** (quiet window, sd 0.36%), pick `v1-cached-pf1`, stable
+across three plans. B=4: 72.7 µs/vol best (noisy window), `v1-cached-pf1`,
+ntpolicy=0 — cached path untouched this round.
+
+Correctness: rel_l2 = 3.95–3.96e-16 at B = 1, 4, 32, 64, 256; bit-identical
+re-runs everywhere; the PW=2 (AVX2 V0) pfin path exercised end-to-end on the
+Haswell login node at B=64 (auto pick `v0-nt-pf1-pfin`, PASS 3.962e-16,
+output bit-identical to the reference pick). Setup cost: 1.73 s at B=256 on
+wallaby (~0.9 s expected on the node's 37-volume arena), excluded from score.
+
+### What was tried / observed that did NOT work
+
+1. **xv is now a dominated candidate on both machines I can see.** Direct
+   A/B above: pfin beats xv by 13–21% at wallaby-B=256, and the node already
+   rejected xv twice. Kept in the list (it costs only tuner time and must
+   now also clear the 1% hysteresis bar) but nobody should extend the
+   full-volume-ahead approach; the paced-cursor form supersedes it.
+2. Nothing else was removed or replaced; this round was deliberately narrow.
+
+### Predictions for the node (stated so they can be scored)
+
+* Picks: B=1/B=4 `v1-cached-pf*` (stable across runs now); B=32/B=256 NT by
+  threshold, and `v1-nt-pf1-pfin` should be selected in both if the paced
+  prefetch lifts the node's ~6.25 GB/s demand-read rate the way it lifted
+  wallaby's.
+* B=256: from 264.5 → **~200–230 µs**. pfa's PFIN bought them only −4.7%
+  (238.8→227.5) on the node, but my baseline carries more exposed read
+  latency (I had no phase-1 prefetch at all), so my delta should be larger;
+  parity with L36_pfa (~227) is the target, and anything under 247 retakes
+  MKL.
+* B=32: **~205–225 µs**. The arena is exactly 32 volumes (= the real
+  regime); if pfin does not clear 1% over pf1 there, the hysteresis keeps
+  pf1 and I land ~230 — either way no repeat of pfa's +7.7% B=32 surprise.
+* B=1: unchanged 118–121, but the *median* pick should now match the min
+  (r3 shipped a 123.2 pf4 plan in one run of three).
+
+### Next
+
+1. **Transposed-mid phase 2** (not built this round, costed on paper): store
+   phase 1's output as mid[ky][x][z-vector] (chunk stride 36 complex for x,
+   plane stride 36² for ky) instead of mid[x][ky][z]. Phase 1's y-line
+   stores become 36 scattered 576-B streams (stores scatter for free — the
+   store buffer absorbs them; pencilfused measured exactly this asymmetry),
+   and phase 2's loads become one **contiguous 20.25 KB block per y** instead
+   of 36 concurrent 20736-B-stride streams. That removes the last
+   demand-miss stream structure in the transform. Cost: the cached B=1 path
+   can no longer run phase 2 in place in `out` (mid layout ≠ out layout), so
+   it would need the volume scratch at every batch size — 2.2 MB resident at
+   B=1, the thing round 1 rejected. Ship as *additional* NT-path candidates
+   first (`xnt` reads sequential, NT stores scatter at 20736 B — still full
+   64-B lines at PW=4).
+2. **If the node again shows B=256 ≥ 40 µs above L36_pfa** with the same
+   pfin mechanism, the difference is no longer prefetch and a phase-split
+   timing on the node (their SKIPA/SKIPB trick) is the only way forward —
+   ask the monitor.
+3. **B=1 software pipelining of two line transforms** (round-1 Next #2,
+   still undone, ~10% front-end headroom documented): now the only lever
+   left at B=1, where three entries sit within 1.2%.

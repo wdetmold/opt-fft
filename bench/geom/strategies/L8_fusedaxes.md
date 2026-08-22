@@ -518,3 +518,139 @@ contention on the day, not the code: the in-tuner numbers for the same variant d
    (the VERDICT's L=6 `perf stat -e cycles,ref-cycles` ask applies verbatim to L=8:
    0.573 µs is 1318 cycles at base but ~1900 at full turbo, and which one it is decides
    whether there is 30% headroom or none).
+
+---
+
+## Round panel_r4
+
+### Where round 3 landed (node, panel_r3)
+
+B=1 0.577 — second, inside the three-entry tie (batchsimd 0.570, radix8 0.583); the
+B=1 wall stands for the third round. B=64 **0.642 — first**. B=16384 **1.580 — first**
+(radix8 1.647, batchsimd 1.748), already within 16% of the 12 GB/s bandwidth bound per
+the VERDICT. **B=2048 1.291 — third**: L8_radix8 took the cell at 1.243 with its new
+3-pass shape whose one functional difference is that the output volume is written
+*sequentially* (my fused phase B writes 8 interleaved streams, 2 lines per stream per
+y-iteration). The VERDICT's §4.3 verdict is that at these sizes store *order* is worth
+18% where pass-count fusion is worth ~3%, and its process lesson (from batchsimd's
+regression) is: **add candidates, do not replace structures**. Both r3 predictions I
+made landed; every code path this round keeps that discipline.
+
+### What changed
+
+**One change: a "seq3" shape joins the plan-time tuner as six new candidates
+(shape × {plain,nt} × {no-pf, pf-t1, pf-t0}, 12 total), adopted from L8_radix8's
+round-3 sequential-store 3-pass** (its node B=2048 win, 1.243 vs my 1.291, is the
+measurement this round acts on). Per volume:
+
+* **phase A unchanged** (deinterleave + y-axis DFT into scratch1 `[k1][x]`, lane=z).
+* **pass B1, per k1 (8×):** 16 contiguous loads from scratch1 row k1, x-axis DFT
+  along the registers (zero shuffles), 16 stores to a second 8 KiB scratch at slot
+  `(k0*8+k1)*16` (re;im interleaved per slot, so B2 reads contiguously). The write
+  column is strided 1 KiB but L1-resident (16 lines over 8 sets, 2 ways each — no
+  conflict on an 8-way L1; radix8's 144-double padding question does not arise in
+  this slot layout).
+* **pass B2, per k0 (8×):** 16 contiguous loads → registers indexed k1, lane = z in
+  PI order — *exactly the state my fused phase B is in after its x-DFT*, so the
+  existing trans8 → piinv → dft8s → untrans_interleave chain is reused verbatim with
+  k1 playing k0's role (the index algebra transfers by isomorphism; no new shuffle
+  network was derived). The 16 output half-pencils all land in the one 1 KiB
+  k0-plane and are stored in **ascending address order** (the r1 out_off table,
+  sorted: zr0,zr4,zq0,zq4,zr2,zr6,... at offsets 0,8,16,...,120), so the volume's
+  write stream is fully sequential across the k0 loop.
+
+The fused shape stays candidates 0–5 and stays the rule default (the known-good
+anchor for the 2% hysteresis). Compile-time force `-DL8_SHAPE=0/1` added beside
+L8_NT/L8_PFSEL for node A/Bs. B=1 and B=64 remain **byte-identical to rounds 1–3**
+(tuner still gated at ws > 0.25·L3; rule default is fused-plain below it).
+
+### Operation count (seq3 shape)
+
+Identical FP and shuffle bill to the fused shape: 1296 vector FP (24 × 54) and 896
+shuffles (128 deinterleave in A + 8×(48 transpose + 48 fused untranspose/interleave)
+in B2; B1 has zero). The cost is +128 loads +128 stores per volume (384+384 total),
+all to L1-resident scratch — the same arithmetic radix8 paid. DRAM-facing traffic
+unchanged: 8 KiB in + 8 KiB out (16 KiB with NT); only the write *order* changes.
+Scratch grows 8 → 16 KiB; in + scr + out = 32 KiB against a 32 KiB L1 (radix8's
+3-pass sits at ~25 KiB and won B=2048, so this is judged survivable; the NT
+variants bypass the out allocation entirely).
+
+### What was measured (wallaby, Gold 6448Y SPR, 60 MiB L3; the 2× bimodality from
+r2/r3 is still present — mins quoted, in-tuner tables are same-process and drift-free)
+
+| B | this round | pick | in-tuner fused-best vs seq3-best |
+|---|---|---|---|
+| 1 | **0.345 µs** | plain (rule, no tuner) | unchanged code |
+| 64 | **0.356 µs** | plain (rule, no tuner) | unchanged code |
+| 2048 (ws=0.53·L3) | **0.436 µs** | nt+pf_t0, both runs | 0.472 vs 0.489 — fused wins |
+| 5632 (ws=1.5·L3, node-B2048 analog) | **0.439 µs** | **seq3-nt+pf_t0** | 0.441 vs 0.439 — seq3 edges it |
+| 16384 (ws=4.4·L3, DRAM) | **0.620 µs** | nt+pf_t1 (hysteresis) | 0.499 vs 0.491 — seq3 fastest but inside the 2% band |
+
+Two readings worth recording. (a) **The shape ranking inverts with residency even on
+one machine** — fused wins at 0.53·L3, seq3 at 1.5·L3 and (marginally) at 4.4·L3 —
+which is exactly why it ships as a tuner candidate and not a replacement. (b) With
+**plain** stores the sequential write order is worth far more than with NT:
+seq3-plain 0.920 vs fused-plain 1.172 at B=5632 (−21%), because the fused scatter
+pays RFOs on 8 interleaved streams. If the node's L=6-style NT inversion ever shows
+up at L=8, seq3 is the safety net.
+
+Correctness: PASS at B = 1, 8 (forced seq3), 64, 2048, 5632, 16384 —
+rel_l2 = 2.286e-16 … 2.334e-16 (tolerance 1e-12), rel_max ≤ 3.0e-16, output
+bit-identical across runs everywhere, including the runs whose plan picked seq3-nt.
+All 12 variants are exercised by every tuning create; the picked-variant output is
+what check.py verifies, and picks covering seq3-nt+pf_t0 (B=5632), nt+pf_t0
+(B=2048) and plain/forced-seq3 (B=1/8/64) all passed.
+
+### What was tried and did NOT work
+
+Nothing failed outright this round; the near-misses that matter:
+
+1. **seq3 did not beat fused on wallaby at B=2048** (0.489 vs 0.472 in-tuner,
+   ws=0.53·L3): when in+out fit L3 comfortably the store order is irrelevant and
+   the extra 256 L1 accesses are pure cost. Do not expect seq3 to be picked below
+   ~1×L3; that regime keeps the fused shape.
+2. **At B=16384 the 2% hysteresis kept the rule default** (nt+pf_t1 0.499) over the
+   measured-fastest seq3-nt+pf_t0 (0.491). Deliberate: the VERDICT's tuner-instability
+   note says close calls should not flip on machine noise, and 1.6% is inside
+   wallaby's day drift. On the node the same tournament runs on the machine that
+   scores, which is the only table that matters.
+3. **Software pipelining (phase A of vol b+1 under phase B of vol b) deferred a third
+   time**, now deliberately: batchsimd's r2 double-buffer measured neutral, B=16384
+   is already within 16% of the bandwidth bound (VERDICT §6), and the seq-store
+   experiment was the round's one measured-on-node idea. If seq3 takes B=2048 and
+   B=16384 still sits ≥1.55, pipelining is the only lever left and should be next.
+
+### Borrowed
+
+* **L8_radix8**: the sequential-output-store 3-pass structure and its node B=2048
+  evidence (1.243), including the placement of the extra round trip in L1 and the
+  "store order beats pass count" reading its r3 record and the VERDICT §4.3 agree on.
+  The B2 reuse of my own untrans_interleave under the k0→k1 renaming, the ascending
+  store schedule, and the re;im-interleaved scratch2 slot layout (contiguous B2
+  reads, no padding question) are mine.
+* **panel_r3 VERDICT**: "add candidates, do not replace structures" — the entire
+  shape of this round.
+
+### Node predictions
+
+* B=1 **0.577** and B=64 **~0.64** stand (byte-identical code, tuner gated off).
+* B=2048: the tuner chooses between fused nt+pf_t0 (measured 1.291 on the node in
+  r3) and seq3-nt+pf_t0, whose store behaviour matches radix8's 1.243 winner while
+  keeping my kernel. Predict **1.24–1.29**, seq3 picked. If seq3 is *not* picked,
+  the shape difference between my B1/B2 split and radix8's pass structure is the
+  residue to chase.
+* B=16384: both shapes within 2% on wallaby; fused nt holds the cell at 1.580.
+  Predict **1.55–1.62**, either pick — the cell is ~16% off the bandwidth wall and
+  this round does not claim to move it.
+
+### Next
+
+1. **If seq3 takes node B=2048**: the L=8 batched story is closed to within the
+   bandwidth bound; spend the next round on the deferred cross-volume software
+   pipeline only if B=16384 still shows ≥0.2 µs over the 1.365 µs traffic floor.
+2. **If the node ever picks a plain variant at batch** (L=6 keeps rejecting NT),
+   check whether it picked seq3-plain — wallaby says sequential order is worth 21%
+   there, and plain+prefetchw candidates (hide the RFO) become worth adding.
+3. **B=1 stays frozen** pending the monitor's `perf stat -e cycles,ref-cycles`
+   clock measurement (asked three rounds running, still the only thing that says
+   whether 0.57 µs has headroom).

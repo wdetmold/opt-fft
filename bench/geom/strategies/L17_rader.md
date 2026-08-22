@@ -685,3 +685,163 @@ emulated-zmm and pinned candidates correctly eliminate themselves there);
    aligned streaming copy out) is a tuner candidate away — matrixsimd
    measured it losing on the node at 384 volumes, so only bother if the node
    pf verdict shows the input side saturated.
+
+---
+
+## Round panel_r4 (2026-08-21)
+
+### Standing going in (panel_r3 node leaderboard)
+
+3rd in all four cells. B=1: 18.491 (matrixsimd 16.386, winograd 18.169).
+B=8: 19.792 (2nd actually, matrixsimd 17.930). B=256: 26.205 (matrixsimd
+21.444, winograd 23.905) — a **+7.4% regression** vs my own r2, which the
+monitor's VERDICT attributed to my tuner picking `pf=1` at B=256 (both rivals
+picked pf=0; the node description strings confirm my pick was `512-bit, pf=1`
+in all three runs). B=2048: 27.114. The r3 VERDICT's L=17 findings that shape
+this round: arithmetic is CLOSED (matrixsimd's −11.9% FP ops bought −0.8%),
+store *order* is what pays (their X-first reorder bought −10.8% at B=256,
+"more than every fusion attempt on the board combined"), and my node B=1
+(18.49) sits ~3% above the pure-512-bit FP floor (139 blocks × 296 = 41.1k
+cycles = 17.9 µs at 2.30 GHz) — i.e. the node B=1 is FP-PORT-BOUND AT VW=8,
+and the gap to matrixsimd is exactly my worse 512-bit lane tax (their zmm
+holds 4 complex → 17 lanes cost 5×4 slots = 36.0k cycles/volume; my split
+re/im zmm holds 8 lanes → 17 costs 3×8 = 41.1k).
+
+### What changed (kernel arithmetic untouched: still 296 FP / 488 flops per 17-pt)
+
+1. **Mixed-width tail blocks ("t" tuner candidates, the round's headline
+   bet).** On the Gold 5218 (ONE 512-bit FMA unit, TWO 256-bit FMA ports) a
+   ymm kernel block retires 296 FP ops in ~148 cycles where a zmm block needs
+   ~296. So each 17-lane plane pass becomes 2 zmm blocks + **one ymm tail**
+   (the already-instantiated `wino17_w4`, called from the w8 exec): 740
+   cycles instead of 888 — the pure-VW=4 floor with VW=8's instruction/load
+   counts. z pass: zmm {0,8} + ymm at 16 (one real lane + 3 pad lanes; safe
+   in place because nothing overlaps). y pass: zmm {0,8} + ymm at 13
+   (overlap lanes 13–15 recomputed bit-identically). x pass: 36 zmm + ymm at
+   285. Saving: 148 cycles × 35 tail blocks = **5.2k cycles ≈ 2.2 µs/volume
+   at 2.30 GHz — the whole B=1 gap to matrixsimd on paper** (predicted floor
+   35.9k cycles = 15.6 µs ≈ theirs). On wallaby (TWO 512-bit units) the mix
+   is FP-neutral and measures 3–4% WORSE (tail adds a second inlined kernel
+   + w4's denser instruction stream): B=1 xl-512t 10.24 vs xl-512 9.84. **So
+   wallaby cannot confirm this; it is a pure node bet and ships only as a
+   plan-time tuner candidate** — if the port arithmetic is wrong the node
+   tuner discards it and nothing is lost. Verified bit-identical to the pure
+   widths (md5 of full outputs, all 5 class-A candidates, B=8 and B=256).
+
+2. **X-first pass order: built, measured, REJECTED — the round's main
+   negative result.** Adopted the idea from L17_matrixsimd's panel_r3 reorder
+   (their −10.8%/−7.7% node gains at B=256/2048). Implementation: the kernel
+   gained an interleaved-load mode (lmode=1: two vector loads + DLE/DLO
+   deinterleave shuffles per input, so the x pass reads the caller's `in`
+   directly), x pass writes split A[kx][y][z], then per-kx-plane
+   transpose→z→transpose→y with an interleaving stride-17 store straight
+   into `out`. Wallaby, pinned, alternating same-window A/B vs X-last:
+   * B=256: xf 12.40 vs xl **11.17 µs/t** (xf +11%)
+   * B=2048: xf 26.9 vs xl **16.9 µs/t** (xf +60%!)
+   Phase isolation (skip-ifdef probe builds, B=2048/volume): xf x-pass alone
+   5.9 µs (DRAM read + A write — fine); xf plane phase alone **22.1 µs** vs
+   xl plane phase 10.3 µs and xl x-pass-alone (the burst `out` write) 6.0 µs.
+   Diagnosis: my y pass emits DRAM-destined output through 17-row strided,
+   16-byte-aligned partial-line stores *interspersed with compute*, and that
+   costs ~2× what the X-last dedicated burst costs; matrixsimd's X-first
+   works because their chunk store writes a finished plane densely. I then
+   tested the L8_radix8-style fix — y pass stores split into the dead T
+   buffer, one tight sequential interleaving copy per plane to `out`
+   (bit-identical, verified by cmp): improves xf to 23.3 µs/t at B=2048 but
+   **still loses to xl at 20.1 in the same window**. Conclusion: for THIS
+   pass structure X-last is simply right on wallaby; the 78.6 KB burst store
+   at the volume end is already near the machine's streaming rate. The xf
+   code ships in the file but the class cut defaults to disabled
+   (`-DL17R_XF_CUT=64` re-enables). **Monitor: a node A/B of
+   `-DL17R_XF_CUT=64` at B=256/2048 would settle whether CLX (22 MB L3, so
+   B=256 truly streams; different store-buffer behaviour) flips this** — I
+   could not test that from here, and matrixsimd's node numbers say the
+   reorder is worth 10% for a structure only modestly different from mine.
+
+3. **The pf mis-pick is fixed two ways**: the stage-2 prefetch A/B now
+   requires a **3% margin** to switch pf on (r3's B=256 pick was a near-tie
+   that cost 7.4% steady-state), and the streaming re-rank uses 4 reps
+   instead of 3. Wallaby now picks pf=0 everywhere (e.g. B=256: off 12.42 /
+   on 12.48 → pf=0, where r3's code had picked pf=1 on the node).
+
+4. **Bit-class discipline formalised** (from L17_matrixsimd): X-last and
+   X-first are separate bit-equivalence classes; the class is a pure function
+   of batch size, the tuner selects freely only within a class. All five
+   X-last candidates {256, 512, 512t, 512pin, 512t-pin} verified bit-identical
+   by md5 at B=8 and B=256; all four xf candidates likewise at B=64.
+
+5. **I-footprint control**: gcc 11 completely unrolls a 2-trip kernel loop
+   even under `#pragma GCC unroll 1` (the mixed exec hit 8 inlined kernels,
+   7.4k instr ≈ 29 KB, uncomfortably near the 32 KB L1i — r2 already showed
+   38 KB kills). Fix: an opaque loop bound (`__asm__("" : "+r"(mlim))`)
+   keeps the 2-trip zmm loops rolled → 6 kernel instantiations, 6.2k instr
+   ≈ 25 KB. **Pragma unroll is not a guarantee; asm-opaque bounds are.**
+
+### Operation count
+
+Per 17-point transform unchanged: 296 FP instr (192 FMA + 104 add/sub).
+Node-cycle floors per volume at 2.30 GHz: pure w4 36.0k (243 blocks, 2/cyc),
+pure w8 41.1k (139 blocks, 1/cyc), **mixed w8+ymm-tail 35.9k** (104 zmm ×
+296 + 35 ymm × 148). Static per exec (wallaby build): np_w8 3766 instr /
+888 FP; npm_w8 6206 / 1776 (6 kernel copies); xf_w8 4487 / 888.
+
+### Measured — wallaby (Gold 6448Y, gcc 11.4, panel flags; min over ≥3 pinned runs; clock bimodal, fast-mode figures)
+
+| case | panel_r3 code | this round | pick |
+|---|---|---|---|
+| B=1 | 9.81 | **9.83** (no change expected: mixed is node-only) | xl-512, pf=0 |
+| B=8 | 10.00 | **9.81 µs/t** | xl-512 |
+| B=256 | 11.47 | **11.08 µs/t** | xl-512(±pin), pf=0 |
+| B=2048 | 19.05 | **17.22 µs/t** (unpinned tryout best; pinned slow-window 20.1) | xl-512, pf=0 |
+
+Correctness: rel_l2 3.114e-16 (B=1), 3.151e-16 (B=8), 3.153e-16 (B=256),
+3.155e-16 (B=2048); bit-repeatable across processes at every batch; AVX2
+host (wombat) verified end to end (30.1 µs/t at B=8, emulated-zmm candidates
+self-eliminate); `-Wall -Wextra` clean.
+
+### What was tried and did NOT work — numbers that killed it
+
+1. **X-first at batch, both store flavours** — see item 2 above: +11% (B=256)
+   and +60%/+16% (B=2048, strided/sequential store) on wallaby. Disabled by
+   default; do not re-enable without a node measurement.
+2. **`#pragma GCC unroll 1` on a 2-trip loop containing an always_inline
+   kernel** — silently ignored by gcc 11's early complete unroller; 29 KB of
+   exec body. Use an asm-opaque bound.
+3. (Inherited dead ends all stay dead: slab lane-packing, transpose fusion,
+   NT stores, negacyclic splits, same-volume prefetch, non-inline kernels.)
+
+### Borrowed this round (attribution)
+
+* **L17_matrixsimd**: the X-first idea itself (their panel_r3 reorder) and
+  the bit-equivalence-class discipline for structurally different variants;
+  also their store-order finding is what my phase probes confirmed from the
+  other side.
+* **L8_radix8** (panel_r3): "make output stores sequential even at the cost
+  of an extra L1 round trip" — tested here as the seq-store xf variant;
+  correct diagnosis, insufficient cure for my structure.
+* **Monitor's panel_r3 VERDICT**: the pf=1 diagnosis (→ 3% hysteresis) and
+  the "add candidates, do not replace structures" rule (→ xf shipped
+  disabled rather than swapped in).
+
+### Next (in order)
+
+1. **Read the node's panel_r4 description strings.** The single question this
+   round poses the node: does `xl 512t` (mixed ymm tail) win B=1/B=8 as the
+   port arithmetic predicts (~16.3 µs at B=1, i.e. level with matrixsimd)?
+   If yes, the same 5.2k cycles help every batch cell too. If the node keeps
+   pure `xl 512`, the one-FMA-unit premise is wrong for interleaved ymm/zmm
+   streams and the file's header table should be corrected.
+2. **Ask the monitor for one forced A/B: `-DL17R_XF_CUT=64` at B=256/2048.**
+   Costs one build flag; settles whether the X-first verdict flips on CLX
+   where B=256 actually streams (wallaby's 60 MB L3 made B=256
+   cache-resident, which is exactly the regime difference the r3 VERDICT
+   warns about).
+3. **Software-pipeline across volumes WITHIN X-last** — the bit-class-safe
+   version of write-spreading that this round's negative result motivates:
+   interleave volume b's x-pass burst (37 chunks writing `out`) with volume
+   b+1's plane phase (compute on L2 scratch), using ping-pong A buffers.
+   Volumes are independent, so this is bit-identical to plain xl and can be
+   a free tuner candidate; it attacks the same serialisation X-first was
+   aimed at without moving the strided stores into the compute loop. This is
+   also the monitor's named remaining lever for L=17 batched (~1.39× of
+   un-overlapped memory time at B=2048).

@@ -479,3 +479,135 @@ anywhere, the r2 NT story was wrong and the cell drops further still.
    whether B=1 has ~3% or ~40% left.
 3. If W wins on the node, try **W-distance tuning** (currently 1–2 volumes) and
    **W on the t1 scratch's first touch** (probably nothing — scratch is L1-resident).
+
+---
+
+## Round panel_r4 (dev machine = wallaby, Sapphire Rapids Gold 6448Y)
+
+### Where round panel_r3 left me
+
+First or tied-first in all four L=6 cells on the node (B=1 0.220, B=64 0.214,
+B=4096 0.392, B=32768 0.563 µs; 1.25–1.83× MKL), with the VERDICT declaring the
+geometry essentially finished: B=1 is 1.04× its own 486-cycle FP-port floor *at base
+clock*, and B=32768 is the fastest single-core stream on the board (12.3 GB/s
+compulsory). The r3 node picks, stable across all three runs per cell (`fused` /
+`fused_pf` / `fused_pfw` / `fused_pfw`), confirmed prefetchw was selected at the DRAM
+sizes but bought only 1.6% at B=32768 and *cost* 2% at B=4096 — a race-vs-driver
+mis-pick in the L3-marginal regime. The monitor's #1 L=6 ask, two rounds running: the
+node clock measurement that decides whether B=1 has ~4% or ~40% headroom.
+
+### What I changed (three things)
+
+1. **A core-clock probe inside `fft3d_create()`, reported via the description
+   string — the round's headline, and it answers the panel's standing question
+   without needing the monitor's `perf stat`.** A serially dependent 256-bit FMA
+   chain (latency 4 cycles on SKX/CLX/ICL/SPR) timed after the tournament has warmed
+   the core: freq = iters×4/time, best of 5 trials, ~10 ms, unscored. The result is
+   formatted into `fft3d_description()` as `clk=X.XXGHz` next to `variant=`, so the
+   r4 leaderboard JSON carries the node's *actual sustained AVX2 clock in every L=6
+   cell*. Validation on wallaby: reports **4.10 GHz** (the Gold 6448Y's exact max
+   turbo) in normal invocations and **2.10 GHz** in occasional ones — which finally
+   *explains* the "clock lottery" my r2 record flagged (bimodal 0.130/0.254 µs at
+   B=1, exactly 2×): wallaby really does pin some sessions at half clock. Caveat
+   recorded in the source: Haswell FMA latency is 5, so on wombat the probe would
+   over-read by 25%; both wallaby and the node are 4-cycle parts.
+2. **Split-z-store kernel shapes (`_s`), my own idea, the only uop-mix lever left.**
+   The z-pass output permutes are pure data movement: w_k = (A_k | B_k) with pencil A
+   wanted at D+0..11 and B at D+12..23. Instead of 6 `vperm2f128` + 6 ymm stores per
+   pencil pair, store each half directly: 6 xmm stores of the low halves + 6
+   `vextractf128`-to-memory of the highs (2 uops each on SKX: store pipes only, **no
+   port-5 shuffle**). The 3pass form also splits the *loads* (`vinsertf128` from
+   memory: load + p015 blend, again no p5-only shuffle). Port-5 pressure per volume:
+   fused 324 → 216, 3pass 324 → **108**; stores rise 216 → 324 (p4 has headroom
+   against the 486-cycle FP floor). Verified in the cascadelake cross-compile: GCC
+   emits `vextractf64x2 $1, %ymm, mem` / `vinsertf64x2` from memory, all new kernels
+   spill-free. Five new tuner candidates: `3pass_s`, `fused_s`, `fused_s_pf`,
+   `3pass_s_pfw`, `fused_s_pfw` (normal stores only — NT needs full-line 32-byte
+   bursts, which half-stores give up by construction).
+3. **Tournament hardening: takeover margin 1.5% → 2.5%, and 3 dominated candidates
+   pruned** (`fused_nt_pf/pf2/pft1` — beaten by their `3pass_nt_*` twins in every r2/r3
+   measurement on both machines). The margin raise is aimed at the r3 B=4096 mis-pick:
+   the race promoted `fused_pfw` on a <2% race win that the driver then measured as a
+   2% loss. Grid is now 24 kernels; same correctness gate, same round-robin race.
+
+### Operation count
+
+FP arithmetic untouched and still closed: PFA 2×3, 48 flops / 36 instructions per
+line, 972 vector FP uops per volume, 486-cycle two-port floor on the node. The `_s`
+shapes change only the uop *mix*: per volume, −216 port-5 shuffles / +108 store uops
+(3pass_s, which also converts 108 ymm loads into 216 half-width load uops) or
+−108 p5 / +108 stores (fused_s). Frontend roughly neutral (extract-to-mem is 2 fused
+uops against permute+store's 2).
+
+### What was measured (wallaby, quiet, turbo-state invocations; race tables quoted
+where they are the trustworthy statistic)
+
+| B | r3 code | r4 code | picked | note |
+|---|---|---|---|---|
+| 1 | 0.130 µs | **0.114 µs** | **3pass_s** | **−12%**; sd 0.05%; race: 3pass_s 0.1133 vs 3pass 0.1290, fused_s 0.1166 vs fused 0.1286 — every split shape beats every unsplit one |
+| 64 | 0.131 µs/vol | 0.131 µs/vol | fused | unchanged; split noisy here (0.129–0.172 across runs) and not chosen |
+| 4096 | 0.194–0.196 | 0.196 µs/vol | fused_pf(t1) | unchanged |
+| 32768 | 0.239 (driver) | 0.251–0.260 (driver, contended) | 3pass_nt_pf | race 0.1961; NT still owns wallaby's DRAM; **in the normal-store rows the node actually picks, fused_s_pfw 0.3140 now leads fused_pfw 0.3220 (−2.5%)** |
+
+rel L2 vs numpy: 2.34e-16 (B=1), 2.43e-16 (B=64), 2.43e-16 (B=4096), 2.42e-16
+(B=32768); bit-identical across re-runs; all PASS. Setup 0.23 s (B=1) to 1.37 s
+(B=32768) — *down* from r3's 2.0 s despite the larger grid, because the pruned NT
+kernels were the slow ones to race. MKL same-host reference: 0.351 µs at B=1,
+0.521 µs/vol at B=32768.
+
+Why split-z wins 12% at B=1 on wallaby when the FP ports are supposedly the floor:
+the extract-store starts the moment w_k retires from VD6 (no shuffle between codelet
+and store), and the split loads of the next pair issue earlier — it shortens the
+z-pass dependency tail, it does not change throughput. That mechanism is not
+SPR-specific, so some of it should transfer to CLX; how much depends on the node
+clock, which the probe will now report.
+
+### Node prediction, falsifiable via the description strings
+
+* Every L=6 cell's description will carry `clk=X.XXGHz`. **If clk ≈ 2.3, B=1 is
+  ≤4% from its floor and 0.211–0.220 is the end state; if clk ≥ 3.0, B=1 has real
+  headroom and I expect 3pass_s/fused_s to take part of it — 0.19–0.21 µs.** This
+  number should also settle, once and for all, how to read every past and future
+  L=6 node time in cycles.
+* B=64: `fused` or `fused_pf`, ~0.214, unchanged.
+* B=4096: with the wider margin I expect the pick to revert to `fused_pf` and the
+  cell to return to ~0.384 (r2's number), recovering the r3 mis-pick.
+* B=32768: `fused_s_pfw` or `fused_pfw`, 0.54–0.563. If `*_s_pfw` is picked and the
+  cell moves below 0.55, the split-store mechanism transfers; if the cell stays at
+  0.563 the geometry really is bandwidth-closed.
+
+### What was tried and did NOT work (with the number)
+
+1. **Split-z at B=64 on wallaby**: unstable (fused_s 0.1289–0.1692 µs/vol across
+   invocations vs fused's steady 0.131) and never chosen. L2-resident batches
+   apparently expose the doubled store-uop count to whatever else contends for the
+   store pipes; the tournament handles it, nothing shipped differently.
+2. **NT variants of the split shapes**: not built, by design — `_mm_stream_pd` on
+   16-byte halves defeats the full-cache-line write-combining that makes NT legal
+   here (my r1 layout note), so the combination is structurally wrong, not untested.
+3. Nothing else failed; the round was deliberately narrow (the r3 VERDICT told L=6
+   to stop optimising and measure the clock, so the only kernel change is the one
+   with a mechanism argument behind it).
+
+### Borrowed / lent
+
+Nothing borrowed this round; the split-z stores and the clock probe are mine. Both
+are lendable: the probe is ~30 lines, answers the machine-state question every
+geometry keeps asking (L36's and L17's records both want the node clock), and any
+entry can paste it; the split-store trick applies wherever a kernel pays a shuffle
+purely to marshal halves for a store (L8_radix8's sequential-store z-pass is the
+obvious candidate).
+
+### Next
+
+1. **Read `clk=` off the r4 leaderboard.** Then convert every L=6 cell to cycles and
+   re-derive the true B=1 headroom. If clk ≈ base and B=1 sits at ≤4%, propose
+   redeploying one L=6 implementer to L=36 (the VERDICT's own suggestion; L=36 B=32
+   is at 1.01× MKL and needs bodies).
+2. If `fused_s_pfw` wins B=32768 on the node, try the same split-store form for the
+   x-pass outputs (t1 is L1-resident scratch so the RFO story is different, but the
+   dependency-tail argument still applies).
+3. If the node's clk shows turbo and B=1 still does not move: the remaining blocker
+   is the pass-boundary store→load chain, and the next lever is issuing the fused
+   stage's first plane loads *before* the x-pass finishes its last groups — a
+   software-pipelined variant, worth building only with a measured cycle budget.
