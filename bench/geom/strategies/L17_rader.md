@@ -1901,3 +1901,195 @@ wallaby B=2048 (977-vol arena; node arena stays 384 → roughly half).
    node-declined batched bets from this structure is the evidence, and
    the leaders sit at the bandwidth floor where my remaining deficit
    lives in structure, not knobs.
+
+---
+
+## Round panel_r11 (2026-08-22)
+
+### Standing going in (panel_r10 node leaderboard)
+
+3rd in all four cells: B=1 16.515 (matrixsimd 14.995, winograd 16.451), B=8
+18.137, B=256 23.874 (matrixsimd 21.001, winograd 21.526), B=2048 24.608
+(matrixsimd/winograd tied 21.62/21.65).  Node picks: `xl 512t` at B=1,
+`xl 512t dy` elsewhere, pf=0 pfw=0 -- the r10 st/stp staged-flush bet was
+DECLINED 6/6, exactly its own "bet dies" branch, the fifth consecutive round
+of node-declined batched mechanisms from this structure, and the r10 VERDICT
+names this entry the donor.  But three r10 VERDICT facts re-arm the round:
+
+1. **The batched L=17 cells are NOT bandwidth-closed.**  matrixsimd's sbw
+   probe: the node moves this traffic mix at 17.9 GB/s (cp = 13.2 us/vol)
+   where the cells run at 10.9 -- ~8 us/vol of headroom, localized to the
+   write/overlap side.  The monitor calls it "the highest-value item on the
+   whole board."
+2. **My stp was the right construction on the wrong baseline.**  VERDICT §6:
+   the staged+paced dense flush is worth one candidate *in a dense-store
+   structure*; my X-last x pass emits 17 concurrent misaligned streams, so
+   staging behind it deleted a waste term the node does not charge (its
+   s17/rd = 0.81-0.83: interleaved streams are CHEAPER than sequential
+   there -- the sign inversion vs wallaby's 1.28-1.31).
+3. **My own r9/r10 probe localizes MY batched excess on the input side**:
+   node ph/xp/fu = 14.6/5.4/22.2 (B=256), 16.2/6.8/23.3 (B=2048) us/vol --
+   the plane phase carries the cold `in` read fully UNOVERLAPPED (its
+   deint is a pure movement loop with no FMA stream to hide misses under),
+   while the x pass's scattered writes ride fine.
+
+### What changed (kernel arithmetic untouched: 296 FP / 488 flops per 17-pt)
+
+**The X-first class was rebuilt around a staged dense per-plane flush
+("xfs") -- the leaders' structure retrofitted into class B.**  X-first
+attacks exactly both measured exposures at once: the cold `in` reads move
+into the x-pass kernel's deinterleaving loads, where they hide under
+296-cycle FMA drains (and land on the read shape the node prices at 0.82x
+sequential), and the output leaves as dense finished planes (the only store
+shape that has ever won an L=17 batched cell on the node -- matrixsimd r3
+X-first -10.8%, winograd g8 -8..-10%).  My shipped xf had the RIGHT read
+side since r4 but the WRONG store: the y pass wrote out[kx] directly
+through 17-row strided 16-B-aligned 128-B partial-line pieces from inside
+the compute loop, and with that store it lost the plan-time class race six
+rounds running.  Three changes:
+
+1. **Staged y store + deferred dense flush.**  The y pass now stores its
+   interleaved output into an L1-hot 4.6 KB staging plane (double-buffered
+   by kx parity, carved from the existing vo scratch at +0/+8 KB -- no new
+   allocation); the previous plane's staged output is flushed to out as ONE
+   sequential dense 4.6 KB stream (72 zmm pairs + 2 scalars, `pl_flush`) at
+   the TOP of the next plane's compute, so its RFO misses resolve under
+   ~1.5 us of independent kernel work.  This is r10's stp construction at
+   plane granularity, applied where dense finished regions exist.  Values
+   and final addresses unchanged: bit class B is preserved, all class-B
+   candidates cmp-identical (verified, below).  The strided-store xf is
+   deleted -- six rounds of losses is enough; the class race now races the
+   right baseline.
+2. **pfw = one-plane-ahead write-intent prefetch** (74 prefetchw covering
+   plane kx's out region, issued at the top of plane kx's compute, one full
+   plane ahead of that region's flush) -- the L8_fusedaxes/L36_pfa pacing
+   discipline mapped onto the plane pipeline.  Rides the existing pfw knob.
+3. **Class B rides the joint (variant, pf, pfw) grid** (panel_r9's L23_rader
+   lesson one level up): stage 1's class race at (0,0) can never find
+   xfs+pf+pfw, which is the DESIGNED combination -- and on wallaby streaming
+   it is indeed xfs's best config (17.0 vs 17.4 plain).  The grid now races
+   incumbent-A, staged-A partner, and stage-1's best class-B candidate at 4
+   configs each (12 cells, 2 sweeps, blocked); a cross-class pick needs the
+   3% margin against the best CLASS-A config, so bits change only when xfs
+   wins the honest joint race.  Off under L17R_FORCE.
+4. **The stage-1 class race is now published**: `xrace xl/xfs=<a>/<b>` in
+   the description string -- six rounds of silent declines carried zero
+   information; from this round the monitor (and r12) can read the margin.
+
+### Operation count
+
+Unchanged per 17-point transform: 296 FP instr (192 FMA + 104 add/sub),
+488 flops.  xfs adds pure movement: 17 staged-plane round trips = 78.6 KB/vol
+of L1 traffic + ~2.5k movement uops (74 zmm+2 scalar loads/stores x 17), and
+deletes the partial-line scatter into DRAM-destined out.  I-footprint
+(objdump, skylake-avx512 build): exec_xfm_w8 32633 B (r10: 32183), xfpinm_w8
+33062 (32543), xf_w8 20450, class-A bodies byte-identical -- all under r2's
+38 KB kill line.
+
+### Measured -- wallaby (Gold 6448Y, gcc 11.4, panel flags)
+
+Correctness, all PASS:
+
+* Class A untouched: fingerprints 3.114e-16 (B=1), 3.151e-16 (B=8),
+  3.153e-16 (B=256), 3.155e-16 (B=2048) -- identical to r5-r10 at every
+  batch; autotuned picks keep class A on wallaby (correct there);
+  bitwise repeatable everywhere.
+* Class B (forced via -DL17R_XF_CUT): PASS 3.258e-16 (B=8), 3.270e-16
+  (B=3, odd batch exercises the staging parity + final flush); repeatable;
+  **full-output cmp: xfs 256 = xfs 512 = xfs 512t = xfs 512t pin = xfs+pfw
+  = xfs+pf, all IDENTICAL** (6-way, B=8).
+* `-fsanitize=undefined` clean (forced xfs+pf+pfw, B=8); `-Wall -Wextra`
+  silent at native and skylake-avx512; AVX2 host (wombat) verified
+  end-to-end both classes (30.7/33.7 us/t at B=8, PASS, repeatable).
+
+Performance (same-window comparisons; wallaby clock bimodal as always):
+
+| case | class A (unchanged) | xfs forced, best config | note |
+|---|---|---|---|
+| B=8 (L2-resident) | 9.37-9.51 us/t | 9.61 (xfs 512) | old strided xf: +11-60% |
+| nv=256 stage-1 (L3-res.) | 10.76 (xl 512) | 11.56 (xfs 512t pin) | -7%, was -11% in r4 |
+| B=1024 streaming, pinned | **14.40-14.44 (xl 512t)** | 17.0 (xfs 512t +pf+pfw) | xfs -18% on wallaby |
+| B=1 / B=256 / B=2048 autotuned | 9.84 / 10.84 / 16.5 us/t | -- | class A kept, no regression |
+
+**Wallaby says xl; wallaby cannot rank this shape** (see the XF_CUT comment
+in the file): the xfs x pass reads `in` through the 17-row-stream shape that
+wallaby's prefetchers price 1.28-1.31x adverse and the node measures at
+0.81-0.83x FAVORABLE (matrixsimd's sbw, the largest cross-machine inversion
+the panel has measured), and the dense finished-plane store is the shape
+that won both rivals' node cells while losing on wallaby.  Like r4's mixed
+tail (wallaby -3%, node picked it 4/4 at -2.5..-5.2%), this ships as a
+measured node bet: the class race + grid run on the scoring machine at plan
+time, the 3% margin protects the incumbent, and zero regression is possible
+if the node declines.  Unlike six rounds of silent declines, the margin now
+comes back in the description string.
+
+### What was tried and did NOT work / caveats
+
+1. **pfw forced on xfs at cache-resident B=8 on wallaby: +108%** (169 vs
+   81 us/call, sd 0.08%, reproducible) -- prefetchw across a resident
+   working set is far worse than L36_pfa's +13% uop-tax figure suggests on
+   SPR.  At streaming it is mildly positive (17.38 -> 17.17 with pf).  No
+   exposure: class B is never used below batch 64 and the grid measures pfw
+   only on the streaming arena; recorded so nobody wires pfw into a
+   resident regime unmeasured.
+2. **xfs on wallaby loses everywhere** (numbers above) -- recorded so
+   nobody deletes it for the wrong reason: the two mechanisms it rides
+   (favorable 17-stream reads, dense-store advantage) are node properties
+   wallaby measurably inverts.
+3. The raw-ssh missing-`cd` trap fired a FIFTH time (B=3 verification run
+   silently produced nothing).  The absolute-path tryout.sh form fixed it
+   again; the durable fix remains "scripts with cd baked in, run by
+   absolute path."
+4. All inherited dead ends stand (st/stp on the X-last baseline -- now
+   understood via the r10 VERDICT as deleting a waste term the node does
+   not charge; sp/ov/dz scheduling; NT stores; slab lane-packing;
+   transpose fusion into stores; negacyclic splits; non-inline kernels).
+
+### Borrowed this round (attribution)
+
+* **L17_matrixsimd**: the whole bet rests on their panel_r10 sbw
+  measurement (cp=13.2 -> the cells are open; s17/rd=0.82 -> the xfs read
+  shape is favorable ON THE NODE) and their r3 X-first + dense chunk-store
+  node win; the finished-plane store shape is theirs (and L17_winograd
+  g8's) structurally.
+* **L23_rader (panel_r8)**: the joint-grid principle, extended this round
+  across the class boundary (xfs+pf+pfw is findable only jointly).
+* **Monitor's r10 VERDICT §6**: the "right construction, wrong baseline"
+  reading of my stp, inverted here into "rebuild the baseline, keep the
+  construction."
+
+### Expectations for the node (pre-registered)
+
+* **The bet fires**: `xrace` shows xfs within or past the 3% margin at
+  nv=384, the grid picks `xfs 512t (pin)` with some (pf,pfw) at B=256
+  and/or B=2048, fingerprints at those cells change to the class-B values
+  (3.2-3.3e-16 range -- the correctness check still passes, same tolerance),
+  and the cells move from 23.9/24.6 toward ~21-22.5: the input-side
+  exposure (~+4.9 us/vol, my probe) is the prize, minus the staging cost.
+* **The bet dies**: picks stay `xl 512t (dy)`, cells stay ~23.9/24.6 --
+  but the description now carries `xrace xl/xfs=...`, so r12 learns the
+  actual margin instead of a sixth silent decline.  If xfs loses by <10%
+  on the node (vs 18% on wallaby), the structure is right and the residue
+  is my plane phase's cost (2 transposes/plane vs the rivals' fused
+  chunks); if it loses by ~18% too, the s17/rd argument does not transfer
+  to MY x pass (its 17 streams carry 2 loads per row against sbw's 1) and
+  the donor recommendation stands with evidence.
+* **B=1/B=8 flat by design** (~16.5/18.1): class A is byte-identical, the
+  B<64 tuner path is untouched, B=1 stays closed panel-wide.
+
+### Next (in order)
+
+1. Read the node's r11 picks, `xrace`, and (if xfs was picked) the new
+   fingerprints.  Every branch above is decidable from the leaderboard
+   JSONs alone.
+2. If xfs wins batched: fuse the xfs plane phase's two transposes the way
+   the read side now permits (T is fed from A, not from cold `in`, so the
+   dz-style one-plane software pipeline -- declined on the X-last baseline
+   -- has a different cost structure here); and try the staged flush at
+   TWO-plane granularity (9.2 KB bursts, half the flush-loop overhead).
+3. If xfs loses by <10%: attack the xfs plane phase cost directly (it is
+   pure L2-hot work; the 8x8 zmm transposes already run there) before
+   conceding the slot.
+4. If xfs loses by ~18%: recommend the consolidation (r9/r10 VERDICTs) --
+   at that point every structural direction the leaders' node wins point
+   to will have been priced in this structure and declined.

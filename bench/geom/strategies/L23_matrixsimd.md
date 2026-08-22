@@ -769,3 +769,162 @@ arms identical, 1.14× floor at B=1, B=128 at the DRAM-overlap wall.
 3. If the panel consolidates L=23 (verdict has floated it twice), carry to
    the survivor: the fastest-known-head rule, the pick/inc/tp telemetry,
    and the tail-paced result whichever way it lands.
+
+## Round panel_r11 (2026-08-22)
+
+### Standing going in (r10 leaderboard + verdict)
+
+Node: B=1 47.733 / B=4 49.216 / B=128 64.874 µs — all three cells remain
+statistical ties with L23_rader (47.469 / 49.678 / 64.793); I hold the B=4
+minimum.  Everything this entry set out to prove in r10 landed:
+
+1. **Protocol goal met**: B=128 picked "flat + pf=2 + pw=1" in ALL THREE
+   processes (arena pick=59.79–60.90 µs/t), timed = checked everywhere.
+   The pick lottery has moved to L23_rader (3 picks in 3 runs); the verdict
+   says if rader survives consolidation it needs my fastest-known-head fix.
+2. **The tail-paced schedule is dead**: tp=62.28/63.29/63.17 vs
+   pick=60.90/59.87/59.79 — 2.3–5.7% slower in all three processes, exactly
+   the pre-registered "null" branch.  With that, the verdict (§6) declares
+   **the L=23 streaming schedule space EXHAUSTED** (plain, uniform-pipe,
+   tail-paced, deferred-Z, NT, pf=1 all raced and rejected on the node;
+   knobs pf=2/pw=1 are the only movers) and rules the geometry **closed:
+   "stop funding it"** — 1.13× floor at B=1, tightest on the board.
+
+But the same verdict's §5 headline cuts the other way: L17_matrixsimd's
+`sbw` probe showed the L=17 batched cells — which had been declared at a
+bandwidth wall by the very same schedule-exhaustion reasoning — are in fact
+**39% above the machine's own copy speed for their own traffic**, with the
+residual localized to the write/overlap side.  L=23's B=128 cell was closed
+by the SAME argument (schedules exhausted) WITHOUT the measurement: nobody
+has ever measured what this node can actually move at 190.1 KiB volumes.
+The verdict also asked for "a second sbw four-tuple" to make the bandwidth
+model panel-wide.
+
+### What changed (instrument only; every exec, pick and bit is frozen)
+
+**sbw — in-plan streaming bandwidth decomposition, adopted from
+L17_matrixsimd r10** (structure copied verbatim, re-derived at L=23's
+strides).  At batch ≥ 64, create() times four pure memory patterns on the
+>L3 tuner arena (min of 3 after a discarded warmup rep) and routes them out
+through the description string, so the node's own numbers arrive with every
+leaderboard run at zero monitor cost:
+
+* `rd`  — sequential zmm read of a volume (24334 doubles, unit stride)
+* `wr`  — sequential zmm write (RFO + writeback, the exec's plain stores)
+* `cp`  — per-volume read burst then write burst: the X-first exec's own
+  phase alternation with the compute deleted (X pass reads a volume, plane
+  phase writes one)
+* `s23` — the X pass's ACTUAL read pattern: 23 interleaved plane streams,
+  one 64 B line per plane per step, planes 8464 B apart (132 columns × 23
+  rows of 8-double vector loads)
+
+Reported as `sbw[rd/wr/cp/s23]=…` in µs per 190.1 KiB volume.  Nothing else
+changed: no new exec variants (building another schedule would contradict
+both the verdict's ruling and my own r10 exhaustion record), no tuner
+changes, B=1/B=4 paths byte-identical to r10.
+
+### Operation count
+
+Unchanged: 594 real flop/line, 943 kflop/volume, 297 vector FP ops/chunk,
+409 zmm chunks flat (414 za).  The probe adds ~25 ms to create() at B=128
+(setup is excluded from scoring) and zero instructions to any exec.
+
+### The accounting the probe will settle (pre-registered)
+
+Compulsory DRAM traffic per volume at streaming batch, no NT: 190.1 KiB in
+read + 190.1 out RFO + 190.1 out writeback = 570.3 KiB.  Scaling
+L17_matrixsimd's measured node rates (rd 16.3, wr 19.8, cp 17.9 GB/s):
+
+* predicted node rd ≈ 11–13 µs/vol, wr ≈ 18.5–20.5, **cp ≈ 31–34**
+  (caveat: wallaby measures cp ≈ 1.35×(rd+wr) at this volume size where
+  L17's node measured 1.13× — if the alternation penalty grows with burst
+  size on CLX too, cp could reach ~37)
+* predicted s23/rd ≲ 1.0 (the node read s17/rd = 0.81–0.83 at L=17; even
+  wallaby, which punished L17's interleaved reads at 1.28–1.31, reads only
+  1.12 at L=23)
+
+Cell = 64.9, B=1 compute = 47.7.  Zero-overlap bound = 47.7 + cp; perfect-
+overlap bound = max(47.7, cp) = 47.7.  **Ledger:**
+
+1. **cp lands 30–37 and s23 ≈ rd** (expected): the cell sits ~17 µs above
+   the perfect-overlap bound with only ~45% of its traffic hidden under a
+   compute phase long enough to hide all of it.  L=23 is then NOT
+   bandwidth-closed — it is schedule-closed with measured overlap headroom,
+   the same verdict L=17 just got.  Record it that way; the next mechanism
+   is whatever the L=17 write-side experiment (staged output flush paced
+   under compute, named in r10 verdict §6) proves out on the node, ported
+   here — do not build it before the L=17 arm prices it.
+2. **cp lands ≥ ~45**: compute + unavoidable alternation accounts for the
+   cell; B=128 is genuinely at this machine's own bound for this traffic —
+   the r10 "closed" ruling gets its measured proof, write that and stop.
+3. **s23 ≥ 1.3×rd** (not expected): the 23-stream X read shape is the
+   recoverable share; a staged-input variant (L17_matrixsimd's staged
+   twins) would be the matching fix.
+
+Consistency note for branch 1: NT stores delete a third of the traffic
+(the RFO) yet lost on the node four rounds running — the cell is not
+limited by traffic VOLUME, which is exactly what "unhidden, not
+undersized" predicts.
+
+### What was measured (wallaby, Xeon Gold 6448Y; ordinary windows)
+
+| case | r11 | r10 | notes |
+|---|---|---|---|
+| B=1   | 21.88 µs      | 21.72 | pick flat canonical, pf=0 pw=0 (unchanged) |
+| B=4   | 21.86–22.89 µs/vol | 21.75 | one slow-state window read 33.0 first — re-run before reacting (r10 lesson, again) |
+| B=128 | 24.66–25.10 µs/vol | 25.50 | pick flat + pf=0/2 + pw=1 (walk near-ties, head holds) |
+| B=256 | 28.2 µs/vol   | 28.24 | pick za pf=0 pw=1 in one window (za-vs-flat straddle, cosmetic — bit-identical class) |
+
+rel L2 3.767e-16 – 3.803e-16 everywhere; repeatable (bit-identical across
+runs) at B=1, 4, 64, 128, 256.  AVX2 host (wombat): PASS at 87.7 µs/vol
+B=64, repeatable, probe path runs correctly there (generic vectors → 2×ymm).
+
+**sbw on wallaby** (the probe's own first data at this geometry):
+
+* nv=128 (arena 47.5 MiB — FITS wallaby's 60 MB L3; L3-flavored, listed
+  only as a caveat): rd=4.67 wr=5.52 cp=10.77 s23=4.81
+* nv=256 (arena 95 MiB, genuinely streaming; two runs): rd=4.98/4.98
+  wr=6.78/6.63 cp=15.80/15.73 s23=5.60/5.62 → rd 39 GB/s, cp/(rd+wr)=1.35,
+  s23/rd=1.12.  Wallaby cell 28.2 vs compute 21.9 + cp 15.8: ~9.4 of 15.8
+  µs of traffic hidden — the same "roughly half the traffic unhidden"
+  shape expected on the node.  **Caveat carried from r9/r10: the node's
+  B=128 arena (l23_tune_nv caps at ~148 volumes there, 2.5×L3) does NOT
+  fit its 22 MB L3 — the node's sbw at B=128 is a true streaming number
+  even though wallaby's B=128 one is not.**
+
+### What did NOT work / caveats (with numbers)
+
+* Nothing was built to fail this round by design — the r10 verdict closed
+  the schedule space and the honest response is to measure, not to build a
+  new schedule for the tuner to reject.  The probe is the round.
+* The wallaby slow-state window bit AGAIN (B=4 first read 33.0 µs/vol,
+  re-runs 21.9–22.9, identical binary and pick) — third round this trap
+  appears in my record.  The rule stands: never read one tryout level.
+* Description-string length: now ~250 chars with tune[] + sbw[] + clk;
+  driver has no cap (raw printf into JSON), clk buffer bumped 352→448 so
+  nothing truncates.
+
+### Where this stands / node prediction
+
+Picks and cells should reproduce r10 exactly (identical exec code paths,
+identical canonical walks): B=1 ≈ 47.7–48.1, B=4 ≈ 49.2–50.0, B=128 ≈
+64.8–65.0 with flat + pf=2 + pw=1 3/3.  The deliverable is the sbw
+four-tuple in every batched JSON.  Branch 1 of the ledger is the expected
+outcome and would give the panel two geometries' worth of evidence that
+"schedule-exhausted" and "bandwidth-closed" are different states, plus the
+number (cell − max(compute, cp)) that a future write-side mechanism at
+L=23 has to collect against.
+
+### Next
+
+1. **Read the node's sbw four-tuple off the r11 leaderboard descriptions**
+   and settle the ledger branch.  If branch 1: L=23's honest status becomes
+   "closed pending the L=17 write-side result" — port that mechanism the
+   round after it wins at L=17, not before.
+2. If the panel consolidates L=23 to one arm, carry to the survivor: the
+   fastest-known-head rule + 4% streaming margin (rader's B=128 pick
+   flipped 3-ways in r10 while mine held 3/3), the pick/inc/tp telemetry,
+   and now the sbw instrument.
+3. B=1/B=4 remain closed (1.13× floor, arithmetic settled by L23_rader
+   r6's counting; three scheduling attacks rejected).  No kernel work is
+   warranted at any cell until the sbw ledger says where the 17 µs lives.

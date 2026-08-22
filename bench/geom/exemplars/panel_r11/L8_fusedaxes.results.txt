@@ -1,0 +1,5 @@
+   L8_fusedaxes                   0.555 us     0.555 us    41.50       0.1%    0.078s  ok 2.3e-16       1.01x
+   L8_fusedaxes                   0.578 us    37.001 us    39.85       4.1%    0.073s  ok 2.3e-16       1.00x
+   L8_fusedaxes                   0.922 us  1887.525 us    25.00       2.9%    0.245s  ok 2.3e-16       1.00x
+   L8_fusedaxes                   1.251 us 20501.582 us    18.41       1.1%    0.585s  ok 2.3e-16       1.01x
+   L8_fusedaxes             8^3 fused/AA/AA2 c52; B=1 pick=fused (tuned) arena{fused=0.555,fusedAA=0.564,fusedAA2=0.566}

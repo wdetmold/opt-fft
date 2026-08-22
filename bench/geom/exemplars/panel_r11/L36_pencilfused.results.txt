@@ -1,0 +1,5 @@
+   L36_pencilfused              118.986 us   118.986 us    30.41       3.1%    0.191s  ok 3.6e-16       1.04x
+   L36_pencilfused              124.701 us   498.805 us    29.01       2.8%    0.262s  ok 3.8e-16       1.00x
+   L36_pencilfused              164.790 us  5273.278 us    21.96       2.5%    1.166s  ok 3.6e-16       1.02x
+   L36_pencilfused              185.071 us 47378.066 us    19.55       1.2%    2.406s  ok 3.6e-16       1.06x
+   L36_pencilfused          L=36 plane-fused y+z then strided x, PFA4x9 interleaved lanes; tuner picked pw=4 mode=istream+pfw (B=256)

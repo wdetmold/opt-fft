@@ -1,0 +1,6 @@
+   L17_winograd                  16.458 us    16.458 us    18.30       0.2%    0.521s  ok 3.3e-16       1.09x
+   L17_winograd                  17.667 us   141.335 us    17.05       2.6%    0.608s  ok 3.2e-16       1.07x
+   L17_winograd                  21.562 us  5519.769 us    13.97       0.4%    3.757s  ok 3.3e-16       1.03x
+   L17_winograd                  21.721 us 44483.649 us    13.87       0.9%    5.567s  ok 3.3e-16       1.00x
+   L17_rader                Rader-17 cyclic/negacyclic (kernel from L17_winograd), plane-fused; tuned: xl 512t dy, pf=0, pfw=0, clk256=3.89 clk512=2.89, xrace xl/xfs=23.25/26.44, probe ph/xp/fu=16.50/6.76/23.50 us/vol
+   L17_winograd             17-pt cyclic+negacyclic module (296 FP instr), 3 rotating passes, var=h4, pf=0, pfw=0, cw=0, clk256=2.89GHz, clk512=2.89GHz, p1=6.34 f23=10.28 fu=16.72 fu4=17.46, sbw[rd/wr/cp/s17]=3.79/9.33/13.58/3.53

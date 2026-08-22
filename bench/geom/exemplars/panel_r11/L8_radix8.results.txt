@@ -1,0 +1,5 @@
+   L8_radix8                      0.578 us     0.578 us    39.87       0.6%    0.053s  ok 1.2e-16       1.05x
+   L8_radix8                      0.610 us    39.058 us    37.75       1.2%    0.050s  ok 2.3e-16       1.06x
+   L8_radix8                      0.960 us  1966.195 us    24.00       4.2%    0.155s  ok 1.9e-16       1.04x
+   L8_radix8                      1.272 us 20838.316 us    18.12       1.0%    0.506s  ok 1.9e-16       1.03x
+   L8_radix8                radix-8 52-instr codelet; 2p/1f/3p shapes; pick[B=2048]=avx512-3p-pfs-pfw (default) arena{3p-pfs-pfw=0.903 1f-pfs-pfw*=0.928 3p-pfs=1.037 3p-pf=1.197} scr@0x4c0
