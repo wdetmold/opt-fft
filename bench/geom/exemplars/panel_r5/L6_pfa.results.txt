@@ -1,0 +1,5 @@
+   L6_pfa                         0.219 us     0.219 us    38.30       0.0%    0.145s  ok 2.4e-16       1.00x
+   L6_pfa                         0.217 us    13.905 us    38.55       4.1%    0.104s  ok 2.4e-16       1.01x
+   L6_pfa                         0.391 us  1599.545 us    21.45       1.0%    0.382s  ok 2.4e-16       1.00x
+   L6_pfa                         0.574 us 18810.403 us    14.59       0.5%    1.938s  ok 2.4e-16       1.01x
+   L6_pfa                   Good-Thomas PFA 2x3 per axis, unrolled, 2 complex/ymm interleaved, no twiddles, plan-time raced kernels; variant=fused_sp2_pf

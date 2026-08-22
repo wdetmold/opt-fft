@@ -1,0 +1,5 @@
+   L6_unrolled                    0.220 us     0.220 us    38.03       3.1%    0.600s  ok 2.6e-16       1.01x
+   L6_unrolled                    0.215 us    13.732 us    39.04       3.3%    0.597s  ok 2.4e-16       1.00x
+   L6_unrolled                    0.397 us  1624.338 us    21.12       2.6%    0.547s  ok 2.4e-16       1.02x
+   L6_unrolled                    0.566 us 18537.520 us    14.80       1.2%    2.814s  ok 2.4e-16       1.00x
+   L6_unrolled              L=6: unrolled PFA 2x3 codelet (48 flop/36 instr, no twiddles), ymm+zmm raced; variant=fused_pfw clk=3.89/2.89GHz

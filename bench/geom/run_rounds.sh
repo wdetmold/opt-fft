@@ -34,8 +34,19 @@ fi
 [ -n "${FFT_ROUNDS_COPY:-}" ] && trap 'rm -f "$FFT_ROUNDS_COPY"' EXIT
 
 cd "${FFT_ROUNDS_HOME:-$(dirname "$(readlink -f "$0")")}"
+
+# The same runner drives every phase of the project (single-thread CPU, multicore CPU, and
+# then a single A100), each in its own harness directory with its own impl_N, strategies,
+# results, brief, cases and state. That keeps the records of the three competitions
+# independent, which is the point: a multicore number and a single-thread number are not
+# comparable and must never land in the same leaderboard.
+HARNESS=${FFT_HARNESS:-}
+case " $* " in *" --harness "*) HARNESS=$(echo " $* " | sed 's/.*--harness \([^ ]*\).*/\1/') ;; esac
+if [ -n "$HARNESS" ]; then
+  cd "$HARNESS" 2>/dev/null || { echo "run_rounds.sh: no such harness: $HARNESS" >&2; exit 2; }
+fi
 GEOM=$(pwd)
-ROOT=$(readlink -f ../..)
+ROOT=$(readlink -f "$GEOM/../..")
 
 # cron gives almost no environment, so nothing here may rely on an interactive shell.
 # The slurm binaries are NOT in /usr/bin on this cluster -- leaving them off PATH makes
@@ -64,6 +75,9 @@ if [ -f results/.rounds_config ]; then
 fi
 PARTITION=${FFT_PARTITION:-devel}
 TIMELIMIT=${FFT_TIME:-55}
+# Round names are prefixed per phase (panel_r for single-thread CPU, mt_r for multicore,
+# gpu_r for the A100), so results/, exemplars/ and the git history stay unambiguous.
+ROUND_PREFIX=${FFT_ROUND_PREFIX:-panel_r}
 JOBS=${FFT_JOBS:-6}                 # implementer agents in flight at once
 AGENT_TIMEOUT=${FFT_AGENT_TIMEOUT:-5400}    # 90 min per implementer
 TIMING_TIMEOUT=${FFT_TIMING_TIMEOUT:-7200}  # 2 h for the benchmark job to produce a leaderboard
@@ -80,6 +94,7 @@ while [ $# -gt 0 ]; do
     --rounds) ROUNDS=$2; shift 2 ;;
     --resume) RESUME=1; shift ;;
     --dry-run) DRYRUN=1; shift ;;
+    --harness) shift 2 ;;   # already consumed above, before the cd
     --jobs) JOBS=$2; shift 2 ;;
     --impl-model) IMPL_MODEL=$2; shift 2 ;;
     --monitor-model) MONITOR_MODEL=$2; shift 2 ;;
@@ -97,13 +112,13 @@ if [ "$RESUME" = 1 ]; then
   if [ ! -f "$STATE" ]; then log "no state file at $STATE; nothing to resume"; exit 0; fi
   read -r NEXT LAST < "$STATE"
 else
-  NEXT=2                          # panel_r1 was the manual first round
+  NEXT=${FFT_FIRST_ROUND:-2}      # panel_r1 was run by hand; other phases start at 1
   [ -f "$STATE" ] && read -r EXISTING _ < "$STATE" && NEXT=$EXISTING
   LAST=$((NEXT + ROUNDS - 1))
   printf '%s %s\n' "$NEXT" "$LAST" > "$STATE"
 fi
 
-log "=== run_rounds: next=panel_r$NEXT last=panel_r$LAST jobs=$JOBS ==="
+log "=== run_rounds[$(basename "$GEOM")]: next=$ROUND_PREFIX$NEXT last=$ROUND_PREFIX$LAST jobs=$JOBS ==="
 log "    implementers: $IMPL_MODEL    monitor: $MONITOR_MODEL"
 
 # Never collide with a benchmark round already in flight -- including one submitted from
@@ -160,7 +175,7 @@ setup_impl_dir() {
         rm -rf "$GEOM/impl"
       else
         mv "$GEOM/impl" "$GEOM/impl_$prev"
-        log "preserved the sources that produced panel_r$prev in impl_$prev"
+        log "preserved the sources that produced $ROUND_PREFIX$prev in impl_$prev"
       fi
     fi
     mkdir -p "$dir"
@@ -429,7 +444,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" && log "committed round $
 
 while [ "$NEXT" -le "$LAST" ]; do
   stop_requested && break
-  ROUND="panel_r$NEXT"
+  ROUND="$ROUND_PREFIX$NEXT"
   SEED=$((20260821 + NEXT * 1013))
   log "---------- $ROUND begins ----------"
 
@@ -437,7 +452,7 @@ while [ "$NEXT" -le "$LAST" ]; do
   # first round, which was launched from an interactive workflow rather than from here:
   # its implementers may still be writing into impl/, and starting ours now would mean two
   # agents editing the same file.
-  PREV="panel_r$((NEXT - 1))"
+  PREV="$ROUND_PREFIX$((NEXT - 1))"
   if [ "$DRYRUN" = 1 ] && [ ! -f "$GEOM/results/$PREV/leaderboard.txt" ]; then
     log "  [dry-run] would wait for $PREV to finish"
   elif [ -d "$GEOM/results/$PREV" ] && [ ! -f "$GEOM/results/$PREV/leaderboard.txt" ]; then
@@ -494,11 +509,11 @@ while [ "$NEXT" -le "$LAST" ]; do
   NEXT=$((NEXT + 1))
   if [ "$DRYRUN" = 1 ]; then log "[dry-run] stopping after one simulated round"; break; fi
   printf '%s %s\n' "$NEXT" "$LAST" > "$STATE"
-  log "---------- $ROUND complete; next is panel_r$NEXT of panel_r$LAST ----------"
+  log "---------- $ROUND complete; next is $ROUND_PREFIX$NEXT of $ROUND_PREFIX$LAST ----------"
 done
 
 if [ "$NEXT" -gt "$LAST" ]; then
-  log "=== series complete: rounds through panel_r$LAST are done ==="
+  log "=== series complete: rounds through $ROUND_PREFIX$LAST are done ==="
   # A hook lets the next phase of the project arm itself: expand_geometries.sh installs
   # itself here so that widening the geometry pool happens the moment this series ends,
   # without anyone having to be watching.
@@ -509,5 +524,5 @@ if [ "$NEXT" -gt "$LAST" ]; then
       || log "hook FAILED -- see the log above"
   fi
 else
-  log "=== halted before panel_r$NEXT (STOP file); 'rm $STOPFILE' then resume ==="
+  log "=== halted before $ROUND_PREFIX$NEXT (STOP file); 'rm $STOPFILE' then resume ==="
 fi
