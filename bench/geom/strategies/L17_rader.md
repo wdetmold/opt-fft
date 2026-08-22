@@ -1012,3 +1012,178 @@ arena stays 384 → ~0.5 s).
    win is lane-tax reduction, which r2 item 2 killed at plane-pair
    granularity but which a kx-blocked x pass (2 volumes' x passes fused to
    fill 512-bit lanes) has never been costed for.
+
+---
+
+## Round panel_r6 (2026-08-21)
+
+### Standing going in (panel_r5 node leaderboard)
+
+2nd at B=1 (17.098 vs matrixsimd 15.223) and B=8 (18.605 vs 16.658); 3rd at
+B=256 (24.843 vs 21.198 / winograd 23.933) and B=2048 (25.500 vs 21.983 /
+24.567). Node picks: `xl 512t, pf=0` in ALL FOUR cells — the r5 `ov` bet was
+selected in zero cells (r5 item 1's losing branch), and my clock probe
+answered the licence question for good: **clk256 = 3.89, clk512 = 2.89 GHz**
+(confirmed by four of five probes panel-wide; the r5 VERDICT's synthesis is
+"the cost is the licence *transition*, not the width — once inside the
+512-bit licence, mix widths freely"). Re-derived at 2.89 GHz, my node B=1 is
+49.4k cycles against the ~35.9k mixed-shape floor: ~13.5k cycles non-FP.
+The r5 VERDICT's two batched facts that shaped this round: the node-winning
+streaming mechanism of the round was **write-intent prefetch** (L8_fusedaxes
+`fused+pfs+pfw` B=2048 −31%; L36_pfa `inplace pf=2` B=256 −16.6% — "hide the
+RFO, don't avoid it"; NT stores lost for the fourth round running), and my
+own r4 "Next" item 3 (cross-volume software pipelining within X-last) was
+still unbuilt.
+
+### What changed (kernel arithmetic untouched: 296 FP / 488 flops per 17-pt; three additions, all tuner-gated)
+
+1. **Software-pipelined X-last ("xl 512t sp"), the round's structural bet.**
+   Volume b−1's x pass (37 mixed-width blocks writing 78.6 KB of
+   DRAM-destined `out` in one burst, FMA idle) is interleaved into volume
+   b's plane phase: after each plane's y pass, 2–3 x-pass blocks of the
+   previous volume run (⌈37/17⌉ pacing, `((x+1)*37)/17 − (x*37)/17`),
+   reading a **ping-pong A pair** (`ar2_w8/ai2_w8`, +80 KB scratch, pads
+   zeroed once) so A(b−1) stays live while the plane phase fills A(b).
+   Per-volume kernel calls and operands are exactly `exec_body(0,0,1)`'s —
+   only the global order moves across volume boundaries and volumes are
+   independent — so the output is **bit-identical to every class-A
+   candidate** (cmp-verified on full outputs vs forced `512t` at B=8 and
+   B=64 on wallaby). I-footprint discipline: the x block runs behind a
+   **noinline+noclone helper `xblk_run`** (one shared instantiation of the
+   zmm kernel + ymm tail, 1580 instr), so the pipeline adds ZERO inlined
+   kernel copies; exec_spm_w8 = 5262 instr ≈ 21 KB + 6.3 KB helper, under
+   r2's 38 KB kill line. This is the class-A-safe version of what
+   matrixsimd's X-first chunk store gets structurally: output writes spread
+   across compute.
+
+2. **Paced write-intent prefetch ("pfw") on the x pass's `out` stores** —
+   ADOPTED FROM L8_fusedaxes (panel_r5 pfw pick, B=2048 −31%) and L36_pfa
+   (panel_r5 `pf=2`, B=256 −16.6%), the round's only cross-geometry
+   node-proven mechanism. Before x-pass block k runs, the 17 destination
+   row regions of block k+2 are prefetched with write intent (3 lines per
+   zmm row region — the rows are 16-B-aligned 128-B strided stores — 2 for
+   the ymm tail; block 35's region covers the tail's rows so the pacing
+   closes). Wired into the mixed x pass and `xblk_run`; plan flag `pfw`,
+   reported in the description string. **Gated by measurement at BOTH
+   stages** now: the streaming stage ranks (pf, pfw) jointly over 4 configs
+   (blocked, min-of-4, 3% margin vs (0,0) — r3's pf mispick and L36_pfa's
+   +13%-on-resident-lines both say never default this on), and the
+   small-batch stage got its own pfw A/B (3% margin) after wallaby measured
+   pfw **−5 to −7% at B=1** (below).
+
+3. **Per-candidate licence warmup in the tuner** (honesty fix, from the
+   clock result + pencilfused's predecessor-state lesson): each candidate
+   now warms itself for ≥1.5 ms (not just 2 execs) before being timed.
+   With clk256=3.89 vs clk512=2.89 and Intel's ~670 µs licence-up dwell, a
+   ymm candidate ranked after a zmm one (or after the zmm settle spin) at
+   the B=1 stage (one exec ≈ 200–350 µs) was measured inside the AVX-512
+   licence — the only way the tuner could ever discover a licence-clock win
+   for `xl 256` is to warm past the dwell. Costs ~10 ms of plan time.
+
+### Operation count
+
+Unchanged per 17-point transform: 296 FP instr (192 FMA + 104 add/sub).
+sp moves zero arithmetic; pfw adds ~600 prefetchw µops per volume (37
+blocks × 17 rows × 2–3 lines ≈ 0.1k cycles equivalent — noise against the
+~8 µs/volume of memory exposure it attacks at B=2048). Static (wallaby
+build): exec_spm_w8 5262 instr, xblk_run_w8 1580 (single shared copy,
+verified in objdump — noclone held), exec_npm_w8 6206 → 6734 (+pfw wiring).
+
+### Measured — wallaby (Gold 6448Y, gcc 11.4, panel flags; same-window
+### alternating pinned runs `taskset -c 17`, min over ≥3; clock bimodal as always)
+
+Same-window forced A/B (t = xl 512t, +w = pfw=1), µs/transform:
+
+| case | t | t+pfw | sp | sp+pfw |
+|---|---|---|---|---|
+| B=1 | 9.52–9.59 | **9.06–9.08 (−4.9%)** | 9.64 | 9.17 |
+| B=256 | 10.30 | 10.35 | 10.76 | 10.79 |
+| B=2048 | 14.48 | 14.53 | 15.25 | 15.47 |
+
+So on wallaby: **pfw wins B=1 clearly** (the strided 128-B partial-line
+stores expose the out RFO even L2-resident — opposite sign to L36_pfa's
+structure, which is why it ships measured-gated, not defaulted), is neutral
+batched; **sp loses ~1% (B=1) to ~5% (B=2048) forced** — two 512-bit FMA
+units and DDR5 mean wallaby's x-pass burst never stalls, so the pipeline
+only adds overhead there. BUT in the one streaming-arena tuner table caught
+verbose (nv=978, contended), `xl 512t sp` RANKED FIRST (16.66 vs 512:16.75)
+and the joint prefetch A/B chose pf=1 pfw=1 (14.0 vs 20.3 in-arena) — the
+candidates are close enough that only the node's stable clock can rank them.
+Like r4's mixed tail and r5's ov, **sp is a node bet shipped as a tuner
+candidate**; unlike ov, its mechanism (spreading a store burst that STALLS)
+is exactly what the node's 1.39× un-overlapped memory time at B=2048 is
+made of, and the node's slower DRAM + single FMA unit both push its way.
+
+Autotuned end-to-end (tryout.sh, best windows):
+
+| case | panel_r5 code | this round |
+|---|---|---|
+| B=1 | 9.465 | **8.838 µs** (pick: 512t pin, pfw=1) |
+| B=8 | 9.73 | **9.15 µs/t** |
+| B=64 | — | 10.84 µs/t |
+| B=256 | 10.95 | **11.03 µs/t** (window-limited; forced-t same-window 10.30) |
+| B=2048 | 16.26 | **15.08 µs/t** |
+
+Correctness: PASS rel_l2 = 3.114e-16 (B=1), 3.151e-16 (B=8), 3.158e-16
+(B=64), 3.153e-16 (B=256), 3.155e-16 (B=2048) — same fingerprints as r5, so
+the bit class is preserved; bitwise repeatable across runs at every batch
+incl. forced sp+pfw at odd batches (B=1, B=3); sp/sp+pfw/t+pfw all
+cmp-identical to 512t on full outputs (B=8, B=64); `-Wall -Wextra` silent;
+`-fsanitize=undefined` clean at B=8; AVX2 host (wombat) verified end-to-end
+(30.6 µs/t at B=8; EVEX-only candidates self-eliminate). Setup cost grew
+~10 ms (licence warmups) + one extra candidate: 0.19 s at B=1, 2.0 s at
+B=2048 on wallaby (node arena stays 384).
+
+### What was tried and did NOT work / caveats
+
+1. **sp forced on wallaby loses at every batch size** (numbers above) —
+   recorded so nobody deletes it for the wrong reason: the mechanism needs
+   a store burst that actually stalls, which wallaby's memory system
+   doesn't provide. The node A/B is the point (`-DL17R_FORCE=7` forces sp;
+   `-DL17R_FORCE_PFW=1` forces pfw).
+2. **pfw at batch on wallaby is neutral** (14.48 vs 14.53 at B=2048 forced)
+   even though B=2048 streams there too — wallaby's RFO cost is simply
+   lower; the L8/L36 evidence for pfw is node evidence, which is what
+   matters. Do not extrapolate wallaby's B=1 pfw win to the node either:
+   the gate measures it per machine, per batch.
+3. **Nothing else was tried and killed this round**; every inherited dead
+   end stands (X-first on this structure, slab lane-packing, transpose
+   fusion into stores, NT stores, negacyclic splits, same-volume prefetch,
+   non-inline *kernels* — note xblk_run is a noinline *block wrapper*, the
+   kernel inside it is still always_inline, which is why it does not
+   reproduce r1 item 2's 887-instruction disaster).
+
+### Borrowed this round (attribution)
+
+* **L8_fusedaxes + L36_pfa (panel_r5, via the VERDICT §4.5 synthesis)**: the
+  paced prefetchw mechanism and its gating discipline (prefetchw on
+  resident lines is µop tax — measure, don't default).
+* **L36_pencilfused (panel_r5)**: per-candidate self-warming in the tuner,
+  here extended to cover the AVX-512 licence dwell specifically.
+* **L17_matrixsimd**: the store-order finding (r3/r4) that motivated
+  spreading the out burst; the bit-class discipline the sp candidate obeys.
+* **Monitor's r5 VERDICT**: the licence-transition synthesis, the 2.89 GHz
+  re-derivation, and the L=17 batched memory-time figure sp attacks.
+
+### Next (in order)
+
+1. **Read the node's panel_r6 pick strings**: whether sp took the batched
+   cells (the bet), whether pfw was selected anywhere (B=1 included), and
+   whether the licence-honest warmup changed any width pick. Each answer is
+   a mechanism settled on the scoring machine.
+2. **If sp wins batched but the gap to matrixsimd remains**: deepen the
+   pipeline one step (issue volume b−1's x blocks TWO planes behind, i.e.
+   start them during plane 2 of volume b, giving the store stream a longer
+   window) — stays in class A, one more candidate.
+3. **If sp loses on the node too**: the batched gap is input-side, not
+   output-side (pf=0 was picked at every batch in r5, so the input stream
+   is NOT the issue either) — then the remaining lever is the L2 working
+   set: A + T + U + pads ≈ 250 KB/volume of scratch traffic, and the
+   kx-blocked two-volume x pass (r5 item 4) becomes the only uncosted idea
+   left on the list.
+4. **B=1 structural**: if pfw is picked at B=1 on the node, the ~13.5k
+   non-FP cycles shrink by whatever the RFO share was; what remains is the
+   serialized transposes (~19k µops/volume), and the monitor's forced-ov
+   measurement (r5 VERDICT §6 L=17 ask) will say whether shadow-scheduling
+   can ever recover them or whether the kernels' ~90 constant loads + ~60
+   stack moves per block are the real residue.

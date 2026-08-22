@@ -30,13 +30,25 @@ if ! $NVCC -O3 -std=c++14 -arch=sm_80 -lineinfo -I. -o "$WORK/bin" "$SRC" driver
 fi
 grep -i 'warning' "$WORK/build.err" | head -5
 
-echo "== L=$L B=$B on $(nvidia-smi --query-gpu=name --format=csv,noheader | head -1) =="
 python3 gen_input.py --L "$L" --batch "$B" --seed 42 --out "$WORK/in.bin" >/dev/null || exit 1
-"$WORK/bin" --L "$L" --batch "$B" --in "$WORK/in.bin" --out "$WORK/out.bin" --samples 10 || exit 1
+
+# Prefer the reserved node: it holds eight A100-SXM4s, you get one to yourself through a
+# lease, and its run-to-run spread is ~0.02% against ~10-30% on this shared login node
+# (whose A100 is also the PCIe part, with ~1.55 TB/s against the SXM4's ~2 TB/s -- so a
+# bandwidth-bound kernel measures differently here).
+RUNNER=""
+if [ -f RESERVATION ] && ./reserve.sh --status >/dev/null 2>&1; then
+  RUNNER="./on_gpu.sh --label $NAME --"
+  echo "== L=$L B=$B on a leased GPU of the reserved node =="
+else
+  echo "== L=$L B=$B on the local (shared) A100 -- no reservation is live =="
+fi
+
+$RUNNER "$WORK/bin" --L "$L" --batch "$B" --in "$WORK/in.bin" --out "$WORK/out.bin" --samples 10 || exit 1
 python3 check.py --input "$WORK/in.bin" --output "$WORK/out.bin" --L "$L" --batch "$B"
 RC=$?
 
-"$WORK/bin" --L "$L" --batch "$B" --in "$WORK/in.bin" --out "$WORK/out2.bin" --samples 2 >/dev/null 2>&1
+$RUNNER "$WORK/bin" --L "$L" --batch "$B" --in "$WORK/in.bin" --out "$WORK/out2.bin" --samples 2 >/dev/null 2>&1
 if cmp -s "$WORK/out.bin" "$WORK/out2.bin"; then
   echo "repeatable: identical output across runs"
 else
@@ -46,7 +58,7 @@ fi
 echo "== reference: cuFFT on the same case =="
 BINDIR=build/$(hostname -s)/bin
 if [ -x "$BINDIR/cufft" ]; then
-  "$BINDIR/cufft" --L "$L" --batch "$B" --in "$WORK/in.bin" --samples 10
+  $RUNNER "$BINDIR/cufft" --L "$L" --batch "$B" --in "$WORK/in.bin" --samples 10
 else
   echo "  (run 'make sota' once to get a cuFFT comparison line)"
 fi

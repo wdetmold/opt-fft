@@ -7,6 +7,11 @@ set -u
 cd "$(dirname "$0")"
 source /home/lqcd/wdetmold/fft/env.sh >/dev/null 2>&1
 
+# This is a single-GPU competition, and the allocation is a whole 8-GPU node (the cluster's
+# select/linear plugin gives no finer granularity), so pin to one device explicitly. Without
+# this a backend could quietly use a second GPU and its number would mean nothing.
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+
 ROUND=""; SEED=0; RUNS=3; SAMPLES=20
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -29,7 +34,8 @@ BINDIR=build/$(hostname -s)/bin
   echo "host: $(hostname)   date: $(date -Is)   slurm_job: ${SLURM_JOB_ID:-none}"
   nvidia-smi --query-gpu=name,memory.total,clocks.max.sm,clocks.max.mem,persistence_mode \
              --format=csv,noheader 2>/dev/null | sed 's/^/gpu: /'
-  echo "visible devices: ${CUDA_VISIBLE_DEVICES:-all}"
+  echo "visible devices: ${CUDA_VISIBLE_DEVICES:-all}  (pinned to one A100 on purpose)"
+  nvidia-smi --query-gpu=index,name --format=csv,noheader 2>/dev/null | sed 's/^/all gpus on node: /'
   echo "nvcc: $(nvcc --version | tail -1)"
   echo "driver: $(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)"
 } | tee "$OUT/environment.txt"

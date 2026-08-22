@@ -93,3 +93,9 @@ bench/mt/results/**/*.err
 bench/mt/results/**/slurm-*.out
 bench/mt/results/**/prompts/
 bench/mt/results/**/agents/
+
+# GPU node reservation state (runtime, not source)
+bench/gpu/RESERVATION
+bench/gpu/RESERVATION.heartbeat
+bench/gpu/leases/
+bench/gpu/.reservation_payload.sh

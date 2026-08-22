@@ -1,9 +1,13 @@
 #!/bin/bash
-# Submit a GPU benchmark round. One A100, requested explicitly, on a partition that has
-# them. Not --exclusive: an 8-GPU node reserved whole for a single-GPU measurement would be
-# antisocial, and a GPU's own clocks and memory are not shared with the other GPUs. What
-# does bleed across is host memory bandwidth and PCIe, which is why H2D/D2H are reported
-# separately and excluded from the scored number.
+# Score a GPU round.
+#
+# Preferred path: the project holds an 8-GPU node (see reserve.sh), so the scored sweep runs
+# there directly, inside a SCORING WINDOW that holds all eight leases -- no implementer is
+# on the node while the numbers are taken. This is synchronous: it returns when the
+# leaderboard exists, which is what the round runner waits for anyway.
+#
+# Fallback: no live reservation, so queue a whole-node job instead. (This cluster is
+# select/linear: per-GPU --gres requests are rejected, so a node is the only granularity.)
 #
 # usage: submit.sh --round TAG --seed N [--partition a100l] [--time 120] [extra sweep args]
 set -eu
@@ -19,14 +23,36 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$ROUND" ] || { echo "submit.sh: --round is required" >&2; exit 2; }
-mkdir -p results/$ROUND
+mkdir -p "results/$ROUND"
 
-# A copy, so editing sweep.sh cannot corrupt a running job, and on the shared filesystem,
-# because /tmp is node-local.
 JOBSCRIPT=$(pwd)/.sweep_snapshot_$ROUND.sh
 cp sweep.sh "$JOBSCRIPT"
 chmod +x "$JOBSCRIPT"
 
-sbatch --job-name="fft-$ROUND" --partition="$PARTITION" --nodes=1 --gres=gpu:1 \
-       --cpus-per-task=8 --time="$TIME" --output="results/$ROUND/slurm-%j.out" \
+# If the reservation died (time limit, preemption) try once to get it back before falling
+# back to the queue: the phase may run longer than one reservation's walltime.
+if ! ./reserve.sh --status >/dev/null 2>&1; then
+  echo "no live reservation -- attempting to claim a node"
+  ./reserve.sh --hours "${FFT_GPU_HOURS:-6}" >/dev/null 2>&1 || true
+fi
+
+if [ -f RESERVATION ] && ./reserve.sh --status >/dev/null 2>&1; then
+  # shellcheck disable=SC1091
+  . ./RESERVATION
+  echo "scoring $ROUND on the reserved node $RES_NODE (job $RES_JOB)"
+  ./gpu_lease.sh acquire-all --label "monitor:$ROUND"
+  trap './gpu_lease.sh release-all >/dev/null 2>&1' EXIT INT TERM
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$RES_NODE" \
+    "cd '$(pwd)' && CUDA_VISIBLE_DEVICES=0 '$JOBSCRIPT' --round $ROUND --seed $SEED $EXTRA" \
+    > "results/$ROUND/sweep.out" 2>&1
+  rc=$?
+  ./gpu_lease.sh release-all >/dev/null 2>&1
+  trap - EXIT INT TERM
+  tail -3 "results/$ROUND/sweep.out"
+  exit $rc
+fi
+
+echo "no live reservation -- queueing a whole-node job instead"
+sbatch --job-name="fft-$ROUND" --partition="$PARTITION" --nodes=1 --exclusive \
+       --time="$TIME" --output="results/$ROUND/slurm-%j.out" \
        --wrap="$JOBSCRIPT --round $ROUND --seed $SEED $EXTRA"

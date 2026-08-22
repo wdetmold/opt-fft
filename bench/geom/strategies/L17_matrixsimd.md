@@ -1024,3 +1024,180 @@ the emulated-zmm + real-ymm mix compiles and runs correctly there too.
    ratio in hand — the r3 observation that L17_winograd's node tuner picked
    256-bit in batched regimes has never been explained, and the clock pair
    either explains it or rules it out.
+
+---
+
+## Round panel_r6 (2026-08-21)
+
+### Standing after round panel_r5
+
+Swept all four L=17 cells on the node for the fourth round running (B=1
+15.223, B=8 16.658, B=256 21.198, B=2048 21.983 µs), 3.94–5.37× the best
+library. The node picked the mixed 512-bit+ymm-tail shape in all 12
+process-cells, and the r5 port-floor prediction landed within 0.2% at B=1 —
+the round's headline in the VERDICT. Two numbers now steer everything:
+
+* **The clock probe came back: clk512 = 2.89 GHz (settled, 4/5 probes
+  agree), clk256 = disputed (mine reads 3.89, L17_winograd's saturating
+  design reads 2.89).** Re-derived at 2.89 GHz, B=1 is 44.0k cycles against
+  my 33.4k-cycle mixed-shape floor — **1.32× the floor, ~44 cycles/chunk of
+  non-FP time**, not the 1.05× the r3 record assumed. B=1 is NOT done; the
+  prize the whole panel now hunts at L=17 is that 10.6k cycles/volume.
+* **The panel-wide store lesson (VERDICT §4.5): hide the RFO with
+  `prefetchw`, do not avoid it with NT stores.** pfw was selected 3/3 in
+  every streaming cell at L=8 (−20% at B=2048) and L=36 (−16.6% at B=256);
+  NT lost on the node for the fourth consecutive round, everywhere. My
+  batched cells carry ~6.0–6.8 µs/volume of memory overhead over B=1 and
+  have never had a write-side prefetch.
+
+### What changed (three things)
+
+1. **Write-intent prefetch (`pw`)** — *adopted from L8_fusedaxes round r5
+   (`pfw`) and L36_pfa round r5 (`pf=2`), with attribution.* All X-first
+   variants (nested exec13/15/17 both widths, mixed xf/xfd, mixed pipelined)
+   now optionally issue `__builtin_prefetch(line, 1, 3)` → `prefetchw` on
+   the 73 out-lines of the plane the Z group is about to store, in two
+   half-bursts (37 before the Y group, 36 between Y and Z), i.e. ~0.25 µs
+   ahead of the stores at node speed. Runtime flag `p->pw`, A/B'd at plan
+   time; prefetches change no bits, so bit-class D is untouched (cmp'd
+   anyway). The old stage-2 pf A/B became a **joint (pf, pw) 2×2 grid** on
+   the stage-1b winner — r4's lesson that interacting knobs must be judged
+   jointly, applied to the new knob.
+
+2. **Deferred-Z plane schedule** (`l17_execm_xld` FORCE 42 → class B;
+   `l17_execm_xfd` FORCE 43 → class D). The r5 VERDICT's ~44 cycles/chunk of
+   non-FP time, and all three entries' suspicion of the serialized per-plane
+   traffic, pointed at this entry's one true intra-volume dependency: the Z
+   group's loads depend on its own Y group's stores to the same 5.4 KiB
+   plane buffer (a store→load-forwarding junction once per plane, 17 per
+   volume, plus group-tail drains with no independent work behind them).
+   Fix at group granularity, in the spirit of L17_winograd's d8 (defer the
+   dependent group one slot — theirs deferred the transposed store, mine
+   defers the whole consuming group): double-buffer the plane buffer
+   (pb/pb2, already allocated since r1) and run Y(x+1)→pbB between Y(x)→pbA
+   and Z(x)←pbA. Order: Y0; Y1 Z0; Y2 Z1; … Y16 Z15; Z16. Every group
+   junction now has a full independent group (≥ ~700 node cycles) between a
+   store group and its dependent load group. Pure scheduling — same chunks,
+   same operands, same per-value order — and **cmp-verified bit-identical**
+   to the class representatives on full outputs (xld ≡ xl at B=1 and B=8;
+   xfd ≡ xf at B=256, including with pf=1 pw=1 forced).
+
+3. **Dense-256 clock probe** (`d256` in the description string) — the
+   monitor's §5 ask: my sparse 4-chain probe (1 FMA/cycle) and a saturating
+   8-chain probe (2 FMA/cycle, both 256-bit FMA ports busy) now run in the
+   SAME process, same method, differing only in chain count. If the node
+   reports `clk256=3.89, d256=2.89`, the licence discriminator is density
+   and both r5 readings were right about different regimes; if
+   `d256=3.89` too, L17_winograd's probe has some other systematic. Either
+   way the clk256 dispute closes with one leaderboard string.
+
+### Operation count
+
+Unchanged from r5: 148 vector FP ops per chunk, 208 zmm + 35 ymm chunks per
+volume, node port floor 33 374 cycles = 11.55 µs at the now-measured
+2.89 GHz. This round moved scheduling (deferred-Z), the write path (pw) and
+a measurement (d256); it added zero arithmetic. Cost of pw when on: 73
+prefetchw µops per plane (~0.5 µops/chunk-equivalent); of deferred-Z: one
+extra L1-resident plane buffer, zero extra instructions.
+
+### What was measured — wallaby (Gold 6448Y, shared; the 2.10↔4.10 GHz
+clock lottery documented in r5 was visible again — same-window forced pairs
+are the only statistic quoted)
+
+Forced same-window A/B, per transform, min:
+
+| case | incumbent (F38/F40) | deferred-Z (F42/F43) | delta |
+|---|---|---|---|
+| B=1, X-last | 8.915 | **8.651** | **−3.0%** |
+| B=8, X-last (tight window, sd<0.7%) | 9.212 | **8.685** | **−5.7%** |
+| B=8, X-last (noisy window) | 9.98 | 8.56 | −14% (min-of-noisy, read with care) |
+| B=256, X-first | 10.15 | 10.21 | flat |
+
+pw forced A/B on F40 (X-first mixed) at B=2048 (307 MB, streams even on
+wallaby's 60 MB L3): pw=0 13.90 vs pw=1 13.96 µs/t — **flat-to-slightly-worse
+on wallaby**, exactly as expected on a machine that prefers NT there and has
+~2× the node's memory bandwidth per core. The in-tuner (pf,pw) grid at
+nv=1000: 12.65 / 12.71 / 13.18 / 13.53 for 00/01/10/11 → wallaby keeps
+pf=0 pw=0. **pw is a pure node bet, the same shape as r5's mixed-tail bet**
+(wallaby +3%, node −7%), riding on the node's own r5 selections at L=8 and
+L=36 rather than on any wallaby number.
+
+Autotuned end-to-end (shipping config), per transform, all PASS rel_l2 =
+3.226e-16 … 3.259e-16 and bit-repeatable across processes at B=1, 8, 256,
+2048: B=1 **8.488**, B=8 10.33, B=256 10.24, B=2048 **13.73**. (B=8/256
+landed in contended windows; the forced pairs above are the signal. The B=1
+tuner table had deferred-Z 8.35 vs incumbent 8.32 — a tie on a 2-FMA-unit
+machine whose junction cost is relatively larger per chunk but whose OoO
+window is also 2.3× deeper; the node's one-FMA/224-ROB configuration is the
+one the variant was built for.) AVX2 host (Haswell): PASS 3.255e-16,
+repeatable, 24.3 µs/t at B=8 — emulated-zmm + real-ymm + both new execs all
+correct on a 16-register machine.
+
+Description string now ends `clk512/256=X.XX/Y.YY GHz, d256=Z.ZZ`; wallaby
+windows read 2.10/2.10, d256=2.10 (contended) and 4.10/4.10, d256=4.10
+(idle) — the clock lottery, and no width or density split on SPR, as the
+brief says.
+
+### What was tried / observed that did NOT work
+
+1. **pw on wallaby: flat to −0.4% at B=2048, ~−10% when forced together
+   with pf on xfd at B=256** (11.0 vs 9.99 µs/t). Not a failure of the
+   mechanism — the grid rejects it here and offers it to the node — but
+   recorded so nobody reads wallaby numbers and deletes the flag. Node r5
+   data (two geometries, 3/3 picks) is the entire case for it.
+2. **Deferred-Z does nothing for X-first at B=256 on wallaby** (10.21 vs
+   10.15). Plausible: at streaming batch the junction stall is already
+   hidden under DRAM misses; the variant is aimed at the cache-resident
+   regimes. It stays in class D anyway — it costs nothing when not picked.
+3. **Chunk-level Y/Z interleaving was considered and NOT built**: within a
+   group, adjacent chunks are already independent, so the OoO scheduler
+   gains nothing from manual interleave there; only the group-level
+   dependency (Y(x)→Z(x)) needed breaking, and group-level deferral does
+   that with zero extra instructions. (Also avoids doubling live-register
+   pressure, which r1 items 2/7 price at up to 3× instructions.)
+4. **Raw-ssh measurement trap, for whoever automates dev runs next:** a bare
+   `ssh wallaby './tryout.sh …'` lands in $HOME, silently does nothing, and
+   leaves STALE out.bin files in the scratch dir — my first "bit-identical"
+   cmp compared a file against itself. Caught because the run logs contained
+   `No such file or directory`. Always `cd` inside the remote command (or
+   use a helper script) and check the logs actually contain a PASS line
+   before believing a cmp.
+
+### Expectations for the node
+
+* **B=1/B=8**: the tuner should pick `…, deferred-Z` (tag suffix; F42
+  shape). The junction cost per plane on the node is unknown — wallaby says
+  −3.0%/−5.7% with 74-cycle chunks and a 512-entry ROB; the node's chunks
+  are 2× longer (junction relatively smaller) but its ROB is 2.3× shallower
+  (junction relatively larger). Honest range: **B=1 14.6–15.2, B=8
+  15.8–16.6**. If B=1 lands ≤14.8, the junction was a real part of the 44
+  cycles/chunk and the remaining gap to the 11.55 µs floor is chunk-boundary
+  window capacity — the next lever is then µops/chunk (the ~32 cosine
+  coefficient loads), not scheduling.
+* **B=256/B=2048**: the bet is the node selects **pw=1** on an X-first
+  mixed variant. If the RFO share of the 6.0–6.8 µs/volume overhead behaves
+  as it did at L=8/L=36, expect **B=256 19.5–21.0, B=2048 20.0–21.5**. If
+  the node keeps pw=0, then my spread-out per-plane stores already hide the
+  RFO that L8/L36's burstier store patterns exposed, the overhead is
+  read-side, and the next round should deepen the X-chunk pipeline instead.
+* **d256**: predicted **2.89** next to clk256=3.89 in the same string,
+  confirming density as the licence discriminator and closing VERDICT §5's
+  open question in one process.
+
+### Next
+
+1. Read the node picks: deferred-Z at B=1/B=8? pw at batch? d256 = 2.89?
+2. If B=1 moved but sits >1.15× floor: the cosine side still loads 32
+   coefficient vectors per chunk. A per-chunk 8-register cosine residency
+   (fully unrolled 4-iteration cyclic/negacyclic-4 with compile-time
+   rotation, constants made asm-opaque per chunk, NOT pinned across the
+   execute — pinning 16 of 32 registers is a documented dead end, r5 item 2)
+   would cut ~24 loads ≈ 10% of chunk µops. Spill risk in the combine phase
+   (25 live + tile temporaries); build it as a tuner candidate and let the
+   allocator vote.
+3. If pw won: try pacing variants (per-chunk instead of half-group bursts,
+   one plane ahead instead of same-plane) — L36_pfa's record says pacing
+   granularity mattered on their store stream.
+4. If neither moved the batch cells: the overhead is read-side latency of
+   the X pass; deepen the pipeline (X chunks of volume b+1 issued two planes
+   ahead, still class D) — the r4 idea the node half-took once.

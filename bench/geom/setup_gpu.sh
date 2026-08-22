@@ -199,6 +199,15 @@ CFG
 printf '1 6\n' > "$GPU/results/.rounds_state"
 LOG "armed gpu_r1 .. gpu_r6 on partition a100l"
 
+# Claim the 8-GPU node NOW, at handover, rather than holding it idle through the CPU
+# phases. Best effort: if the partition is busy, the phase still works -- submit.sh queues a
+# whole-node job per round instead, and implementers fall back to the login node's A100.
+if [ -x "$GPU/reserve.sh" ]; then
+  LOG "claiming a GPU node for the phase"
+  ( cd "$GPU" && ./reserve.sh --hours "${FFT_GPU_HOURS:-12}" 2>&1 | sed 's/^/    /' ) || \
+    LOG "could not claim a node now; rounds will queue whole-node jobs instead"
+fi
+
 printf 'gpu\n' > "$BENCH/PHASE"
 LOG "bench/PHASE -> gpu; cron will start gpu_r1 on its next tick"
 

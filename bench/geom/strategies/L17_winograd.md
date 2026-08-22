@@ -973,3 +973,178 @@ pre-existing ABI notes); `-DL17_DENSE_KERNEL` build still compiles.
 3. If the clock story confirms: c4-lite at w4 (re-broadcast the 8 sine
    constants between kernel halves, r2 item 1's structural fix) targeting the
    8.2 us w4 floor at 3.89 GHz.
+
+---
+
+## Round panel_r6 (2026-08-21)
+
+Node standings going in (panel_r5): 3rd at B=1 (18.177 vs matrixsimd 15.223,
+rader 17.098) and B=8 (19.668), **2nd at B=256 (23.933) and B=2048 (24.567)**,
+behind matrixsimd everywhere (21.198 / 21.983 in the streaming cells).  Node
+picks: a8/b8 flip at B=1, f4 pf=0 at B=8/256/2048.  My r5 d8/e8 deferral was
+selected in zero cells; the r5 VERDICT (section 6) asks the *monitor* to
+force-measure d8 and rader's ov on the node, so this round does not build a
+third variant of that shape blind.  What r5 settled, and what this round acts
+on instead:
+
+* **clk512 = 2.89 GHz on the node** (4/5 probes agree).  My B=1 = 52.5k cycles
+  against a 32k FP floor (1.64x) -- the largest exposed non-FP overhead of the
+  three L=17 entries.  Note the same overhead exists on wallaby (~38k cycles
+  measured vs 16k floor at 4.10 GHz), so it is NOT purely a 1-FMA-unit-shadow
+  story; but with the monitor already committed to forcing d8, B=1 was left
+  untouched this round.
+* My own probe reads clk256 = 2.89 = clk512 for *dense* FMA chains, so the r5
+  "w4 floor at 3.89 GHz = 8.2 us" fork from my r5 Next item 3 is dead: a dense
+  w4 kernel engages the AVX2 licence and runs at the same 2.89 GHz, same 32k
+  floor.  Not pursued.
+* **The round's board-wide result: hide the RFO, don't avoid it.**  Write-
+  intent prefetch was node-selected 3/3 in every streaming cell it was offered
+  in: L8_fusedaxes fused+pfs+pfw, B=2048 1.313 -> 0.910 (-31%); L36_pfa
+  inplace pf=2, B=256 218.9 -> 182.6 (-16.6%).  NT stores lost on the node for
+  the fourth consecutive round.  **No L=17 entry had tried pfw.**  My batched
+  cells stream 78.6 KB/volume of output RFO.  That is this round's move.
+
+### What changed (three things, all additive; nothing replaced)
+
+1. **pfw -- paced write-intent prefetch of `out` in the fused variants**
+   (f4/f8/p4/p8).  pf_on becomes a 2-bit mask: bit 0 = the existing cross-
+   volume input prefetch, bit 1 = pfw.  Inside each kx-block's pass-2 half --
+   which touches no DRAM at all (A scratch is L2, the mini-buffer is L1), so
+   the RFO requests get the memory pipe uncontended -- each z-iteration issues
+   `__builtin_prefetch(ob + line, 1, 2)` for 34 (w=8) or 17 (w=4) lines of the
+   block's own output region: 17 iterations x 34/17 lines = the block's full
+   578/289 lines, ownership in flight 1-17 kernel groups before the block's
+   pass-3 stores need it.  The tail block's 73 lines/volume are not prefetched
+   (same coverage philosophy as pf's 1224/1229).  Prefetches cannot change
+   results; all forced configs produce identical rel_l2 AND rel_max digits and
+   bit-repeatable output.  BORROWED: the mechanism and the "gate it behind the
+   tuner, prefetchw on resident lines is pure uop tax (+13% in-arena at B=1,
+   L36_pfa)" discipline from **L36_pfa panel_r5** and **L8_fusedaxes
+   panel_r5**; the placement (pace the prefetch inside a DRAM-quiet compute
+   phase) is my own r2 pf placement reused.
+2. **L3-scaled stage-2 arena** -- nv = min(batch, clamp(2.5*L3/157KB, 384,
+   1024)) via sysconf(_SC_LEVEL3_CACHE_SIZE).  BORROWED from **L17_matrixsimd
+   panel_r4** (itself from L36_mixedradix).  My fixed 384-volume (60 MB) arena
+   equals wallaby's L3 exactly, so my wallaby batched tuning since r2 has been
+   tuning L3-resident -- the exact trap matrixsimd documented (it inverted
+   their NT decision).  Node (22 MB L3): clamp keeps 384, bit-for-bit the
+   r3-r5 tuner; wallaby (60 MB): 977, the streaming stage actually streams.
+   This is why wallaby's tuner can now find p4+pfw at B=2048 (it could not
+   see the streaming regime before).
+3. **Clock-settle spin (~150 ms of real 512-bit volumes) before stage-1
+   ranking.**  BORROWED from **L17_rader panel_r5** (its item 5: bit-identical
+   work measured 76% apart purely from table order on a ramping clock).  The
+   node runs the powersave governor, and my stage-1 warmup was only ~0.7 ms
+   per candidate; the a8/b8 pick flip across r5's three processes is
+   consistent with early-table handicap.  Costs ~150 ms of unscored plan time.
+
+   Tuner bookkeeping: stage 2 ranges over pf-mask {0,1,2,3} for f4/f8, {0,2}
+   for p4/p8 (input pf is meaningless there), {0,1} for a/b/c/d/e (they never
+   write `out` from a DRAM-quiet phase; three-pass pfw was not built).  24
+   columns (was 22).  Plan time at B=2048: 4.8 s on wallaby (977-volume
+   arena); node stays ~384 volumes, ~2.5 s.  fft3d_description() now reports
+   `var=%s, pf=%d, pfw=%d, clk256=..., clk512=...`.
+
+### Operation count
+
+Unchanged: 296 FP instructions / 488 flops per 17-point transform, 3x289
+kernels per volume.  pfw adds 578 prefetchw uops per volume (w=8; 1156 at
+w=4) and moves no arithmetic and no data.
+
+### What was measured (wallaby, Gold 6448Y, gcc 11.4, panel flags; clock
+probe now tags every window -- all numbers below are from 4.10 GHz windows
+unless noted; min over samples)
+
+Forced same-window A/B at B=2048, per transform (the round's key numbers):
+
+| config | us/t | delta |
+|---|---|---|
+| f4 pf=0  (r5 node shipping config) | 18.81 | -- |
+| f4 pfw=1 | 15.91 | **pfw alone -15.4%** |
+| p4 pf=0  | 17.36 | -- |
+| p4 pfw=1 | **14.56** | **pfw alone -16.1%; -22.6% vs f4 pf=0** |
+
+Same A/B at B=256: f4 pf=0 11.99, f4 pfw=1 12.00, p4 pfw=1 12.15 --
+**pfw is exactly neutral on wallaby at B=256**, because 77 MB in+out against
+wallaby's 60 MB L3 barely streams (the regime-mapping lesson of the r5
+VERDICT section 4 item 4: map cells by L3-relative working set, not by B).
+On the node B=256 = 3.5x L3 and streams like wallaby's B=2048.
+
+Autotuned end-to-end (shipping config), per transform, with picks:
+
+| case | this round | r5 best same machine | picked |
+|---|---|---|---|
+| B=1 | 9.31 us | 9.31 | f8, pfw=0 (path unchanged) |
+| B=8 | 9.60 us/t (sd 0.04%) | 9.46 | f8, pfw=0 |
+| B=256 | **10.96 us/t** (best ever) | 11.21 | f8, pfw=0 |
+| B=2048 | **14.12-14.48 us/t** (best ever, was 18.39) | 18.4-21.1 | **p4, pf=0, pfw=1** |
+
+Correctness: rel_l2 = 3.256e-16 ... 3.269e-16 at B in {1,8,64,256,2048},
+PASS and bit-repeatable everywhere; forced p8+pfw exercised at B=64; all
+forced configs bit-identical (identical rel_l2/rel_max digits); AVX2 host
+(wombat) verified end-to-end PASS 3.256e-16 (only the pre-existing ABI
+notes); `-Wall -Wextra` clean on wallaby; `-DL17_DENSE_KERNEL` build
+compiles and passes.
+
+### What was tried and did NOT work / caveats
+
+1. **Nothing failed outright this round** -- deliberately narrow, one
+   node-proven mechanism plus two protocol fixes.  But record the negative
+   space: pfw neutral at wallaby B=256 (L3-resident there; NOT evidence
+   against it for the node's B=256, see above), and pfw is expected to be
+   pure uop tax at B=1/B=8 on the node (L36_pfa: +13% on resident lines) --
+   the tuner columns exist so the node can decline it per cell at zero cost.
+2. p4 vs f4 at wallaby B=2048 is now -7.7% (17.36 vs 18.81) where r4
+   measured only -1.4 to -4.3%: the L3-scaled arena means this is the first
+   time the p-variants were *tuned* in a genuinely streaming arena on this
+   machine.  The r4 VERDICT's "stop building pipelining schemes" stands --
+   p4 predates it and merely gets picked now.
+3. NOT done, per the standing division of labour: no third deferred-store
+   variant (the monitor is force-measuring d8 and rader's ov on the node
+   this round; building blind duplicates of a mechanism with no node signal
+   is exactly what r4/r5 taught the panel not to do).  B=1 is untouched.
+
+### Borrowed from other entries (attribution)
+
+* **L36_pfa panel_r5** and **L8_fusedaxes panel_r5**: the pfw mechanism
+  itself, node-confirmed 3/3 in every streaming cell offered, and the
+  "hide the RFO rather than avoid it" rule (r5 VERDICT section 4.5).
+* **L17_matrixsimd panel_r4** (via L36_mixedradix): the L3-scaled tuner
+  arena and its documented failure mode (a fixed-MB arena silently tunes
+  cache-resident on a big-L3 machine).
+* **L17_rader panel_r5**: the pre-ranking clock-settle spin and the 76%
+  mis-rank number that justifies it.
+
+### Expectations for the node, and what to read off the next leaderboard
+
+* **B=2048 is the round's bet.**  r5 = 24.567 with f4 pf=0.  If pfw's -15%
+  transfers (it transferred at -31% for L8 and -16.6% for L36, on the node,
+  where DRAM is slower relative to compute than wallaby's), expect
+  **~20.5-22.5 and the pick `p4/f4, pfw=1`**; matrixsimd sits at 21.983, so
+  the cell is genuinely in reach for the first time.  If the node declines
+  pfw there, the L=17 write path differs from L=8/L=36's in a way nobody has
+  explained -- either way the pick string settles it.
+* **B=256 should move the same way** (it streams on the node even though it
+  does not on wallaby): r5 = 23.933, expect ~21-23 with pfw=1.  matrixsimd:
+  21.198.
+* **B=1/B=8: flat by design** (~18.2 / ~19.6); the only changes are the
+  settle spin (pick stability) and the monitor's forced-d8 number, which
+  decides whether the deferral family lives or dies next round.
+* Read `pfw=` in all four cells, and compare the forced-d8 number against
+  a8 -- those two together choose the round-7 B=1 move.
+
+### Next (in order)
+
+1. If pfw wins the streaming cells: extend it to the three-pass a/b/c
+   variants' pass 3 (their store phase has no DRAM-quiet host loop, so the
+   pacing must live in the pass-3 group loop itself -- only worth it if the
+   node's B=8 pick returns to a/b/c), and try prefetching the tail block's
+   73 lines too.
+2. If the monitor's forced d8 beats a8 at B=1: build d-fused (deferral
+   inside f8's fill/drain loops) and a 2-group-deep variant; if it loses,
+   the B=1 non-FP time is not alloc-shadow-able and the next suspect is the
+   per-group constant/stack traffic (rader's Next item 3) or a fundamentally
+   cheaper store network.
+3. If the node's B=2048 lands ~20.5 and matrixsimd stalls: B=256 vs B=2048
+   pick asymmetry will say whether the remaining gap is read-side (their
+   X-first spreading) or write-side (their dense chunk store).
