@@ -870,7 +870,12 @@ struct fft3d_plan {
                             * keep every plane's U live at once (um = 15,
                             * only 0..12 used) */
     double *sb[2];       /* interleaved staging planes for the batched path  */
-    int nt;              /* thread count for the batch-parallel path (mt_r1) */
+    int nt;              /* threads with scratch allocated (harness cap)     */
+    int ntb;             /* team size the batched path actually runs, <= nt:
+                          * on the 2-socket node the caller's buffers all
+                          * live on socket 0 (driver freads them on the main
+                          * thread), so whether the 16 cross-socket threads
+                          * pay for their UPI hop is node-only -- raced      */
     int t1;              /* B=1 intra-volume team size, 1 = serial; raced
                           * in-plan at create() like the other knobs (mt_r1) */
     int nts;             /* batched path stages each volume and NT-copies it
@@ -995,6 +1000,7 @@ fft3d_plan *fft3d_create(int L, int batch)
      * pages on that thread's socket and the volume pipeline never reaches
      * across the interconnect for scratch. */
     p->nt = 1;
+    p->ntb = 1;
     p->t1 = 1;
 #ifdef _OPENMP
     {
@@ -1003,6 +1009,7 @@ fft3d_plan *fft3d_create(int L, int batch)
         if (mt > 32) mt = 32;
         p->nt = (batch > 1 && mt > batch) ? batch : mt;
     }
+    p->ntb = p->nt;
     if (batch > 1 && p->nt > 1) {
         p->ts = calloc((size_t)p->nt, sizeof *p->ts);
         if (!p->ts) { free(p->mem); free(p); return NULL; }
@@ -1175,11 +1182,11 @@ fft3d_plan *fft3d_create(int L, int batch)
     char abuf[128] = "";
 #if L13R_AB
     do {
-        struct { int fuse, um, pw, pf, t1, nts; const char *tag; } v[8];
+        struct { int fuse, um, pw, pf, t1, nts, ntb; const char *tag; } v[8];
         int nv = 0;
         v[nv].fuse = p->fuse; v[nv].um = p->um; v[nv].pw = p->pw;
         v[nv].pf = p->pf; v[nv].t1 = 1; v[nv].nts = p->nts;
-        v[nv].tag = "i"; nv++;
+        v[nv].ntb = p->ntb; v[nv].tag = "i"; nv++;
         if (batch == 1) {
             if (p->fuse) {
                 v[nv] = v[0]; v[nv].fuse = 0; v[nv].um = 1; v[nv].tag = "f0";
@@ -1217,6 +1224,10 @@ fft3d_plan *fft3d_create(int L, int batch)
                 v[nv] = v[0]; v[nv].nts = !p->nts; v[nv].tag = "nt!"; nv++;
             }
 #endif
+            /* half team: all threads on the socket that owns in/out */
+            if (p->nt == 32) {
+                v[nv] = v[0]; v[nv].ntb = 16; v[nv].tag = "n16"; nv++;
+            }
             if (nv == 1) break;
         }
         size_t vn = (size_t)NVOL * batch;
@@ -1244,7 +1255,7 @@ fft3d_plan *fft3d_create(int L, int batch)
                 int k = (t & 1) ? nv - 1 - j : j;
                 if (p->um != v[k].um) l13r_zdum(p, v[k].um);
                 p->fuse = v[k].fuse; p->pw = v[k].pw; p->pf = v[k].pf;
-                p->t1 = v[k].t1; p->nts = v[k].nts;
+                p->t1 = v[k].t1; p->nts = v[k].nts; p->ntb = v[k].ntb;
                 double t0 = l13r_now();
                 for (int r = 0; r < reps; ++r) fft3d_execute(p, ri, ro);
                 double dt = (l13r_now() - t0) / reps;
@@ -1584,11 +1595,11 @@ void fft3d_execute(fft3d_plan *p, const double _Complex *in, double _Complex *ou
     }
 #endif
 #ifdef _OPENMP
-    if (p->batch > 1 && p->nt > 1) {
+    if (p->batch > 1 && p->ntb > 1) {
         /* Batch-parallel: contiguous static split, so each thread touches
          * the SAME volumes every call (cache/NUMA affinity across the timed
          * loop) and its cross-volume prefetch stays inside its own chunk. */
-        const int nt = p->nt;
+        const int nt = p->ntb;
 #pragma omp parallel num_threads(nt)
         {
             const int t = omp_get_thread_num();

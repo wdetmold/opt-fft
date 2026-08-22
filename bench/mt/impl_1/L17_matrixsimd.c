@@ -1426,6 +1426,7 @@ struct fft3d_plan {
                                * first-touched by their own thread (NUMA) */
     double *t1g;            /* mode 2: batch padded t1 volumes (17*640 dbl each) */
     void *t1g_raw;
+    void *poolv;            /* persistent spin pool (l17mt_pool), created once */
     unsigned char astab[2][256]; /* per-volume t1 base shifts (round panel_r8):
                                   * astab[mode][((t1 - ref) & 4095) >> 4] is the
                                   * 64-byte-step shift minimizing X-pass 4K
@@ -2325,56 +2326,212 @@ l17mt_xrange(const fft3d_plan *restrict p, const double *restrict t1g,
 }
 
 #ifdef _OPENMP
-static void l17mt_run_volumes(fft3d_plan *p, const double _Complex *in,
-                              double _Complex *out)
+/* ---- persistent spin pool ----------------------------------------------
+ * gcc's fork/join for an execute-time OpenMP region measured 3.4 us (4
+ * threads) to 13.9 us (32) per execute on wallaby -- more than the whole
+ * parallel B=1 transform.  So the execute-time team is pthreads created
+ * ONCE in create() (the brief: "thread pools belong in fft3d_create()"),
+ * pinned to the SAME cores OpenMP was given (each OMP thread's affinity
+ * mask is captured inside the child-building parallel region and copied to
+ * the pool worker of the same index, so `close/cores` is reproduced
+ * exactly).  A job is released by one atomic generation store and
+ * collected by per-thread padded done flags; workers busy-spin (pause)
+ * between back-to-back executes -- the driver's timing loop -- and decay
+ * to a futex sleep after ~4 ms idle so the plan-time single-thread probes
+ * and anything else on the machine are not perturbed. */
+enum { L17MT_MAXT = 64 };
+
+typedef struct { volatile int v; char pad[60]; } l17mt_flag;
+
+struct l17mt_pool;
+typedef struct l17mt_warg { struct l17mt_pool *pl; int t; } l17mt_warg;
+
+typedef struct l17mt_pool {
+    fft3d_plan *plan;                   /* job spec: written before go */
+    const double _Complex *in;
+    double _Complex *out;
+    int mode, nthr, dynb;
+    volatile int go;                    /* job generation, release store */
+    volatile int quit;
+    volatile int next;                  /* mode-1 dynamic block counter */
+    volatile int nsleep;
+    int nwork;
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+    struct { volatile int cnt; volatile int gen; char pad[56]; } bar;
+    l17mt_flag done[L17MT_MAXT];
+    pthread_t th[L17MT_MAXT];
+    l17mt_warg warg[L17MT_MAXT];
+    cpu_set_t mask[L17MT_MAXT];
+    int have_mask[L17MT_MAXT];
+} l17mt_pool;
+
+static inline void l17mt_pause(void)
 {
-    const int nt = p->nthr, nb = p->batch;
-    if (p->dynb > 0) {
-        const int db = p->dynb;
-        const int nblk = (nb + db - 1) / db;
-#pragma omp parallel num_threads(nt)
-        {
-            fft3d_plan *k = p->kids[omp_get_thread_num()];
-#pragma omp for schedule(dynamic, 1) nowait
-            for (int blk = 0; blk < nblk; ++blk) {
-                int v0 = blk * db;
-                int nv = nb - v0 < db ? nb - v0 : db;
-                k->batch = nv;
-                k->exec(k, in + (size_t)v0 * 4913, out + (size_t)v0 * 4913);
-            }
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#endif
+}
+
+/* sense-free central barrier: safe for reuse because a thread can only
+ * re-enter after every participant left (the pool's done/go handshake
+ * serializes executes), and cnt is reset before gen is released */
+static void l17mt_barrier(l17mt_pool *pl, int nt)
+{
+    int g = __atomic_load_n(&pl->bar.gen, __ATOMIC_ACQUIRE);
+    if (__atomic_add_fetch(&pl->bar.cnt, 1, __ATOMIC_ACQ_REL) == nt) {
+        pl->bar.cnt = 0;
+        __atomic_store_n(&pl->bar.gen, g + 1, __ATOMIC_RELEASE);
+    } else {
+        while (__atomic_load_n(&pl->bar.gen, __ATOMIC_ACQUIRE) == g)
+            l17mt_pause();
+    }
+}
+
+/* thread t's share of the current job (t == 0 is the caller's thread) */
+static void l17mt_work(l17mt_pool *pl, int t)
+{
+    fft3d_plan *p = pl->plan;
+    fft3d_plan *k = p->kids[t];
+    const int nt = pl->nthr, nb = p->batch;
+    const double _Complex *in = pl->in;
+    double _Complex *out = pl->out;
+    if (pl->mode == 2) {
+        const int NPL = 17 * nb, NCH = 73 * nb;
+        l17mt_planes(k, (const double *)in, p->t1g,
+                     (int)(((long)NPL * t) / nt),
+                     (int)(((long)NPL * (t + 1)) / nt));
+        l17mt_barrier(pl, nt);
+        l17mt_xrange(k, p->t1g, (double *)out,
+                     (int)(((long)NCH * t) / nt),
+                     (int)(((long)NCH * (t + 1)) / nt));
+    } else if (pl->dynb > 0) {
+        const int db = pl->dynb, nblk = (nb + db - 1) / db;
+        int blk;
+        while ((blk = __atomic_fetch_add(&pl->next, 1, __ATOMIC_RELAXED)) < nblk) {
+            int v0 = blk * db;
+            int nv = nb - v0 < db ? nb - v0 : db;
+            k->batch = nv;
+            k->exec(k, in + (size_t)v0 * 4913, out + (size_t)v0 * 4913);
         }
     } else {
-#pragma omp parallel num_threads(nt)
-        {
-            int t = omp_get_thread_num();
-            fft3d_plan *k = p->kids[t];
-            int v0 = (int)(((long)nb * t) / nt);
-            int v1 = (int)(((long)nb * (t + 1)) / nt);
-            if (v1 > v0) {
-                k->batch = v1 - v0;
-                k->exec(k, in + (size_t)v0 * 4913, out + (size_t)v0 * 4913);
-            }
+        int v0 = (int)(((long)nb * t) / nt);
+        int v1 = (int)(((long)nb * (t + 1)) / nt);
+        if (v1 > v0) {
+            k->batch = v1 - v0;
+            k->exec(k, in + (size_t)v0 * 4913, out + (size_t)v0 * 4913);
         }
     }
 }
 
-static void l17mt_run_intra(fft3d_plan *p, const double _Complex *in,
-                            double _Complex *out)
+static double l17_now(void); /* fwd (defined with the tuner utilities) */
+
+static void *l17mt_worker(void *argp)
 {
-    const int nt = p->nthr, B = p->batch;
-    const int NPL = 17 * B, NCH = 73 * B;
-#pragma omp parallel num_threads(nt)
-    {
-        int t = omp_get_thread_num();
-        fft3d_plan *k = p->kids[t];
-        l17mt_planes(k, (const double *)in, p->t1g,
-                     (int)(((long)NPL * t) / nt),
-                     (int)(((long)NPL * (t + 1)) / nt));
-#pragma omp barrier
-        l17mt_xrange(k, p->t1g, (double *)out,
-                     (int)(((long)NCH * t) / nt),
-                     (int)(((long)NCH * (t + 1)) / nt));
+    l17mt_pool *pl = ((l17mt_warg *)argp)->pl;
+    const int t = ((l17mt_warg *)argp)->t;
+    if (pl->have_mask[t])
+        pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &pl->mask[t]);
+    int myg = 0;
+    for (;;) {
+        int g;
+        long spins = 0;
+        double idle0 = 0.0;
+        while ((g = __atomic_load_n(&pl->go, __ATOMIC_ACQUIRE)) == myg) {
+            l17mt_pause();
+            if ((++spins & 8191) == 0) {
+                double tn = l17_now();
+                if (idle0 == 0.0) {
+                    idle0 = tn;
+                } else if (tn - idle0 > 4e-3) {
+                    pthread_mutex_lock(&pl->mu);
+                    __atomic_add_fetch(&pl->nsleep, 1, __ATOMIC_SEQ_CST);
+                    while (__atomic_load_n(&pl->go, __ATOMIC_SEQ_CST) == myg &&
+                           !pl->quit)
+                        pthread_cond_wait(&pl->cv, &pl->mu);
+                    __atomic_sub_fetch(&pl->nsleep, 1, __ATOMIC_SEQ_CST);
+                    pthread_mutex_unlock(&pl->mu);
+                    idle0 = 0.0;
+                }
+            }
+        }
+        myg = g;
+        if (__atomic_load_n(&pl->quit, __ATOMIC_ACQUIRE)) break;
+        if (t < pl->nthr) l17mt_work(pl, t);
+        /* EVERY worker acknowledges every generation (idle ones too), and
+         * the caller waits for all of them, so the job fields are never
+         * mutated while a lagging worker could still read them */
+        __atomic_store_n(&pl->done[t].v, g, __ATOMIC_RELEASE);
     }
+    return NULL;
+}
+
+static void l17mt_pool_run(fft3d_plan *p, const double _Complex *in,
+                           double _Complex *out)
+{
+    l17mt_pool *pl = p->poolv;
+    pl->plan = p;
+    pl->in = in;
+    pl->out = out;
+    pl->mode = p->mode;
+    pl->nthr = p->nthr > pl->nwork ? pl->nwork : p->nthr;
+    pl->dynb = p->dynb;
+    pl->next = 0;
+    int g = pl->go + 1;
+    __atomic_store_n(&pl->go, g, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&pl->nsleep, __ATOMIC_SEQ_CST) > 0) {
+        pthread_mutex_lock(&pl->mu);
+        pthread_cond_broadcast(&pl->cv);
+        pthread_mutex_unlock(&pl->mu);
+    }
+    l17mt_work(pl, 0);
+    for (int t = 1; t < pl->nwork; ++t)
+        while (__atomic_load_n(&pl->done[t].v, __ATOMIC_ACQUIRE) != g)
+            l17mt_pause();
+}
+
+static l17mt_pool *l17mt_pool_new(int nwork, const cpu_set_t *masks,
+                                  const int *have)
+{
+    if (nwork > L17MT_MAXT) nwork = L17MT_MAXT;
+    l17mt_pool *pl = calloc(1, sizeof *pl);
+    if (!pl) return NULL;
+    pl->nwork = nwork;
+    pthread_mutex_init(&pl->mu, NULL);
+    pthread_cond_init(&pl->cv, NULL);
+    for (int t = 0; t < nwork; ++t) {
+        pl->mask[t] = masks[t];
+        pl->have_mask[t] = have[t];
+        pl->warg[t].pl = pl;
+        pl->warg[t].t = t;
+    }
+    for (int t = 1; t < nwork; ++t) {
+        if (pthread_create(&pl->th[t], NULL, l17mt_worker, &pl->warg[t]) != 0) {
+            pl->quit = 1;
+            __atomic_store_n(&pl->go, pl->go + 1, __ATOMIC_SEQ_CST);
+            pthread_mutex_lock(&pl->mu);
+            pthread_cond_broadcast(&pl->cv);
+            pthread_mutex_unlock(&pl->mu);
+            for (int u = 1; u < t; ++u) pthread_join(pl->th[u], NULL);
+            free(pl);
+            return NULL;
+        }
+    }
+    return pl;
+}
+
+static void l17mt_pool_free(l17mt_pool *pl)
+{
+    if (!pl) return;
+    __atomic_store_n(&pl->quit, 1, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&pl->go, pl->go + 1, __ATOMIC_SEQ_CST);
+    pthread_mutex_lock(&pl->mu);
+    pthread_cond_broadcast(&pl->cv);
+    pthread_mutex_unlock(&pl->mu);
+    for (int t = 1; t < pl->nwork; ++t) pthread_join(pl->th[t], NULL);
+    pthread_mutex_destroy(&pl->mu);
+    pthread_cond_destroy(&pl->cv);
+    free(pl);
 }
 #endif /* _OPENMP */
 
@@ -2382,8 +2539,7 @@ static void l17mt_dispatch(fft3d_plan *p, const double _Complex *in,
                            double _Complex *out)
 {
 #ifdef _OPENMP
-    if (p->mode == 1) { l17mt_run_volumes(p, in, out); return; }
-    if (p->mode == 2) { l17mt_run_intra(p, in, out); return; }
+    if (p->mode != 0 && p->poolv) { l17mt_pool_run(p, in, out); return; }
 #endif
     p->exec(p, in, out);
 }
@@ -3202,9 +3358,12 @@ fft3d_plan *fft3d_create(int L, int batch)
          * carried over unchanged). */
         if (l17mt_on) {
             int maxt = omp_get_max_threads();
+            if (maxt > L17MT_MAXT) maxt = L17MT_MAXT;
             p->nkids = maxt;
             p->kids = calloc((size_t)maxt, sizeof *p->kids);
-            int okk = p->kids != NULL;
+            cpu_set_t *masks = calloc((size_t)maxt, sizeof *masks);
+            int *havem = calloc((size_t)maxt, sizeof *havem);
+            int okk = p->kids && masks && havem;
             if (okk) {
                 int fail = 0;
 #pragma omp parallel num_threads(maxt) reduction(||: fail)
@@ -3221,9 +3380,19 @@ fft3d_plan *fft3d_create(int L, int batch)
                     }
                     if (!k) fail = 1;
                     p->kids[t] = k;
+                    /* capture this OMP thread's binding so the pool worker
+                     * of the same index runs on exactly the same core(s) */
+                    if (sched_getaffinity(0, sizeof(cpu_set_t), &masks[t]) == 0)
+                        havem[t] = 1;
                 }
                 okk = !fail;
             }
+            if (okk) {
+                p->poolv = l17mt_pool_new(maxt, masks, havem);
+                okk = p->poolv != NULL;
+            }
+            free(masks);
+            free(havem);
             if (okk && batch < 64) {
                 /* intra-volume t1: batch padded volumes, first-touched by the
                  * same plane->thread mapping the intra phase 1 uses */

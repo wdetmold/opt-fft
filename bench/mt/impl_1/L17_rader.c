@@ -327,11 +327,17 @@
  *  * -ffp-contract=fast (gcc's default under -std=gnu11) for FMA formation.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE 1          /* sched_getcpu, pthread_setaffinity_np */
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <sched.h>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -728,6 +734,7 @@ struct fft3d_plan {
                                     * doubles each) shared across the team */
     void *vpmem;
     int nvp;
+    struct l17r_pool *pool;        /* spin-wait worker pool (see mt layer) */
     double *mem;
     /* disjoint scratch per width, so each width's pad lanes stay zero */
     double *ar_w4, *ai_w4, *tr_w4, *ti_w4, *ur_w4, *ui_w4;

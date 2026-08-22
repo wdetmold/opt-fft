@@ -62,3 +62,24 @@ Independent of phase 1: your code is in `impl_N/`, your record in `strategies/`,
 leaderboards in `results/mt_rN/`. Read `../geom/strategies/` for how your kernel reached
 its current form, and `../../docs/LITERATURE.md` (all nine sections) for the technique
 corpus.
+
+## Read the single-core work — all of it, including the code
+
+Phase 1 ran eleven rounds on these same kernels and left everything behind. You are expected
+to read it, not merely to inherit it:
+
+| what | where |
+|---|---|
+| **the single-core code as that phase left it** | `../geom/impl_11/` — all 20 sources, including the final form of your own kernel |
+| **how it got there, round by round** | `../geom/impl_6/` … `../geom/impl_11/`, one directory per round. `diff` them to see exactly what each round changed |
+| **why**, in the implementers' own words | `../geom/strategies/*.md` — appended every round, including what failed and the number that killed it |
+| **curated exemplars** | `../geom/exemplars/<round>/` — code, record and measured numbers together |
+| the standings you must NOT compare against | `../geom/results/panel_r11/leaderboard.txt` — those are one-core times |
+
+Read your own kernel's record first, then its rivals at your geometry, then the other
+geometries: a layout or SIMD decision often transfers. If a record says an approach failed
+and gives the number that killed it, do not spend a round rediscovering it.
+
+What does **not** carry over is phase 1's timings — those are single-core. Your comparison is
+the threaded libraries in this harness, plus your own kernel's single-core time when you
+report parallel efficiency.

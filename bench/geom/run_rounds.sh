@@ -222,16 +222,40 @@ setup_impl_dir() {
 # grew out of, and its material is appended to the pack.
 append_prev_phase() {
   local out=$1
-  local prev=${FFT_PREV_HARNESS:-}
-  [ -n "$prev" ] || return 0
-  [ -d "$prev" ] || return 0
+  # FFT_PREV_HARNESS is a LIST, oldest first: by the GPU phase there are two CPU phases
+  # worth of code and records to read, and by the multi-GPU phase there are three.
+  for prev in ${FFT_PREV_HARNESS:-}; do
+    [ -d "$prev" ] && append_one_phase "$out" "$prev"
+  done
+}
 
-  echo "## The PREVIOUS PHASE ($prev)" >> "$out"
+append_one_phase() {
+  local out=$1 prev=$2
+
+  echo "## A PREVIOUS PHASE ($prev)" >> "$out"
   echo "   Different hardware, so its TIMES are not comparable to yours -- but the same" >> "$out"
   echo "   kernels, and its reasoning is directly useful. Read the record for YOUR file" >> "$out"
   echo "   first, then its rivals'." >> "$out"
   echo >> "$out"
+  echo "  Its strategy records -- what was tried, measured, and abandoned:" >> "$out"
   ls -1 "$prev"/strategies/*.md 2>/dev/null | sed 's/^/    /' >> "$out"
+  echo >> "$out"
+
+  # The CODE, not just the prose. Each round of the previous phase is preserved in its own
+  # impl_N directory, so both the final kernels and the history of how they got there are
+  # readable. This is the thing a new phase most wants and would otherwise have to guess at.
+  echo "  Its SOURCE CODE, one directory per round (read these -- the final round first):" >> "$out"
+  for d in $(ls -1d "$prev"/impl_* 2>/dev/null | sort -V | tail -4); do
+    printf '    %-52s %s files\n' "$d" "$(ls -1 "$d" 2>/dev/null | wc -l)" >> "$out"
+  done
+  local newest
+  newest=$(ls -1d "$prev"/impl_* 2>/dev/null | sort -V | tail -1)
+  if [ -n "$newest" ]; then
+    echo "    the kernels as that phase left them:" >> "$out"
+    ls -1 "$newest"/*.c "$newest"/*.cu 2>/dev/null | sed 's/^/      /' >> "$out"
+  fi
+  echo >> "$out"
+  echo "  Its promoted exemplars (curated, with records and numbers alongside):" >> "$out"
   ls -d "$prev"/exemplars/*/ 2>/dev/null | sed 's/^/    /' >> "$out"
   echo >> "$out"
   echo "### That phase's final standings" >> "$out"

@@ -190,3 +190,29 @@ per-geometry opening strategy table. Start there.
 Independent of the CPU phases: code in `impl_N/`, your record in `strategies/`, leaderboards
 in `results/gpu_rN/`. Append to your strategy record each round, never overwrite, and say
 what you borrowed and from whom — including from the CPU records.
+
+## Read every previous phase — all the code, not just the conclusions
+
+Two CPU phases came before this one, on the same eight geometries and largely the same
+kernels. All of it is on disk and you are expected to read it:
+
+| what | where |
+|---|---|
+| **single-core code, final form** | `../geom/impl_11/` (20 sources) |
+| **single-core history, round by round** | `../geom/impl_6/` … `../geom/impl_11/` — `diff` consecutive rounds to see what each change was |
+| **multicore code and history** | `../mt/impl_*/` |
+| **the reasoning, in the implementers' words** | `../geom/strategies/*.md` and `../mt/strategies/*.md` — including failures with the number that killed them |
+| **curated exemplars** | `../geom/exemplars/<round>/`, `../mt/exemplars/<round>/` |
+| final CPU standings | `../geom/results/panel_r11/leaderboard.txt`, `../mt/results/mt_r*/leaderboard.txt` |
+
+The CPU times are not comparable to yours and the hardware is different in kind — but the
+*algorithmic* work transfers directly, and it is substantial: eleven rounds of measured
+decisions about radix choice, conjugate-pair folding, index maps and layout. The single-core
+winner at your geometry is the best available statement of what the arithmetic should look
+like; your job is to map it onto 108 SMs, not to rediscover it.
+
+Two specifics worth chasing in that code: `../geom/strategies/L17_matrixsimd.md` explains the
+conjugate-symmetric folding behind the 5.42× win at L=17 (directly relevant to the DMMA
+entry), and `../geom/strategies/L36_pfa.md` records a Good-Thomas kernel that lost by 1.9×
+and then recovered to take the lead — the reasons it lost are mostly memory-behaviour
+reasons, which are sharper on a GPU.
