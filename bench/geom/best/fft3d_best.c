@@ -33,9 +33,18 @@ DECLARE_KERNEL(k23)
 DECLARE_KERNEL(k36)
 DECLARE_KERNEL(k45)
 DECLARE_KERNEL(k64)
-/* Batched alternates: a second kernel at the geometries where one exists. */
+/* Every other competition entry at each geometry. Which one wins is a property of the
+ * MACHINE (measured: the L=64 pair inverts by 4.3x between Haswell and Cascade Lake, and on
+ * Ice Lake the grading winner differed from the Cascade Lake winner at three of eight
+ * sizes), so create() races all of them and keeps the fastest here. */
+DECLARE_KERNEL(k6b)
 DECLARE_KERNEL(k8b)
+DECLARE_KERNEL(k13b)
+DECLARE_KERNEL(k17b)
+DECLARE_KERNEL(k23b)
 DECLARE_KERNEL(k36b)
+DECLARE_KERNEL(k36c)
+DECLARE_KERNEL(k45b)
 DECLARE_KERNEL(k64b)
 
 struct kernel_entry {
@@ -61,14 +70,21 @@ struct kernel_entry {
  * crossover: L64_radix8 trails at B=1 but wins by 2% at B=2 and 6% at B=8, monotonically.
  *
  * Numbers behind this are in ../results/panel_r11/leaderboard.txt; see README.md. */
+#define MAX_CANDIDATES 3
 struct geometry_row {
     int L;
-    const struct kernel_entry *primary;
-    const struct kernel_entry *alt;
-    int alt_from_batch;
+    /* candidates[0] is the primary: the Cascade Lake competition winner, used when the
+     * race is disabled. The rest are raced against it at create() time. */
+    const struct kernel_entry *candidates[MAX_CANDIDATES];
 };
 
 static const struct kernel_entry K6   = ENTRY(6,  k6);
+static const struct kernel_entry K6B  = ENTRY(6,  k6b);
+static const struct kernel_entry K13B = ENTRY(13, k13b);
+static const struct kernel_entry K17B = ENTRY(17, k17b);
+static const struct kernel_entry K23B = ENTRY(23, k23b);
+static const struct kernel_entry K36C = ENTRY(36, k36c);
+static const struct kernel_entry K45B = ENTRY(45, k45b);
 static const struct kernel_entry K8   = ENTRY(8,  k8);
 static const struct kernel_entry K13  = ENTRY(13, k13);
 static const struct kernel_entry K17  = ENTRY(17, k17);
@@ -81,14 +97,14 @@ static const struct kernel_entry K36B = ENTRY(36, k36b);
 static const struct kernel_entry K64B = ENTRY(64, k64b);
 
 static const struct geometry_row GEOMETRIES[] = {
-    {  6, &K6,  NULL,  0 },
-    {  8, &K8,  NULL,  0 },   /* L8_fusedaxes available, within noise -- not selected */
-    { 13, &K13, NULL,  0 },
-    { 17, &K17, NULL,  0 },
-    { 23, &K23, NULL,  0 },
-    { 36, &K36, NULL,  0 },   /* L36_pencilfused available, within noise -- not selected */
-    { 45, &K45, NULL,  0 },
-    { 64, &K64, &K64B, 2 },   /* alt_from_batch is documentation now: the race decides */
+    {  6, { &K6,  &K6B,  NULL  } },   /* pfa | unrolled: unrolled won the Ice Lake grading */
+    {  8, { &K8,  &K8B,  NULL  } },   /* batchsimd | fusedaxes: fusedaxes won on Ice Lake */
+    { 13, { &K13, &K13B, NULL  } },   /* direct | rader */
+    { 17, { &K17, &K17B, NULL  } },   /* matrixsimd | rader */
+    { 23, { &K23, &K23B, NULL  } },   /* rader | matrixsimd: dead even on Cascade Lake */
+    { 36, { &K36, &K36B, &K36C } },   /* mixedradix | pencilfused | pfa: pfa won on Ice Lake */
+    { 45, { &K45, &K45B, NULL  } },   /* pfa | mixedradix */
+    { 64, { &K64, &K64B, NULL  } },   /* blocked | radix8: inverts 4.3x between machines */
 };
 static const int NGEOM = (int)(sizeof GEOMETRIES / sizeof GEOMETRIES[0]);
 
@@ -147,9 +163,8 @@ static const struct kernel_entry *choose(int L, int batch)
 {
     const struct geometry_row *g = row_of(L);
     if (!g) return NULL;
-    if (!g->alt) return g->primary;
-    if (getenv("FFT3D_BEST_FORCE_ALT")) return g->alt;
-    if (getenv("FFT3D_BEST_NO_RACE")) return g->primary;
+    if (!g->candidates[1]) return g->candidates[0];
+    if (getenv("FFT3D_BEST_NO_RACE")) return g->candidates[0];
 
     /* Cap the race at ~32 MB per buffer so a huge batch does not make planning expensive. */
     const long vol = (long)L * L * L;
@@ -160,21 +175,21 @@ static const struct kernel_entry *choose(int L, int batch)
     size_t count = (size_t)vol * race_batch;
     size_t bytes = count * sizeof(double _Complex);
     double _Complex *in = NULL, *out = NULL;
-    if (posix_memalign((void **)&in, 64, bytes) != 0 || !in) return g->primary;
-    if (posix_memalign((void **)&out, 64, bytes) != 0 || !out) { free(in); return g->primary; }
+    if (posix_memalign((void **)&in, 64, bytes) != 0 || !in) return g->candidates[0];
+    if (posix_memalign((void **)&out, 64, bytes) != 0 || !out) { free(in); return g->candidates[0]; }
     memset(out, 0, bytes);
     for (size_t j = 0; j < count; ++j)
         in[j] = (double)((j * 2654435761u) % 1000) / 500.0 - 1.0;
 
-    double ta = trial(g->primary, L, race_batch, in, out);
-    double tb = trial(g->alt, L, race_batch, in, out);
+    const struct kernel_entry *winner = NULL;
+    double best_t = 0.0;
+    for (int c = 0; c < MAX_CANDIDATES && g->candidates[c]; ++c) {
+        double t = trial(g->candidates[c], L, race_batch, in, out);
+        if (t > 0 && (!winner || t < best_t)) { winner = g->candidates[c]; best_t = t; }
+    }
     free(in);
     free(out);
-
-    if (ta < 0 && tb < 0) return g->primary;
-    if (ta < 0) return g->alt;
-    if (tb < 0) return g->primary;
-    return (tb < ta) ? g->alt : g->primary;
+    return winner ? winner : g->candidates[0];
 }
 
 /* Reporting only: what the table would say without measuring. */
@@ -182,7 +197,7 @@ static const struct kernel_entry *lookup(int L, int batch)
 {
     const struct geometry_row *g = row_of(L);
     (void)batch;
-    return g ? g->primary : NULL;
+    return g ? g->candidates[0] : NULL;
 }
 
 /* The alternate kernel at this geometry, if the library carries one (NULL otherwise).
@@ -190,7 +205,7 @@ static const struct kernel_entry *lookup(int L, int batch)
 static const struct kernel_entry *alternate_of(int L)
 {
     const struct geometry_row *g = row_of(L);
-    return g ? g->alt : NULL;
+    return g ? g->candidates[1] : NULL;
 }
 
 int fft3d_best_supports(int L)

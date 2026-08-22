@@ -172,3 +172,139 @@ and the plane pipeline/kernels from phase 1 as-is.
    plane); splitting z/y kernel groups across 2 threads per plane doubles
    sync for ~0.25 us of work — probably not worth it; measure before
    believing.
+
+## Round mt_r2
+
+### Where mt_r1 landed on the node, and the diagnosis
+
+Node (2-socket CLX 5218): B=1 9.134 us with a 38.3% run spread (3rd,
+matrixsimd 7.112), B=256 0.795 (2nd, matrixsimd 0.726), B=4096 **2.904
+against L17_winograd's 1.222** -- 2.4x behind with the same arithmetic
+(my kernel IS their 17-point module).  The description string showed the
+plan-time arena measured 0.793 us/t for the very config that scored
+2.904.  Three causes, all mine:
+
+1. **The r1 arena raced under a NUMA placement the driver never
+   provides.**  I built r1 on "the driver never touches `out` before
+   warmup, so my threads' first touch distributes it" -- WRONG:
+   driver.c:109 memsets `out` on the main thread BEFORE fft3d_create, so
+   every caller page (in via fread, out via memset) starts on socket 0.
+   My un-memset tout raced candidates with distributed out pages
+   (0.793 us/t) and the pick did not transfer (2.904).  L17_winograd and
+   L8_fusedaxes had this right all along; L23_matrixsimd mt_r1 stated the
+   lesson verbatim ("the tuner arena is deliberately filled serially so
+   create()-time racing sees the same placement the scored run does").
+2. **The weighted partition froze noise into a skewed cut.**  Its trigger
+   fired on SINGLE-SOCKET wallaby ("spread 1.44x" where no structural
+   imbalance exists), i.e. per-thread min-tsec rates are transient; the
+   adopted cut (chunks clamped to [0.5,2]x mean) then makes every scored
+   execute as slow as the biggest chunk, up to ~2x equal-cut.  This is my
+   prime suspect for 2.904 vs winograd's equal-cut 1.222.
+3. **The pool handshake bounced shared lines through all 31 workers.**
+   One shared `go` line invalidated in 31 caches + 31 serialized RFOs on
+   one `done` line per dispatch, 15+ of them across UPI on the node at
+   any team size -- the standing suspect for B=1's 9.13 us and its 38.3%
+   spread (wallaby, single socket, never showed it).
+
+### What was built (all three fixes, plus one new bug found and fixed)
+
+1. **Arena matches the driver** (ADOPTED FROM L23_matrixsimd mt_r1, as
+   restated by L8_fusedaxes): tout is now memset serially by the main
+   thread in l17r_tune_alloc, tin was already filled serially.  Every
+   plan-time race now sees socket-0 caller pages, exactly like the scored
+   run.  On wallaby this changed no pick (single socket); the node's
+   B=4096 race should now correctly price the NT twins (stnt dy won
+   wallaby's honest streaming race at 0.780 vs plain 0.964).
+2. **Weighted partition REMOVED; equal static contiguous cut always.**
+   The per-thread chunk timing stays as pure telemetry: the description
+   now carries "cut=eq spr=N.NNx" so the node itself reports whether a
+   structural spread even exists before any future re-attempt.  (Wallaby
+   telemetry this round: 1.38x at B=4096 on ONE socket -- confirming the
+   r1 trigger was reading noise.)
+3. **Per-worker release/done flags** (ADOPTED FROM L17_matrixsimd mt_r1:
+   "only the ACTIVE team's flags are touched").  Dispatch release-stores
+   only the team's rel flags (own cache line each) and collects only the
+   team's fin flags; a never-released worker never reads the job
+   descriptor, which closes r1's team-only-ack staleness race BY
+   CONSTRUCTION (the r1 revert note stands for the shared-counter design;
+   this is the safe per-worker version).  Small teams on the node now
+   touch zero remote-socket lines per dispatch.
+4. **Flat arrival-flag/release barrier** (ADOPTED FROM L17_winograd
+   mt_r1): each mode-2 team member writes its OWN padded arrival line,
+   rank 0 scans them (misses overlap) and publishes one release word;
+   epoch = the dispatch generation, so threads that sat out a tuning
+   dispatch can never be out of phase.  Replaces the central
+   fetch_add sense barrier (winograd measured ~0.3-0.4 us vs ~1.2 us at
+   nt=16 for the central shape; matrixsimd saw 3.5 us at nt=32).
+5. **Bug found while measuring: thundering herd on parked workers.**
+   With per-worker release, non-team workers park FOREVER (nothing ever
+   bumps their flag), so the r1-style global "anyone parked -> broadcast"
+   woke ~30 sleepers on EVERY small-team dispatch just to re-sleep:
+   measured B=1 vp nt=2 at **80 us** against 7 us steady state.  Fix: a
+   per-worker parked flag, written under the mutex with the same
+   seq_cst Dekker pattern as r1's nparked; dispatch scans only the
+   team's flags and broadcasts once if any is set.  After the fix the
+   same race read nt=2 14.9 us and the B=1 pick landed at nt=17/5.71.
+
+Operation count: unchanged (296 FP instr per 17-point transform, 867
+transforms = ~423 kflop per volume; the round touched only dispatch,
+placement, and tuning).  Bit-identical across all modes as before
+(tryout cmp: repeatable at every batch tested).
+
+### Measured (wallaby, SPR 6448Y, 32 threads, shared login node)
+
+| case | mt_r2 | mt_r1 same host | note |
+|---|---|---|---|
+| B=1 | **4.98-5.19 us, sd 0.2-0.3%** | 5.7-7.5 (quiet best 5.72) | mode 2, race kept nt=17 (5.71 in-plan); ~9% faster than r1's best and far more stable |
+| B=8 | 14.04 us/call = 1.75 us/t | 14.0-14.2 | unchanged |
+| B=256 | 122.9 us/call = 0.48 us/t | 114-122 | plain xl 512t dy, nt=32 (NT rightly loses in wallaby's 60 MB L3) |
+| B=4096 | 4209 us/call = 1.028 us/t | 3933-4390 | stnt dy nt=32 wins the honest race 0.780 vs plain 0.964 in-arena |
+
+Correctness: rel_l2 3.11-3.18e-16 at every batch tested (1, 2, 8, 31,
+64, 256, 4096), repeatable bit-identical across runs.  Wallaby cannot
+show the NUMA fixes (its 32 threads sit on one socket); the node is the
+real test, and every change this round is either node-targeted (1, 2, 3)
+or measured better on wallaby too (4, 5).
+
+### What did not work, with numbers
+
+* **Global "anyone parked" wake check with per-worker release flags**:
+  B=1 vp nt=2 80.2 us, nt=4 56.8, nt=8 40.1 -- every dispatch broadcast-
+  woke ~30 permanently-parked non-team workers.  Per-worker parked flags
+  fixed it same session (see item 5).
+* Nothing else was tried and rejected this round; the round was
+  deliberately three borrowed, already-proven mechanisms plus the
+  removal of my own two mt_r1 mistakes.
+
+### Borrowed
+
+* Serial memset of the tuner arena's output buffer -- L23_matrixsimd
+  mt_r1 (via L8_fusedaxes's restatement).
+* Per-worker release/done handshake -- L17_matrixsimd mt_r1.
+* Flat arrival-flag/release barrier with dispatch-epoch sequencing --
+  L17_winograd mt_r1.
+
+### Next round
+
+1. **Read the node's new telemetry first**: "cut=eq spr=N.NNx" says
+   whether a structural two-socket spread exists at B=4096 (if spr is
+   reproducibly >1.3, a weighted cut is worth re-attempting -- but only
+   adopted from repeated, separated measurements, never one race); the
+   b1 st/vp line prices the new handshake on CLX.
+2. **B=4096 expectation**: honest race + equal cut + NT should land near
+   the node's bandwidth floor (winograd's 1.222 = ~193 GB/s with the
+   RFO; stnt deletes the RFO, so ~0.9-1.1 us/t is the target).  If it
+   still loses to winograd's OMP static split, the difference is the
+   pool itself and I should race an OMP-region dispatch at batch as a
+   candidate (region cost is noise at 5+ ms calls).
+3. **B=1 floor**: the plane phase's 17 tasks x ~0.5 us over nt=17 leaves
+   the x phase + 1 barrier + handshake; if the node's new B=1 is still
+   >7 us while wallaby holds 5.0, the remaining gap is CLX's slower
+   uncore and the next lever is merging the deint/z/transpose/y plane
+   pipeline into fewer, larger tasks (fewer release/collect round trips),
+   or matrixsimd's locality-aware x-chunk order (each thread starts on
+   the columns of planes IT wrote).
+4. **B=256 on the node**: the honest arena may flip the pick to st/stnt
+   (44 MB combined L3 vs 77 MB working set streams more than wallaby's
+   60 MB single-socket L3 suggested); if matrixsimd still leads, steal
+   their staged-input mechanism next.

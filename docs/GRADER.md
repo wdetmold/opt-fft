@@ -86,6 +86,39 @@ A single weighted average is required to be accompanied by the per-size table: t
 batches) with the B=1 kernels selected at every batch size, and the per-size data shows
 our kernels *ahead* at the same sizes where the aggregate said behind.
 
+## Measurement protocol: paired, interleaved, ratio-of-windows
+
+This section exists because of a real incident. The grader once reported MKL 1.65x ahead;
+a pinned probe on the same machine then showed our suite 1.46x FASTER end-to-end (3.02-3.14 s
+against 4.42-4.55 s, reproducible across three protocol executions, ahead at every size in
+both regimes). The forensics: the grader timed each code in separate unpinned subprocesses
+minutes apart on a steal-bursty VM and kept each side's best shot. MKL's shots were 2.42 s
+and 4.51 s -- the 4.51 matches its true time, the 2.42 was a lucky quiet window that
+best-of then kept -- while our shots (4.0/4.9 s) carried ~0.7 s of in-call input generation
+plus an unlucky window. Cross-code timing noise of ~2x, at a hard parity cliff in the score,
+inverted the verdict.
+
+Three rules, each of which alone would have prevented it:
+
+1. **Never compare absolute times taken in different windows.** Shots are PAIRED and
+   INTERLEAVED -- A,B,A,B (and B,A,B,A on alternate repetitions, so ordering effects cancel)
+   within the same window -- and the reported quantity is the **median of per-window ratios**
+   A_i/B_i. Environmental drift then hits both sides of every ratio equally. Best-of-shots
+   taken independently is forbidden: it selects each side's luckiest window, and on shared
+   hardware that is a coin with ~2x sides.
+2. **Nothing but the transform inside the timed call.** Input generation, file IO and
+   checksumming happen outside it (the harness driver already reads pre-generated input; a
+   graded call that generates data in-call adds a constant that dilutes one side only).
+3. **Record the environment with every shot, and reject dirty windows.** /proc/stat steal
+   time and involuntary context switches before and after each window; a window with
+   nonzero steal or a load spike is discarded, not averaged in. Pin with taskset where the
+   platform allows it. The two sides always run under identical pinning.
+
+And one rule about the score itself: **no hard cliff at parity.** If the score steps at
+A/B = 1.0, measurement noise near parity flips whole grades; use a smooth function of the
+median ratio (the current one maps our 0.68 ratio to ~0.65) and publish the per-size table
+next to it, so a single aggregate can never silently invert a verdict again.
+
 ## Environment
 
 Measured on an exclusive node, `-march=native` **built on that node** (several kernels

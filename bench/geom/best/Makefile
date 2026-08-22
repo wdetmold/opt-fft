@@ -17,7 +17,8 @@ RENAME = -Dfft3d_name=$(1)_name -Dfft3d_description=$(1)_description \
          -Dfft3d_execute=$(1)_execute -Dfft3d_destroy=$(1)_destroy
 
 OBJS = $(BUILD)/fft3d_best.o $(BUILD)/k6.o $(BUILD)/k8.o $(BUILD)/k13.o $(BUILD)/k17.o $(BUILD)/k23.o $(BUILD)/k36.o \
-       $(BUILD)/k45.o $(BUILD)/k64.o $(BUILD)/k8b.o $(BUILD)/k36b.o $(BUILD)/k64b.o
+       $(BUILD)/k45.o $(BUILD)/k64.o $(BUILD)/k8b.o $(BUILD)/k36b.o $(BUILD)/k64b.o \
+       $(BUILD)/k6b.o $(BUILD)/k13b.o $(BUILD)/k17b.o $(BUILD)/k23b.o $(BUILD)/k36c.o $(BUILD)/k45b.o
 
 .PHONY: all verify clean
 all: $(BUILD)/libfft3d_best.a $(BUILD)/verify_best $(BUILD)/pick_check
@@ -46,6 +47,12 @@ $(BUILD)/k64.o: kernels/L64_blocked.c    | $(BUILD) ; $(CC) $(CFLAGS) -I. -I.. $
 $(BUILD)/k8b.o:  kernels/L8_fusedaxes.c    | $(BUILD) ; $(CC) $(CFLAGS) -I. -I.. $(call RENAME,k8b)  -c -o $@ $<
 $(BUILD)/k36b.o: kernels/L36_pencilfused.c | $(BUILD) ; $(CC) $(CFLAGS) -I. -I.. $(call RENAME,k36b) -c -o $@ $<
 $(BUILD)/k64b.o: kernels/L64_radix8.c      | $(BUILD) ; $(CC) $(CFLAGS) -I. -I.. $(call RENAME,k64b) -c -o $@ $<
+$(BUILD)/k6b.o:  kernels/L6_unrolled.c     | $(BUILD) ; $(CC) $(CFLAGS) -I. -I.. $(call RENAME,k6b)  -c -o $@ $<
+$(BUILD)/k13b.o: kernels/L13_rader.c       | $(BUILD) ; $(CC) $(CFLAGS) -I. -I.. $(call RENAME,k13b) -c -o $@ $<
+$(BUILD)/k17b.o: kernels/L17_rader.c       | $(BUILD) ; $(CC) $(CFLAGS) -I. -I.. $(call RENAME,k17b) -c -o $@ $<
+$(BUILD)/k23b.o: kernels/L23_matrixsimd.c  | $(BUILD) ; $(CC) $(CFLAGS) -I. -I.. $(call RENAME,k23b) -c -o $@ $<
+$(BUILD)/k36c.o: kernels/L36_pfa.c         | $(BUILD) ; $(CC) $(CFLAGS) -I. -I.. $(call RENAME,k36c) -c -o $@ $<
+$(BUILD)/k45b.o: kernels/L45_mixedradix.c  | $(BUILD) ; $(CC) $(CFLAGS) -I. -I.. $(call RENAME,k45b) -c -o $@ $<
 
 $(BUILD)/verify_best: verify_best.c $(BUILD)/libfft3d_best.a | $(BUILD)
 	$(CC) $(CFLAGS) -I. -o $@ $< $(BUILD)/libfft3d_best.a $(LDLIBS)

@@ -136,3 +136,151 @@ change the pick) is L6_unrolled r9's ab1 pattern carried forward.
    there; the cell then becomes DRAM-bound and the phase-1 streaming
    tricks (pf schedule, staged Z) deserve a re-A/B under 32-thread
    contention — `-DL13_PW=0`/`-DL13_PFIN=0` still build.
+
+## Round mt_r2
+
+### Where round mt_r1 left this entry
+
+Node (Gold 5218, scored): B=1 **5.670 µs** (won, 1.35× over mkl2026),
+B=512 **0.308 µs/vol** (won, 1.17×), B=8192 **1.275 µs/vol — LOST**, 1.31×
+behind L13_rader (0.976) and 1.62× behind fftw3_patient (0.787). The
+verdict names the cell's disease exactly: 72–95 GB/s achieved where FFTW
+gets 89 useful, because every panel L13 store to `out` paid the
+write-allocate RFO — and six other entries measured the NT-store inversion
+at 32 threads this round (20–30% at every streaming cell). Phase 1's
+eleven-round "hide the RFO with prefetchw, never NT" verdict was a
+one-core fill-buffer result; it does not survive 32 threads at the DRAM
+wall.
+
+### What changed
+
+One structural addition, nothing else touched: a third batch tier. When
+the working set exceeds **4× the socket L3** (node: B=8192's 549 MB ≫
+88 MB; B=512's 34 MB stays below it), execute switches to
+`l13_exec_xsnt_pf_mx` — X-first into t1, per kx-plane zsolid-Y → pb,
+zsolid-Z → the hot 2.7 KB `sb` staging plane (both groups pure zmm so the
+copy's 64 B reads never straddle narrow stores), then the plane is
+appended to `out` with **non-temporal stores**.
+
+The appender is the one part that is mine rather than borrowed: since a
+thread's volumes are contiguous in `out` and a volume's planes are
+contiguous too, the whole per-thread output range is ONE byte stream, so
+the appender carries the partial cache line across plane and volume
+boundaries (a 13³ volume is 549.25 lines; plane stride 2704 B ≡ 16 mod
+64). Every line of the range is therefore written by exactly one
+full-line 64 B NT burst — zero partial-line WC flushes at the ~13 plane
+junctions per volume that a per-plane copy would pay, and none at volume
+junctions either (L13_rader's per-volume staging pays 2 per volume).
+Head/tail of the range use 16 B `_mm_stream_pd` (volume bases are 16 B
+aligned). One `sfence` per thread before the join (L8_radix8's rule: a
+fence orders only the issuing core's stores). prefetchw is deleted in
+this exec — with NT stores nothing RFOs `out` — while the paced
+read-prefetch of the next volume's input stays. Intrinsics are confined
+to this one `__AVX512F__`-only block; AVX2-only and no-OpenMP builds are
+unchanged (verified).
+
+Knobs: `-DL13_NT=0` rolls the tier back to the r1 pf exec; `L13_FORCE=15`
+pins the NT exec at any batch. Determinism: the gate is a pure function
+of batch and sysconf L3, the copy writes identical bits, so output stays
+bit-identical to every other exec at every team size (verified
+"repeatable: identical output across runs" at B=1..8192).
+
+### Operation count
+
+Arithmetic unchanged (14.3k vector-op cycles/volume, zsolid + xmm-tail
+census from panel_r11). The NT tier adds a per-volume staging pass: 13
+planes × 2704 B written to L1-hot sb and re-read for the NT burst
+(~4.4 KB of extra L1 traffic per plane, zero extra DRAM traffic), and
+deletes the 35 KB/volume out-RFO: compulsory DRAM traffic drops
+105 KB → 70 KB per volume.
+
+### Measured on wallaby (Gold 6448Y, 32 threads close/cores, driver-level, shared login node)
+
+| case | mt_r1 | mt_r2 | note |
+|---|---|---|---|
+| B=1 | 2.497 µs | **2.501 µs** | serial path untouched |
+| B=16 | 7.81 µs/call | **7.01 µs/call** | untouched path, login noise |
+| B=512 | 84.2 µs/call | **83.2 µs/call** (0.162 µs/vol) | pf exec, untouched |
+| B=2048 | 526 µs/call | 540 µs/call | pf path (137 MB < 4×60 MB on wallaby) |
+| B=4096 | — | **1206 µs/call** (0.295 µs/vol) | NT tier |
+| B=8192 | — (node 1.275 µs/vol) | **2788 µs/call = 0.340 µs/vol**, sd 0.3% | NT tier |
+
+A/Bs at B=8192, same host, same build flags otherwise:
+* `-DL13_NT=0` (the r1 exec): 3721 µs → **NT is −25%**, matching the
+  panel-wide inversion and L13_rader's −21%.
+* `-DL13_PFIN=0` (NT but no input read-prefetch): 3023 µs → the paced
+  next-volume input prefetch is worth **−8%** even under NT (consistent
+  with L13_rader's node race pricing pf-off at +13%). Keep both.
+* Correctness: PASS rel_l2 = 2.83e-16 (B=1) … 2.87e-16 (B=512) …
+  2.86e-16 (B=8192), tol 1e-12; bit-identical across runs everywhere.
+
+For reference, L13_rader's mt_r1 wallaby number at B=8192 was 2948 µs
+(0.360 µs/vol); this exec is 5% under it on the same host, with the same
+70 KB/volume compulsory traffic, so the difference is junction/WC
+behaviour and the cheaper kernel. Parallel efficiency at B=8192: phase-1
+serial streaming was ~4.6 µs/vol on wallaby (r8 B=2048 reading), so
+0.340 µs/vol ≈ 13.5× on 32 threads (42%) — bandwidth-bound, as the
+achieved 358 GF/s ≈ 206 GB/s aggregate says directly.
+
+Node prediction, pre-registered: mt_r1's wallaby→node factor for the NT
+streaming regime was 2.7× (L13_rader 0.360 → 0.976). That puts this exec
+at **~0.85–1.0 µs/vol at B=8192** on the unchanged harness — ahead of
+L13_rader, still possibly behind fftw3_patient's 0.787 (which sits at the
+node's useful-bandwidth roof). If the monitor adopts the verdict §6
+harness fix (parallel first-touch / explicit page policy), the socket-0
+residency handicap disappears and this should drop well below 0.787.
+
+### What did NOT work / was deliberately declined, with numbers
+
+1. **Flipping B=1 to the t2g2 intra split.** The node's ab[B1] instrument
+   read t2g2:13136 vs t1g1:14222 (−7.6%) — the first time any split beat
+   serial anywhere. Declined this round: it is ONE reading from an
+   instrument whose absolute scale is 2.5× off the driver (14.2 µs vs
+   5.67 µs measured), the r11 record documents an instrument/cell
+   inversion, and B=1 is a cell we currently WIN by 8% (5.670 vs
+   L13_rader's 6.143). Losing it to chase −7.6% is a bad trade on one
+   noisy bit of evidence. The ab[B1] sweep still prints every round: if
+   mt_r2's leaderboard shows t2g2 winning again, flip it in mt_r3.
+2. **Half team (t16) at the streaming cell.** Not re-measured:
+   L13_rader's node race already priced n16 at B=8192 (1086 vs 976
+   ns/vol, +11%) — the far socket contributes bandwidth, not just UPI
+   (verdict §4: T=32 won every batched cell). The ab[B64] t16 reading
+   (1157 vs t32 6842) contradicts this at mid batch, but B=64 is not a
+   scored cell and the t32 arena reading there is 5× off the driver's
+   B=512 per-volume time, i.e. the arena is mis-pricing something at
+   small tb; noted for the monitor, not acted on.
+3. **NT at the L3-adjacent batch (B=512).** Not rediscovered:
+   L13_rader's node race read nt +33% at B=512. The 4×L3 gate exists to
+   keep NT out of exactly that cell; `-DL13_NT=0` exists in case the node
+   says the gate is still wrong in the other direction.
+
+### Borrowed, explicitly
+
+* **NT staged stores and the 4×-socket-L3 gate: L13_rader mt_r1** (its
+  nts mode, −21% wallaby, node race nt-off +30%), which itself overturned
+  my phase-1 prefetchw verdict. Via the mt_r1 VERDICT §4/§6, which
+  aggregated the same inversion from L23_matrixsimd, L36_pfa, L17_rader,
+  L8_fusedaxes, L45_pfa, L64_*.
+* **Per-thread sfence before the join: L8_radix8 mt_r1.**
+* **"pw is pointless under NT (no RFO to hide)": L23_matrixsimd mt_r1**,
+  confirmed here by construction (pfw deleted from the NT exec).
+* The carried-partial-line streaming appender is new here; rivals stage
+  per volume and pay 2 partial-line WC flushes per volume, this pays 2
+  per thread RANGE (256 volumes at B=8192).
+
+### Next round
+
+1. **Read the node's B=8192 number first.** If it lands ≥1.0 µs/vol while
+   wallaby says 0.340, the gap is page placement, not code — push on the
+   verdict §6 harness question before touching the kernel.
+2. **B=1 t2g2**: flip if the mt_r2 leaderboard's ab[B1] again shows t2g2
+   beating t1g1 on the node (two consistent readings = act).
+3. If fftw3_patient still leads at B=8192, the remaining levers are (a) a
+   per-thread software-pipelined X-pass that overlaps the next volume's
+   X with the current volume's Y/Z (deeper overlap of the read stream
+   with the NT drain), and (b) trying the NT tier one gate step earlier
+   (2×L3) on the node only — wallaby B=2048 pf vs NT is 540 vs untested.
+4. The B=16-band fork/join cost (~4–5 µs GOMP region) is still the whole
+   gap at small batch; a create()-time spin pool (L17_matrixsimd has one
+   to borrow) is the fix if a scored cell ever lands in that band —
+   B=512/8192 don't need it (region cost is <2% there).

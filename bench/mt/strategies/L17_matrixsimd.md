@@ -180,3 +180,146 @@ ideas below.
    repointed at UPI).
 4. If the leaderboard shows a rival's mt layer faster at batch, steal its
    schedule first — the kernel is already the phase-1 winner here.
+
+## Round mt_r2 — arena fidelity for the node's pages, winograd's flat barrier, bulk X-phase pull, t1g re-homing
+
+### Where round 1 left me on the node
+
+Won B=1 (7.112 us, 3.21x MKL) and B=256 (0.726 us/t, but a 1.12x cross-process
+pick spread: 199.2/208.5/185.9); LOST B=4096 to L17_winograd by 1.72x (2.106 vs
+1.222 us/t) with my own create-time race having picked NT+pipelined at nt=24/32
+static in all three processes.  The r1 VERDICT diagnosed the round's shared
+defect and it is exactly my B=4096 story: the create-time arena was filled
+SERIALLY ("to match the driver's first touch"), but the driver's
+serially-touched pages do not STAY on socket 0 through the multi-second scored
+loop — AutoNUMA migrates them toward the threads that keep faulting them
+(L=6 B=65536 sustains 175 GB/s, far above one socket; winograd's plain static
+schedule reached 129 GB/s).  So my arena priced a transient (all pages remote
+to half the team) and the scored run ran a different machine (pages
+owner-local under a static split).  L17_rader's description string is the
+smoking gun for the same trap: its arena read 1.319 us/t for a config that
+scored 2.904.  Everything below follows from taking that diagnosis seriously.
+
+### What changed (all schedule/address/timing-only; every bit class untouched)
+
+1. **Owner-touched tuner arena** (`l17_tune_alloc_mt`): the batch>=64 mt arena
+   is now first-touched IN PARALLEL, volume v touched by the thread that will
+   process v under the static split, THEN filled with values serially (first
+   touch is per page at first write; later writes move nothing).  This is the
+   AutoNUMA-migrated steady state, and it is also what the harness will
+   produce if the monitor adopts the VERDICT's parallel-first-touch fix.
+   Stage A now races under static dyn=0 (what the node picked panel-wide in
+   r1) instead of dyn=2, whose only purpose was hiding the imbalance the old
+   arena faked.
+2. **Median-of-5 race statistic** in `l17mt_time_cfg` (was min-of-3), against
+   VERDICT §3.2's pick lottery (nine entries, mine included at B=256, scored
+   on their luckiest process).  A median flips only when the distributions
+   actually cross.
+3. **Flat arrival-flag/release barrier** for the mode-2 phase boundary,
+   ADOPTED FROM L17_winograd mt_r1 (its record: central atomic ~1.2 us at
+   T=16 — serialized RFOs on one counter line — vs 0.3–0.4 us flat; my own r1
+   skip-probe read 1.56 us at nt=16).  Each arriver writes its own padded
+   line, thread 0 scans (misses overlap) and publishes one release word; the
+   sequence is the pool generation, unique per execute, so threads that sat
+   out smaller-team dispatches can never be out of phase (winograd's
+   derive-from-the-epoch argument, reused verbatim).
+4. **Bulk X-phase prefetch, xpf=2** (the r1 VERDICT's named L=17 fix and my
+   own r1 next-round item 1): at barrier exit each X thread pulls its WHOLE
+   column range back-to-back (capped at 24 chunks ~26 KiB) so the cross-core
+   dirty-line pulls overlap each other, not just two chunks ahead.  Raced
+   against xpf=0/1.
+5. **t1g re-homed after the team pick** (`l17mt_t1g_map`, now mmap'd so a
+   re-touch gets fresh pages): the race needs t1g to exist, so it is first
+   touched by the full-team map, but when the pick is nt<maxt (node r1:
+   nt=16) that map leaves planes 8..16's pages homed on socket 1 while every
+   user of them runs on socket 0 — a permanent cross-socket exposure this
+   entry shipped in r1.  After the mode race, t1g is munmap'd, re-mmap'd and
+   first-touched by the PICKED team's plane map, before the nxr/xpf race.
+6. **anb=** in the description string: /proc/sys/kernel/numa_balancing read
+   at plan time — the cheap check the VERDICT asked for, carried back on the
+   scoring node's own JSON.
+
+### Operation count
+
+Unchanged: 40.8k vector FP ops per volume (~225.5 zmm-equivalents with the
+mixed tail); the round adds zero arithmetic — a barrier, prefetches, and
+page placement.
+
+### Measured on wallaby (SPR, 32 threads one socket — where the arena fix is
+### expected to be nearly invisible, since there is no second socket to misprice)
+
+| case | mt_r1 | this round | note |
+|---|---|---|---|
+| B=1    | 5.26 us | **4.27–4.36 us** (–19%) | pick moved to nt=17 nxr=17 xpf=0: with the flat barrier, one-plane-per-thread granularity now wins |
+| B=8    | 1.62 us/t | **1.40 us/t** | mode-1 nt=8 |
+| B=256  | 0.385–0.53 us/t | 0.479 us/t (sd 6% — login-node noise) | |
+| B=4096 | 0.84 us/t | **0.84–0.88 us/t** | same pick as r1: 512-bit C-parked pipelined+NT, nt=32 dyn=1 (stage A: NT+pipe 0.729 vs plain X-first 0.814) |
+
+rel_l2 3.2e-16 everywhere, bit-repeatable across processes at every batch
+tried (1, 8, 33, 64, 100, 256, 4096).
+
+### What did not work / what lost, with numbers
+
+* **xpf=2 (bulk pull) loses on wallaby at every nxr**: nt=17 nxr=17: 5.340
+  vs 4.823 (xpf=0); nxr=12: 5.347 vs 4.990 (xpf=1).  On a single socket the
+  per-chunk lookahead already covers the c2c latency, and the bulk burst just
+  adds ~100 in-flight requests of L1 pressure up front.  KEPT as a raced
+  candidate because the node's cross-socket pulls are several times slower
+  and staggered arrivals mean the X phase starts while remote lines are still
+  dirty-far — the mechanism the cap-at-24-chunks version is aimed at.  The
+  node decides; wallaby already rejected it for itself.
+* Nothing else regressed; the flat barrier dominated the central one in
+  every B=1 config raced (it is not reported separately because the barrier
+  is not a raced knob — winograd's numbers plus my skip-probe made central
+  strictly worse).
+
+### Borrowed this round, named
+
+* **Flat arrival-flag/release barrier** — L17_winograd mt_r1, including the
+  epoch-derived sequence trick.
+* **The AutoNUMA/page-migration reading of the node** and the
+  parallel-first-touch prescription — the mt_r1 VERDICT (§4 last paragraph,
+  §6 harness item); the owner-touch arena is that prescription applied to
+  the only pages I own.
+* **Median-over-min for create-time races** — VERDICT §3.2's diagnosis;
+  L6_unrolled's stability-vs-speed contrast is the datum that motivated it.
+
+### Note for the monitor on the probes
+
+The sbw[rd/wr/cp/s17] numbers at batched cells are now measured on the
+OWNER-TOUCHED arena by a single-threaded prober, so on a two-socket node
+they will read higher than r1's (the prober sees ~half-remote pages).  They
+are still comparable between each other within the round; do not read the
+r2-vs-r1 sbw delta as a machine change.  b1dec is unaffected (volume-sized,
+socket-local).
+
+### Pre-registered node expectations
+
+* **B=4096**: the whole point of the round.  If the owner-touched arena
+  re-ranks stage A toward the plain/addr-safe X-first family, expect
+  1.2–1.4 us/t (parity with winograd's 129 GB/s schedule); if NT+pipelined
+  survives on faithful pages it should score BELOW 1.2 (RFO deletion is
+  236->157 KB/vol of compulsory traffic).  Anything near 2.1 again means the
+  arena is still unfaithful in a way I have not modeled — in that case next
+  round should copy winograd's per-thread serial `run_vols` schedule outright.
+* **B=256**: expect the win held with the cross-process spread collapsed
+  (median statistic + owner-touched arena).
+* **B=1**: expect 5.5–6.5 us (barrier ~-1 us of the 7.11, t1g re-home removes
+  the nt=16 cross-socket exposure; node clocks are lower than wallaby's).
+  If nt=17 is picked on the node, note its thread 16 sits on socket 1 under
+  close binding — the race prices that UPI barrier hop honestly now.
+
+### Next round
+
+1. If B=4096 still loses: adopt winograd's schedule wholesale (per-thread
+   serial volume loop over its static block with per-thread 241 KB scratch)
+   as a 22nd class-D candidate and let the race arbitrate — the VERDICT says
+   the 1.72x was schedule, and the schedule is sitting in a promoted exemplar.
+2. B=1 all-to-all: the locality-aware chunk ORDER (each X thread starts on
+   columns of planes it wrote) is still untried — the bulk prefetch attacks
+   latency, not order; if xpf=2 loses on the node too, reorder instead of
+   prefetch.
+3. If the harness adopts parallel first-touch/interleave, delete the
+   owner-touch code path comment and re-verify the arena still matches (it
+   does by construction for parallel first-touch; interleave would want an
+   interleaved arena fill instead).
