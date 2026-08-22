@@ -64,3 +64,32 @@ bench/geom/.probe_snapshot_*.sh
 
 # wave-2 case list and per-series config are generated, not authored
 bench/geom/results/.rounds_config
+
+# GPU harness build products and per-round snapshots
+bench/gpu/build/
+bench/gpu/impl
+bench/gpu/.sweep_snapshot_*.sh
+bench/gpu/logs/
+bench/gpu/results/.rounds_state
+bench/gpu/results/.rounds_config
+bench/gpu/results/**/t_*.json
+bench/gpu/results/**/c_*.json
+bench/gpu/results/**/*.log
+bench/gpu/results/**/*.err
+bench/gpu/results/**/slurm-*.out
+bench/gpu/results/**/prompts/
+bench/gpu/results/**/agents/
+bench/gpu/results/local_smoke/
+bench/mt/build/
+bench/mt/impl
+bench/mt/.sweep_snapshot_*.sh
+bench/mt/logs/
+bench/mt/results/.rounds_state
+bench/mt/results/.rounds_config
+bench/mt/results/**/t_*.json
+bench/mt/results/**/c_*.json
+bench/mt/results/**/*.log
+bench/mt/results/**/*.err
+bench/mt/results/**/slurm-*.out
+bench/mt/results/**/prompts/
+bench/mt/results/**/agents/

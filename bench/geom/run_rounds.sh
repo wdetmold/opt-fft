@@ -78,6 +78,12 @@ TIMELIMIT=${FFT_TIME:-55}
 # Round names are prefixed per phase (panel_r for single-thread CPU, mt_r for multicore,
 # gpu_r for the A100), so results/, exemplars/ and the git history stay unambiguous.
 ROUND_PREFIX=${FFT_ROUND_PREFIX:-panel_r}
+# Per-harness details the prompts need: the source extension, and how an implementer runs
+# its own development loop (the CPU phases develop on wallaby over ssh; the GPU phase
+# develops on this node, because this is the machine with the A100).
+SRC_EXT=${FFT_SRC_EXT:-c}
+DEV_CMD=${FFT_DEV_CMD:-./tryout.sh --on wallaby}
+API_HEADER=${FFT_API_HEADER:-fft3d_api.h}
 JOBS=${FFT_JOBS:-6}                 # implementer agents in flight at once
 AGENT_TIMEOUT=${FFT_AGENT_TIMEOUT:-5400}    # 90 min per implementer
 TIMING_TIMEOUT=${FFT_TIMING_TIMEOUT:-7200}  # 2 h for the benchmark job to produce a leaderboard
@@ -115,7 +121,11 @@ else
   NEXT=${FFT_FIRST_ROUND:-2}      # panel_r1 was run by hand; other phases start at 1
   [ -f "$STATE" ] && read -r EXISTING _ < "$STATE" && NEXT=$EXISTING
   LAST=$((NEXT + ROUNDS - 1))
-  printf '%s %s\n' "$NEXT" "$LAST" > "$STATE"
+  # A dry run must not touch real state. Truncating the series here once caused the next
+  # phase's setup hook to fire four rounds early, from a simulation.
+  if [ "$DRYRUN" != 1 ]; then
+    printf '%s %s\n' "$NEXT" "$LAST" > "$STATE"
+  fi
 fi
 
 log "=== run_rounds[$(basename "$GEOM")]: next=$ROUND_PREFIX$NEXT last=$ROUND_PREFIX$LAST jobs=$JOBS ==="
@@ -171,7 +181,7 @@ setup_impl_dir() {
     # which preserves that round's code, then branch this round off it.
     if [ -d "$GEOM/impl" ]; then
       if [ -d "$GEOM/impl_$prev" ]; then
-        cp "$GEOM"/impl/*.c "$GEOM/impl_$prev/" 2>/dev/null || true
+        cp "$GEOM"/impl/*."$SRC_EXT" "$GEOM/impl_$prev/" 2>/dev/null || true
         rm -rf "$GEOM/impl"
       else
         mv "$GEOM/impl" "$GEOM/impl_$prev"
@@ -179,16 +189,16 @@ setup_impl_dir() {
       fi
     fi
     mkdir -p "$dir"
-    cp "$GEOM/impl_$prev"/*.c "$dir/" 2>/dev/null || true
+    cp "$GEOM/impl_$prev"/*."$SRC_EXT" "$dir/" 2>/dev/null || true
     ln -sfn "impl_$n" "$GEOM/impl"
   else
     if [ ! -d "$dir" ]; then
       mkdir -p "$dir"
-      cp "$GEOM/impl_$prev"/*.c "$dir/" 2>/dev/null || true
+      cp "$GEOM/impl_$prev"/*."$SRC_EXT" "$dir/" 2>/dev/null || true
     fi
     ln -sfn "impl_$n" "$GEOM/impl"
   fi
-  log "$round works in impl_$n ($(ls "$dir"/*.c 2>/dev/null | wc -l) sources carried over from impl_$prev)"
+  log "$round works in impl_$n ($(ls "$dir"/*."$SRC_EXT" 2>/dev/null | wc -l) sources carried over from impl_$prev)"
 }
 
 # ---------------------------------------------------------------- context for implementers
@@ -244,7 +254,8 @@ run_implementers() {
 
   # The roster is whatever is on disk: rounds after the first revise existing entries.
   local roster
-  roster=$(cd "$GEOM/impl" && ls *.c 2>/dev/null | sed 's/\.c$//' | grep -v '^baseline_matrix$')
+  roster=$(cd "$GEOM/impl" && ls *."$SRC_EXT" 2>/dev/null | sed "s/\.$SRC_EXT\$//" \
+             | grep -vE '^(baseline_matrix|baseline_gpu)$')
   [ -n "$roster" ] || { log "no implementations found in impl/ -- aborting round"; return 1; }
   log "roster ($(echo "$roster" | wc -w)): $(echo $roster)"
 
@@ -261,7 +272,7 @@ round $round. Your geometry is L = $L (a cube ${L}^3 of complex doubles, batched
 
 Read first:
   $GEOM/PANEL_BRIEF.md            the rules, the contract, where to develop, how you are timed
-  $GEOM/impl/$name.c              YOUR current implementation -- this round you improve it
+  $GEOM/impl/$name.$SRC_EXT       YOUR current implementation -- this round you improve it
   $GEOM/strategies/$name.md       YOUR own record of what you have already tried
   $ROOT/docs/LITERATURE.md        the cited corpus, with a per-size strategy table
 
@@ -281,9 +292,9 @@ Your job this round:
      at the end of the context file).
   2. Make it faster, without breaking correctness. Relative L2 error against numpy must
      stay below 1e-12; a fast wrong answer scores nothing.
-  3. Iterate with:  cd $GEOM && ./tryout.sh --on wallaby $name $L <batch>
-     wallaby is a near-idle Sapphire Rapids node with full AVX-512 that shares this
-     filesystem. Use it constantly. Check both B=1 and a large batch.
+  3. Iterate with:  cd $GEOM && $DEV_CMD $name $L <batch>
+     Run it after every change, and check both B=1 and a large batch. See
+     $GEOM/PANEL_BRIEF.md for what that machine can and cannot tell you.
   4. Do NOT submit slurm jobs. The exclusive benchmark node belongs to the monitor; it will
      measure you there and the result will appear in the next leaderboard.
   5. APPEND a new "Round $round" section to $GEOM/strategies/$name.md: what you changed,
@@ -291,9 +302,9 @@ Your job this round:
      with the number that killed it, anything you borrowed from another entry, and what you
      would do next. Never overwrite earlier rounds -- the history is the point.
 
-Write only these two files: impl/$name.c and strategies/$name.md. Do not touch driver.c,
-fft3d_api.h, the Makefile, the sweep/submit/tryout scripts, another implementer's files, or
-anything under python/. Do not run 'make' in $GEOM (it is shared; tryout.sh is safe).
+Write only these two files: impl/$name.$SRC_EXT and strategies/$name.md. Do not touch the
+driver, $API_HEADER, the Makefile, the sweep/submit/tryout scripts, another implementer's
+files, or anything under python/. Do not run 'make' in $GEOM (it is shared; tryout.sh is safe).
 
 When you are done, reply with one line: the technique you ended on, your best wallaby
 microseconds per transform at B=1 and batched, and your rel L2 error.
@@ -517,7 +528,9 @@ if [ "$NEXT" -gt "$LAST" ]; then
   # A hook lets the next phase of the project arm itself: expand_geometries.sh installs
   # itself here so that widening the geometry pool happens the moment this series ends,
   # without anyone having to be watching.
-  if [ -x "$GEOM/after_series.sh" ]; then
+  if [ "$DRYRUN" = 1 ]; then
+    log "[dry-run] would run the series-completion hook"
+  elif [ -x "$GEOM/after_series.sh" ]; then
     log "running the series-completion hook: after_series.sh"
     "$GEOM/after_series.sh" >> "$LOGDIR/rounds.log" 2>&1 \
       && log "hook finished; cron will pick up whatever it armed" \

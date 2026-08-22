@@ -211,5 +211,7 @@ deliberate separate step, not a stub away.
 NOTE
 LOG "wrote results/WAVE2.md"
 
-rm -f "$GEOM/after_series.sh"
-LOG "disarmed the hook; cron will start panel_r$NEW_NEXT on its next tick"
+# Hand the baton on: when THIS wave's series finishes, the multicore competition starts.
+ln -sfn setup_multicore.sh "$GEOM/after_series.sh"
+LOG "armed the multicore phase as this wave's successor"
+LOG "cron will start panel_r$NEW_NEXT on its next tick"

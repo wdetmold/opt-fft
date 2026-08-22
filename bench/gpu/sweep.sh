@@ -1,0 +1,87 @@
+#!/bin/bash
+# Runs on the GPU benchmark node. Rebuilds locally, generates fresh random data for the
+# round, then measures every backend on every case in several independent processes.
+#
+# usage: sweep.sh --round TAG --seed N [--runs 3] [--samples 20]
+set -u
+cd "$(dirname "$0")"
+source /home/lqcd/wdetmold/fft/env.sh >/dev/null 2>&1
+
+ROUND=""; SEED=0; RUNS=3; SAMPLES=20
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --round) ROUND=$2; shift 2 ;;
+    --seed) SEED=$2; shift 2 ;;
+    --runs) RUNS=$2; shift 2 ;;
+    --samples) SAMPLES=$2; shift 2 ;;
+    --quick) shift ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$ROUND" ] || { echo "sweep.sh: --round is required" >&2; exit 2; }
+
+OUT=results/$ROUND
+mkdir -p "$OUT"
+BINDIR=build/$(hostname -s)/bin
+
+{
+  echo "# round $ROUND"
+  echo "host: $(hostname)   date: $(date -Is)   slurm_job: ${SLURM_JOB_ID:-none}"
+  nvidia-smi --query-gpu=name,memory.total,clocks.max.sm,clocks.max.mem,persistence_mode \
+             --format=csv,noheader 2>/dev/null | sed 's/^/gpu: /'
+  echo "visible devices: ${CUDA_VISIBLE_DEVICES:-all}"
+  echo "nvcc: $(nvcc --version | tail -1)"
+  echo "driver: $(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)"
+} | tee "$OUT/environment.txt"
+
+echo "== building on $(hostname) =="
+make clean >/dev/null 2>&1
+if ! make -k all 2>"$OUT/build_errors.txt"; then
+  echo "!! some backends failed to build; see $OUT/build_errors.txt"
+  grep -E 'error' "$OUT/build_errors.txt" | head -20
+fi
+make list
+
+if [ -f cases.txt ]; then
+  CASES=$(grep -vE '^\s*(#|$)' cases.txt | tr '\n' ' ')
+else
+  CASES="6:1 6:4096 8:1 8:2048 17:1 17:256 36:1 36:32"
+fi
+
+BACKENDS=$(cd "$BINDIR" && ls)
+echo "== backends: $BACKENDS =="
+
+for case in $CASES; do
+  L=${case%%:*}; B=${case##*:}
+  IN=$OUT/in_L${L}_B${B}.bin
+  python3 gen_input.py --L "$L" --batch "$B" --seed $((SEED + L * 1000 + B)) --out "$IN" >/dev/null
+  for backend in $BACKENDS; do
+    # The dense floor is O(L^4) per volume per axis; past this it only burns wall clock.
+    if [ "$backend" = "baseline_gpu" ] && [ $((L * L * L * B)) -gt 40000000 ]; then
+      echo "   skipping baseline_gpu at L=$L B=$B (too expensive to be informative)" >> "$OUT/timing.log"
+      continue
+    fi
+    for run in $(seq 1 "$RUNS"); do
+      timeout 900 "$BINDIR/$backend" --L "$L" --batch "$B" --in "$IN" \
+        --out "$OUT/out_${backend}_L${L}_B${B}.bin" \
+        --json "$OUT/t_${backend}_L${L}_B${B}_r${run}.json" \
+        --samples "$SAMPLES" --warmup 5 --min-sample-ms 20 --run-index "$run" \
+        >>"$OUT/timing.log" 2>>"$OUT/timing.err"
+      rc=$?
+      if [ $rc -ne 0 ] && [ $rc -ne 3 ]; then
+        echo "$backend L=$L B=$B run=$run exited $rc" >>"$OUT/failures.txt"
+      fi
+    done
+    if [ -f "$OUT/out_${backend}_L${L}_B${B}.bin" ]; then
+      python3 check.py --input "$IN" --output "$OUT/out_${backend}_L${L}_B${B}.bin" \
+        --L "$L" --batch "$B" --json "$OUT/c_${backend}_L${L}_B${B}.json" \
+        >>"$OUT/check.log" 2>&1
+      rm -f "$OUT/out_${backend}_L${L}_B${B}.bin"
+    fi
+  done
+  rm -f "$IN"
+  echo "   done L=$L B=$B"
+done
+
+python3 leaderboard.py --round "$ROUND" | tee "$OUT/leaderboard.txt"
+echo "== round $ROUND complete: $OUT =="
