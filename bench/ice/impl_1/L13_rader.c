@@ -39,13 +39,27 @@
  * anything gcc can emulate.
  *
  * Since panel_r11, create() runs an IN-PLAN TIMED RACE of the knob variants
- * the panel could never A/B on the node (fused-vs-unfused at B=1; pw, and pf
- * when engaged, at the full scored batch), on private buffers, and both
- * reports the readings through fft3d_description() and adopts a challenger
- * that beats the sysconf incumbent by >3% (L6_pfa's incumbency rule).  Every
- * raced pair is output-BIT-IDENTICAL (fused/unfused verified by cmp in r9;
- * pw/pf are pure prefetches), so a flip can change time but never results.
- * Instrument pattern from L13_direct r10 <- L6_unrolled r9 <- L36_pfa r8.
+ * the panel could never A/B on the node (fused-vs-unfused at B=1; pw, pf,
+ * and since ice_r1 fused-vs-unfused, at the full scored batch), on private
+ * buffers, and both reports the readings through fft3d_description() and
+ * adopts a challenger that beats the sysconf incumbent by >3% (L6_pfa's
+ * incumbency rule).  Every raced pair is output-BIT-IDENTICAL (fused/
+ * unfused verified by cmp in r9; pw/pf are pure prefetches), so a flip can
+ * change time but never results.  Instrument pattern from L13_direct r10
+ * <- L6_unrolled r9 <- L36_pfa r8.
+ *
+ * ICE LAKE round ice_r1 (a80n0, Gold 6326, graded chain B=32 m=1278):
+ * the z->U store transpose is tstore13 (unpck/vpermt2pd per 4-column group,
+ * halves stored ymm + vextractf64x4-to-memory: 24 p5/component vs TR8's 48,
+ * because ICX runs FMA on p0+p5 and every 512-bit shuffle steals an FMA
+ * slot -- node: wash at the latency-bound graded point, kept for the port
+ * accounting).  The merge-masked-broadcast load transpose (tload13 with
+ * L13R_MB=1) measured +1.36 us/xform -- the 8-deep merge chains lengthen
+ * the load dependency path exactly where the chain is latency-bound -- and
+ * defaults OFF.  pw/pf gates moved to L3 (the chain keeps in/out
+ * L3-resident; pw=1 there cost +7.4%).  Fused-at-batch re-raced on ICX:
+ * loses there too (6.73 vs 6.39 forced), so the unfused incumbent stands
+ * everywhere batch > 1 and the f1 race arm documents it per-run.
  *
  * Contract: ../fft3d_api.h.  Strategy record: ../strategies/L13_rader.md.
  */
@@ -54,6 +68,9 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#if defined(__AVX512F__)
+#include <immintrin.h>
+#endif
 
 #include "../fft3d_api.h"
 
@@ -499,6 +516,111 @@ static inline __attribute__((always_inline)) void kern13_regs(
         o7 = SH8(_d2,_d6, 4,5,6,7,12,13,14,15);                               \
     } while (0)
 
+/* ICE-LAKE transposes (ice_r1).  On this node 512-bit shuffles are p5-only
+ * and p5 is ALSO the second FMA pipe (CLX had one FMA pipe on p0, so the
+ * TR8 networks rode free there; here every shuffle steals an FMA slot).
+ * Both replacements move the transpose work to the load/store ports, which
+ * have slack (2 loads + 2 stores per cycle against ~0.3 used):
+ *
+ * tload13 -- transposing load x[c][r] = row_r[c], rows at src + off[r],
+ * c = 0..12: merge-masked vbroadcastsd from memory, ONE load-port uop each
+ * (fold verified in gcc 11 disasm), ZERO p5.  104 load uops per component
+ * against TR8's 16 loads + 48 p5 shuffles.  The 8-deep merge chain per
+ * column is dependency-serial but the 13 columns are independent, which is
+ * more ILP than the OOO window needs.
+ * MEASURED OFF (ice_r1): the graded chain is latency-bound, not p5-bound,
+ * and the 8-deep merge chains priced at +1.36 us/xform on the node (7.87
+ * vs 6.51 at B=32 m=1278, AB=0) -- the p5 slots they free are not the
+ * scarce resource there.  -DL13R_MB=1 re-opens the experiment. */
+#ifndef L13R_MB
+#define L13R_MB 0
+#endif
+static inline __attribute__((always_inline)) void tload13(
+        const double *src, const long *off, vd *x)
+{
+#if L13R_MB
+    const double *r0 = src + off[0], *r1 = src + off[1];
+    const double *r2 = src + off[2], *r3 = src + off[3];
+    const double *r4 = src + off[4], *r5 = src + off[5];
+    const double *r6 = src + off[6], *r7 = src + off[7];
+    for (int c = 0; c < LN; ++c) {
+        __m512d v = _mm512_broadcastsd_pd(_mm_load_sd(r0 + c));
+        v = _mm512_mask_broadcastsd_pd(v, 0x02, _mm_load_sd(r1 + c));
+        v = _mm512_mask_broadcastsd_pd(v, 0x04, _mm_load_sd(r2 + c));
+        v = _mm512_mask_broadcastsd_pd(v, 0x08, _mm_load_sd(r3 + c));
+        v = _mm512_mask_broadcastsd_pd(v, 0x10, _mm_load_sd(r4 + c));
+        v = _mm512_mask_broadcastsd_pd(v, 0x20, _mm_load_sd(r5 + c));
+        v = _mm512_mask_broadcastsd_pd(v, 0x40, _mm_load_sd(r6 + c));
+        v = _mm512_mask_broadcastsd_pd(v, 0x80, _mm_load_sd(r7 + c));
+        x[c] = (vd)v;
+    }
+#else
+    vd q[16], t[16];
+    for (int r = 0; r < 8; ++r) {
+        const double *row = src + off[r];
+        q[r]     = VL_(row);
+        q[8 + r] = VL_(row + 8);
+    }
+    TR8(q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7],
+        t[0],t[1],t[2],t[3],t[4],t[5],t[6],t[7]);
+    TR8(q[8],q[9],q[10],q[11],q[12],q[13],q[14],q[15],
+        t[8],t[9],t[10],t[11],t[12],t[13],t[14],t[15]);
+    for (int c = 0; c < LN; ++c) x[c] = t[c];
+#endif
+}
+
+/* tstore13 -- transposing store row_r[c] = y[c][r] into rows at
+ * base + off[r], c = 0..12: per 4-column group an unpck/vpermt2pd network
+ * (8 p5) whose outputs G_k = [row_k cols | row_{k+4} cols] are stored as a
+ * ymm low half plus a vextractf64x4-to-memory high half -- the extract
+ * retires on the store ports, not p5.  24 p5 ops per component against
+ * TR8's 48 + full-width stores.  Column 12 goes through a 64-byte bounce
+ * buffer (store->scalar reload), zero p5.  Pad columns 13..15 are no
+ * longer written; nothing reads them.
+ * -DL13R_XST=0 restores the TR8 shuffle-network stores for A/B. */
+#ifndef L13R_XST
+#define L13R_XST 1
+#endif
+static inline __attribute__((always_inline)) void tstore13(
+        const vd *y, double *base, const long *off)
+{
+#if !L13R_XST
+    vd q[16];
+    TR8(y[0],y[1],y[2],y[3],y[4],y[5],y[6],y[7],
+        q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7]);
+    TR8(y[8],y[9],y[10],y[11],y[12],y[12],y[12],y[12],
+        q[8],q[9],q[10],q[11],q[12],q[13],q[14],q[15]);
+    for (int r = 0; r < 8; ++r) {
+        VS_(base + off[r],     q[r]);
+        VS_(base + off[r] + 8, q[8 + r]);
+    }
+    return;
+#else
+    for (int c = 0; c < 3; ++c) {
+        vd y0 = y[4*c], y1 = y[4*c+1], y2 = y[4*c+2], y3 = y[4*c+3];
+        vd wl = SH8(y0,y1, 0,8,2,10,4,12,6,14);
+        vd wh = SH8(y0,y1, 1,9,3,11,5,13,7,15);
+        vd ul = SH8(y2,y3, 0,8,2,10,4,12,6,14);
+        vd uh = SH8(y2,y3, 1,9,3,11,5,13,7,15);
+        vd g0 = SH8(wl,ul, 0,1,8,9, 4,5,12,13);
+        vd g1 = SH8(wh,uh, 0,1,8,9, 4,5,12,13);
+        vd g2 = SH8(wl,ul, 2,3,10,11, 6,7,14,15);
+        vd g3 = SH8(wh,uh, 2,3,10,11, 6,7,14,15);
+        _mm256_storeu_pd(base + off[0] + 4*c, _mm512_castpd512_pd256((__m512d)g0));
+        _mm256_storeu_pd(base + off[4] + 4*c, _mm512_extractf64x4_pd((__m512d)g0, 1));
+        _mm256_storeu_pd(base + off[1] + 4*c, _mm512_castpd512_pd256((__m512d)g1));
+        _mm256_storeu_pd(base + off[5] + 4*c, _mm512_extractf64x4_pd((__m512d)g1, 1));
+        _mm256_storeu_pd(base + off[2] + 4*c, _mm512_castpd512_pd256((__m512d)g2));
+        _mm256_storeu_pd(base + off[6] + 4*c, _mm512_extractf64x4_pd((__m512d)g2, 1));
+        _mm256_storeu_pd(base + off[3] + 4*c, _mm512_castpd512_pd256((__m512d)g3));
+        _mm256_storeu_pd(base + off[7] + 4*c, _mm512_extractf64x4_pd((__m512d)g3, 1));
+    }
+    double tc[VW] __attribute__((aligned(64)));
+    VS_(tc, y[12]);
+    for (int r = 0; r < 8; ++r) base[off[r] + 12] = tc[r];
+#endif
+}
+
 /* zykern13_f: one z block FUSED at source-stage level with one y lane-block
  * (round panel_r9).  Rationale: a z block is ~450 uops of dependency-SERIAL
  * port-homogeneous phases (96 shuffles -> 186 FMA -> 96 shuffles), larger
@@ -584,45 +706,15 @@ static inline __attribute__((always_inline)) void zkern13_rows(
         const double *apr, const double *api, double *ur0, double *ui0,
         const long *soff, const long *doff)
 {
-    vd xr[16], xi[16], q[16];
-    for (int r = 0; r < 8; ++r) {
-        const double *row = apr + soff[r];
-        q[r]     = VL_(row);
-        q[8 + r] = VL_(row + 8);
-    }
-    TR8(q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7],
-        xr[0],xr[1],xr[2],xr[3],xr[4],xr[5],xr[6],xr[7]);
-    TR8(q[8],q[9],q[10],q[11],q[12],q[13],q[14],q[15],
-        xr[8],xr[9],xr[10],xr[11],xr[12],xr[13],xr[14],xr[15]);
-    for (int r = 0; r < 8; ++r) {
-        const double *row = api + soff[r];
-        q[r]     = VL_(row);
-        q[8 + r] = VL_(row + 8);
-    }
-    TR8(q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7],
-        xi[0],xi[1],xi[2],xi[3],xi[4],xi[5],xi[6],xi[7]);
-    TR8(q[8],q[9],q[10],q[11],q[12],q[13],q[14],q[15],
-        xi[8],xi[9],xi[10],xi[11],xi[12],xi[13],xi[14],xi[15]);
+    vd xr[13], xi[13];
+    tload13(apr, soff, xr);
+    tload13(api, soff, xi);
 
     vd yr[13], yi[13];
     kern13_regs(xr, xi, yr, yi);
 
-    TR8(yr[0],yr[1],yr[2],yr[3],yr[4],yr[5],yr[6],yr[7],
-        q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7]);
-    TR8(yr[8],yr[9],yr[10],yr[11],yr[12],yr[12],yr[12],yr[12],
-        q[8],q[9],q[10],q[11],q[12],q[13],q[14],q[15]);
-    for (int r = 0; r < 8; ++r) {
-        VS_(ur0 + doff[r],     q[r]);
-        VS_(ur0 + doff[r] + 8, q[8 + r]);
-    }
-    TR8(yi[0],yi[1],yi[2],yi[3],yi[4],yi[5],yi[6],yi[7],
-        q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7]);
-    TR8(yi[8],yi[9],yi[10],yi[11],yi[12],yi[12],yi[12],yi[12],
-        q[8],q[9],q[10],q[11],q[12],q[13],q[14],q[15]);
-    for (int r = 0; r < 8; ++r) {
-        VS_(ui0 + doff[r],     q[r]);
-        VS_(ui0 + doff[r] + 8, q[8 + r]);
-    }
+    tstore13(yr, ur0, doff);
+    tstore13(yi, ui0, doff);
 }
 
 /* The fused call (see the block comment above Z_HALF).  restrict is load-
@@ -637,18 +729,10 @@ static inline __attribute__((always_inline)) void zykern13_f(
         const double *restrict yxr, const double *restrict yxi,
         double *restrict ydst, long ym0)
 {
-    vd q[16], zx[16];
+    vd zx[13];
 
-    /* -- stage 1: z re transposing loads (16 loads, 48 shuffles) -- */
-    for (int r = 0; r < 8; ++r) {
-        const double *row = apr + soff[r];
-        q[r]     = VL_(row);
-        q[8 + r] = VL_(row + 8);
-    }
-    TR8(q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7],
-        zx[0],zx[1],zx[2],zx[3],zx[4],zx[5],zx[6],zx[7]);
-    TR8(q[8],q[9],q[10],q[11],q[12],q[13],q[14],q[15],
-        zx[8],zx[9],zx[10],zx[11],zx[12],zx[13],zx[14],zx[15]);
+    /* -- stage 1: z re transposing loads (masked-broadcast form, 0 p5) -- */
+    tload13(apr, soff, zx);
 
 #define YLD(k, vr, vi) do {                                                   \
         (vr) = VL_(yxr + (long)(k)*TR);  (vi) = VL_(yxi + (long)(k)*TR);      \
@@ -737,15 +821,7 @@ static inline __attribute__((always_inline)) void zykern13_f(
     }
 
     /* -- stage 5: z im transposing loads -- */
-    for (int r = 0; r < 8; ++r) {
-        const double *row = api + soff[r];
-        q[r]     = VL_(row);
-        q[8 + r] = VL_(row + 8);
-    }
-    TR8(q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7],
-        zx[0],zx[1],zx[2],zx[3],zx[4],zx[5],zx[6],zx[7]);
-    TR8(q[8],q[9],q[10],q[11],q[12],q[13],q[14],q[15],
-        zx[8],zx[9],zx[10],zx[11],zx[12],zx[13],zx[14],zx[15]);
+    tload13(api, soff, zx);
 
     /* -- stage 6: y negacyclic half 2 + 6 output stores -- */
     {
@@ -791,14 +867,7 @@ static inline __attribute__((always_inline)) void zykern13_f(
         m[8]  = zor[4] - zoi[10];  m[5]  = zor[4] + zoi[10];
         m[3]  = zor[5] - zoi[11];  m[10] = zor[5] + zoi[11];
         m[6]  = zor[6] - zoi[12];  m[7]  = zor[6] + zoi[12];
-        TR8(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],
-            q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7]);
-        TR8(m[8],m[9],m[10],m[11],m[12],m[12],m[12],m[12],
-            q[8],q[9],q[10],q[11],q[12],q[13],q[14],q[15]);
-        for (int r = 0; r < 8; ++r) {
-            VS_(ur0 + doff[r],     q[r]);
-            VS_(ur0 + doff[r] + 8, q[8 + r]);
-        }
+        tstore13(m, ur0, doff);
     }
 
     /* -- stage 9: mix im + transposing store -- */
@@ -811,14 +880,7 @@ static inline __attribute__((always_inline)) void zykern13_f(
         m[8]  = zoi[4] + zor[10];  m[5]  = zoi[4] - zor[10];
         m[3]  = zoi[5] + zor[11];  m[10] = zoi[5] - zor[11];
         m[6]  = zoi[6] + zor[12];  m[7]  = zoi[6] - zor[12];
-        TR8(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],
-            q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7]);
-        TR8(m[8],m[9],m[10],m[11],m[12],m[12],m[12],m[12],
-            q[8],q[9],q[10],q[11],q[12],q[13],q[14],q[15]);
-        for (int r = 0; r < 8; ++r) {
-            VS_(ui0 + doff[r],     q[r]);
-            VS_(ui0 + doff[r] + 8, q[8 + r]);
-        }
+        tstore13(m, ui0, doff);
     }
 }
 #endif /* VW == 8 */
@@ -960,38 +1022,45 @@ fft3d_plan *fft3d_create(int L, int batch)
     p->ys = 0;
 #endif
     {
-        long l2 = 0;
-#ifdef _SC_LEVEL2_CACHE_SIZE
-        l2 = sysconf(_SC_LEVEL2_CACHE_SIZE);
-#endif
-        if (l2 <= 0) l2 = 1 << 20;
-#ifdef L13R_FORCE_PW
-        p->pw = L13R_FORCE_PW;
-#else
-        p->pw = ((size_t)batch * NVOL * 32 > (size_t)l2);
-#endif
-    }
-#ifdef L13R_FORCE_PF
-    p->pf = L13R_FORCE_PF;
-#else
-    {
         long l3 = 0;
 #ifdef _SC_LEVEL3_CACHE_SIZE
         l3 = sysconf(_SC_LEVEL3_CACHE_SIZE);
 #endif
         if (l3 <= 0) l3 = 22l << 20;
-        p->pf = ((size_t)batch * NVOL * 32 > (size_t)l3);
-    }
+        /* pw gate moved L2 -> L3 in ice_r1: prefetchw of the out plane
+         * only pays when out truly streams from DRAM.  The graded chain
+         * keeps out L3-resident, and the node priced pw=1 there at +7.4%
+         * (6.53 vs 6.05 us/xform at B=32 m=1278) -- the CLX L2 gate was
+         * hiding an RFO this machine's L3 serves cheaply.  Same lesson as
+         * mt_r4's aggregate-L3 flip, re-measured single-core on ICX. */
+#ifdef L13R_FORCE_PW
+        p->pw = L13R_FORCE_PW;
+#else
+        p->pw = ((size_t)batch * NVOL * 32 > (size_t)l3);
 #endif
+#ifdef L13R_FORCE_PF
+        p->pf = L13R_FORCE_PF;
+#else
+        p->pf = ((size_t)batch * NVOL * 32 > (size_t)l3);
+#endif
+    }
 #ifndef L13R_ZG
 #define L13R_ZG 1
 #endif
 #ifndef L13R_FUSE
 #define L13R_FUSE 1
 #endif
-    /* The fused zy schedule runs at B=1 only (see the plan comment); the
-     * U mask must be fixed before the zd table is built. */
-    const int want_fuse = (VW == 8) && L13R_FUSE && !p->ys && batch == 1;
+/* -DL13R_FUSE_B=1 forces the fused zy schedule at ANY batch (dev A/B knob;
+ * default off keeps the CLX-measured unfused incumbent, and the in-plan
+ * race prices the fused challenger 'f1' on the node instead -- ice_r1). */
+#ifndef L13R_FUSE_B
+#define L13R_FUSE_B 0
+#endif
+    /* The fused zy schedule defaults on at B=1 only (see the plan comment);
+     * the U mask must be fixed before the zd table is built. */
+    int fuse_valid __attribute__((unused)) = 0;
+    const int fuse_want = (VW == 8) && L13R_FUSE && !p->ys;
+    const int want_fuse = fuse_want && (batch == 1 || L13R_FUSE_B);
     {
         p->znb = L13R_ZG ? 22 : 26;
         for (int blk = 0; blk < p->znb; ++blk) {
@@ -1036,6 +1105,7 @@ fft3d_plan *fft3d_create(int L, int batch)
             if (p->zy[blk] >= 0) cons++;
         }
         p->fuse = want_fuse && ok;
+        fuse_valid = fuse_want && ok;
     }
 
     /* ------- in-plan timed race of the node-undecidable knobs (panel_r11).
@@ -1061,10 +1131,10 @@ fft3d_plan *fft3d_create(int L, int batch)
 #ifndef L13R_ABTH
 #define L13R_ABTH 0.97
 #endif
-    char abuf[96] = "";
+    char abuf[112] = "";
 #if L13R_AB
     do {
-        struct { int fuse, um, pw, pf; const char *tag; } v[3];
+        struct { int fuse, um, pw, pf; const char *tag; } v[5];
         int nv = 0;
         v[nv].fuse = p->fuse; v[nv].um = p->um; v[nv].pw = p->pw;
         v[nv].pf = p->pf; v[nv].tag = "i"; nv++;
@@ -1078,7 +1148,20 @@ fft3d_plan *fft3d_create(int L, int batch)
             v[nv] = v[0]; v[nv].pw = !p->pw; v[nv].tag = "pw!"; nv++;
 #endif
 #ifndef L13R_FORCE_PF
-            if (p->pf) { v[nv] = v[0]; v[nv].pf = 0; v[nv].tag = "pf!"; nv++; }
+            /* raced BOTH directions since ice_r1: the graded chain keeps
+             * the batch L3-resident, where pulling the next volume's input
+             * up to L2 is a different question than the CLX streaming one
+             * the old one-sided race answered */
+            v[nv] = v[0]; v[nv].pf = !p->pf; v[nv].tag = "pf!"; nv++;
+#endif
+#if !L13R_FUSE_B
+            /* fused-vs-unfused at batch, first raced in ice_r1: the CLX
+             * verdict (fused +4.2% at B=16) came from a 1-FMA-pipe machine
+             * where the z transposes rode free on p5; on Ice Lake p5 is an
+             * FMA port and the fusion premise is live again */
+            if (fuse_valid && !p->fuse) {
+                v[nv] = v[0]; v[nv].fuse = 1; v[nv].um = 7; v[nv].tag = "f1"; nv++;
+            }
 #endif
             if (nv == 1) break;
         }
@@ -1100,7 +1183,8 @@ fft3d_plan *fft3d_create(int L, int batch)
          * the 3% bar in BOTH blocks.  A one-sided clock-mode window (the
          * wallaby bimodality that faked a >3% pw reading in dev) covers at
          * most one block for one variant; a real node effect covers both. */
-        double b1[3] = { 1e30, 1e30, 1e30 }, b2[3] = { 1e30, 1e30, 1e30 };
+        double b1[5] = { 1e30, 1e30, 1e30, 1e30, 1e30 },
+               b2[5] = { 1e30, 1e30, 1e30, 1e30, 1e30 };
         for (int t = -1; t < 10; ++t)      /* t = -1 is the warmup lap     */
             for (int j = 0; j < nv; ++j) {
                 int k = (t & 1) ? nv - 1 - j : j;
@@ -1113,7 +1197,7 @@ fft3d_plan *fft3d_create(int L, int batch)
                 double *bb = (t < 5) ? b1 : b2;
                 if (dt < bb[k]) bb[k] = dt;
             }
-        double best[3];
+        double best[5];
         for (int k = 0; k < nv; ++k) best[k] = b1[k] < b2[k] ? b1[k] : b2[k];
         int win = 0;
         for (int k = 1; k < nv; ++k)
@@ -1159,7 +1243,10 @@ static unsigned long long l13r_ph[6], l13r_nv;
 void fft3d_execute(fft3d_plan *p, const double _Complex *in, double _Complex *out)
 {
     double *const ar = p->ar, *const ai = p->ai;
-    const int ys = p->ys, pw = p->pw, um = p->um;
+    const int ys = p->ys, pw = p->pw;
+#if VW == 8
+    const int um = p->um;
+#endif
 
     for (int b = 0; b < p->batch; ++b) {
         const double *src = (const double *)in + (size_t)2*NVOL*b;

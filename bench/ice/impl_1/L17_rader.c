@@ -1,6 +1,38 @@
 /* L = 17, complex-double forward 3D DFT, batched, single-threaded.
  *
- * NEW THIS ROUND (panel_r10) -- one mechanism, aimed squarely at the r9
+ * NEW THIS ROUND (ice_r1) -- first Ice Lake round; the graded workload is a
+ * chain (B=32, m=98, in/out both L3-resident every step), the machine has
+ * TWO 512-bit FMA pipes, p5-only 512-bit shuffles, no AVX-512 licence
+ * downclock (clk256 = clk512 in-plan), and gcc 11.4:
+ *
+ * 1. The graded cell B=32 now takes the FULL batched tuner path (threshold
+ *    64 -> 32): both classes ranked at nv=32 (the chain's real L3-resident
+ *    working set), joint (variant, pf, pfw) grid, decomposition probe --
+ *    the smoke round tuned this cell at nv=16, class A only, no grid.
+ * 2. Width discipline in stage 1: the w4 candidates (table entries 0 and
+ *    NCA-1) must beat the best w8 candidate by >3% to be picked.
+ *    Bit-identical within the class, so a near-tie switch is free; the
+ *    smoke round's noisy create picked "xl 256" against two 512-bit FMA
+ *    pipes and scored 1.47x behind the leader.
+ * 3. pf=2 (plane-ahead src prefetch, exec_body X-last): pf=1's
+ *    volume-ahead shape is sized for DRAM streaming; in the chain every
+ *    src plane is an L3 HIT and only ~60 cycles of latency need hiding.
+ *    The grid races pf in {0,1,2} x pfw in {0,1}.
+ * 4. "ty" candidates: ymm 4x4 transposes + ymm deint inside the zmm
+ *    pipeline -- on ICX every 512-bit two-source shuffle is p5-only and
+ *    competes with the second FMA pipe; ymm shuffles dual-issue p1/p5.
+ * 5. "xl 256 pin" and the sp-family pin twins ("xl 512t sp pin",
+ *    "xl 512t sp dy pin"): gcc 11.4 materialises kernel constants as
+ *    full-width .LC memory operands (~200 load uops per block); pinning
+ *    was w8-only before, and "xl 512t sp dy" won the first honest nv=32
+ *    rank on the node while the sp family had no pin variants.
+ *    First honest-window node table (contention-free ranks): plain
+ *    variants 18.2-19.0 us/vol within 2%, sp dy best; st/stp +15-25%
+ *    (no DRAM RFO to delete in a cache-resident chain); xfs +8-15%;
+ *    probe ph/xp = 13.0/5.3 us/vol -- the plane phase (src reads + A
+ *    fill) is 70% of the cell and the next structural target.
+ *
+ * PREVIOUS ROUND (panel_r10) -- one mechanism, aimed squarely at the r9
  * VERDICT's named direction for L=17 ("fund traffic deletion at B=256/2048";
  * every write-SPREADING mechanism -- my sp grid, winograd's q+pfw -- was
  * declined 6/6 by the node's own tuners in r9, so this round deletes traffic
@@ -767,7 +799,7 @@ typedef void (*l17r_fn)(fft3d_plan *, const double _Complex *,
  * elsewhere the plain widths compete (the emulated 512-bit build on an AVX2
  * host measures slow and eliminates itself).  "t" = mixed ymm tail. */
 #if defined(__AVX512VL__)
-#  define L17R_NCA 17
+#  define L17R_NCA 24
 #  define L17R_NCB 4
 #else
 #  define L17R_NCA 3
@@ -781,6 +813,12 @@ static const l17r_fn l17r_cand_a[L17R_NCA] = {
     exec_npmdy_w8, exec_spmdy_w8,          /* panel_r9: ymm-deint twins */
     exec_stm_w8, exec_stmdy_w8,            /* panel_r10: staged dense out */
     exec_stpm_w8, exec_stpmdy_w8,          /* panel_r10: + pipelined flush */
+    exec_npty_w8, exec_pinty_w8,           /* ice_r1: ymm transposes (p5   */
+    exec_npmty_w8, exec_pinmty_w8,         /* relief on ICX)               */
+    exec_spmpin_w8, exec_spmdypin_w8,      /* ice_r1: pin twins of sp      */
+    exec_pin_w4,                           /* ice_r1: MUST STAY LAST (the
+                                            * width discipline knows the w4
+                                            * entries as 0 and NCA-1)      */
 #endif
 };
 static const char *const l17r_tag_a[L17R_NCA] = {
@@ -791,6 +829,10 @@ static const char *const l17r_tag_a[L17R_NCA] = {
     "xl 512t dy", "xl 512t sp dy",
     "xl 512t st", "xl 512t st dy",
     "xl 512t stp", "xl 512t stp dy",
+    "xl 512 ty", "xl 512 pin ty",
+    "xl 512t ty", "xl 512t pin ty",
+    "xl 512t sp pin", "xl 512t sp dy pin",
+    "xl 256 pin",
 #endif
 };
 static const l17r_fn l17r_cand_b[L17R_NCB] = {
@@ -847,8 +889,12 @@ static int l17r_tune_alloc(fft3d_plan *p, int nv)
 
 static int l17r_verbose(void)
 {
+#if defined(L17R_VERBOSE_BUILD)
+    return 1;      /* tryout runs over ssh where env vars do not survive */
+#else
     const char *e = getenv("L17R_VERBOSE");
     return e && *e && *e != '0';
+#endif
 }
 
 static double l17r_now(void)
@@ -1074,7 +1120,13 @@ fft3d_plan *fft3d_create(int L, int batch)
     double pr_xa = 0.0, pr_xb = 0.0;   /* panel_r11: stage-1 class race,
                                         * published so a decline is data */
 
-    if (batch < 64 && batch < L17R_XF_CUT) {
+    /* ice_r1: the graded cell is B=32 (chain 98, both buffers L3-resident).
+     * That used to fall into the small-batch path -- class A only, ranked at
+     * nv=16, no pf race, no joint (variant,pf,pfw) grid.  The full batched
+     * machinery now starts at batch >= 32 so the graded cell gets the joint
+     * grid (pf in particular targets exactly this regime: every src plane is
+     * an L3 hit that a one-plane-ahead prefetch can hide under compute). */
+    if (batch < 32 && batch < L17R_XF_CUT) {
         /* Small batches: class A (X-last) only, ranked at (a cap of) the
          * plan's own batch size -- for B=1 this times exactly what the driver
          * times: one L2-resident volume. */
@@ -1083,6 +1135,21 @@ fft3d_plan *fft3d_create(int L, int batch)
         if (l17r_tune_alloc(p, nv)) {
             l17r_settle(p, nv);
             bestv = l17r_rank(p, nv, us1, l17r_cand_a, L17R_NCA, 3);
+#if defined(__AVX512VL__)
+            /* Width discipline (ice_r1): all class-A candidates are
+             * bit-identical, so a near-tie switch is free -- and the
+             * ice_smoke round showed a noisy create picking "xl 256" on a
+             * machine with TWO 512-bit FMA pipes (scored 1.47x behind the
+             * leader).  The lone w4 candidate must beat the best w8
+             * candidate by >3% to be selected; on the CLX node the winner
+             * was already w8 (512t family), so this changes nothing there. */
+            if (bestv == 0 || bestv == L17R_NCA - 1) {
+                int bw8 = 1;
+                for (int v = 2; v < L17R_NCA - 1; ++v)
+                    if (us1[v] < us1[bw8]) bw8 = v;
+                if (!(us1[bestv] < 0.97 * us1[bw8])) bestv = bw8;
+            }
+#endif
             p->exec = l17r_cand_a[bestv];
             if (l17r_verbose())
                 for (int v = 0; v < L17R_NCA; ++v)
@@ -1147,6 +1214,25 @@ fft3d_plan *fft3d_create(int L, int batch)
             } else {
                 ba = l17r_rank(p, nv2, usa, l17r_cand_a, L17R_NCA, 4);
                 bb = l17r_rank(p, nv2, usb, l17r_cand_b, L17R_NCB, 4);
+#if defined(__AVX512VL__)
+                /* Width discipline, same as the small-batch path: the lone
+                 * w4 candidate in each class must beat that class's best w8
+                 * candidate by >3% (bit-identical within a class, so a
+                 * near-tie switch is free; ice_smoke's noisy "xl 256" pick
+                 * is the target). */
+                if (ba == 0 || ba == L17R_NCA - 1) {
+                    int bw8 = 1;
+                    for (int v = 2; v < L17R_NCA - 1; ++v)
+                        if (usa[v] < usa[bw8]) bw8 = v;
+                    if (!(usa[ba] < 0.97 * usa[bw8])) ba = bw8;
+                }
+                if (bb == 0) {
+                    int bw8 = 1;
+                    for (int v = 2; v < L17R_NCB; ++v)
+                        if (usb[v] < usb[bw8]) bw8 = v;
+                    if (!(usb[0] < 0.97 * usb[bw8])) bb = bw8;
+                }
+#endif
                 use_b = usb[bb] < 0.97 * usa[ba];
                 pr_xa = usa[ba];        /* stage-1 (0,0) race, us/vol -- */
                 pr_xb = usb[bb];        /* goes out in the description  */
@@ -1198,7 +1284,7 @@ fft3d_plan *fft3d_create(int L, int batch)
              * "fund traffic deletion at B=256/2048").  If st itself won
              * stage 1, race its unstaged twin so the grid still spans both. */
             if (!use_b) {
-                if (bestv >= 13) {
+                if (bestv >= 13 && bestv <= 16) {
                     /* a staged variant won stage 1 outright: race its
                      * unstaged twin so the grid still spans both shapes */
                     part = (bestv == 14 || bestv == 16) ? 11 : 2;
@@ -1223,8 +1309,12 @@ fft3d_plan *fft3d_create(int L, int batch)
 #if !defined(L17R_FORCE)
             if (!use_b && batch < L17R_XF_CUT) partb = bb;
 #endif
-            double bcfg[12];
-            for (int g = 0; g < 12; ++g) bcfg[g] = 1e30;
+            /* ice_r1: pf is now three-valued in the grid -- 0 off, 1 the
+             * volume-ahead shape (DRAM regime), 2 the plane-ahead shape
+             * (graded chain: src is L3-resident and only its hit latency
+             * needs hiding).  6 configs per variant. */
+            double bcfg[18];
+            for (int g = 0; g < 18; ++g) bcfg[g] = 1e30;
             const int inc = bestv;              /* incumbent, for the log */
             l17r_fn gfn[3];
             int gcls[3], gvar[3], nvar = 0;
@@ -1240,10 +1330,10 @@ fft3d_plan *fft3d_create(int L, int batch)
             int sb = p->batch;
             p->batch = nv2;
             for (int pass = 0; pass < 2; ++pass)   /* two sweeps: order bias */
-            for (int g = 0; g < 4*nvar; ++g) {
-                l17r_fn fn = gfn[g >> 2];
-                p->pf = g & 1;
-                p->pfw = (g >> 1) & 1;
+            for (int g = 0; g < 6*nvar; ++g) {
+                l17r_fn fn = gfn[g / 6];
+                p->pf = g % 3;
+                p->pfw = (g / 3) & 1;
                 fn(p, p->tin, p->tout);
                 for (int r = 0; r < 2; ++r) {
                     double t0 = l17r_now();
@@ -1255,30 +1345,32 @@ fft3d_plan *fft3d_create(int L, int batch)
             p->batch = sb;
             /* same-class configs: 3% margin vs the incumbent at (0,0) */
             int bg = 0;
-            for (int g = 1; g < 4*nvar; ++g)
-                if (gcls[g >> 2] == gcls[0]
+            for (int g = 1; g < 6*nvar; ++g)
+                if (gcls[g / 6] == gcls[0]
                     && bcfg[g] < bcfg[bg] && bcfg[g] < 0.97 * bcfg[0]) bg = g;
             /* cross-class challenger: 3% margin vs the same-class winner */
             int bgx = -1;
-            for (int g = 0; g < 4*nvar; ++g)
-                if (gcls[g >> 2] != gcls[0]
+            for (int g = 0; g < 6*nvar; ++g)
+                if (gcls[g / 6] != gcls[0]
                     && (bgx < 0 || bcfg[g] < bcfg[bgx])) bgx = g;
             if (bgx >= 0 && bcfg[bgx] < 0.97 * bcfg[bg]) bg = bgx;
-            p->pf = bg & 1;
-            p->pfw = (bg >> 1) & 1;
-            if (bg >= 4) {
-                bestv = gvar[bg >> 2];
-                use_b = gcls[bg >> 2];
+            p->pf = bg % 3;
+            p->pfw = (bg / 3) & 1;
+            if (bg >= 6) {
+                bestv = gvar[bg / 6];
+                use_b = gcls[bg / 6];
                 tags = use_b ? l17r_tag_b : l17r_tag_a;
                 p->exec = use_b ? l17r_cand_b[bestv] : l17r_cand_a[bestv];
             }
             if (l17r_verbose()) {
                 for (int v = 0; v < nvar; ++v)
-                    fprintf(stderr, "[L17_rader tune] nv=%d  %s cfg 00 %.3f"
-                                    "  10 %.3f  01 %.3f  11 %.3f\n", nv2,
+                    fprintf(stderr, "[L17_rader tune] nv=%d  %s cfg "
+                                    "p0w0 %.3f p1w0 %.3f p2w0 %.3f "
+                                    "p0w1 %.3f p1w1 %.3f p2w1 %.3f\n", nv2,
                             (gcls[v] ? l17r_tag_b : l17r_tag_a)[v == 0 ? inc : gvar[v]],
-                            bcfg[4*v + 0] * 1e6 / nv2, bcfg[4*v + 1] * 1e6 / nv2,
-                            bcfg[4*v + 2] * 1e6 / nv2, bcfg[4*v + 3] * 1e6 / nv2);
+                            bcfg[6*v + 0] * 1e6 / nv2, bcfg[6*v + 1] * 1e6 / nv2,
+                            bcfg[6*v + 2] * 1e6 / nv2, bcfg[6*v + 3] * 1e6 / nv2,
+                            bcfg[6*v + 4] * 1e6 / nv2, bcfg[6*v + 5] * 1e6 / nv2);
                 fprintf(stderr, "[L17_rader tune] nv=%d  grid -> %s pf=%d pfw=%d\n",
                         nv2, tags[bestv], p->pf, p->pfw);
             }
@@ -1425,6 +1517,24 @@ typedef long long SFX(vlt) __attribute__((vector_size(VW * 8)));
 #  define DT17Y(s,dr,di,ds)   deint_transpose17((s),(dr),(di),(ds))
 #else
 #  define DT17Y(s,dr,di,ds)   DT17(s,dr,di,ds)
+#endif
+
+/* "ty" (ice_r1): ymm 4x4-tile transposes inside the w8 pipeline, selected by
+ * dey == 2 (which also selects the ymm deint via DT17Y's truthiness).  Ice
+ * Lake motivation: every 512-bit two-source shuffle issues on port 5 ONLY,
+ * while the 4x4 tile's 256-bit shuffles dual-issue on p1/p5 -- so the 8x8
+ * zmm block's 24 shuffles serialize at 24 cycles where the 4x4 tiling's ~48
+ * spread over two ports at ~24.  On ICX the two 512-bit FMA pipes also
+ * halve the kernel-drain shadow that used to hide the p5 burst (the r5 "ov"
+ * lesson in reverse).  Pure data movement, identical values to identical
+ * places: every class-A candidate stays bit-identical, the tuner ranks it. */
+#if VW == 8
+#  define TP17D(s,ss,d,ds,deyf) do {                                          \
+        if ((deyf) == 2) transpose17((s),(ss),(d),(ds));                      \
+        else             transpose17z((s),(ss),(d),(ds));                     \
+    } while (0)
+#else
+#  define TP17D(s,ss,d,ds,deyf) transpose17((s),(ss),(d),(ds))
 #endif
 
 /* KPIN(c): force a broadcast constant into a register with an empty asm
@@ -1847,8 +1957,8 @@ static inline __attribute__((always_inline)) void SFX(exec_body)(
                                   dst + 2*(long)(kx - 1)*NPL);
 
                 /* A[kx][y][z] -> T[z][y] */
-                TP17(ar + (long)kx*PS, LN, tr, TR);
-                TP17(ai + (long)kx*PS, LN, ti, TR);
+                TP17D(ar + (long)kx*PS, LN, tr, TR, dey);
+                TP17D(ai + (long)kx*PS, LN, ti, TR, dey);
 
                 /* z pass, in place on T: axis stride TR, lanes = y */
 #if VW == 8
@@ -1868,8 +1978,8 @@ static inline __attribute__((always_inline)) void SFX(exec_body)(
                                 0, 0, TR, 0, 0, pin);
                 }
 
-                TP17(tr, TR, ur, TR);       /* T[kz][y] -> U[y][kz] */
-                TP17(ti, TR, ui, TR);
+                TP17D(tr, TR, ur, TR, dey); /* T[kz][y] -> U[y][kz] */
+                TP17D(ti, TR, ui, TR, dey);
 
                 /* y pass: axis stride TR, lanes = kz, interleaving store
                  * into the staging plane (row stride 17 complex, L1-hot) */
@@ -1896,13 +2006,24 @@ static inline __attribute__((always_inline)) void SFX(exec_body)(
             /* ---------------- X-last (round-1 order) ---------------- */
             if (ph != 2)
             for (int x = 0; x < LN; ++x) {
-                /* cross-volume prefetch: pull the NEXT volume's plane x while
-                 * this plane's two compute passes run (L17_winograd round 2:
-                 * -4.4% at B=2048; a no-op at B=1). 73 lines per plane. */
-                if (nxt) {
-                    const double *pp = nxt + 2*(long)x*NPL;
-                    for (int q = 0; q < 2*NPL; q += 8)
-                        __builtin_prefetch(pp + q, 0, 2);
+                /* pf=1: pull the NEXT VOLUME's plane x while this plane's
+                 * two compute passes run (L17_winograd round 2: -4.4% at
+                 * B=2048; a no-op at B=1) -- the DRAM-regime shape.
+                 * pf=2 (ice_r1): pull the NEXT PLANE of THIS volume, ~0.9 us
+                 * ahead -- sized for the graded chain, where every src plane
+                 * is an L3 HIT whose ~60-cycle latency is all there is to
+                 * hide (a whole-volume lookahead there only churns L2); at
+                 * x=16 it pulls the next volume's plane 0.  Prefetches never
+                 * change values: all bit classes untouched.  73 lines. */
+                if (p->pf) {
+                    const double *pp;
+                    if (p->pf == 2)
+                        pp = (x + 1 < LN) ? src + 2*((long)(x + 1)*NPL) : nxt;
+                    else
+                        pp = nxt ? nxt + 2*(long)x*NPL : NULL;
+                    if (pp)
+                        for (int q = 0; q < 2*NPL; q += 8)
+                            __builtin_prefetch(pp + q, 0, 2);
                 }
 
                 /* in[x][y][z] -> T[z][y] */
@@ -1927,8 +2048,8 @@ static inline __attribute__((always_inline)) void SFX(exec_body)(
                                 0, 0, TR, 0, 0, pin);
                 }
 
-                TP17(tr, TR, ur, TR);       /* T[kz][y] -> U[y][kz] */
-                TP17(ti, TR, ui, TR);
+                TP17D(tr, TR, ur, TR, dey); /* T[kz][y] -> U[y][kz] */
+                TP17D(ti, TR, ui, TR, dey);
 
                 /* y pass: axis stride TR, lanes = kz, straight into A[x][ky][kz] */
                 double *dr = ar + (long)x*PS, *di = ai + (long)x*PS;
@@ -2415,13 +2536,19 @@ static void __attribute__((unused)) SFX(exec_xf)(
     SFX(exec_body)(p, in, out, 0, 1, 0, 0, 0, 0);
 }
 
-#if VW == 8
+/* pin at BOTH widths since ice_r1: with AVX-512VL the w4 pipeline has
+ * ymm16-31 to pin into, and on the ICX node "xl 256" has twice won the
+ * stage-1 rank at the graded cell -- its ~200 32-B .LC memory-operand
+ * constants per kernel block are exactly what pinning deletes.  On a
+ * non-AVX512 host KPIN degrades to a plain constant and the variant is
+ * simply absent from the table. */
 static void __attribute__((unused)) SFX(exec_pin)(
         fft3d_plan *p, const double _Complex *in, double _Complex *out)
 {
     SFX(exec_body)(p, in, out, 1, 0, 0, 0, 0, 0);
 }
 
+#if VW == 8
 static void __attribute__((unused)) SFX(exec_npm)(
         fft3d_plan *p, const double _Complex *in, double _Complex *out)
 {
@@ -2451,6 +2578,36 @@ static void __attribute__((unused)) SFX(exec_npmdy)(
         fft3d_plan *p, const double _Complex *in, double _Complex *out)
 {
     SFX(exec_body)(p, in, out, 0, 0, 1, 1, 0, 0);
+}
+
+/* "ty" (ice_r1): ymm 4x4-tile transposes AND ymm deint inside the w8
+ * pipeline (dey = 2) -- port-5 relief for Ice Lake, where every 512-bit
+ * two-source shuffle is p5-only while 256-bit shuffles dual-issue on p1/p5,
+ * and the second 512-bit FMA pipe halves the kernel-drain shadow that used
+ * to hide the zmm transpose bursts on CLX.  Data movement only, identical
+ * values to identical places: bit-identical to every class-A candidate. */
+static void __attribute__((unused)) SFX(exec_npty)(
+        fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    SFX(exec_body)(p, in, out, 0, 0, 0, 2, 0, 0);
+}
+
+static void __attribute__((unused)) SFX(exec_pinty)(
+        fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    SFX(exec_body)(p, in, out, 1, 0, 0, 2, 0, 0);
+}
+
+static void __attribute__((unused)) SFX(exec_npmty)(
+        fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    SFX(exec_body)(p, in, out, 0, 0, 1, 2, 0, 0);
+}
+
+static void __attribute__((unused)) SFX(exec_pinmty)(
+        fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    SFX(exec_body)(p, in, out, 1, 0, 1, 2, 0, 0);
 }
 
 /* "st": mixed X-last with the staged dense out flush (panel_r10); the dy
@@ -2529,6 +2686,21 @@ static void __attribute__((unused)) SFX(exec_spmdy)(
     SFX(exec_sp_body)(p, in, out, 0, 1);
 }
 
+/* pin twins of the sp family (ice_r1): "xl 512t sp dy" won the first honest
+ * nv=32 rank on the ICX node and the sp family had no pinned variants while
+ * pin helped several others in the same table. */
+static void __attribute__((unused)) SFX(exec_spmpin)(
+        fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    SFX(exec_sp_body)(p, in, out, 1, 0);
+}
+
+static void __attribute__((unused)) SFX(exec_spmdypin)(
+        fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    SFX(exec_sp_body)(p, in, out, 1, 1);
+}
+
 static void __attribute__((unused)) SFX(exec_dzm)(
         fft3d_plan *p, const double _Complex *in, double _Complex *out)
 {
@@ -2551,6 +2723,7 @@ static void __attribute__((unused)) SFX(exec_dzspm)(
 #undef NXB
 #undef NLB
 #undef KPIN
+#undef TP17D
 #undef DT17Y
 #undef DT17P
 #undef DT17

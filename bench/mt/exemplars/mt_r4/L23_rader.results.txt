@@ -1,0 +1,4 @@
+   L23_rader                     11.080 us    11.080 us    74.51       0.6%    0.073s  ok 3.8e-16       1.00x
+   L23_rader                      2.223 us   284.571 us   371.34       0.3%    0.124s  ok 3.8e-16       1.00x
+   L23_rader                      5.941 us 12167.638 us   138.96       1.3%    0.546s  ok 3.8e-16       1.02x
+   L23_rader                rader23 pool fused w4 team=16 pf=0 pw=0 si=0 pv=0 bar=0 wt=0 pk=1 ns=2, tuner pick=12.01 inc=12.01 us/t nv=1

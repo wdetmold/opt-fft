@@ -1,0 +1,4 @@
+   L36_pfa                       25.638 us    25.638 us   141.13       1.0%    0.090s  ok 3.6e-16       1.09x
+   L36_pfa                        5.294 us   169.410 us   683.43       1.4%    0.104s  ok 3.6e-16       1.03x
+   L36_pfa                        9.954 us  5096.413 us   363.49       0.2%    3.017s  ok 3.6e-16       1.00x
+   L36_pfa                  GT-PFA 4x9 (n1_9) spin-pool mt; pick: fused2 T=16 pw=4 inplace pf=0 (B=1 nv=1 nc=21 Tpool=32); us ser=119.2 f2t16=25.6 f3t16=26.6 t18=27.4 t12=28.8 t9=28.4

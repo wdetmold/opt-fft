@@ -1,0 +1,4 @@
+   L36_mixedradix                23.531 us    23.531 us   153.76      12.2%    0.092s  ok 3.6e-16       1.00x
+   L36_mixedradix                 5.159 us   165.093 us   701.30      13.5%    0.398s  ok 3.6e-16       1.00x
+   L36_mixedradix                 9.936 us  5087.203 us   364.14      30.3%    3.016s  ok 3.6e-16       1.00x
+   L36_mixedradix           MT PFA 4x9 n1_9 spin-pool; pick=v1-split16-pf0 (B=1 m=32 arena=1 stream=0 deep=0 pin=0 nb=1 9c) us/vol ser=149.8 pick=26.2 eff=0.36 dsp=0.80

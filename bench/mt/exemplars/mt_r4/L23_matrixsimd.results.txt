@@ -1,0 +1,4 @@
+   L23_matrixsimd                11.099 us    11.099 us    74.38       0.5%    0.347s  ok 3.8e-16       1.00x
+   L23_matrixsimd                 2.310 us   295.646 us   357.43       3.2%    0.156s  ok 3.8e-16       1.04x
+   L23_matrixsimd                 5.830 us 11939.143 us   141.62       2.1%    0.668s  ok 3.8e-16       1.00x
+   L23_matrixsimd           dense 23x23/axis conj-folded, pinned consts, X-first, spin-pool vol-parallel 512-bit T=32 nsock=2, nt=0 pf=0 pw=0 pt=0 dy=0 si=0 pk=0, tune[pick=2.38(nt0 pf0 pw0 dy0 si0 T32) inc=4.63 us/t nv=128], clk512/256=2.29/2.79 GHz

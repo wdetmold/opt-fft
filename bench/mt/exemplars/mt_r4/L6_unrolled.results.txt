@@ -1,0 +1,4 @@
+   L6_unrolled                    0.222 us     0.222 us    37.66       2.2%    0.269s  ok 2.4e-16       1.01x
+   L6_unrolled                    0.010 us    39.292 us   873.08       0.4%    0.433s  ok 2.4e-16       1.04x
+   L6_unrolled                    0.073 us  4798.399 us   114.39       0.2%    0.004s  ok 2.4e-16       1.87x
+   L6_unrolled              L=6: unrolled PFA 2x3 codelet ymm, batch-parallel contiguous chunks, per-thread NUMA-local scratch; variant=3pass_nt_pf nthr=32 disp=omp rd=det exre=3pass_nt_pf,T=16 73.1ns (plan 3pass_nt_pf,T=32) fr=0/0,nb=1

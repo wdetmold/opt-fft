@@ -1,0 +1,6 @@
+L8_batchsimd L=8 B=2048 run=1 exited 139
+L8_batchsimd L=8 B=2048 run=2 exited 139
+L8_batchsimd L=8 B=2048 run=3 exited 139
+L8_batchsimd L=8 B=32768 run=1 exited 139
+L8_batchsimd L=8 B=32768 run=2 exited 139
+L8_batchsimd L=8 B=32768 run=3 exited 139

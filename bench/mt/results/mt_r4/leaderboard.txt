@@ -1,0 +1,321 @@
+=== round mt_r4 ===
+# round mt_r4
+host: p55n3   date: 2026-08-22T16:00:35-04:00   slurm_job: 438579
+cpu: Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
+isa: avx2 avx512_vnni avx512bw avx512cd avx512dq avx512f avx512vl fma 
+threads: 32 of 32 (PROC_BIND=close)   governor: powersave
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+
+-- L=6 (non-batched), volume 216, working set 0.01 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L6_pfa                         0.219 us     0.219 us    38.20       0.1%    0.448s  ok 2.4e-16       1.00x
+   L6_unrolled                    0.222 us     0.222 us    37.66       2.2%    0.269s  ok 2.4e-16       1.01x
+   mkl_dfti                       0.372 us     0.372 us    22.54       3.1%    0.018s  ok 2.4e-16       1.69x
+   mkl2026_dfti                   0.404 us     0.404 us    20.71       2.3%    0.008s  ok 2.5e-16       1.84x
+   fftw3_patient                  0.509 us     0.509 us    16.46       9.2%    0.150s  ok 2.0e-16       2.32x
+   ducc0_c2c                      4.750 us     4.750 us     1.76       8.6%    0.000s  ok 1.9e-16       21.67x
+   baseline_matrix                8.387 us     8.387 us     1.00       0.0%    0.000s  ok 6.0e-16       38.26x
+   fftw3_estimate                10.024 us    10.024 us     0.84       1.7%    0.005s  ok 2.0e-16       45.72x
+   fftw3_measure                 22.356 us    22.356 us     0.37       4.5%    0.034s  ok 2.0e-16       101.97x
+
+-- L=6 (batched B=4096), volume 216, working set 27.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L6_pfa                         0.009 us    37.940 us   904.20       1.0%    1.717s  ok 2.4e-16       1.00x
+   L6_unrolled                    0.010 us    39.292 us   873.08       0.4%    0.433s  ok 2.4e-16       1.04x
+   mkl_dfti                       0.021 us    86.766 us   395.37       0.3%    0.013s  ok 2.4e-16       2.29x
+   mkl2026_dfti                   0.023 us    92.555 us   370.65       0.5%    0.030s  ok 2.5e-16       2.44x
+   fftw3_patient                  0.024 us    99.693 us   344.11       0.9%    0.194s  ok 2.0e-16       2.63x
+   fftw3_measure                  0.025 us   104.311 us   328.87       1.0%    0.018s  ok 2.0e-16       2.75x
+   fftw3_estimate                 0.055 us   226.668 us   151.35       0.3%    0.003s  ok 2.0e-16       5.97x
+   ducc0_c2c                      0.266 us  1089.198 us    31.50       5.3%    0.000s  ok 1.8e-16       28.71x
+   baseline_matrix                8.506 us 34841.328 us     0.98       0.1%    0.000s  ok 6.0e-16       918.34x
+
+-- L=6 (batched B=65536), volume 216, working set 432.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L6_pfa                         0.039 us  2570.655 us   213.52       0.3%    3.509s  ok 2.4e-16       1.00x
+   L6_unrolled                    0.073 us  4798.399 us   114.39       0.2%    0.004s  ok 2.4e-16       1.87x
+   fftw3_estimate                 0.121 us  7949.290 us    69.05       0.3%    0.002s  ok 2.0e-16       3.09x
+   fftw3_patient                  0.122 us  8002.982 us    68.58       0.2%    0.887s  ok 2.0e-16       3.11x
+   fftw3_measure                  0.122 us  8003.642 us    68.58       0.1%    0.017s  ok 2.0e-16       3.11x
+   mkl2026_dfti                   0.122 us  8013.085 us    68.50       0.0%    0.025s  ok 2.5e-16       3.12x
+   mkl_dfti                       0.122 us  8017.458 us    68.46       0.2%    0.032s  ok 2.4e-16       3.12x
+   ducc0_c2c                      0.272 us 17831.825 us    30.78       1.0%    0.000s  ok 1.8e-16       6.94x
+
+-- L=8 (non-batched), volume 512, working set 0.02 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L8_fusedaxes                   0.553 us     0.553 us    41.68       1.0%    0.083s  ok 2.2e-16       1.00x
+   L8_batchsimd                   0.554 us     0.554 us    41.63       1.1%    0.113s  ok 2.2e-16       1.00x
+   L8_radix8                      0.574 us     0.574 us    40.11       1.5%    0.106s  ok 1.4e-16       1.04x
+   mkl_dfti                       0.664 us     0.664 us    34.70       2.4%    0.035s  ok 1.7e-16       1.20x
+   mkl2026_dfti                   0.732 us     0.732 us    31.47       2.5%    0.008s  ok 1.7e-16       1.32x
+   fftw3_patient                  1.214 us     1.214 us    18.99       4.7%    0.151s  ok 2.0e-16       2.20x
+   ducc0_c2c                      6.253 us     6.253 us     3.68       2.9%    0.000s  ok 1.4e-16       11.31x
+   fftw3_estimate                13.974 us    13.974 us     1.65       4.4%    0.002s  ok 1.8e-16       25.28x
+   fftw3_measure                 20.035 us    20.035 us     1.15       7.1%    0.034s  ok 1.8e-16       36.24x
+   baseline_matrix               26.400 us    26.400 us     0.87       0.0%    0.000s  ok 3.9e-16       47.75x
+
+-- L=8 (batched B=2048), volume 512, working set 32.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L8_fusedaxes                   0.026 us    53.800 us   877.06       0.7%    0.182s  ok 2.3e-16       1.00x
+   L8_radix8                      0.027 us    56.144 us   840.45       2.2%    0.154s  ok 2.3e-16       1.04x
+   mkl_dfti                       0.037 us    75.055 us   628.69       0.9%    0.032s  ok 1.6e-16       1.40x
+   mkl2026_dfti                   0.040 us    81.793 us   576.90       0.1%    0.024s  ok 1.6e-16       1.52x
+   fftw3_patient                  0.056 us   114.517 us   412.04       1.3%    0.214s  ok 1.8e-16       2.13x
+   fftw3_measure                  0.056 us   115.393 us   408.92       1.6%    0.018s  ok 1.8e-16       2.14x
+   fftw3_estimate                 0.223 us   456.136 us   103.45       0.1%    0.003s  ok 1.7e-16       8.48x
+   ducc0_c2c                      0.371 us   760.207 us    62.07       3.4%    0.000s  ok 1.3e-16       14.13x
+   baseline_matrix               26.684 us 54649.075 us     0.86       0.1%    0.000s  ok 3.9e-16       1015.78x
+
+-- L=8 (batched B=32768), volume 512, working set 512.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw3_patient                  0.159 us  5225.067 us   144.49       0.7%    1.025s  ok 1.7e-16       1.00x
+   L8_fusedaxes                   0.170 us  5560.585 us   135.77       0.2%    0.353s  ok 2.3e-16       1.06x
+   L8_radix8                      0.174 us  5708.593 us   132.25       1.3%    0.700s  ok 2.3e-16       1.09x
+   fftw3_estimate                 0.291 us  9545.883 us    79.09       0.1%    0.002s  ok 1.7e-16       1.83x
+   fftw3_measure                  0.295 us  9652.256 us    78.22       0.1%    0.018s  ok 1.8e-16       1.85x
+   mkl2026_dfti                   0.295 us  9672.870 us    78.05       0.1%    0.022s  ok 1.6e-16       1.85x
+   mkl_dfti                       0.295 us  9682.827 us    77.97       0.1%    0.032s  ok 1.6e-16       1.85x
+   ducc0_c2c                      0.548 us 17970.441 us    42.01       3.7%    0.000s  ok 1.3e-16       3.44x
+
+-- L=13 (non-batched), volume 2197, working set 0.07 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L13_direct                     5.672 us     5.672 us    21.50       1.5%    0.050s  ok 2.8e-16       1.00x
+   L13_rader                      5.949 us     5.949 us    20.50      42.0%    0.030s  ok 4.0e-16       1.05x
+   mkl2026_dfti                   7.640 us     7.640 us    15.96       0.8%    0.008s  ok 3.2e-16       1.35x
+   mkl_dfti                       7.734 us     7.734 us    15.77       1.5%    0.017s  ok 3.1e-16       1.36x
+   fftw3_patient                  8.402 us     8.402 us    14.51       2.7%    0.261s  ok 3.3e-16       1.48x
+   fftw3_measure                 33.889 us    33.889 us     3.60      15.5%    0.057s  ok 3.3e-16       5.98x
+   fftw3_estimate                34.296 us    34.296 us     3.56      12.4%    0.006s  ok 3.3e-16       6.05x
+   ducc0_c2c                     43.754 us    43.754 us     2.79       0.6%    0.000s  ok 2.5e-16       7.71x
+   baseline_matrix              184.494 us   184.494 us     0.66       0.0%    0.000s  ok 7.8e-16       32.53x
+
+-- L=13 (batched B=512), volume 2197, working set 34.33 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L13_rader                      0.286 us   146.352 us   426.63       2.7%    0.056s  ok 4.0e-16       1.00x
+   L13_direct                     0.307 us   157.410 us   396.66       0.3%    0.058s  ok 2.9e-16       1.08x
+   mkl2026_dfti                   0.360 us   184.086 us   339.17       0.8%    0.022s  ok 3.2e-16       1.26x
+   fftw3_patient                  0.368 us   188.225 us   331.72       0.6%    0.330s  ok 3.2e-16       1.29x
+   mkl_dfti                       0.369 us   188.947 us   330.45       0.3%    0.035s  ok 3.2e-16       1.29x
+   fftw3_measure                  0.377 us   192.839 us   323.78       0.8%    0.018s  ok 3.2e-16       1.32x
+   fftw3_estimate                 0.434 us   222.032 us   281.21      14.9%    0.003s  ok 3.2e-16       1.52x
+   ducc0_c2c                      3.392 us  1736.722 us    35.95       3.8%    0.000s  ok 2.5e-16       11.87x
+   baseline_matrix              186.364 us 95418.482 us     0.65       0.3%    0.000s  ok 7.9e-16       651.98x
+
+-- L=13 (batched B=8192), volume 2197, working set 549.25 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw3_patient                  0.780 us  6387.573 us   156.40       1.0%    1.379s  ok 3.2e-16       1.00x
+   L13_rader                      0.929 us  7614.133 us   131.20       1.4%    0.990s  ok 4.0e-16       1.19x
+   L13_direct                     0.993 us  8131.244 us   122.86       0.8%    0.070s  ok 2.9e-16       1.27x
+   mkl_dfti                       1.264 us 10354.499 us    96.48       0.4%    0.034s  ok 3.2e-16       1.62x
+   fftw3_estimate                 1.266 us 10371.613 us    96.32       1.6%    0.002s  ok 3.2e-16       1.62x
+   mkl2026_dfti                   1.266 us 10373.771 us    96.30       0.2%    0.025s  ok 3.2e-16       1.62x
+   fftw3_measure                  1.268 us 10388.632 us    96.16       0.2%    0.017s  ok 3.2e-16       1.63x
+   ducc0_c2c                      3.353 us 27471.682 us    36.36       1.7%    0.000s  ok 2.5e-16       4.30x
+
+-- L=17 (non-batched), volume 4913, working set 0.15 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L17_matrixsimd                 6.220 us     6.220 us    48.43       0.8%    0.475s  ok 3.3e-16       1.00x
+   L17_rader                      7.319 us     7.319 us    41.15       2.1%    0.504s  ok 3.2e-16       1.18x
+   L17_winograd                   7.622 us     7.622 us    39.52       0.5%    0.608s  ok 3.2e-16       1.23x
+   mkl_dfti                      23.484 us    23.484 us    12.83       0.3%    0.038s  ok 3.1e-16       3.78x
+   mkl2026_dfti                  23.615 us    23.615 us    12.76       1.7%    0.026s  ok 3.1e-16       3.80x
+   fftw3_patient                 30.009 us    30.009 us    10.04       1.9%    0.217s  ok 3.0e-16       4.82x
+   fftw3_estimate                40.674 us    40.674 us     7.41      25.4%    0.021s  ok 3.0e-16       6.54x
+   fftw3_measure                 42.372 us    42.372 us     7.11      11.3%    0.052s  ok 3.0e-16       6.81x
+   ducc0_c2c                    104.847 us   104.847 us     2.87       4.5%    0.000s  ok 2.6e-16       16.86x
+   baseline_matrix              538.258 us   538.258 us     0.56       0.0%    0.000s  ok 8.4e-16       86.54x
+
+-- L=17 (batched B=256), volume 4913, working set 38.38 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L17_matrixsimd                 0.760 us   194.623 us   396.22       2.2%    0.602s  ok 3.3e-16       1.00x
+   L17_rader                      0.791 us   202.576 us   380.67       1.5%    0.315s  ok 3.2e-16       1.04x
+   L17_winograd                   0.824 us   210.965 us   365.53       1.2%    1.333s  ok 3.3e-16       1.08x
+   fftw3_estimate                 3.902 us   999.017 us    77.19       0.2%    0.005s  ok 3.0e-16       5.13x
+   fftw3_measure                  3.906 us   999.883 us    77.12      12.2%    0.013s  ok 3.0e-16       5.14x
+   fftw3_patient                  3.917 us  1002.751 us    76.90       0.3%    0.315s  ok 3.0e-16       5.15x
+   mkl_dfti                       4.857 us  1243.471 us    62.01       1.9%    0.016s  ok 3.1e-16       6.39x
+   mkl2026_dfti                   4.865 us  1245.411 us    61.92       2.8%    0.004s  ok 3.1e-16       6.40x
+   ducc0_c2c                      8.183 us  2094.754 us    36.81       2.6%    0.000s  ok 2.6e-16       10.76x
+   baseline_matrix              540.166 us 138282.482 us     0.56       0.1%    0.000s  ok 8.4e-16       710.52x
+
+-- L=17 (batched B=4096), volume 4913, working set 614.12 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L17_winograd                   1.237 us  5065.441 us   243.58       5.7%    2.680s  ok 3.3e-16       1.00x
+   L17_rader                      2.012 us  8241.082 us   149.72      44.5%    3.022s  ok 3.3e-16       1.63x
+   L17_matrixsimd                 2.905 us 11900.017 us   103.68       0.3%    0.116s  ok 3.3e-16       2.35x
+   fftw3_patient                  3.951 us 16182.382 us    76.24       5.1%    1.888s  ok 3.0e-16       3.19x
+   fftw3_estimate                 4.102 us 16801.424 us    73.44       0.1%    0.004s  ok 3.0e-16       3.32x
+   fftw3_measure                  4.109 us 16832.140 us    73.30       0.1%    0.011s  ok 3.0e-16       3.32x
+   mkl2026_dfti                   4.962 us 20325.013 us    60.70       1.3%    0.025s  ok 3.1e-16       4.01x
+   mkl_dfti                       4.971 us 20362.349 us    60.59       1.0%    0.035s  ok 3.1e-16       4.02x
+   ducc0_c2c                      7.953 us 32577.331 us    37.87       0.8%    0.000s  ok 2.6e-16       6.43x
+
+-- L=23 (non-batched), volume 12167, working set 0.37 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L23_rader                     11.080 us    11.080 us    74.51       0.6%    0.073s  ok 3.8e-16       1.00x
+   L23_matrixsimd                11.099 us    11.099 us    74.38       0.5%    0.347s  ok 3.8e-16       1.00x
+   fftw3_patient                 39.372 us    39.372 us    20.97       0.9%    0.242s  ok 3.7e-16       3.55x
+   mkl_dfti                      41.777 us    41.777 us    19.76       3.0%    0.018s  ok 4.2e-16       3.77x
+   mkl2026_dfti                  43.738 us    43.738 us    18.88       0.4%    0.029s  ok 4.2e-16       3.95x
+   fftw3_measure                 50.854 us    50.854 us    16.23       9.4%    0.058s  ok 3.7e-16       4.59x
+   fftw3_estimate                72.758 us    72.758 us    11.35       1.8%    0.019s  ok 3.7e-16       6.57x
+   ducc0_c2c                    294.345 us   294.345 us     2.80       2.0%    0.000s  ok 2.9e-16       26.57x
+   baseline_matrix             1801.155 us  1801.155 us     0.46       0.0%    0.000s  ok 7.4e-16       162.56x
+
+-- L=23 (batched B=128), volume 12167, working set 47.53 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L23_rader                      2.223 us   284.571 us   371.34       0.3%    0.124s  ok 3.8e-16       1.00x
+   L23_matrixsimd                 2.310 us   295.646 us   357.43       3.2%    0.156s  ok 3.8e-16       1.04x
+   fftw3_patient                 12.446 us  1593.032 us    66.33       2.9%    0.343s  ok 3.7e-16       5.60x
+   fftw3_estimate                12.455 us  1594.197 us    66.29       0.1%    0.004s  ok 3.7e-16       5.60x
+   fftw3_measure                 12.741 us  1630.874 us    64.80      53.3%    0.013s  ok 3.7e-16       5.73x
+   mkl_dfti                      14.573 us  1865.300 us    56.65       1.9%    0.035s  ok 4.2e-16       6.55x
+   mkl2026_dfti                  15.792 us  2021.427 us    52.28       1.6%    0.004s  ok 4.2e-16       7.10x
+   ducc0_c2c                     23.537 us  3012.753 us    35.08       2.4%    0.000s  ok 2.8e-16       10.59x
+   baseline_matrix             1805.475 us 231100.835 us     0.46       0.1%    0.000s  ok 7.4e-16       812.10x
+
+-- L=23 (batched B=2048), volume 12167, working set 760.44 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L23_matrixsimd                 5.830 us 11939.143 us   141.62       2.1%    0.668s  ok 3.8e-16       1.00x
+   L23_rader                      5.941 us 12167.638 us   138.96       1.3%    0.546s  ok 3.8e-16       1.02x
+   fftw3_patient                 12.665 us 25937.553 us    65.19       2.0%    1.449s  ok 3.7e-16       2.17x
+   fftw3_estimate                12.796 us 26205.622 us    64.52       0.1%    0.004s  ok 3.7e-16       2.19x
+   fftw3_measure                 12.949 us 26520.297 us    63.75       0.3%    0.012s  ok 3.7e-16       2.22x
+   mkl_dfti                      14.733 us 30172.179 us    56.04       0.1%    0.033s  ok 4.2e-16       2.53x
+   mkl2026_dfti                  15.729 us 32213.545 us    52.49       1.5%    0.024s  ok 4.2e-16       2.70x
+   ducc0_c2c                     24.618 us 50418.299 us    33.53       1.1%    0.000s  ok 2.8e-16       4.22x
+
+-- L=36 (non-batched), volume 46656, working set 1.42 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L36_mixedradix                23.531 us    23.531 us   153.76      12.2%    0.092s  ok 3.6e-16       1.00x
+   L36_pfa                       25.638 us    25.638 us   141.13       1.0%    0.090s  ok 3.6e-16       1.09x
+   L36_pencilfused               25.802 us    25.802 us   140.23       1.7%    0.256s  ok 3.6e-16       1.10x
+   mkl2026_dfti                  38.065 us    38.065 us    95.05       1.3%    0.008s  ok 4.0e-16       1.62x
+   mkl_dfti                      38.184 us    38.184 us    94.76       0.4%    0.037s  ok 3.9e-16       1.62x
+   fftw3_measure                 66.904 us    66.904 us    54.08      11.1%    0.273s  ok 3.8e-16       2.84x
+   fftw3_patient                 68.704 us    68.704 us    52.66      36.4%   10.697s  ok 3.6e-16       2.92x
+   fftw3_estimate                94.843 us    94.843 us    38.15       5.7%    0.011s  ok 3.5e-16       4.03x
+   ducc0_c2c                    210.989 us   210.989 us    17.15       4.9%    0.000s  ok 3.0e-16       8.97x
+   baseline_matrix            10847.786 us 10847.786 us     0.33       0.0%    0.000s  ok 8.0e-16       461.00x
+
+-- L=36 (batched B=32), volume 46656, working set 45.56 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L36_mixedradix                 5.159 us   165.093 us   701.30      13.5%    0.398s  ok 3.6e-16       1.00x
+   L36_pfa                        5.294 us   169.410 us   683.43       1.4%    0.104s  ok 3.6e-16       1.03x
+   L36_pencilfused                5.533 us   177.069 us   653.87       0.8%    0.242s  ok 3.6e-16       1.07x
+   mkl_dfti                       7.428 us   237.709 us   487.06       2.1%    0.014s  ok 3.9e-16       1.44x
+   mkl2026_dfti                   7.829 us   250.530 us   462.14       0.4%    0.029s  ok 4.0e-16       1.52x
+   fftw3_patient                 18.592 us   594.954 us   194.60      84.5%   10.661s  ok 3.9e-16       3.60x
+   ducc0_c2c                     39.295 us  1257.445 us    92.08       2.6%    0.000s  ok 3.0e-16       7.62x
+   fftw3_estimate                59.330 us  1898.557 us    60.98      31.8%    0.008s  ok 3.5e-16       11.50x
+   fftw3_measure                 68.300 us  2185.591 us    52.97       9.1%    0.162s  ok 3.5e-16       13.24x
+   baseline_matrix            11050.726 us 353623.238 us     0.33       0.3%    0.000s  ok 8.0e-16       2141.96x
+
+-- L=36 (batched B=512), volume 46656, working set 729.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L36_mixedradix                 9.936 us  5087.203 us   364.14      30.3%    3.016s  ok 3.6e-16       1.00x
+   L36_pfa                        9.954 us  5096.413 us   363.49       0.2%    3.017s  ok 3.6e-16       1.00x
+   L36_pencilfused               11.678 us  5979.116 us   309.82      20.4%    4.012s  ok 3.6e-16       1.18x
+   fftw3_patient                 18.716 us  9582.342 us   193.32      29.8%   11.265s  ok 3.6e-16       1.88x
+   mkl2026_dfti                  33.534 us 17169.428 us   107.89       0.1%    0.025s  ok 4.0e-16       3.38x
+   mkl_dfti                      33.707 us 17257.892 us   107.34       0.1%    0.035s  ok 3.9e-16       3.39x
+   fftw3_measure                 37.514 us 19207.340 us    96.45      27.7%    0.160s  ok 3.5e-16       3.78x
+   fftw3_estimate                40.808 us 20893.545 us    88.66      24.3%    0.008s  ok 3.5e-16       4.11x
+   ducc0_c2c                     58.910 us 30162.078 us    61.42       0.7%    0.000s  ok 3.0e-16       5.93x
+
+-- L=45 (non-batched), volume 91125, working set 2.78 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L45_pfa                       55.838 us    55.838 us   134.44       5.3%    0.208s  ok 4.0e-16       1.00x
+   L45_mixedradix                57.360 us    57.360 us   130.87       6.3%    0.187s  ok 4.1e-16       1.03x
+   mkl2026_dfti                  83.709 us    83.709 us    89.68       1.1%    0.007s  ok 4.5e-16       1.50x
+   mkl_dfti                      86.664 us    86.664 us    86.62       1.1%    0.017s  ok 4.4e-16       1.55x
+   fftw3_estimate               104.307 us   104.307 us    71.97       6.0%    0.012s  ok 4.2e-16       1.87x
+   fftw3_measure                132.762 us   132.762 us    56.54      23.5%    0.258s  ok 4.2e-16       2.38x
+   fftw3_patient                136.589 us   136.589 us    54.96      37.6%    4.534s  ok 4.3e-16       2.45x
+   ducc0_c2c                    327.800 us   327.800 us    22.90      13.5%    0.000s  ok 3.7e-16       5.87x
+   baseline_matrix            28279.859 us 28279.859 us     0.27       9.7%    0.000s  ok 8.0e-16       506.47x
+
+-- L=45 (batched B=16), volume 91125, working set 44.49 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L45_pfa                       14.701 us   235.224 us   510.61       2.1%    0.585s  ok 4.0e-16       1.00x
+   L45_mixedradix                15.344 us   245.497 us   489.24       0.4%    0.190s  ok 4.1e-16       1.04x
+   mkl_dfti                      37.687 us   602.990 us   199.19       1.4%    0.034s  ok 4.4e-16       2.56x
+   mkl2026_dfti                  37.721 us   603.540 us   199.00       1.1%    0.026s  ok 4.5e-16       2.57x
+   fftw3_patient                 79.520 us  1272.319 us    94.40      47.0%    6.613s  ok 4.3e-16       5.41x
+   ducc0_c2c                     81.168 us  1298.692 us    92.48       1.5%    0.000s  ok 3.7e-16       5.52x
+   fftw3_estimate                99.308 us  1588.926 us    75.59       1.0%    0.007s  ok 4.2e-16       6.75x
+   fftw3_measure                103.154 us  1650.464 us    72.77       9.1%    0.147s  ok 4.1e-16       7.02x
+   baseline_matrix            32605.232 us 521683.714 us     0.23       0.1%    0.000s  ok 8.0e-16       2217.82x
+
+-- L=45 (batched B=256), volume 91125, working set 711.91 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L45_pfa                       26.595 us  6808.420 us   282.25       2.7%    3.900s  ok 4.0e-16       1.00x
+   L45_mixedradix                32.553 us  8333.482 us   230.60      13.5%    1.661s  ok 4.1e-16       1.22x
+   fftw3_patient                 58.577 us 14995.754 us   128.15      19.9%    5.794s  ok 4.3e-16       2.20x
+   fftw3_estimate                84.725 us 21689.529 us    88.60       1.0%    0.004s  ok 4.2e-16       3.19x
+   fftw3_measure                 90.010 us 23042.469 us    83.40      56.9%    0.080s  ok 4.3e-16       3.38x
+   mkl_dfti                      91.943 us 23537.384 us    81.64       0.2%    0.036s  ok 4.4e-16       3.46x
+   mkl2026_dfti                  92.056 us 23566.260 us    81.54       0.1%    0.022s  ok 4.5e-16       3.46x
+   ducc0_c2c                    116.266 us 29764.166 us    64.56       0.8%    0.000s  ok 3.7e-16       4.37x
+
+-- L=64 (non-batched), volume 262144, working set 8.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L64_blocked                  102.933 us   102.933 us   229.21      10.7%    0.584s  ok 4.5e-16       1.00x
+   mkl_dfti                     152.700 us   152.700 us   154.51       0.8%    0.017s  ok 3.4e-16       1.48x
+   L64_radix8                   153.147 us   153.147 us   154.05       0.5%    0.061s  ok 4.5e-16       1.49x
+   mkl2026_dfti                 156.068 us   156.068 us   151.17       0.5%    0.025s  ok 3.4e-16       1.52x
+   fftw3_measure                193.908 us   193.908 us   121.67      73.4%    0.475s  ok 3.5e-16       1.88x
+   fftw3_estimate               266.867 us   266.867 us    88.41       0.4%    0.005s  ok 3.5e-16       2.59x
+   fftw3_patient                307.845 us   307.845 us    76.64       3.6%   15.383s  ok 3.6e-16       2.99x
+   ducc0_c2c                    393.543 us   393.543 us    59.95       2.5%    0.000s  ok 3.0e-16       3.82x
+   baseline_matrix           122198.377 us 122198.377 us     0.19       0.2%    0.000s  ok 7.8e-16       1187.16x
+
+-- L=64 (batched B=8), volume 262144, working set 64.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L64_blocked                   66.496 us   531.968 us   354.80      28.3%    2.558s  ok 4.5e-16       1.00x
+   mkl_dfti                      71.509 us   572.068 us   329.93       2.2%    0.035s  ok 3.4e-16       1.08x
+   mkl2026_dfti                  77.884 us   623.069 us   302.93       0.6%    0.025s  ok 3.4e-16       1.17x
+   L64_radix8                    90.364 us   722.915 us   261.09       0.4%    0.380s  ok 4.5e-16       1.36x
+   ducc0_c2c                    240.802 us  1926.416 us    97.98       1.4%    0.000s  ok 3.0e-16       3.62x
+   fftw3_patient                327.071 us  2616.566 us    72.13       1.4%   29.142s  ok 3.4e-16       4.92x
+   fftw3_measure                395.079 us  3160.635 us    59.72      15.6%    0.413s  ok 3.6e-16       5.94x
+   fftw3_estimate               682.850 us  5462.802 us    34.55       0.1%    0.002s  ok 3.5e-16       10.27x
+
+-- L=64 (batched B=128), volume 262144, working set 1024.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L64_blocked                   72.688 us  9304.025 us   324.58       3.9%    5.967s  ok 4.5e-16       1.00x
+   L64_radix8                   146.753 us 18784.410 us   160.77       1.3%    1.701s  ok 4.5e-16       2.02x
+   fftw3_patient                166.155 us 21267.894 us   141.99      19.3%   22.107s  ok 3.5e-16       2.29x
+   mkl_dfti                     282.294 us 36133.598 us    83.58       0.1%    0.033s  ok 3.4e-16       3.88x
+   mkl2026_dfti                 282.701 us 36185.754 us    83.46       0.1%    0.024s  ok 3.4e-16       3.89x
+   fftw3_estimate               304.165 us 38933.066 us    77.57       2.6%    0.002s  ok 3.5e-16       4.18x
+   fftw3_measure                309.579 us 39626.050 us    76.21      21.0%    0.306s  ok 3.5e-16       4.26x
+   ducc0_c2c                    369.178 us 47254.783 us    63.91       0.4%    0.000s  ok 3.0e-16       5.08x
+
+backends:
+   L13_direct               conj-folded dense 13x13 per axis, pinned sines; 512b all-pinned zsolidY+xmm-tail X-first+pf; mt t32 g1; ab[B64]=t1g1:8144,t32g1:6098,t16g1:1431,t8g1:2366,t4g1:2517; gov{fr=0/0,frl=0,nb=1,tf:615,th:1175,st:2245,nt:1046,lock=tf}
+   L13_rader                Rader-13 split cyc/nega (186 FP/pt), X-first, 512-bit, batch ntb=32/32 dsp=omp as=0, B1 pt=2 t1=1; fuse=1 um=7 ys=0 pf=0 pw=0 nts=0 znb=22 ab[B1]=i:11847,f0:12008,t2:12363,t4:12054,t8:12015,p2:10795,p4:14339,p8:13851 pick=p2
+   L17_matrixsimd           17-pt rotating-pass fused engine (adopted from L17_winograd, i4), mt[wg nt=32 static disp=omp ws=614MB aggl3=44MB], sbw[rd/wr/cp/s17]=4.96/8.59/13.71/3.83, b1dec[yz/kyz/x/kx]=11.06/10.48/4.27/4.07, clk512/256=2.89/3.89 GHz, d256=3.89, anb=1
+   L17_rader                Rader-17 cyclic/negacyclic (kernel from L17_winograd), plane-fused; mt mode=1 nt=32, wg-eng i4, pf=0, pfw=0, clk256=3.89 clk512=2.89, par=1.027 us/t cut=eq spr=1.04x dsp=pool str=1 tn=2 tr=1 bw=212GB/s wg=2 eng/pl=1.039/1.112
+   L17_winograd             17-pt cyclic+negacyclic module (296 FP instr), 3 rotating passes, var=h8, pf=0, pfw=0, cw=0, nt=0, ntb=0, mt[n=32 bt=32 dyn=0 t1=0 s2=0 ns=2 strm=0 ar=ot], clk256=2.89GHz, clk512=2.89GHz, p1=6.14 f23=10.73 fu=16.49 fu4=17.63, sbw[rd/wr/cp/s17]=3.51/8.60/14.41/3.82
+   L23_matrixsimd           dense 23x23/axis conj-folded, pinned consts, X-first, spin-pool vol-parallel 512-bit T=32 nsock=2, nt=0 pf=0 pw=0 pt=0 dy=0 si=0 pk=0, tune[pick=2.38(nt0 pf0 pw0 dy0 si0 T32) inc=4.63 us/t nv=128], clk512/256=2.29/2.79 GHz
+   L23_rader                rader23 pool fused w4 team=16 pf=0 pw=0 si=0 pv=0 bar=0 wt=0 pk=1 ns=2, tuner pick=12.01 inc=12.01 us/t nv=1
+   L36_mixedradix           MT PFA 4x9 n1_9 spin-pool; pick=v1-split16-pf0 (B=1 m=32 arena=1 stream=0 deep=0 pin=0 nb=1 9c) us/vol ser=149.8 pick=26.2 eff=0.36 dsp=0.80
+   L36_pencilfused          L=36 MT plane-fused y+z then strided x, PFA4x9; pick volpar-pool team=32 pw=4 istream (B=32); probe us/vol t32=5.70 t16=17.53 is0=6.36 i1=5.70 nt=9.51 pl=5.70
+   L36_pfa                  GT-PFA 4x9 (n1_9) spin-pool mt; pick: fused2 T=16 pw=4 inplace pf=0 (B=1 nv=1 nc=21 Tpool=32); us ser=119.2 f2t16=25.6 f3t16=26.6 t18=27.4 t12=28.8 t9=28.4
+   L45_mixedradix           MT PFA9x5 pool; pick=vno32-v2-pfi (B=256 nt=128 str=1 thr=32 nc=9); vno32-v2-pfi=30.7 vno32-v2-nx=32.6 vno32-v2-m0=31.9 vno32-v2-pfnx=32.2 vno32-v1-nx=30.9 vno16-v2-nx=64.5 vns32-v2-nx=48.2 vns32-v1-nx=30.8 vnt32-v2-m0=54.8 gov{nb=1,fr0=0,fr=18,sc=2,n=24}
+   L45_pfa                  GT-PFA 9x5 pool T=32; pick=pw4-mtf-blk (B=1 nv=1) mtf-rr=60.1 mtf-blk=57.7 mtf-bpf=57.9 mtf-t23=57.6 ip-pf0=323.1 ip-pf3=323.1 mtf-blk=75.5 ip-pf0=371.6 gov{nb=1,c=7008,i=32/0,o=32/0}
+   L64_blocked              L64 8x8 split-sc two-stage, hugepage scratch; mt pick: eng=1(S:slab) G=1 nth=16 dyn=0 sb=0 kb=1 mode=cached pf=0 st=3 pro=0 (B=1 nv=1)
+   L64_radix8               radix-8^2/axis AVX-512 MT; pick[B=1]=splitt-T16-g0-tiled-plain+slabpf1+sc0+p11; ser=1272us/vol pick=159 eff=0.50
+   L6_pfa                   Good-Thomas PFA 2x3 per axis, no twiddles, 2 cplx/ymm; mt batch-split, per-thread NUMA scratch, 2D-raced@pool (8 kernels x T<=32); variant=3pass_pf_nt_xa_d2 T=32 disp=omp pin=1 fork=14.23us raceT1=0.8336 raceBest=0.0000 omp=0.1080 pool=0.1084us/vol exre=fused_pf_nt_xa_d2,T=32 0.0394us/vol (plan 3pass_pf_nt_xa_d2,T=32)
+   L6_unrolled              L=6: unrolled PFA 2x3 codelet ymm, batch-parallel contiguous chunks, per-thread NUMA-local scratch; variant=3pass_nt_pf nthr=32 disp=omp rd=det exre=3pass_nt_pf,T=16 73.1ns (plan 3pass_nt_pf,T=32) fr=0/0,nb=1
+   L8_batchsimd             radix-8 split; pick[B=1]: mode=FUSED nt=0 pf=none (fixed, no tuner) alloc=r9(a4096,si520) ab{fused=1.629,fusedAA=1.626} poolrt{2=2.210,8=1.894,32=1.725}
+   L8_fusedaxes             8^3 fused/AA/AA2 c52 mt=vol/pool; B=2048 pick=fused+pfs/nt32 (mt-tuned) arena{fused+pfs/32=0.027,fused+pfs+pfw/32=0.030,fused-nt+pfs/32=0.181,seq3-nt+pfs/32=0.175,fused+pfs/24=0.039,fused+pfs/16=0.089,fused-nt+pfs/24=0.157,fused-nt+pfs/16=0.112}
+   L8_radix8                radix-8 52-instr codelet; B=1 serial, B>1 pool-parallel 1f (3p probes); pick[B=32768,T=32]=mth-1f-nt-pfs (default,pool,so=56) arena{mth-1f-nt-pfs=0.175 mth-1fp-nt-pfs=0.172 mt-1f-nt-pfs=0.209 mt-1fp-nt-pfs=0.206 mth-1f-pfs=0.248 mt-1f-pfs=0.271 mth-3p-nt-pfs*=0.175 mt-3p-pfs*=0.270} govm{mth-1f-nt-pfs@raw=0.1740,mth-1f-nt-pfs@56=0.1739,lock=mth-1f-nt-pfs@raw}
+   baseline_matrix          row-column dense DFT matrix, O(L^4)/volume/axis
+   ducc0_c2c                ducc0 0.41 c2c, no planning, 32 threads
+   fftw3_estimate           FFTW 3.3.10 plan_many_dft, threaded, fftw3_estimate
+   fftw3_measure            FFTW 3.3.10 plan_many_dft, threaded, fftw3_measure
+   fftw3_patient            FFTW 3.3.10 plan_many_dft, threaded, fftw3_patient
+   mkl2026_dfti             oneMKL 2026.1 (pip wheel) DFTI, threaded, batched
+   mkl_dfti                 oneMKL 2022.0.2 DFTI, GNU OpenMP threading, batched

@@ -1,3 +1,9 @@
+/* Carried over from the SINGLE-THREAD competition, where this file finished as
+ * written below. Your job in the multicore phase is to parallelise it across
+ * 32 cores without losing its single-core efficiency -- read
+ * ../PANEL_BRIEF.md, and read ../../geom/strategies/L17_matrixsimd.md for the full
+ * history of how this kernel got here.
+ */
 /* =============================================================================
  * L17_matrixsimd -- 17^3 complex-double forward DFT as three dense 17x17
  *                   matrix passes, conjugate-pair folded, vectorised across
@@ -641,11 +647,11 @@ SUF(chunk17b)(const double *restrict src, long rs, double *restrict dst, long da
  *            register allocator prefers is measured, not guessed.
  * --------------------------------------------------------------------- */
 static inline __attribute__((always_inline)) void
-SUF(chunk17n_g)(const double *restrict src, long rs, double *restrict dst, long da,
-                long db, const double *restrict cn, const double *restrict sn,
-                double *restrict sc,
-                VT K0, VT K1, VT K2, VT K3, VT K4, VT K5, VT K6, VT K7,
-                int tr, int pc, int pin, int cr, int xst)
+SUF(chunk17n)(const double *restrict src, long rs, double *restrict dst, long da,
+              long db, const double *restrict cn, const double *restrict sn,
+              double *restrict sc,
+              VT K0, VT K1, VT K2, VT K3, VT K4, VT K5, VT K6, VT K7,
+              int tr, int pc, int pin, int cr)
 {
     static const long IA[8] = {1, 3, 9, 10, 13, 5, 15, 11};
     static const long IB[8] = {16, 14, 8, 7, 4, 12, 2, 6};
@@ -843,35 +849,7 @@ SUF(chunk17n_g)(const double *restrict src, long rs, double *restrict dst, long 
         VST(dst + 12 * db, E12); VST(dst + 13 * db, E13);
         VST(dst + 14 * db, E14); VST(dst + 15 * db, E15);
         VST(dst + 16 * db, E16);
-#if WC == 4 && defined(__AVX512F__)
-    } else if (xst) {
-        /* ---- ROUND ice_r1: EXTRACT-STORE transpose.  On Ice Lake both
-         * 512-bit FMA pipes are ports 0+5 and every 512-bit shuffle is
-         * port-5-only, so the 40 vshuff64x2 of the tile transpose steal
-         * port slots from the second FMA pipe (on CLX port 5 was idle and
-         * the transpose was free -- that assumption is machine-specific).
-         * The memory-destination form of vextractf64x2 executes as a plain
-         * store (store-data + store-AGU, no shuffle uop), and Ice Lake
-         * commits 2 stores/cycle: 68 16-byte stores replace 40 shuffles +
-         * 20 stores.  Values stored are bit-identical lanes of the same
-         * vectors, so this stays inside the bit class (cmp-verified). ---- */
-#  define XST1(m, e)                                                           \
-      do {                                                                     \
-          __m512d z_ = (__m512d)(e);                                           \
-          _mm_storeu_pd(dst + 0 * da + (m) * 2, _mm512_castpd512_pd128(z_));   \
-          _mm_storeu_pd(dst + 1 * da + (m) * 2, _mm512_extractf64x2_pd(z_, 1));\
-          _mm_storeu_pd(dst + 2 * da + (m) * 2, _mm512_extractf64x2_pd(z_, 2));\
-          _mm_storeu_pd(dst + 3 * da + (m) * 2, _mm512_extractf64x2_pd(z_, 3));\
-      } while (0)
-        XST1(0, E0);   XST1(1, E1);   XST1(2, E2);   XST1(3, E3);
-        XST1(4, E4);   XST1(5, E5);   XST1(6, E6);   XST1(7, E7);
-        XST1(8, E8);   XST1(9, E9);   XST1(10, E10); XST1(11, E11);
-        XST1(12, E12); XST1(13, E13); XST1(14, E14); XST1(15, E15);
-        XST1(16, E16);
-#  undef XST1
-#endif
     } else {
-        (void)xst;
 #if WC == 4
 #  define TILEN(m0, e0, e1, e2, e3)                                            \
       do {                                                                     \
@@ -927,32 +905,6 @@ SUF(chunk17n_g)(const double *restrict src, long rs, double *restrict dst, long 
 #undef E14
 #undef E15
 #undef E16
-}
-
-/* The two public forms: chunk17n is the historical kernel (tile-transpose
- * stores), chunk17nx routes the tr=1 transpose through extract-stores
- * (round ice_r1).  Both are thin always_inline wrappers over chunk17n_g,
- * so the arithmetic -- and therefore the bit class -- is shared. */
-static inline __attribute__((always_inline)) void
-SUF(chunk17n)(const double *restrict src, long rs, double *restrict dst, long da,
-              long db, const double *restrict cn, const double *restrict sn,
-              double *restrict sc,
-              VT K0, VT K1, VT K2, VT K3, VT K4, VT K5, VT K6, VT K7,
-              int tr, int pc, int pin, int cr)
-{
-    SUF(chunk17n_g)(src, rs, dst, da, db, cn, sn, sc,
-                    K0, K1, K2, K3, K4, K5, K6, K7, tr, pc, pin, cr, 0);
-}
-
-static inline __attribute__((always_inline)) void
-SUF(chunk17nx)(const double *restrict src, long rs, double *restrict dst, long da,
-               long db, const double *restrict cn, const double *restrict sn,
-               double *restrict sc,
-               VT K0, VT K1, VT K2, VT K3, VT K4, VT K5, VT K6, VT K7,
-               int tr, int pc, int pin, int cr)
-{
-    SUF(chunk17n_g)(src, rs, dst, da, db, cn, sn, sc,
-                    K0, K1, K2, K3, K4, K5, K6, K7, tr, pc, pin, cr, 1);
 }
 
 /* chunk start offsets covering a 17-long index; the last one overlaps the
@@ -1357,6 +1309,10 @@ L17_EXEC_P(SUF(exec20), 1, 1)
 
 #else /* ================= main body ================= */
 
+#ifndef _GNU_SOURCE
+#  define _GNU_SOURCE /* pthread_setaffinity_np, sched_getaffinity */
+#endif
+
 #include <complex.h>
 #include <math.h>
 #include <stdint.h>
@@ -1365,6 +1321,13 @@ L17_EXEC_P(SUF(exec20), 1, 1)
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+
+#ifdef _OPENMP
+#  include <omp.h>
+#  include <pthread.h>
+#  include <sched.h>
+#  include <sys/mman.h> /* mt_r2: t1g is mmap'd so a re-touch gets fresh pages */
+#endif
 
 #include "../fft3d_api.h"
 
@@ -1444,11 +1407,56 @@ struct fft3d_plan {
     void *block;
     double _Complex *ti, *to; /* transient buffers used only by the plan-time tuner */
     size_t tn;
+    /* ---- multicore phase (round mt_r1) ------------------------------------
+     * mode 0: single thread, master exec (the phase-1 path, unchanged)
+     * mode 1: volume-parallel -- each thread runs the SAME selected exec on
+     *         its own contiguous run of volumes (static) or on dynamically
+     *         grabbed blocks of dynb volumes, with fully private scratch
+     * mode 2: intra-volume -- the X-last class-B transform decomposed into
+     *         17*B independent (plane: Y+Z) units, one barrier, then 73*B
+     *         independent X-chunk units, all chunk-for-chunk identical to
+     *         l17_execm_xla, so the bits match class B exactly
+     * All tuning of (mode, nthr, dynb, kernel, flags) happens in create() by
+     * timing the real parallel path; every candidate within a batch regime
+     * is in one bit class, so the wall-clock pick cannot change the output. */
+    int mode;
+    int nthr;               /* team size for modes 1 and 2 */
+    int dynb;               /* mode 1: >0 = dynamic blocks of dynb volumes */
+    int nxr;                /* mode 2: X-phase team size (<= nthr; the plane
+                             * phase scales to ~17 threads, the X phase
+                             * saturates near 4 -- measured, see strategies) */
+    int xpf;                /* mode 2 X-phase cross-core prefetch: 0 = none,
+                             * 1 = chunk h prefetches chunk h+2's rows,
+                             * 2 = mt_r2 bulk pull of the whole range at the
+                             *     barrier exit (capped at 24 chunks) */
+    int nkids;
+    struct fft3d_plan **kids; /* per-thread plans: own tables + scratch,
+                               * first-touched by their own thread (NUMA) */
+    double *t1g;            /* mode 2: batch padded t1 volumes (17*640 dbl each) */
+    void *t1g_raw;          /* mmap'd (mt_r2): re-touching needs fresh pages */
+    size_t t1g_sz;
+    void *poolv;            /* persistent spin pool (l17mt_pool), created once */
+    int mtskip;             /* dev-only (L17MT_SKIP): bit0 skip planes, bit1
+                             * skip xrange, bit2 skip barrier -- OUTPUT IS
+                             * WRONG, timing decomposition only */
     unsigned char astab[2][256]; /* per-volume t1 base shifts (round panel_r8):
                                   * astab[mode][((t1 - ref) & 4095) >> 4] is the
                                   * 64-byte-step shift minimizing X-pass 4K
                                   * aliasing; mode 0 = X-last (ref = vout),
                                   * mode 1 = X-first (ref = vin). */
+    /* ---- round mt_r3: streaming-regime engine (adopted from L17_winograd,
+     * see the block comment above wg_fused23_h4).  Selected by a
+     * DETERMINISTIC working-set gate in create(), never by a raced pick. */
+    double *wgbuf;          /* per-child 4 x 17*SP doubles, own pages */
+    void *wgbuf_raw;
+    const int32_t *wgt;     /* store-base tables, shared read-only (master
+                             * owns wgt_raw; children only point at it) */
+    void *wgt_raw;
+    int wgi4;               /* 1 = split-free pass 1 (i4), 0 = h4 */
+    int wgomp;              /* mt_r4: 1 = dispatch the wg engine from an OMP
+                             * parallel region (the spin pool is then never
+                             * created -- see the round-mt_r4 comment at the
+                             * working-set gate), 0 = spin-pool dispatch */
 };
 
 /* ---- instantiate the kernel: {512-bit, 256-bit} x {staged, in-register} ---- */
@@ -1463,23 +1471,6 @@ struct fft3d_plan {
 #  endif
 #else
 #  define L17_SELF "L17_matrixsimd.c"
-#endif
-
-/* ROUND ice_r1: pre-RA instruction scheduling for every function from here
- * down (the chunk kernels and all exec variants).  GCC does no pre-RA
- * scheduling on x86 by default and keeps text order, so the chunk's phase-
- * serial source (cosine block, then sine block, then combine/stores) reaches
- * the issue queue unmixed; -fschedule-insns interleaves the independent
- * chains and -fsched-pressure keeps it from spilling while it does.  The
- * corpus (docs §10, GCC cures item on prime passes) reports ~+20% from this
- * pair on ICX-class front ends; measured here as a matched A/B on the node's
- * graded chain: 15.732 -> 14.528 us/step (-7.7%).  It must live in the
- * source as a pragma because the Makefile's CFLAGS are fixed.  Outputs are
- * unchanged (FMA contraction happens in combine, before sched1); the graded
- * verify + repeatability checks pass on the flagged build.
- * -DL17_NO_SCHED disables it (matched-A/B hook for dev runs only). */
-#ifndef L17_NO_SCHED
-#pragma GCC optimize("schedule-insns", "sched-pressure")
 #endif
 
 #ifdef L17_SELF
@@ -1644,27 +1635,6 @@ static void l17_as_build(unsigned char astab[2][256])
                     cn4, sn4, sc, Q0, Q1, Q2, Q3, Q4, Q5, Q6, Q7, 1, 0, 1, 0); \
     } while (0)
 
-/* ROUND ice_r1: the same group with the zmm chunks' transposing store routed
- * through memory-destination vextractf64x2 (see chunk17n_g's xst branch) --
- * on Ice Lake the tile transpose's 40 vshuff64x2 are port-5-only and steal
- * slots from the second 512-bit FMA pipe; extract-stores are store-port work.
- * The ymm tail keeps the tile path (256-bit shuffles are not the contended
- * resource, and w2 has no xst form).  Same values stored -> same bit class
- * as L17_MIX_GROUP (cmp-verified on full outputs before being selectable). */
-#define L17_MIX_GROUP_X(SRCB, RS, DSTB, DA, PC, CR)                            \
-    do {                                                                       \
-        int nt_ = 4;                                                           \
-        __asm__("" : "+r"(nt_));                                               \
-        for (int t_ = 0; t_ < nt_; ++t_) {                                     \
-            long f0_ = 4L * t_;                                                \
-            chunk17nx_w4((SRCB) + 2 * f0_, (RS), (DSTB) + f0_ * (DA), (DA), 2, \
-                         cn8, sn8, sc, K0, K1, K2, K3, K4, K5, K6, K7,         \
-                         1, (PC), 1, (CR));                                    \
-        }                                                                      \
-        chunk17n_w2((SRCB) + 2 * 15, (RS), (DSTB) + 15 * (DA), (DA), 2,        \
-                    cn4, sn4, sc, Q0, Q1, Q2, Q3, Q4, Q5, Q6, Q7, 1, 0, 1, 0); \
-    } while (0)
-
 /* The X pass, mixed: 72 zmm chunks cover lines 0..287 of the 289-long free
  * index, one ymm tail at 287 covers 287,288 (287 recomputed).  SRS/DRS are
  * the source/destination plane strides in doubles (578 dense, L17_T1SP for
@@ -1731,7 +1701,7 @@ static void l17_as_build(unsigned char astab[2][256])
 /* mirror of exec14 (PC=0) / exec12 (PC=1): X-last, pinned sines, mixed tail.
  * T1S = t1 plane stride (doubles); AS = 1 selects the execute-time
  * de-aliased t1 base (the X pass LOADS t1 while storing `out`). */
-#define L17_EXEC_MXL(NAME, PC, CR, T1S, AS, GRP)                                    \
+#define L17_EXEC_MXL(NAME, PC, CR, T1S, AS)                                    \
     static __attribute__((unused)) void                                        \
     NAME(const fft3d_plan *restrict p, const double _Complex *restrict in,     \
          double _Complex *restrict out)                                        \
@@ -1747,8 +1717,8 @@ static void l17_as_build(unsigned char astab[2][256])
                 double *pt = t1 + (long)x * (T1S);                             \
                 if (p->pt && x + 1 < 17) /* r9: next in-plane into L1 */       \
                     L17_MIX_YPF(vin + (long)(x + 1) * 578, 578);               \
-                GRP(pin2, 34, pb, L17_PBROWM, PC, CR);               \
-                GRP(pb, L17_PBROWM, pt, 34, PC, CR);                 \
+                L17_MIX_GROUP(pin2, 34, pb, L17_PBROWM, PC, CR);               \
+                L17_MIX_GROUP(pb, L17_PBROWM, pt, 34, PC, CR);                 \
             }                                                                  \
             if (p->pt)                                                         \
                 L17_MIX_XPASS_PT(t1, (T1S), vout, 578, PC, CR);                \
@@ -1760,7 +1730,7 @@ static void l17_as_build(unsigned char astab[2][256])
 /* mirror of exec15: X-first, pinned sines, mixed tail (batch regime).
  * With AS = 1 the X pass STORES t1 while loading `in`, so the de-aliasing
  * reference is `in`. */
-#define L17_EXEC_MXF(NAME, PC, CR, T1S, AS, GRP)                                    \
+#define L17_EXEC_MXF(NAME, PC, CR, T1S, AS)                                    \
     static __attribute__((unused)) void                                        \
     NAME(const fft3d_plan *restrict p, const double _Complex *restrict in,     \
          double _Complex *restrict out)                                        \
@@ -1791,30 +1761,26 @@ static void l17_as_build(unsigned char astab[2][256])
                     for (int q4 = 0; q4 < 37; ++q4)                            \
                         __builtin_prefetch(po + (long)q4 * 64, 1, 3);          \
                 }                                                              \
-                GRP(pin2, 34, pb, L17_PBROWM, PC, CR);               \
+                L17_MIX_GROUP(pin2, 34, pb, L17_PBROWM, PC, CR);               \
                 if (p->pw) {                                                   \
                     const char *po = (const char *)pt;                         \
                     for (int q4 = 37; q4 < 73; ++q4)                           \
                         __builtin_prefetch(po + (long)q4 * 64, 1, 3);          \
                 }                                                              \
-                GRP(pb, L17_PBROWM, pt, 34, PC, CR);                 \
+                L17_MIX_GROUP(pb, L17_PBROWM, pt, 34, PC, CR);                 \
             }                                                                  \
         }                                                                      \
     }
 
-L17_EXEC_MXL(l17_execm_xl, 0, 0, 578, 0, L17_MIX_GROUP)
-L17_EXEC_MXL(l17_execm_xlp, 1, 0, 578, 0, L17_MIX_GROUP)
-L17_EXEC_MXF(l17_execm_xf, 0, 0, 578, 0, L17_MIX_GROUP)
+L17_EXEC_MXL(l17_execm_xl, 0, 0, 578, 0)
+L17_EXEC_MXL(l17_execm_xlp, 1, 0, 578, 0)
+L17_EXEC_MXF(l17_execm_xf, 0, 0, 578, 0)
 /* round panel_r7: cosine-register-resident twins (cr=1 in the zmm body) */
-L17_EXEC_MXL(l17_execm_xlc, 0, 1, 578, 0, L17_MIX_GROUP)
-L17_EXEC_MXF(l17_execm_xfc, 0, 1, 578, 0, L17_MIX_GROUP)
+L17_EXEC_MXL(l17_execm_xlc, 0, 1, 578, 0)
+L17_EXEC_MXF(l17_execm_xfc, 0, 1, 578, 0)
 /* round panel_r8: address-safe twins (padded t1 stride + de-aliased base) */
-L17_EXEC_MXL(l17_execm_xla, 0, 0, L17_T1SP, 1, L17_MIX_GROUP)
-L17_EXEC_MXF(l17_execm_xfa, 0, 0, L17_T1SP, 1, L17_MIX_GROUP)
-/* round ice_r1: extract-store twins (Y/Z transposing stores via memory-
- * destination vextractf64x2 -- port-5 relief on 2x512-FMA parts) */
-L17_EXEC_MXL(l17_execm_xlax, 0, 0, L17_T1SP, 1, L17_MIX_GROUP_X)
-L17_EXEC_MXF(l17_execm_xfax, 0, 0, L17_T1SP, 1, L17_MIX_GROUP_X)
+L17_EXEC_MXL(l17_execm_xla, 0, 0, L17_T1SP, 1)
+L17_EXEC_MXF(l17_execm_xfa, 0, 0, L17_T1SP, 1)
 
 /* mirror of exec18: X-first, cross-volume pipelined, mixed tail */
 static __attribute__((unused)) void
@@ -1881,7 +1847,7 @@ l17_execm_pipe(const fft3d_plan *restrict p, const double _Complex *restrict in,
  * order -- VERIFIED BY cmp on full outputs, never assumed (r3's lesson).
  * Costs one extra 5.4 KiB plane buffer (pb2, already allocated) of L1.
  * --------------------------------------------------------------------- */
-#define L17_EXEC_MXLD(NAME, CR, T1S, AS, GRP)                                       \
+#define L17_EXEC_MXLD(NAME, CR, T1S, AS)                                       \
     static __attribute__((unused)) void                                        \
     NAME(const fft3d_plan *restrict p, const double _Complex *restrict in,     \
          double _Complex *restrict out)                                        \
@@ -1893,16 +1859,16 @@ l17_execm_pipe(const fft3d_plan *restrict p, const double _Complex *restrict in,
             double *vout = (double *)(out + (size_t)b * 4913);                 \
             double *restrict t1 = (AS) ? L17_AS_T1V(p, p->t1, vout, 0)         \
                                        : p->t1;                                \
-            GRP(vin, 34, pb, L17_PBROWM, 0, CR); /* Y(0) -> pb */    \
+            L17_MIX_GROUP(vin, 34, pb, L17_PBROWM, 0, CR); /* Y(0) -> pb */    \
             for (int x = 0; x < 17; ++x) {                                     \
                 double *pba = (x & 1) ? pb2 : pb; /* holds Y(x)'s plane */     \
                 double *pbn = (x & 1) ? pb : pb2; /* Y(x+1)'s target    */     \
                 if (p->pt && x + 2 < 17) /* r9: plane ahead of Y(x+1) */       \
                     L17_MIX_YPF(vin + (long)(x + 2) * 578, 578);               \
                 if (x + 1 < 17)                                                \
-                    GRP(vin + (long)(x + 1) * 578, 34, pbn,          \
+                    L17_MIX_GROUP(vin + (long)(x + 1) * 578, 34, pbn,          \
                                   L17_PBROWM, 0, CR);                          \
-                GRP(pba, L17_PBROWM, t1 + (long)x * (T1S), 34, 0,    \
+                L17_MIX_GROUP(pba, L17_PBROWM, t1 + (long)x * (T1S), 34, 0,    \
                               CR);                                             \
             }                                                                  \
             if (p->pt)                                                         \
@@ -1912,14 +1878,13 @@ l17_execm_pipe(const fft3d_plan *restrict p, const double _Complex *restrict in,
         }                                                                      \
     }
 
-L17_EXEC_MXLD(l17_execm_xld, 0, 578, 0, L17_MIX_GROUP)
-L17_EXEC_MXLD(l17_execm_xldc, 1, 578, 0, L17_MIX_GROUP) /* r7: cosine-resident twin */
-L17_EXEC_MXLD(l17_execm_xlda, 0, L17_T1SP, 1, L17_MIX_GROUP)
-L17_EXEC_MXLD(l17_execm_xldax, 0, L17_T1SP, 1, L17_MIX_GROUP_X) /* ice_r1: extract-store twin */
+L17_EXEC_MXLD(l17_execm_xld, 0, 578, 0)
+L17_EXEC_MXLD(l17_execm_xldc, 1, 578, 0) /* r7: cosine-resident twin */
+L17_EXEC_MXLD(l17_execm_xlda, 0, L17_T1SP, 1) /* r8: address-safe twin */
 
 /* X-first + deferred-Z: the batch-regime twin, with the pf/pw hooks of
  * l17_execm_xf (prefetches change no bits, so it stays in bit class D). */
-#define L17_EXEC_MXFD(NAME, CR, T1S, AS, GRP)                                       \
+#define L17_EXEC_MXFD(NAME, CR, T1S, AS)                                       \
     static __attribute__((unused)) void                                        \
     NAME(const fft3d_plan *restrict p, const double _Complex *restrict in,     \
          double _Complex *restrict out)                                        \
@@ -1935,7 +1900,7 @@ L17_EXEC_MXLD(l17_execm_xldax, 0, L17_T1SP, 1, L17_MIX_GROUP_X) /* ice_r1: extra
                 L17_MIX_XPASS_PT(vin, 578, t1, (T1S), 0, CR);                  \
             else                                                               \
                 L17_MIX_XPASS(vin, 578, t1, (T1S), 0, CR);                     \
-            GRP(t1, 34, pb, L17_PBROWM, 0, CR); /* Y(0) */           \
+            L17_MIX_GROUP(t1, 34, pb, L17_PBROWM, 0, CR); /* Y(0) */           \
             for (int x = 0; x < 17; ++x) {                                     \
                 double *pba = (x & 1) ? pb2 : pb;                              \
                 double *pbn = (x & 1) ? pb : pb2;                              \
@@ -1953,22 +1918,21 @@ L17_EXEC_MXLD(l17_execm_xldax, 0, L17_T1SP, 1, L17_MIX_GROUP_X) /* ice_r1: extra
                         __builtin_prefetch(po + (long)q4 * 64, 1, 3);          \
                 }                                                              \
                 if (x + 1 < 17)                                                \
-                    GRP(t1 + (long)(x + 1) * (T1S), 34, pbn,         \
+                    L17_MIX_GROUP(t1 + (long)(x + 1) * (T1S), 34, pbn,         \
                                   L17_PBROWM, 0, CR);                          \
                 if (p->pw) {                                                   \
                     const char *po = (const char *)pt;                         \
                     for (int q4 = 37; q4 < 73; ++q4)                           \
                         __builtin_prefetch(po + (long)q4 * 64, 1, 3);          \
                 }                                                              \
-                GRP(pba, L17_PBROWM, pt, 34, 0, CR);                 \
+                L17_MIX_GROUP(pba, L17_PBROWM, pt, 34, 0, CR);                 \
             }                                                                  \
         }                                                                      \
     }
 
-L17_EXEC_MXFD(l17_execm_xfd, 0, 578, 0, L17_MIX_GROUP)
-L17_EXEC_MXFD(l17_execm_xfdc, 1, 578, 0, L17_MIX_GROUP) /* r7: cosine-resident twin */
-L17_EXEC_MXFD(l17_execm_xfda, 0, L17_T1SP, 1, L17_MIX_GROUP)
-L17_EXEC_MXFD(l17_execm_xfdax, 0, L17_T1SP, 1, L17_MIX_GROUP_X) /* ice_r1: extract-store twin */
+L17_EXEC_MXFD(l17_execm_xfd, 0, 578, 0)
+L17_EXEC_MXFD(l17_execm_xfdc, 1, 578, 0) /* r7: cosine-resident twin */
+L17_EXEC_MXFD(l17_execm_xfda, 0, L17_T1SP, 1) /* r8: address-safe twin */
 
 /* -----------------------------------------------------------------------
  * ROUND panel_r10: staged-input streaming twins (xfsa / xfdsa, FORCE 52/53).
@@ -2310,6 +2274,1984 @@ l17_probe_x(const fft3d_plan *restrict p, const double *restrict src, long ss,
     L17_MIX_XPASS(src, ss, dst, 578, 0, 0);
 }
 
+/* =============================================================================
+ * ROUND mt_r1: MULTICORE LAYER.
+ *
+ * Volume-parallel (mode 1, batch >= 64): volumes are independent, so each
+ * thread runs the SAME plan-selected exec variant on its own contiguous run
+ * of volumes (static split) or on dynamically grabbed blocks (dynb volumes
+ * per grab; the caller's buffers are first-touched serially by the driver,
+ * so on the two-socket node the remote socket's threads run slower and a
+ * dynamic schedule rebalances that -- which of the two wins is measured).
+ * Every thread has a fully private child plan (own coefficient tables, own
+ * pb/sc/t1/stage scratch, first-touched by its own thread so it is
+ * NUMA-local), so there is no shared mutable state at all and no false
+ * sharing inside scratch.  Which thread computes a volume cannot change its
+ * bits: the kernel and tables are identical, and the r8 address-shift is
+ * address-only.
+ *
+ * Intra-volume (mode 2, batch < 64): one 17^3 volume is 78.6 KiB -- the
+ * batch axis alone cannot use 32 cores at B=1.  The X-last class-B
+ * transform decomposes into 17*B independent plane units (Y group + Z group
+ * on a private plane buffer, in -> t1) and, after ONE barrier, 73*B
+ * independent X-chunk units (t1 -> out).  Both phases run exactly the
+ * chunk sequence of l17_execm_xla (mixed zmm+ymm tail, pinned sines, padded
+ * t1 stride), so the output is bit-identical to class B -- the same
+ * argument as the r4 pipelined variants: same chunks, same operands, same
+ * per-value order, only the interleaving across independent units differs.
+ * t1 uses the r8 padded plane stride (5120 B = 80 lines), so plane
+ * boundaries never share a cache line between threads; the only remaining
+ * sharing is the 17 out-lines at each phase-2 thread boundary (out rows
+ * are 16 mod 64), which is bounded and measured, not guessed.
+ *
+ * ROUND mt_r2 (all schedule/address/timing-only; no bit class changes):
+ *   1. ARENA FIDELITY.  The r1 arena was filled serially ("to match the
+ *      driver's first touch"), but the r1 VERDICT (section 4, last para)
+ *      established that the driver's pages do NOT stay on socket 0 through
+ *      the multi-second scored loop -- AutoNUMA migrates them toward the
+ *      static owners (L=6 B=65536 sustains 175 GB/s, above one socket), and
+ *      the serial-touch arena therefore mis-priced the streaming regime:
+ *      this entry's node pick (NT+pipelined, 2.106 us/t) lost 1.72x to
+ *      L17_winograd's plain static schedule (1.222), and L17_rader's arena
+ *      read 1.319 for a config that scored 2.904.  The mt arena is now
+ *      first-touched IN PARALLEL by the static owner map (thread t touches
+ *      the volumes it will process), which is the migrated steady state,
+ *      and stage A races under static (dyn=0), which is what the whole
+ *      panel's node results say wins.
+ *   2. Race statistic: median of 5 blocked reps instead of min of 3 (the
+ *      VERDICT's section 3.2: nine entries scored on their luckiest
+ *      process's create-time pick; medians flip far less).
+ *   3. Flat arrival-flag/release barrier for mode 2, ADOPTED FROM
+ *      L17_winograd mt_r1 (its record: central atomic counter ~1.2 us at
+ *      T=16 -- sixteen serialized RFOs on one line -- vs 0.3-0.4 us flat).
+ *   4. Mode-2 X-phase BULK prefetch (xpf=2): pull the thread's whole column
+ *      range right at the barrier exit instead of 2 chunks ahead.
+ *   5. t1g re-homed after the team-size pick: the race needs t1g to exist,
+ *      so it is first touched by the full-team map, but the picked team is
+ *      smaller (node: nt=16), and under close binding that map leaves
+ *      planes 8..16's pages homed on socket 1 while every user of them
+ *      runs on socket 0.  mmap + re-touch by the picked map fixes the
+ *      exposure (free()+malloc could recycle already-homed heap pages).
+ * =============================================================================
+ */
+enum { L17MT_T1VOL = 17 * L17_T1SP }; /* padded t1 volume, doubles (87 KiB) */
+
+static double l17_now(void);
+static int l17_verbose(void);
+static void l17_tune_free(fft3d_plan *p);
+
+/* one thread's share of the plane phase: global plane index g = 17*b + x */
+static __attribute__((noinline)) void
+l17mt_planes(const fft3d_plan *restrict p, const double *restrict inb,
+             double *restrict t1g, int g0, int g1)
+{
+    L17_MIX_DECLS;
+    (void)nb;
+    for (int g = g0; g < g1; ++g) {
+        int b = g / 17, x = g % 17;
+        const double *pin2 = inb + (size_t)b * 9826 + (long)x * 578;
+        double *pt = t1g + (size_t)b * L17MT_T1VOL + (long)x * L17_T1SP;
+        L17_MIX_GROUP(pin2, 34, pb, L17_PBROWM, 0, 0);
+        L17_MIX_GROUP(pb, L17_PBROWM, pt, 34, 0, 0);
+    }
+}
+
+/* one thread's share of the X pass: global slot index h = 73*b + i.
+ * After the barrier most source lines are dirty in OTHER cores' caches (the
+ * plane phase wrote them), so the X chunks prefetch ahead -- the X chunk's
+ * dependent FMA chains cannot hide a cross-core dirty-line latency by
+ * themselves.  Prefetch only, changes no bits (r9 pt mechanism, repointed
+ * at coherence misses instead of L2->L1 fills).  Two shapes, raced:
+ *   pf=1 (mt_r1): chunk h prefetches chunk h+2's 17 rows (~2 chunks of
+ *        latency hiding, bounded MLP).
+ *   pf=2 (mt_r2): BULK -- the thread's whole column range is prefetched
+ *        back-to-back right at the barrier exit, so the cross-core pulls
+ *        overlap EACH OTHER (aggregate MLP) instead of only two chunks
+ *        ahead.  This is the "overlap the pull, bulk, not per-chunk" item
+ *        from the r1 record, and the r1 VERDICT's named L=17 fix.  Capped
+ *        at 24 chunks (~26 KiB, half of L1) so larger small-batch ranges
+ *        do not flush their own L1; past the cap pf=1's lookahead resumes. */
+static __attribute__((noinline)) void
+l17mt_xrange(const fft3d_plan *restrict p, const double *restrict t1g,
+             double *restrict outb, int h0, int h1, int pf)
+{
+    L17_MIX_DECLS;
+    (void)nb;
+    int hb = h0; /* chunks below hb are already prefetched (bulk) */
+    if (pf == 2) {
+        hb = h1 < h0 + 24 ? h1 : h0 + 24;
+        for (int h = h0; h < hb; ++h) {
+            int b = h / 73, i = h % 73;
+            const double *pfv = t1g + (size_t)b * L17MT_T1VOL +
+                                2 * (i < 72 ? 4L * i : 287L);
+            for (int r = 0; r < 17; ++r)
+                __builtin_prefetch(pfv + (long)r * L17_T1SP, 0, 3);
+        }
+    }
+    for (int h = h0; h < h1; ++h) {
+        int b = h / 73, i = h % 73;
+        const double *t1v = t1g + (size_t)b * L17MT_T1VOL;
+        double *vout = outb + (size_t)b * 9826;
+        if (pf && h + 2 < h1 && h + 2 >= hb) {
+            int b2 = (h + 2) / 73, i2 = (h + 2) % 73;
+            const double *pfv = t1g + (size_t)b2 * L17MT_T1VOL +
+                                2 * (i2 < 72 ? 4L * i2 : 287L);
+            for (int r = 0; r < 17; ++r)
+                __builtin_prefetch(pfv + (long)r * L17_T1SP, 0, 3);
+        }
+        if (i < 72) {
+            long f0 = 4L * i;
+            chunk17n_w4(t1v + 2 * f0, L17_T1SP, vout + 2 * f0, 2, 578,
+                        cn8, sn8, sc, K0, K1, K2, K3, K4, K5, K6, K7,
+                        0, 0, 1, 0);
+        } else {
+            chunk17n_w2(t1v + 2 * 287, L17_T1SP, vout + 2 * 287, 2, 578,
+                        cn4, sn4, sc, Q0, Q1, Q2, Q3, Q4, Q5, Q6, Q7,
+                        0, 0, 1, 0);
+        }
+    }
+}
+
+
+/* =============================================================================
+ * ROUND mt_r3: THE STREAMING-REGIME ENGINE, ADOPTED FROM L17_winograd.
+ *
+ * The mt_r2 leaderboard and VERDICT settled B=4096: this entry's dense
+ * X-first schedule collapsed to 82 GB/s on the node (2.858 us/t, both
+ * rounds, stable) while L17_winograd's rotating-pass fused engine ran the
+ * identical cell at ~193 GB/s effective (1.220 us/t, both rounds), under
+ * the same static split, same team, plain stores.  ~2x of the gap is
+ * schedule, not machine (VERDICT mt_r2 section 4 item 4), and the VERDICT's
+ * L=17 directive is to MERGE: dense conj-symmetric X-first below the
+ * aggregate-cache threshold, the Winograd rotating-pass engine above it,
+ * "with the threshold set from the working set rather than from an arena"
+ * (this entry's create-time arena misranked the streaming cell twice --
+ * r1 NT+pipelined 2.106, r2 plain X-first 2.858, both priced as winners).
+ *
+ * Everything from here to the end of wg_fused23_h4 is copied verbatim from
+ * impl/L17_winograd.c (its 17-point module: Rader/quotient-derived cyclic +
+ * negacyclic correlations, kernels A/B/E/H, the kx-blocked fused pass 2+3,
+ * and the split-free i4 pass 1 that L17_rader's node runs picked at batch),
+ * with two local changes, marked below: fused23_h4's plan indirection is
+ * replaced by explicit scratch/table arguments, and its pf/pfw/CLWB hooks
+ * are dropped (the node picked pf=0 pfw=0 cw=0 in every winning process;
+ * they are hints only).  The engine produces a DIFFERENT (correct) rounding
+ * fixed point from the dense classes; it is selected by a DETERMINISTIC
+ * working-set gate, never by a wall-clock race, so process-to-process
+ * repeatability is preserved by construction.
+ * ============================================================================= */
+#define SP 296          /* winograd's padded spectator stride, doubles */
+typedef double    v8  __attribute__((vector_size(64)));
+typedef double    v8u __attribute__((vector_size(64), aligned(8)));
+typedef long long i8v __attribute__((vector_size(64)));
+typedef double    v4  __attribute__((vector_size(32)));
+typedef double    v4u __attribute__((vector_size(32), aligned(8)));
+typedef long long i4v __attribute__((vector_size(32)));
+typedef double    v2u __attribute__((vector_size(16), aligned(8)));
+
+#define BCAST(TY,x) ((TY){0} + (x))   /* scalar -> lane-broadcast, folded at compile time */
+#define SH8(a,b,...) ((v8)__builtin_shuffle((v8)(a),(v8)(b),(i8v){__VA_ARGS__}))
+#define SH4(a,b,...) ((v4)__builtin_shuffle((v4)(a),(v4)(b),(i4v){__VA_ARGS__}))
+#define DEF_K17_A(SUF, T) \
+static inline __attribute__((always_inline)) void k17_##SUF(const T *xr, const T *xi, T *yr, T *yi) \
+{ \
+    T pq[8], vv[16], cc[16]; \
+    T a0r, a1r, a2r, a3r, a0i, a1i, a2i, a3i, dr, di, u0r,u0i,u1r,u1i; \
+    dr = xr[0]; di = xi[0]; \
+    u0r = xr[1] + xr[16];  u0i = xi[1] + xi[16]; \
+    u1r = xr[4] + xr[13];  u1i = xi[4] + xi[13]; \
+    vv[0] = xr[1] - xr[16];  vv[1] = xi[1] - xi[16]; \
+    vv[8] = xr[13] - xr[4];  vv[9] = xi[13] - xi[4]; \
+    { const T pr = u0r + u1r, pi = u0i + u1i; \
+      pq[0] = u0r - u1r;  pq[1] = u0i - u1i; \
+      dr = dr + pr;  di = di + pi; \
+      a0r = xr[0] + pr*5.12370294433828866e-01; \
+      a1r = xr[0] + pr*8.60376828522276954e-02; \
+      a2r = xr[0] + pr*-1.21982091231621334e-01; \
+      a3r = xr[0] + pr*-7.26425886054435255e-01; \
+      a0i = xi[0] + pi*5.12370294433828866e-01; \
+      a1i = xi[0] + pi*8.60376828522276954e-02; \
+      a2i = xi[0] + pi*-1.21982091231621334e-01; \
+      a3i = xi[0] + pi*-7.26425886054435255e-01; \
+    } \
+    u0r = xr[3] + xr[14];  u0i = xi[3] + xi[14]; \
+    u1r = xr[5] + xr[12];  u1i = xi[5] + xi[12]; \
+    vv[2] = xr[3] - xr[14];  vv[3] = xi[3] - xi[14]; \
+    vv[10] = xr[5] - xr[12];  vv[11] = xi[5] - xi[12]; \
+    { const T pr = u0r + u1r, pi = u0i + u1i; \
+      pq[2] = u0r - u1r;  pq[3] = u0i - u1i; \
+      dr = dr + pr;  di = di + pi; \
+      a0r = a0r + pr*8.60376828522276954e-02; \
+      a1r = a1r + pr*-1.21982091231621334e-01; \
+      a2r = a2r + pr*-7.26425886054435255e-01; \
+      a3r = a3r + pr*5.12370294433828866e-01; \
+      a0i = a0i + pi*8.60376828522276954e-02; \
+      a1i = a1i + pi*-1.21982091231621334e-01; \
+      a2i = a2i + pi*-7.26425886054435255e-01; \
+      a3i = a3i + pi*5.12370294433828866e-01; \
+    } \
+    u0r = xr[8] + xr[9];  u0i = xi[8] + xi[9]; \
+    u1r = xr[2] + xr[15];  u1i = xi[2] + xi[15]; \
+    vv[4] = xr[9] - xr[8];  vv[5] = xi[9] - xi[8]; \
+    vv[12] = xr[15] - xr[2];  vv[13] = xi[15] - xi[2]; \
+    { const T pr = u0r + u1r, pi = u0i + u1i; \
+      pq[4] = u0r - u1r;  pq[5] = u0i - u1i; \
+      dr = dr + pr;  di = di + pi; \
+      a0r = a0r + pr*-1.21982091231621334e-01; \
+      a1r = a1r + pr*-7.26425886054435255e-01; \
+      a2r = a2r + pr*5.12370294433828866e-01; \
+      a3r = a3r + pr*8.60376828522276954e-02; \
+      a0i = a0i + pi*-1.21982091231621334e-01; \
+      a1i = a1i + pi*-7.26425886054435255e-01; \
+      a2i = a2i + pi*5.12370294433828866e-01; \
+      a3i = a3i + pi*8.60376828522276954e-02; \
+    } \
+    u0r = xr[7] + xr[10];  u0i = xi[7] + xi[10]; \
+    u1r = xr[6] + xr[11];  u1i = xi[6] + xi[11]; \
+    vv[6] = xr[10] - xr[7];  vv[7] = xi[10] - xi[7]; \
+    vv[14] = xr[11] - xr[6];  vv[15] = xi[11] - xi[6]; \
+    { const T pr = u0r + u1r, pi = u0i + u1i; \
+      pq[6] = u0r - u1r;  pq[7] = u0i - u1i; \
+      dr = dr + pr;  di = di + pi; \
+      a0r = a0r + pr*-7.26425886054435255e-01; \
+      a1r = a1r + pr*5.12370294433828866e-01; \
+      a2r = a2r + pr*8.60376828522276954e-02; \
+      a3r = a3r + pr*-1.21982091231621334e-01; \
+      a0i = a0i + pi*-7.26425886054435255e-01; \
+      a1i = a1i + pi*5.12370294433828866e-01; \
+      a2i = a2i + pi*8.60376828522276954e-02; \
+      a3i = a3i + pi*-1.21982091231621334e-01; \
+    } \
+    yr[0] = dr;  yi[0] = di; \
+    cc[0] = a0r; cc[1] = a0i; cc[2] = a1r; cc[3] = a1i; \
+    cc[4] = a2r; cc[5] = a2i; cc[6] = a3r; cc[7] = a3i; \
+    { const T qr = pq[0], qi = pq[1]; \
+      a0r = qr*4.20101934970526891e-01; \
+      a1r = qr*3.59700672924310572e-01; \
+      a2r = qr*-8.60991008452280493e-01; \
+      a3r = qr*-1.23791249675178877e-01; \
+      a0i = qi*4.20101934970526891e-01; \
+      a1i = qi*3.59700672924310572e-01; \
+      a2i = qi*-8.60991008452280493e-01; \
+      a3i = qi*-1.23791249675178877e-01; \
+    } \
+    { const T qr = pq[2], qi = pq[3]; \
+      a0r = a0r + qr*3.59700672924310572e-01; \
+      a1r = a1r + qr*-8.60991008452280493e-01; \
+      a2r = a2r + qr*-1.23791249675178877e-01; \
+      a3r = a3r + qr*-4.20101934970526891e-01; \
+      a0i = a0i + qi*3.59700672924310572e-01; \
+      a1i = a1i + qi*-8.60991008452280493e-01; \
+      a2i = a2i + qi*-1.23791249675178877e-01; \
+      a3i = a3i + qi*-4.20101934970526891e-01; \
+    } \
+    { const T qr = pq[4], qi = pq[5]; \
+      a0r = a0r + qr*-8.60991008452280493e-01; \
+      a1r = a1r + qr*-1.23791249675178877e-01; \
+      a2r = a2r + qr*-4.20101934970526891e-01; \
+      a3r = a3r + qr*-3.59700672924310572e-01; \
+      a0i = a0i + qi*-8.60991008452280493e-01; \
+      a1i = a1i + qi*-1.23791249675178877e-01; \
+      a2i = a2i + qi*-4.20101934970526891e-01; \
+      a3i = a3i + qi*-3.59700672924310572e-01; \
+    } \
+    { const T qr = pq[6], qi = pq[7]; \
+      a0r = a0r + qr*-1.23791249675178877e-01; \
+      a1r = a1r + qr*-4.20101934970526891e-01; \
+      a2r = a2r + qr*-3.59700672924310572e-01; \
+      a3r = a3r + qr*8.60991008452280493e-01; \
+      a0i = a0i + qi*-1.23791249675178877e-01; \
+      a1i = a1i + qi*-4.20101934970526891e-01; \
+      a2i = a2i + qi*-3.59700672924310572e-01; \
+      a3i = a3i + qi*8.60991008452280493e-01; \
+    } \
+    { const T ta = cc[0], tb = cc[1]; \
+      cc[0] = ta + a0r;  cc[1] = tb + a0i; \
+      cc[8] = ta - a0r;  cc[9] = tb - a0i; } \
+    { const T ta = cc[2], tb = cc[3]; \
+      cc[2] = ta + a1r;  cc[3] = tb + a1i; \
+      cc[10] = ta - a1r;  cc[11] = tb - a1i; } \
+    { const T ta = cc[4], tb = cc[5]; \
+      cc[4] = ta + a2r;  cc[5] = tb + a2i; \
+      cc[12] = ta - a2r;  cc[13] = tb - a2i; } \
+    { const T ta = cc[6], tb = cc[7]; \
+      cc[6] = ta + a3r;  cc[7] = tb + a3i; \
+      cc[14] = ta - a3r;  cc[15] = tb - a3i; } \
+    { const T tvr = vv[0], tvi = vv[1]; \
+      a0r = tvr*3.61241666187152921e-01; \
+      a1r = tvr*8.95163291355062340e-01; \
+      a2r = tvr*-1.83749517816570340e-01; \
+      a3r = tvr*-5.26432162877355836e-01; \
+      a0i = tvi*3.61241666187152921e-01; \
+      a1i = tvi*8.95163291355062340e-01; \
+      a2i = tvi*-1.83749517816570340e-01; \
+      a3i = tvi*-5.26432162877355836e-01; \
+    } \
+    { const T tvr = vv[2], tvi = vv[3]; \
+      a0r = a0r + tvr*8.95163291355062340e-01; \
+      a1r = a1r + tvr*-1.83749517816570340e-01; \
+      a2r = a2r + tvr*-5.26432162877355836e-01; \
+      a3r = a3r + tvr*-9.95734176295034468e-01; \
+      a0i = a0i + tvi*8.95163291355062340e-01; \
+      a1i = a1i + tvi*-1.83749517816570340e-01; \
+      a2i = a2i + tvi*-5.26432162877355836e-01; \
+      a3i = a3i + tvi*-9.95734176295034468e-01; \
+    } \
+    { const T tvr = vv[4], tvi = vv[5]; \
+      a0r = a0r + tvr*-1.83749517816570340e-01; \
+      a1r = a1r + tvr*-5.26432162877355836e-01; \
+      a2r = a2r + tvr*-9.95734176295034468e-01; \
+      a3r = a3r + tvr*9.61825643172819045e-01; \
+      a0i = a0i + tvi*-1.83749517816570340e-01; \
+      a1i = a1i + tvi*-5.26432162877355836e-01; \
+      a2i = a2i + tvi*-9.95734176295034468e-01; \
+      a3i = a3i + tvi*9.61825643172819045e-01; \
+    } \
+    { const T tvr = vv[6], tvi = vv[7]; \
+      a0r = a0r + tvr*-5.26432162877355836e-01; \
+      a1r = a1r + tvr*-9.95734176295034468e-01; \
+      a2r = a2r + tvr*9.61825643172819045e-01; \
+      a3r = a3r + tvr*-6.73695643646557207e-01; \
+      a0i = a0i + tvi*-5.26432162877355836e-01; \
+      a1i = a1i + tvi*-9.95734176295034468e-01; \
+      a2i = a2i + tvi*9.61825643172819045e-01; \
+      a3i = a3i + tvi*-6.73695643646557207e-01; \
+    } \
+    { const T tvr = vv[8], tvi = vv[9]; \
+      a0r = a0r + tvr*-9.95734176295034468e-01; \
+      a1r = a1r + tvr*9.61825643172819045e-01; \
+      a2r = a2r + tvr*-6.73695643646557207e-01; \
+      a3r = a3r + tvr*-7.98017227280239494e-01; \
+      a0i = a0i + tvi*-9.95734176295034468e-01; \
+      a1i = a1i + tvi*9.61825643172819045e-01; \
+      a2i = a2i + tvi*-6.73695643646557207e-01; \
+      a3i = a3i + tvi*-7.98017227280239494e-01; \
+    } \
+    { const T tvr = vv[10], tvi = vv[11]; \
+      a0r = a0r + tvr*9.61825643172819045e-01; \
+      a1r = a1r + tvr*-6.73695643646557207e-01; \
+      a2r = a2r + tvr*-7.98017227280239494e-01; \
+      a3r = a3r + tvr*-3.61241666187152921e-01; \
+      a0i = a0i + tvi*9.61825643172819045e-01; \
+      a1i = a1i + tvi*-6.73695643646557207e-01; \
+      a2i = a2i + tvi*-7.98017227280239494e-01; \
+      a3i = a3i + tvi*-3.61241666187152921e-01; \
+    } \
+    { const T tvr = vv[12], tvi = vv[13]; \
+      a0r = a0r + tvr*-6.73695643646557207e-01; \
+      a1r = a1r + tvr*-7.98017227280239494e-01; \
+      a2r = a2r + tvr*-3.61241666187152921e-01; \
+      a3r = a3r + tvr*-8.95163291355062340e-01; \
+      a0i = a0i + tvi*-6.73695643646557207e-01; \
+      a1i = a1i + tvi*-7.98017227280239494e-01; \
+      a2i = a2i + tvi*-3.61241666187152921e-01; \
+      a3i = a3i + tvi*-8.95163291355062340e-01; \
+    } \
+    { const T tvr = vv[14], tvi = vv[15]; \
+      a0r = a0r + tvr*-7.98017227280239494e-01; \
+      a1r = a1r + tvr*-3.61241666187152921e-01; \
+      a2r = a2r + tvr*-8.95163291355062340e-01; \
+      a3r = a3r + tvr*1.83749517816570340e-01; \
+      a0i = a0i + tvi*-7.98017227280239494e-01; \
+      a1i = a1i + tvi*-3.61241666187152921e-01; \
+      a2i = a2i + tvi*-8.95163291355062340e-01; \
+      a3i = a3i + tvi*1.83749517816570340e-01; \
+    } \
+    { const T tcr = cc[0], tci = cc[1]; \
+      yr[1] = tcr + a0i;  yi[1] = tci - a0r; \
+      yr[16] = tcr - a0i;  yi[16] = tci + a0r; } \
+    { const T tcr = cc[2], tci = cc[3]; \
+      yr[3] = tcr + a1i;  yi[3] = tci - a1r; \
+      yr[14] = tcr - a1i;  yi[14] = tci + a1r; } \
+    { const T tcr = cc[4], tci = cc[5]; \
+      yr[8] = tcr - a2i;  yi[8] = tci + a2r; \
+      yr[9] = tcr + a2i;  yi[9] = tci - a2r; } \
+    { const T tcr = cc[6], tci = cc[7]; \
+      yr[7] = tcr - a3i;  yi[7] = tci + a3r; \
+      yr[10] = tcr + a3i;  yi[10] = tci - a3r; } \
+    { const T tvr = vv[0], tvi = vv[1]; \
+      a0r = tvr*-9.95734176295034468e-01; \
+      a1r = tvr*9.61825643172819045e-01; \
+      a2r = tvr*-6.73695643646557207e-01; \
+      a3r = tvr*-7.98017227280239494e-01; \
+      a0i = tvi*-9.95734176295034468e-01; \
+      a1i = tvi*9.61825643172819045e-01; \
+      a2i = tvi*-6.73695643646557207e-01; \
+      a3i = tvi*-7.98017227280239494e-01; \
+    } \
+    { const T tvr = vv[2], tvi = vv[3]; \
+      a0r = a0r + tvr*9.61825643172819045e-01; \
+      a1r = a1r + tvr*-6.73695643646557207e-01; \
+      a2r = a2r + tvr*-7.98017227280239494e-01; \
+      a3r = a3r + tvr*-3.61241666187152921e-01; \
+      a0i = a0i + tvi*9.61825643172819045e-01; \
+      a1i = a1i + tvi*-6.73695643646557207e-01; \
+      a2i = a2i + tvi*-7.98017227280239494e-01; \
+      a3i = a3i + tvi*-3.61241666187152921e-01; \
+    } \
+    { const T tvr = vv[4], tvi = vv[5]; \
+      a0r = a0r + tvr*-6.73695643646557207e-01; \
+      a1r = a1r + tvr*-7.98017227280239494e-01; \
+      a2r = a2r + tvr*-3.61241666187152921e-01; \
+      a3r = a3r + tvr*-8.95163291355062340e-01; \
+      a0i = a0i + tvi*-6.73695643646557207e-01; \
+      a1i = a1i + tvi*-7.98017227280239494e-01; \
+      a2i = a2i + tvi*-3.61241666187152921e-01; \
+      a3i = a3i + tvi*-8.95163291355062340e-01; \
+    } \
+    { const T tvr = vv[6], tvi = vv[7]; \
+      a0r = a0r + tvr*-7.98017227280239494e-01; \
+      a1r = a1r + tvr*-3.61241666187152921e-01; \
+      a2r = a2r + tvr*-8.95163291355062340e-01; \
+      a3r = a3r + tvr*1.83749517816570340e-01; \
+      a0i = a0i + tvi*-7.98017227280239494e-01; \
+      a1i = a1i + tvi*-3.61241666187152921e-01; \
+      a2i = a2i + tvi*-8.95163291355062340e-01; \
+      a3i = a3i + tvi*1.83749517816570340e-01; \
+    } \
+    { const T tvr = vv[8], tvi = vv[9]; \
+      a0r = a0r + tvr*-3.61241666187152921e-01; \
+      a1r = a1r + tvr*-8.95163291355062340e-01; \
+      a2r = a2r + tvr*1.83749517816570340e-01; \
+      a3r = a3r + tvr*5.26432162877355836e-01; \
+      a0i = a0i + tvi*-3.61241666187152921e-01; \
+      a1i = a1i + tvi*-8.95163291355062340e-01; \
+      a2i = a2i + tvi*1.83749517816570340e-01; \
+      a3i = a3i + tvi*5.26432162877355836e-01; \
+    } \
+    { const T tvr = vv[10], tvi = vv[11]; \
+      a0r = a0r + tvr*-8.95163291355062340e-01; \
+      a1r = a1r + tvr*1.83749517816570340e-01; \
+      a2r = a2r + tvr*5.26432162877355836e-01; \
+      a3r = a3r + tvr*9.95734176295034468e-01; \
+      a0i = a0i + tvi*-8.95163291355062340e-01; \
+      a1i = a1i + tvi*1.83749517816570340e-01; \
+      a2i = a2i + tvi*5.26432162877355836e-01; \
+      a3i = a3i + tvi*9.95734176295034468e-01; \
+    } \
+    { const T tvr = vv[12], tvi = vv[13]; \
+      a0r = a0r + tvr*1.83749517816570340e-01; \
+      a1r = a1r + tvr*5.26432162877355836e-01; \
+      a2r = a2r + tvr*9.95734176295034468e-01; \
+      a3r = a3r + tvr*-9.61825643172819045e-01; \
+      a0i = a0i + tvi*1.83749517816570340e-01; \
+      a1i = a1i + tvi*5.26432162877355836e-01; \
+      a2i = a2i + tvi*9.95734176295034468e-01; \
+      a3i = a3i + tvi*-9.61825643172819045e-01; \
+    } \
+    { const T tvr = vv[14], tvi = vv[15]; \
+      a0r = a0r + tvr*5.26432162877355836e-01; \
+      a1r = a1r + tvr*9.95734176295034468e-01; \
+      a2r = a2r + tvr*-9.61825643172819045e-01; \
+      a3r = a3r + tvr*6.73695643646557207e-01; \
+      a0i = a0i + tvi*5.26432162877355836e-01; \
+      a1i = a1i + tvi*9.95734176295034468e-01; \
+      a2i = a2i + tvi*-9.61825643172819045e-01; \
+      a3i = a3i + tvi*6.73695643646557207e-01; \
+    } \
+    { const T tcr = cc[8], tci = cc[9]; \
+      yr[4] = tcr - a0i;  yi[4] = tci + a0r; \
+      yr[13] = tcr + a0i;  yi[13] = tci - a0r; } \
+    { const T tcr = cc[10], tci = cc[11]; \
+      yr[5] = tcr + a1i;  yi[5] = tci - a1r; \
+      yr[12] = tcr - a1i;  yi[12] = tci + a1r; } \
+    { const T tcr = cc[12], tci = cc[13]; \
+      yr[2] = tcr - a2i;  yi[2] = tci + a2r; \
+      yr[15] = tcr + a2i;  yi[15] = tci - a2r; } \
+    { const T tcr = cc[14], tci = cc[15]; \
+      yr[6] = tcr - a3i;  yi[6] = tci + a3r; \
+      yr[11] = tcr + a3i;  yi[11] = tci - a3r; } \
+}
+#define DEF_K17_B(SUF, T) \
+static inline __attribute__((always_inline)) void k17_##SUF(const T *xr, const T *xi, T *yr, T *yi) \
+{ \
+    T vv[16], cc[16]; \
+    T a0r, a1r, a2r, a3r, a0i, a1i, a2i, a3i, b0r, b1r, b2r, b3r, b0i, b1i, b2i, b3i, dr, di, u0r,u0i,u1r,u1i; \
+    dr = xr[0]; di = xi[0]; \
+    u0r = xr[1] + xr[16];  u0i = xi[1] + xi[16]; \
+    u1r = xr[4] + xr[13];  u1i = xi[4] + xi[13]; \
+    vv[0] = xr[1] - xr[16];  vv[1] = xi[1] - xi[16]; \
+    vv[8] = xr[13] - xr[4];  vv[9] = xi[13] - xi[4]; \
+    { const T pr = u0r + u1r, pi = u0i + u1i; \
+      const T qr = u0r - u1r, qi = u0i - u1i; \
+      dr = dr + pr;  di = di + pi; \
+      a0r = xr[0] + pr*5.12370294433828866e-01; \
+      a1r = xr[0] + pr*8.60376828522276954e-02; \
+      a2r = xr[0] + pr*-1.21982091231621334e-01; \
+      a3r = xr[0] + pr*-7.26425886054435255e-01; \
+      a0i = xi[0] + pi*5.12370294433828866e-01; \
+      a1i = xi[0] + pi*8.60376828522276954e-02; \
+      a2i = xi[0] + pi*-1.21982091231621334e-01; \
+      a3i = xi[0] + pi*-7.26425886054435255e-01; \
+      b0r = qr*4.20101934970526891e-01; \
+      b1r = qr*3.59700672924310572e-01; \
+      b2r = qr*-8.60991008452280493e-01; \
+      b3r = qr*-1.23791249675178877e-01; \
+      b0i = qi*4.20101934970526891e-01; \
+      b1i = qi*3.59700672924310572e-01; \
+      b2i = qi*-8.60991008452280493e-01; \
+      b3i = qi*-1.23791249675178877e-01; \
+    } \
+    u0r = xr[3] + xr[14];  u0i = xi[3] + xi[14]; \
+    u1r = xr[5] + xr[12];  u1i = xi[5] + xi[12]; \
+    vv[2] = xr[3] - xr[14];  vv[3] = xi[3] - xi[14]; \
+    vv[10] = xr[5] - xr[12];  vv[11] = xi[5] - xi[12]; \
+    { const T pr = u0r + u1r, pi = u0i + u1i; \
+      const T qr = u0r - u1r, qi = u0i - u1i; \
+      dr = dr + pr;  di = di + pi; \
+      a0r = a0r + pr*8.60376828522276954e-02; \
+      a1r = a1r + pr*-1.21982091231621334e-01; \
+      a2r = a2r + pr*-7.26425886054435255e-01; \
+      a3r = a3r + pr*5.12370294433828866e-01; \
+      a0i = a0i + pi*8.60376828522276954e-02; \
+      a1i = a1i + pi*-1.21982091231621334e-01; \
+      a2i = a2i + pi*-7.26425886054435255e-01; \
+      a3i = a3i + pi*5.12370294433828866e-01; \
+      b0r = b0r + qr*3.59700672924310572e-01; \
+      b1r = b1r + qr*-8.60991008452280493e-01; \
+      b2r = b2r + qr*-1.23791249675178877e-01; \
+      b3r = b3r + qr*-4.20101934970526891e-01; \
+      b0i = b0i + qi*3.59700672924310572e-01; \
+      b1i = b1i + qi*-8.60991008452280493e-01; \
+      b2i = b2i + qi*-1.23791249675178877e-01; \
+      b3i = b3i + qi*-4.20101934970526891e-01; \
+    } \
+    u0r = xr[8] + xr[9];  u0i = xi[8] + xi[9]; \
+    u1r = xr[2] + xr[15];  u1i = xi[2] + xi[15]; \
+    vv[4] = xr[9] - xr[8];  vv[5] = xi[9] - xi[8]; \
+    vv[12] = xr[15] - xr[2];  vv[13] = xi[15] - xi[2]; \
+    { const T pr = u0r + u1r, pi = u0i + u1i; \
+      const T qr = u0r - u1r, qi = u0i - u1i; \
+      dr = dr + pr;  di = di + pi; \
+      a0r = a0r + pr*-1.21982091231621334e-01; \
+      a1r = a1r + pr*-7.26425886054435255e-01; \
+      a2r = a2r + pr*5.12370294433828866e-01; \
+      a3r = a3r + pr*8.60376828522276954e-02; \
+      a0i = a0i + pi*-1.21982091231621334e-01; \
+      a1i = a1i + pi*-7.26425886054435255e-01; \
+      a2i = a2i + pi*5.12370294433828866e-01; \
+      a3i = a3i + pi*8.60376828522276954e-02; \
+      b0r = b0r + qr*-8.60991008452280493e-01; \
+      b1r = b1r + qr*-1.23791249675178877e-01; \
+      b2r = b2r + qr*-4.20101934970526891e-01; \
+      b3r = b3r + qr*-3.59700672924310572e-01; \
+      b0i = b0i + qi*-8.60991008452280493e-01; \
+      b1i = b1i + qi*-1.23791249675178877e-01; \
+      b2i = b2i + qi*-4.20101934970526891e-01; \
+      b3i = b3i + qi*-3.59700672924310572e-01; \
+    } \
+    u0r = xr[7] + xr[10];  u0i = xi[7] + xi[10]; \
+    u1r = xr[6] + xr[11];  u1i = xi[6] + xi[11]; \
+    vv[6] = xr[10] - xr[7];  vv[7] = xi[10] - xi[7]; \
+    vv[14] = xr[11] - xr[6];  vv[15] = xi[11] - xi[6]; \
+    { const T pr = u0r + u1r, pi = u0i + u1i; \
+      const T qr = u0r - u1r, qi = u0i - u1i; \
+      dr = dr + pr;  di = di + pi; \
+      a0r = a0r + pr*-7.26425886054435255e-01; \
+      a1r = a1r + pr*5.12370294433828866e-01; \
+      a2r = a2r + pr*8.60376828522276954e-02; \
+      a3r = a3r + pr*-1.21982091231621334e-01; \
+      a0i = a0i + pi*-7.26425886054435255e-01; \
+      a1i = a1i + pi*5.12370294433828866e-01; \
+      a2i = a2i + pi*8.60376828522276954e-02; \
+      a3i = a3i + pi*-1.21982091231621334e-01; \
+      b0r = b0r + qr*-1.23791249675178877e-01; \
+      b1r = b1r + qr*-4.20101934970526891e-01; \
+      b2r = b2r + qr*-3.59700672924310572e-01; \
+      b3r = b3r + qr*8.60991008452280493e-01; \
+      b0i = b0i + qi*-1.23791249675178877e-01; \
+      b1i = b1i + qi*-4.20101934970526891e-01; \
+      b2i = b2i + qi*-3.59700672924310572e-01; \
+      b3i = b3i + qi*8.60991008452280493e-01; \
+    } \
+    yr[0] = dr;  yi[0] = di; \
+    cc[0] = a0r + b0r;  cc[1] = a0i + b0i; \
+    cc[8] = a0r - b0r;  cc[9] = a0i - b0i; \
+    cc[2] = a1r + b1r;  cc[3] = a1i + b1i; \
+    cc[10] = a1r - b1r;  cc[11] = a1i - b1i; \
+    cc[4] = a2r + b2r;  cc[5] = a2i + b2i; \
+    cc[12] = a2r - b2r;  cc[13] = a2i - b2i; \
+    cc[6] = a3r + b3r;  cc[7] = a3i + b3i; \
+    cc[14] = a3r - b3r;  cc[15] = a3i - b3i; \
+    { const T tvr = vv[0], tvi = vv[1]; \
+      a0r = tvr*3.61241666187152921e-01; \
+      a1r = tvr*8.95163291355062340e-01; \
+      a2r = tvr*-1.83749517816570340e-01; \
+      a3r = tvr*-5.26432162877355836e-01; \
+      a0i = tvi*3.61241666187152921e-01; \
+      a1i = tvi*8.95163291355062340e-01; \
+      a2i = tvi*-1.83749517816570340e-01; \
+      a3i = tvi*-5.26432162877355836e-01; \
+    } \
+    { const T tvr = vv[2], tvi = vv[3]; \
+      a0r = a0r + tvr*8.95163291355062340e-01; \
+      a1r = a1r + tvr*-1.83749517816570340e-01; \
+      a2r = a2r + tvr*-5.26432162877355836e-01; \
+      a3r = a3r + tvr*-9.95734176295034468e-01; \
+      a0i = a0i + tvi*8.95163291355062340e-01; \
+      a1i = a1i + tvi*-1.83749517816570340e-01; \
+      a2i = a2i + tvi*-5.26432162877355836e-01; \
+      a3i = a3i + tvi*-9.95734176295034468e-01; \
+    } \
+    { const T tvr = vv[4], tvi = vv[5]; \
+      a0r = a0r + tvr*-1.83749517816570340e-01; \
+      a1r = a1r + tvr*-5.26432162877355836e-01; \
+      a2r = a2r + tvr*-9.95734176295034468e-01; \
+      a3r = a3r + tvr*9.61825643172819045e-01; \
+      a0i = a0i + tvi*-1.83749517816570340e-01; \
+      a1i = a1i + tvi*-5.26432162877355836e-01; \
+      a2i = a2i + tvi*-9.95734176295034468e-01; \
+      a3i = a3i + tvi*9.61825643172819045e-01; \
+    } \
+    { const T tvr = vv[6], tvi = vv[7]; \
+      a0r = a0r + tvr*-5.26432162877355836e-01; \
+      a1r = a1r + tvr*-9.95734176295034468e-01; \
+      a2r = a2r + tvr*9.61825643172819045e-01; \
+      a3r = a3r + tvr*-6.73695643646557207e-01; \
+      a0i = a0i + tvi*-5.26432162877355836e-01; \
+      a1i = a1i + tvi*-9.95734176295034468e-01; \
+      a2i = a2i + tvi*9.61825643172819045e-01; \
+      a3i = a3i + tvi*-6.73695643646557207e-01; \
+    } \
+    { const T tvr = vv[8], tvi = vv[9]; \
+      a0r = a0r + tvr*-9.95734176295034468e-01; \
+      a1r = a1r + tvr*9.61825643172819045e-01; \
+      a2r = a2r + tvr*-6.73695643646557207e-01; \
+      a3r = a3r + tvr*-7.98017227280239494e-01; \
+      a0i = a0i + tvi*-9.95734176295034468e-01; \
+      a1i = a1i + tvi*9.61825643172819045e-01; \
+      a2i = a2i + tvi*-6.73695643646557207e-01; \
+      a3i = a3i + tvi*-7.98017227280239494e-01; \
+    } \
+    { const T tvr = vv[10], tvi = vv[11]; \
+      a0r = a0r + tvr*9.61825643172819045e-01; \
+      a1r = a1r + tvr*-6.73695643646557207e-01; \
+      a2r = a2r + tvr*-7.98017227280239494e-01; \
+      a3r = a3r + tvr*-3.61241666187152921e-01; \
+      a0i = a0i + tvi*9.61825643172819045e-01; \
+      a1i = a1i + tvi*-6.73695643646557207e-01; \
+      a2i = a2i + tvi*-7.98017227280239494e-01; \
+      a3i = a3i + tvi*-3.61241666187152921e-01; \
+    } \
+    { const T tvr = vv[12], tvi = vv[13]; \
+      a0r = a0r + tvr*-6.73695643646557207e-01; \
+      a1r = a1r + tvr*-7.98017227280239494e-01; \
+      a2r = a2r + tvr*-3.61241666187152921e-01; \
+      a3r = a3r + tvr*-8.95163291355062340e-01; \
+      a0i = a0i + tvi*-6.73695643646557207e-01; \
+      a1i = a1i + tvi*-7.98017227280239494e-01; \
+      a2i = a2i + tvi*-3.61241666187152921e-01; \
+      a3i = a3i + tvi*-8.95163291355062340e-01; \
+    } \
+    { const T tvr = vv[14], tvi = vv[15]; \
+      a0r = a0r + tvr*-7.98017227280239494e-01; \
+      a1r = a1r + tvr*-3.61241666187152921e-01; \
+      a2r = a2r + tvr*-8.95163291355062340e-01; \
+      a3r = a3r + tvr*1.83749517816570340e-01; \
+      a0i = a0i + tvi*-7.98017227280239494e-01; \
+      a1i = a1i + tvi*-3.61241666187152921e-01; \
+      a2i = a2i + tvi*-8.95163291355062340e-01; \
+      a3i = a3i + tvi*1.83749517816570340e-01; \
+    } \
+    { const T tcr = cc[0], tci = cc[1]; \
+      yr[1] = tcr + a0i;  yi[1] = tci - a0r; \
+      yr[16] = tcr - a0i;  yi[16] = tci + a0r; } \
+    { const T tcr = cc[2], tci = cc[3]; \
+      yr[3] = tcr + a1i;  yi[3] = tci - a1r; \
+      yr[14] = tcr - a1i;  yi[14] = tci + a1r; } \
+    { const T tcr = cc[4], tci = cc[5]; \
+      yr[8] = tcr - a2i;  yi[8] = tci + a2r; \
+      yr[9] = tcr + a2i;  yi[9] = tci - a2r; } \
+    { const T tcr = cc[6], tci = cc[7]; \
+      yr[7] = tcr - a3i;  yi[7] = tci + a3r; \
+      yr[10] = tcr + a3i;  yi[10] = tci - a3r; } \
+    { const T tvr = vv[0], tvi = vv[1]; \
+      a0r = tvr*-9.95734176295034468e-01; \
+      a1r = tvr*9.61825643172819045e-01; \
+      a2r = tvr*-6.73695643646557207e-01; \
+      a3r = tvr*-7.98017227280239494e-01; \
+      a0i = tvi*-9.95734176295034468e-01; \
+      a1i = tvi*9.61825643172819045e-01; \
+      a2i = tvi*-6.73695643646557207e-01; \
+      a3i = tvi*-7.98017227280239494e-01; \
+    } \
+    { const T tvr = vv[2], tvi = vv[3]; \
+      a0r = a0r + tvr*9.61825643172819045e-01; \
+      a1r = a1r + tvr*-6.73695643646557207e-01; \
+      a2r = a2r + tvr*-7.98017227280239494e-01; \
+      a3r = a3r + tvr*-3.61241666187152921e-01; \
+      a0i = a0i + tvi*9.61825643172819045e-01; \
+      a1i = a1i + tvi*-6.73695643646557207e-01; \
+      a2i = a2i + tvi*-7.98017227280239494e-01; \
+      a3i = a3i + tvi*-3.61241666187152921e-01; \
+    } \
+    { const T tvr = vv[4], tvi = vv[5]; \
+      a0r = a0r + tvr*-6.73695643646557207e-01; \
+      a1r = a1r + tvr*-7.98017227280239494e-01; \
+      a2r = a2r + tvr*-3.61241666187152921e-01; \
+      a3r = a3r + tvr*-8.95163291355062340e-01; \
+      a0i = a0i + tvi*-6.73695643646557207e-01; \
+      a1i = a1i + tvi*-7.98017227280239494e-01; \
+      a2i = a2i + tvi*-3.61241666187152921e-01; \
+      a3i = a3i + tvi*-8.95163291355062340e-01; \
+    } \
+    { const T tvr = vv[6], tvi = vv[7]; \
+      a0r = a0r + tvr*-7.98017227280239494e-01; \
+      a1r = a1r + tvr*-3.61241666187152921e-01; \
+      a2r = a2r + tvr*-8.95163291355062340e-01; \
+      a3r = a3r + tvr*1.83749517816570340e-01; \
+      a0i = a0i + tvi*-7.98017227280239494e-01; \
+      a1i = a1i + tvi*-3.61241666187152921e-01; \
+      a2i = a2i + tvi*-8.95163291355062340e-01; \
+      a3i = a3i + tvi*1.83749517816570340e-01; \
+    } \
+    { const T tvr = vv[8], tvi = vv[9]; \
+      a0r = a0r + tvr*-3.61241666187152921e-01; \
+      a1r = a1r + tvr*-8.95163291355062340e-01; \
+      a2r = a2r + tvr*1.83749517816570340e-01; \
+      a3r = a3r + tvr*5.26432162877355836e-01; \
+      a0i = a0i + tvi*-3.61241666187152921e-01; \
+      a1i = a1i + tvi*-8.95163291355062340e-01; \
+      a2i = a2i + tvi*1.83749517816570340e-01; \
+      a3i = a3i + tvi*5.26432162877355836e-01; \
+    } \
+    { const T tvr = vv[10], tvi = vv[11]; \
+      a0r = a0r + tvr*-8.95163291355062340e-01; \
+      a1r = a1r + tvr*1.83749517816570340e-01; \
+      a2r = a2r + tvr*5.26432162877355836e-01; \
+      a3r = a3r + tvr*9.95734176295034468e-01; \
+      a0i = a0i + tvi*-8.95163291355062340e-01; \
+      a1i = a1i + tvi*1.83749517816570340e-01; \
+      a2i = a2i + tvi*5.26432162877355836e-01; \
+      a3i = a3i + tvi*9.95734176295034468e-01; \
+    } \
+    { const T tvr = vv[12], tvi = vv[13]; \
+      a0r = a0r + tvr*1.83749517816570340e-01; \
+      a1r = a1r + tvr*5.26432162877355836e-01; \
+      a2r = a2r + tvr*9.95734176295034468e-01; \
+      a3r = a3r + tvr*-9.61825643172819045e-01; \
+      a0i = a0i + tvi*1.83749517816570340e-01; \
+      a1i = a1i + tvi*5.26432162877355836e-01; \
+      a2i = a2i + tvi*9.95734176295034468e-01; \
+      a3i = a3i + tvi*-9.61825643172819045e-01; \
+    } \
+    { const T tvr = vv[14], tvi = vv[15]; \
+      a0r = a0r + tvr*5.26432162877355836e-01; \
+      a1r = a1r + tvr*9.95734176295034468e-01; \
+      a2r = a2r + tvr*-9.61825643172819045e-01; \
+      a3r = a3r + tvr*6.73695643646557207e-01; \
+      a0i = a0i + tvi*5.26432162877355836e-01; \
+      a1i = a1i + tvi*9.95734176295034468e-01; \
+      a2i = a2i + tvi*-9.61825643172819045e-01; \
+      a3i = a3i + tvi*6.73695643646557207e-01; \
+    } \
+    { const T tcr = cc[8], tci = cc[9]; \
+      yr[4] = tcr - a0i;  yi[4] = tci + a0r; \
+      yr[13] = tcr + a0i;  yi[13] = tci - a0r; } \
+    { const T tcr = cc[10], tci = cc[11]; \
+      yr[5] = tcr + a1i;  yi[5] = tci - a1r; \
+      yr[12] = tcr - a1i;  yi[12] = tci + a1r; } \
+    { const T tcr = cc[12], tci = cc[13]; \
+      yr[2] = tcr - a2i;  yi[2] = tci + a2r; \
+      yr[15] = tcr + a2i;  yi[15] = tci - a2r; } \
+    { const T tcr = cc[14], tci = cc[15]; \
+      yr[6] = tcr - a3i;  yi[6] = tci + a3r; \
+      yr[11] = tcr + a3i;  yi[11] = tci - a3r; } \
+}
+/* The 8 distinct negacyclic sine constants s~(t) = "S column" of the skew-
+ * circulant, natural signs, exactly the literals kernels A/B use. */
+#define DECL_SC(T) \
+    T C0 = BCAST(T, 3.61241666187152921e-01); \
+    T C1 = BCAST(T, 8.95163291355062340e-01); \
+    T C2 = BCAST(T,-1.83749517816570340e-01); \
+    T C3 = BCAST(T,-5.26432162877355836e-01); \
+    T C4 = BCAST(T,-9.95734176295034468e-01); \
+    T C5 = BCAST(T, 9.61825643172819045e-01); \
+    T C6 = BCAST(T,-6.73695643646557207e-01); \
+    T C7 = BCAST(T,-7.98017227280239494e-01)
+
+/* Make the constants opaque so gcc cannot fold them back into .LC memory
+ * operands or rematerialise the broadcast inside the loop.  Only meaningful
+ * (and only encodable as "v") when the EVEX register file exists. */
+#if defined(__AVX512F__) && defined(__AVX512VL__)
+#define OPAQUE_SC() __asm__("" : "+v"(C0),"+v"(C1),"+v"(C2),"+v"(C3),"+v"(C4),"+v"(C5),"+v"(C6),"+v"(C7))
+#else
+#define OPAQUE_SC() ((void)0)
+#endif
+
+/* scalar kernel for the one spectator that does not fill a lane, and the
+ * 4-wide kernel B used by pass 1's vector groups and the kx=16 tail combine */
+DEF_K17_A(s, double)
+DEF_K17_B(b4, v4)
+#define EXL(T,S,P,a) (*(const T *)((P) + (size_t)(a)*(S) + off))
+#define DEF_K17_E(SUF, T, STRIDE) \
+static inline __attribute__((always_inline)) void k17_##SUF( \
+        const double *sr, const double *si, size_t off, T *yr, T *yi, \
+        const T C0, const T C1, const T C2, const T C3, \
+        const T C4, const T C5, const T C6, const T C7) \
+{ \
+    T vv[16], cc[16]; \
+    T a0r, a1r, a2r, a3r, a0i, a1i, a2i, a3i, b0r, b1r, b2r, b3r, b0i, b1i, b2i, b3i, dr, di, u0r,u0i,u1r,u1i; \
+    const T x0r = EXL(T,STRIDE,sr,0), x0i = EXL(T,STRIDE,si,0); \
+    dr = x0r; di = x0i; \
+    { const T xa = EXL(T,STRIDE,sr,1), xb = EXL(T,STRIDE,sr,16); \
+      const T za = EXL(T,STRIDE,si,1), zb = EXL(T,STRIDE,si,16); \
+      u0r = xa + xb;  u0i = za + zb; \
+      vv[0] = xa - xb;  vv[1] = za - zb; } \
+    { const T xa = EXL(T,STRIDE,sr,4), xb = EXL(T,STRIDE,sr,13); \
+      const T za = EXL(T,STRIDE,si,4), zb = EXL(T,STRIDE,si,13); \
+      u1r = xa + xb;  u1i = za + zb; \
+      vv[8] = xb - xa;  vv[9] = zb - za; } \
+    { const T pr = u0r + u1r, pi = u0i + u1i; \
+      const T qr = u0r - u1r, qi = u0i - u1i; \
+      dr = dr + pr;  di = di + pi; \
+      a0r = x0r + pr*5.12370294433828866e-01; \
+      a1r = x0r + pr*8.60376828522276954e-02; \
+      a2r = x0r + pr*-1.21982091231621334e-01; \
+      a3r = x0r + pr*-7.26425886054435255e-01; \
+      a0i = x0i + pi*5.12370294433828866e-01; \
+      a1i = x0i + pi*8.60376828522276954e-02; \
+      a2i = x0i + pi*-1.21982091231621334e-01; \
+      a3i = x0i + pi*-7.26425886054435255e-01; \
+      b0r = qr*4.20101934970526891e-01; \
+      b1r = qr*3.59700672924310572e-01; \
+      b2r = qr*-8.60991008452280493e-01; \
+      b3r = qr*-1.23791249675178877e-01; \
+      b0i = qi*4.20101934970526891e-01; \
+      b1i = qi*3.59700672924310572e-01; \
+      b2i = qi*-8.60991008452280493e-01; \
+      b3i = qi*-1.23791249675178877e-01; \
+    } \
+    { const T xa = EXL(T,STRIDE,sr,3), xb = EXL(T,STRIDE,sr,14); \
+      const T za = EXL(T,STRIDE,si,3), zb = EXL(T,STRIDE,si,14); \
+      u0r = xa + xb;  u0i = za + zb; \
+      vv[2] = xa - xb;  vv[3] = za - zb; } \
+    { const T xa = EXL(T,STRIDE,sr,5), xb = EXL(T,STRIDE,sr,12); \
+      const T za = EXL(T,STRIDE,si,5), zb = EXL(T,STRIDE,si,12); \
+      u1r = xa + xb;  u1i = za + zb; \
+      vv[10] = xa - xb;  vv[11] = za - zb; } \
+    { const T pr = u0r + u1r, pi = u0i + u1i; \
+      const T qr = u0r - u1r, qi = u0i - u1i; \
+      dr = dr + pr;  di = di + pi; \
+      a0r = a0r + pr*8.60376828522276954e-02; \
+      a1r = a1r + pr*-1.21982091231621334e-01; \
+      a2r = a2r + pr*-7.26425886054435255e-01; \
+      a3r = a3r + pr*5.12370294433828866e-01; \
+      a0i = a0i + pi*8.60376828522276954e-02; \
+      a1i = a1i + pi*-1.21982091231621334e-01; \
+      a2i = a2i + pi*-7.26425886054435255e-01; \
+      a3i = a3i + pi*5.12370294433828866e-01; \
+      b0r = b0r + qr*3.59700672924310572e-01; \
+      b1r = b1r + qr*-8.60991008452280493e-01; \
+      b2r = b2r + qr*-1.23791249675178877e-01; \
+      b3r = b3r + qr*-4.20101934970526891e-01; \
+      b0i = b0i + qi*3.59700672924310572e-01; \
+      b1i = b1i + qi*-8.60991008452280493e-01; \
+      b2i = b2i + qi*-1.23791249675178877e-01; \
+      b3i = b3i + qi*-4.20101934970526891e-01; \
+    } \
+    { const T xa = EXL(T,STRIDE,sr,8), xb = EXL(T,STRIDE,sr,9); \
+      const T za = EXL(T,STRIDE,si,8), zb = EXL(T,STRIDE,si,9); \
+      u0r = xa + xb;  u0i = za + zb; \
+      vv[4] = xb - xa;  vv[5] = zb - za; } \
+    { const T xa = EXL(T,STRIDE,sr,2), xb = EXL(T,STRIDE,sr,15); \
+      const T za = EXL(T,STRIDE,si,2), zb = EXL(T,STRIDE,si,15); \
+      u1r = xa + xb;  u1i = za + zb; \
+      vv[12] = xb - xa;  vv[13] = zb - za; } \
+    { const T pr = u0r + u1r, pi = u0i + u1i; \
+      const T qr = u0r - u1r, qi = u0i - u1i; \
+      dr = dr + pr;  di = di + pi; \
+      a0r = a0r + pr*-1.21982091231621334e-01; \
+      a1r = a1r + pr*-7.26425886054435255e-01; \
+      a2r = a2r + pr*5.12370294433828866e-01; \
+      a3r = a3r + pr*8.60376828522276954e-02; \
+      a0i = a0i + pi*-1.21982091231621334e-01; \
+      a1i = a1i + pi*-7.26425886054435255e-01; \
+      a2i = a2i + pi*5.12370294433828866e-01; \
+      a3i = a3i + pi*8.60376828522276954e-02; \
+      b0r = b0r + qr*-8.60991008452280493e-01; \
+      b1r = b1r + qr*-1.23791249675178877e-01; \
+      b2r = b2r + qr*-4.20101934970526891e-01; \
+      b3r = b3r + qr*-3.59700672924310572e-01; \
+      b0i = b0i + qi*-8.60991008452280493e-01; \
+      b1i = b1i + qi*-1.23791249675178877e-01; \
+      b2i = b2i + qi*-4.20101934970526891e-01; \
+      b3i = b3i + qi*-3.59700672924310572e-01; \
+    } \
+    { const T xa = EXL(T,STRIDE,sr,7), xb = EXL(T,STRIDE,sr,10); \
+      const T za = EXL(T,STRIDE,si,7), zb = EXL(T,STRIDE,si,10); \
+      u0r = xa + xb;  u0i = za + zb; \
+      vv[6] = xb - xa;  vv[7] = zb - za; } \
+    { const T xa = EXL(T,STRIDE,sr,6), xb = EXL(T,STRIDE,sr,11); \
+      const T za = EXL(T,STRIDE,si,6), zb = EXL(T,STRIDE,si,11); \
+      u1r = xa + xb;  u1i = za + zb; \
+      vv[14] = xb - xa;  vv[15] = zb - za; } \
+    { const T pr = u0r + u1r, pi = u0i + u1i; \
+      const T qr = u0r - u1r, qi = u0i - u1i; \
+      dr = dr + pr;  di = di + pi; \
+      a0r = a0r + pr*-7.26425886054435255e-01; \
+      a1r = a1r + pr*5.12370294433828866e-01; \
+      a2r = a2r + pr*8.60376828522276954e-02; \
+      a3r = a3r + pr*-1.21982091231621334e-01; \
+      a0i = a0i + pi*-7.26425886054435255e-01; \
+      a1i = a1i + pi*5.12370294433828866e-01; \
+      a2i = a2i + pi*8.60376828522276954e-02; \
+      a3i = a3i + pi*-1.21982091231621334e-01; \
+      b0r = b0r + qr*-1.23791249675178877e-01; \
+      b1r = b1r + qr*-4.20101934970526891e-01; \
+      b2r = b2r + qr*-3.59700672924310572e-01; \
+      b3r = b3r + qr*8.60991008452280493e-01; \
+      b0i = b0i + qi*-1.23791249675178877e-01; \
+      b1i = b1i + qi*-4.20101934970526891e-01; \
+      b2i = b2i + qi*-3.59700672924310572e-01; \
+      b3i = b3i + qi*8.60991008452280493e-01; \
+    } \
+    yr[0] = dr;  yi[0] = di; \
+    cc[0] = a0r + b0r;  cc[1] = a0i + b0i; \
+    cc[8] = a0r - b0r;  cc[9] = a0i - b0i; \
+    cc[2] = a1r + b1r;  cc[3] = a1i + b1i; \
+    cc[10] = a1r - b1r;  cc[11] = a1i - b1i; \
+    cc[4] = a2r + b2r;  cc[5] = a2i + b2i; \
+    cc[12] = a2r - b2r;  cc[13] = a2i - b2i; \
+    cc[6] = a3r + b3r;  cc[7] = a3i + b3i; \
+    cc[14] = a3r - b3r;  cc[15] = a3i - b3i; \
+    { \
+    T s0r,s1r,s2r,s3r,s4r,s5r,s6r,s7r, s0i,s1i,s2i,s3i,s4i,s5i,s6i,s7i; \
+    { const T vr = vv[0], vi = vv[1];   /* m=0 */ \
+      s0r = vr*C0;  s0i = vi*C0; \
+      s1r = vr*C1;  s1i = vi*C1; \
+      s2r = vr*C2;  s2i = vi*C2; \
+      s3r = vr*C3;  s3i = vi*C3; \
+      s4r = vr*C4;  s4i = vi*C4; \
+      s5r = vr*C5;  s5i = vi*C5; \
+      s6r = vr*C6;  s6i = vi*C6; \
+      s7r = vr*C7;  s7i = vi*C7; \
+    } \
+    { const T vr = vv[2], vi = vv[3];   /* m=1 */ \
+      s0r = s0r + vr*C1;  s0i = s0i + vi*C1; \
+      s1r = s1r + vr*C2;  s1i = s1i + vi*C2; \
+      s2r = s2r + vr*C3;  s2i = s2i + vi*C3; \
+      s3r = s3r + vr*C4;  s3i = s3i + vi*C4; \
+      s4r = s4r + vr*C5;  s4i = s4i + vi*C5; \
+      s5r = s5r + vr*C6;  s5i = s5i + vi*C6; \
+      s6r = s6r + vr*C7;  s6i = s6i + vi*C7; \
+      s7r = s7r - vr*C0;  s7i = s7i - vi*C0; \
+    } \
+    { const T vr = vv[4], vi = vv[5];   /* m=2 */ \
+      s0r = s0r + vr*C2;  s0i = s0i + vi*C2; \
+      s1r = s1r + vr*C3;  s1i = s1i + vi*C3; \
+      s2r = s2r + vr*C4;  s2i = s2i + vi*C4; \
+      s3r = s3r + vr*C5;  s3i = s3i + vi*C5; \
+      s4r = s4r + vr*C6;  s4i = s4i + vi*C6; \
+      s5r = s5r + vr*C7;  s5i = s5i + vi*C7; \
+      s6r = s6r - vr*C0;  s6i = s6i - vi*C0; \
+      s7r = s7r - vr*C1;  s7i = s7i - vi*C1; \
+    } \
+    { const T vr = vv[6], vi = vv[7];   /* m=3 */ \
+      s0r = s0r + vr*C3;  s0i = s0i + vi*C3; \
+      s1r = s1r + vr*C4;  s1i = s1i + vi*C4; \
+      s2r = s2r + vr*C5;  s2i = s2i + vi*C5; \
+      s3r = s3r + vr*C6;  s3i = s3i + vi*C6; \
+      s4r = s4r + vr*C7;  s4i = s4i + vi*C7; \
+      s5r = s5r - vr*C0;  s5i = s5i - vi*C0; \
+      s6r = s6r - vr*C1;  s6i = s6i - vi*C1; \
+      s7r = s7r - vr*C2;  s7i = s7i - vi*C2; \
+    } \
+    { const T vr = vv[8], vi = vv[9];   /* m=4 */ \
+      s0r = s0r + vr*C4;  s0i = s0i + vi*C4; \
+      s1r = s1r + vr*C5;  s1i = s1i + vi*C5; \
+      s2r = s2r + vr*C6;  s2i = s2i + vi*C6; \
+      s3r = s3r + vr*C7;  s3i = s3i + vi*C7; \
+      s4r = s4r - vr*C0;  s4i = s4i - vi*C0; \
+      s5r = s5r - vr*C1;  s5i = s5i - vi*C1; \
+      s6r = s6r - vr*C2;  s6i = s6i - vi*C2; \
+      s7r = s7r - vr*C3;  s7i = s7i - vi*C3; \
+    } \
+    { const T vr = vv[10], vi = vv[11]; /* m=5 */ \
+      s0r = s0r + vr*C5;  s0i = s0i + vi*C5; \
+      s1r = s1r + vr*C6;  s1i = s1i + vi*C6; \
+      s2r = s2r + vr*C7;  s2i = s2i + vi*C7; \
+      s3r = s3r - vr*C0;  s3i = s3i - vi*C0; \
+      s4r = s4r - vr*C1;  s4i = s4i - vi*C1; \
+      s5r = s5r - vr*C2;  s5i = s5i - vi*C2; \
+      s6r = s6r - vr*C3;  s6i = s6i - vi*C3; \
+      s7r = s7r - vr*C4;  s7i = s7i - vi*C4; \
+    } \
+    { const T vr = vv[12], vi = vv[13]; /* m=6 */ \
+      s0r = s0r + vr*C6;  s0i = s0i + vi*C6; \
+      s1r = s1r + vr*C7;  s1i = s1i + vi*C7; \
+      s2r = s2r - vr*C0;  s2i = s2i - vi*C0; \
+      s3r = s3r - vr*C1;  s3i = s3i - vi*C1; \
+      s4r = s4r - vr*C2;  s4i = s4i - vi*C2; \
+      s5r = s5r - vr*C3;  s5i = s5i - vi*C3; \
+      s6r = s6r - vr*C4;  s6i = s6i - vi*C4; \
+      s7r = s7r - vr*C5;  s7i = s7i - vi*C5; \
+    } \
+    { const T vr = vv[14], vi = vv[15]; /* m=7 */ \
+      s0r = s0r + vr*C7;  s0i = s0i + vi*C7; \
+      s1r = s1r - vr*C0;  s1i = s1i - vi*C0; \
+      s2r = s2r - vr*C1;  s2i = s2i - vi*C1; \
+      s3r = s3r - vr*C2;  s3i = s3i - vi*C2; \
+      s4r = s4r - vr*C3;  s4i = s4i - vi*C3; \
+      s5r = s5r - vr*C4;  s5i = s5i - vi*C4; \
+      s6r = s6r - vr*C5;  s6i = s6i - vi*C5; \
+      s7r = s7r - vr*C6;  s7i = s7i - vi*C6; \
+    } \
+    { const T tcr = cc[0], tci = cc[1]; \
+      yr[1] = tcr + s0i;  yi[1] = tci - s0r; \
+      yr[16] = tcr - s0i;  yi[16] = tci + s0r; } \
+    { const T tcr = cc[2], tci = cc[3]; \
+      yr[3] = tcr + s1i;  yi[3] = tci - s1r; \
+      yr[14] = tcr - s1i;  yi[14] = tci + s1r; } \
+    { const T tcr = cc[4], tci = cc[5]; \
+      yr[8] = tcr - s2i;  yi[8] = tci + s2r; \
+      yr[9] = tcr + s2i;  yi[9] = tci - s2r; } \
+    { const T tcr = cc[6], tci = cc[7]; \
+      yr[7] = tcr - s3i;  yi[7] = tci + s3r; \
+      yr[10] = tcr + s3i;  yi[10] = tci - s3r; } \
+    { const T tcr = cc[8], tci = cc[9]; \
+      yr[4] = tcr - s4i;  yi[4] = tci + s4r; \
+      yr[13] = tcr + s4i;  yi[13] = tci - s4r; } \
+    { const T tcr = cc[10], tci = cc[11]; \
+      yr[5] = tcr + s5i;  yi[5] = tci - s5r; \
+      yr[12] = tcr - s5i;  yi[12] = tci + s5r; } \
+    { const T tcr = cc[12], tci = cc[13]; \
+      yr[2] = tcr - s6i;  yi[2] = tci + s6r; \
+      yr[15] = tcr + s6i;  yi[15] = tci - s6r; } \
+    { const T tcr = cc[14], tci = cc[15]; \
+      yr[6] = tcr - s7i;  yi[6] = tci + s7r; \
+      yr[11] = tcr + s7i;  yi[11] = tci - s7r; } \
+    } \
+}
+#define ESL(T,S,P,a) (*(T *)((P) + (size_t)(a)*(S) + doff))
+
+DEF_K17_E(e2_4, v4, SP)
+/* Kernel H (panel_r8): the COMPONENT-SPLIT kernel.  The re and im streams of
+ * this module are fully independent until the final +-i combine -- every
+ * constant is real, and yr[k] needs only { the re a/b chains (from xr sums)
+ * and the s*i sweep (from xi differences) }, never an im intermediate.  So
+ * the kernel runs as two sequential phases: phase R computes and stores all
+ * 17 re outputs, phase I all 17 im outputs.  Why: the r7 disassembly showed
+ * the remaining non-FP block in ES is the vv[16]/cc[16] stack round trip
+ * (~32 spill stores + ~40 reloads per group), which is STRUCTURAL in the
+ * fused-component form -- 16 v values + 8 deferred cc values must live across
+ * a sweep whose own liveness is 26.  Per phase the peak liveness is only
+ * ~8 acc + 8 v + 8 cc + temps ~= 26-28, inside the 32-register EVEX file, so
+ * the arrays disappear entirely.  Cost: the 33 input loads of each phase are
+ * issued twice (66 vs 34 per group) -- and r7's kernel-E experiment measured
+ * folded loads to be nearly free (a wash at +-1%), while its g8 result
+ * measured store deletion at -2.9% wallaby / -8.9% node.  This trades ~72
+ * store-heavy stack uops for ~32 cheap loads per group.
+ * BIT-IDENTITY: each output value is produced by the identical operation
+ *   chain in the identical order as kernels A/B/C/E/ES -- the phases reorder
+ *   work only BETWEEN the two independent component chains, never within
+ *   one, and stores go to disjoint addresses.  cmp-verified against g8/g4.
+ * The OPA/OPB tokens are the +-i combine signs: phase R uses (+,-), phase I
+ * (-,+) -- exactly the sign pattern of the ES combine, split by component. */
+#define K17H_PHASE(T, STRIDE, PU, PV, DSTRIDE, DP, OPA, OPB, C0,C1,C2,C3,C4,C5,C6,C7) \
+{ \
+    T w0,w1,w2,w3,w4,w5,w6,w7, a0,a1,a2,a3, b0,b1,b2,b3, d, u0,u1; \
+    const T x0 = EXL(T,STRIDE,PU,0); \
+    d = x0; \
+    { const T xa = EXL(T,STRIDE,PU,1), xb = EXL(T,STRIDE,PU,16); \
+      const T za = EXL(T,STRIDE,PV,1), zb = EXL(T,STRIDE,PV,16); \
+      u0 = xa + xb;  w0 = za - zb; } \
+    { const T xa = EXL(T,STRIDE,PU,4), xb = EXL(T,STRIDE,PU,13); \
+      const T za = EXL(T,STRIDE,PV,4), zb = EXL(T,STRIDE,PV,13); \
+      u1 = xa + xb;  w4 = zb - za; } \
+    { const T p = u0 + u1, q = u0 - u1; \
+      d = d + p; \
+      a0 = x0 + p*5.12370294433828866e-01; \
+      a1 = x0 + p*8.60376828522276954e-02; \
+      a2 = x0 + p*-1.21982091231621334e-01; \
+      a3 = x0 + p*-7.26425886054435255e-01; \
+      b0 = q*4.20101934970526891e-01; \
+      b1 = q*3.59700672924310572e-01; \
+      b2 = q*-8.60991008452280493e-01; \
+      b3 = q*-1.23791249675178877e-01; \
+    } \
+    { const T xa = EXL(T,STRIDE,PU,3), xb = EXL(T,STRIDE,PU,14); \
+      const T za = EXL(T,STRIDE,PV,3), zb = EXL(T,STRIDE,PV,14); \
+      u0 = xa + xb;  w1 = za - zb; } \
+    { const T xa = EXL(T,STRIDE,PU,5), xb = EXL(T,STRIDE,PU,12); \
+      const T za = EXL(T,STRIDE,PV,5), zb = EXL(T,STRIDE,PV,12); \
+      u1 = xa + xb;  w5 = za - zb; } \
+    { const T p = u0 + u1, q = u0 - u1; \
+      d = d + p; \
+      a0 = a0 + p*8.60376828522276954e-02; \
+      a1 = a1 + p*-1.21982091231621334e-01; \
+      a2 = a2 + p*-7.26425886054435255e-01; \
+      a3 = a3 + p*5.12370294433828866e-01; \
+      b0 = b0 + q*3.59700672924310572e-01; \
+      b1 = b1 + q*-8.60991008452280493e-01; \
+      b2 = b2 + q*-1.23791249675178877e-01; \
+      b3 = b3 + q*-4.20101934970526891e-01; \
+    } \
+    { const T xa = EXL(T,STRIDE,PU,8), xb = EXL(T,STRIDE,PU,9); \
+      const T za = EXL(T,STRIDE,PV,8), zb = EXL(T,STRIDE,PV,9); \
+      u0 = xa + xb;  w2 = zb - za; } \
+    { const T xa = EXL(T,STRIDE,PU,2), xb = EXL(T,STRIDE,PU,15); \
+      const T za = EXL(T,STRIDE,PV,2), zb = EXL(T,STRIDE,PV,15); \
+      u1 = xa + xb;  w6 = zb - za; } \
+    { const T p = u0 + u1, q = u0 - u1; \
+      d = d + p; \
+      a0 = a0 + p*-1.21982091231621334e-01; \
+      a1 = a1 + p*-7.26425886054435255e-01; \
+      a2 = a2 + p*5.12370294433828866e-01; \
+      a3 = a3 + p*8.60376828522276954e-02; \
+      b0 = b0 + q*-8.60991008452280493e-01; \
+      b1 = b1 + q*-1.23791249675178877e-01; \
+      b2 = b2 + q*-4.20101934970526891e-01; \
+      b3 = b3 + q*-3.59700672924310572e-01; \
+    } \
+    { const T xa = EXL(T,STRIDE,PU,7), xb = EXL(T,STRIDE,PU,10); \
+      const T za = EXL(T,STRIDE,PV,7), zb = EXL(T,STRIDE,PV,10); \
+      u0 = xa + xb;  w3 = zb - za; } \
+    { const T xa = EXL(T,STRIDE,PU,6), xb = EXL(T,STRIDE,PU,11); \
+      const T za = EXL(T,STRIDE,PV,6), zb = EXL(T,STRIDE,PV,11); \
+      u1 = xa + xb;  w7 = zb - za; } \
+    { const T p = u0 + u1, q = u0 - u1; \
+      d = d + p; \
+      a0 = a0 + p*-7.26425886054435255e-01; \
+      a1 = a1 + p*5.12370294433828866e-01; \
+      a2 = a2 + p*8.60376828522276954e-02; \
+      a3 = a3 + p*-1.21982091231621334e-01; \
+      b0 = b0 + q*-1.23791249675178877e-01; \
+      b1 = b1 + q*-4.20101934970526891e-01; \
+      b2 = b2 + q*-3.59700672924310572e-01; \
+      b3 = b3 + q*8.60991008452280493e-01; \
+    } \
+    ESL(T,DSTRIDE,DP,0) = d; \
+    { const T cp0 = a0 + b0, cm0 = a0 - b0; \
+      const T cp1 = a1 + b1, cm1 = a1 - b1; \
+      const T cp2 = a2 + b2, cm2 = a2 - b2; \
+      const T cp3 = a3 + b3, cm3 = a3 - b3; \
+      T s0,s1,s2,s3,s4,s5,s6,s7; \
+      s0 = w0*C0;  s1 = w0*C1;  s2 = w0*C2;  s3 = w0*C3; \
+      s4 = w0*C4;  s5 = w0*C5;  s6 = w0*C6;  s7 = w0*C7; \
+      s0 = s0 + w1*C1;  s1 = s1 + w1*C2;  s2 = s2 + w1*C3;  s3 = s3 + w1*C4; \
+      s4 = s4 + w1*C5;  s5 = s5 + w1*C6;  s6 = s6 + w1*C7;  s7 = s7 - w1*C0; \
+      s0 = s0 + w2*C2;  s1 = s1 + w2*C3;  s2 = s2 + w2*C4;  s3 = s3 + w2*C5; \
+      s4 = s4 + w2*C6;  s5 = s5 + w2*C7;  s6 = s6 - w2*C0;  s7 = s7 - w2*C1; \
+      s0 = s0 + w3*C3;  s1 = s1 + w3*C4;  s2 = s2 + w3*C5;  s3 = s3 + w3*C6; \
+      s4 = s4 + w3*C7;  s5 = s5 - w3*C0;  s6 = s6 - w3*C1;  s7 = s7 - w3*C2; \
+      s0 = s0 + w4*C4;  s1 = s1 + w4*C5;  s2 = s2 + w4*C6;  s3 = s3 + w4*C7; \
+      s4 = s4 - w4*C0;  s5 = s5 - w4*C1;  s6 = s6 - w4*C2;  s7 = s7 - w4*C3; \
+      s0 = s0 + w5*C5;  s1 = s1 + w5*C6;  s2 = s2 + w5*C7;  s3 = s3 - w5*C0; \
+      s4 = s4 - w5*C1;  s5 = s5 - w5*C2;  s6 = s6 - w5*C3;  s7 = s7 - w5*C4; \
+      s0 = s0 + w6*C6;  s1 = s1 + w6*C7;  s2 = s2 - w6*C0;  s3 = s3 - w6*C1; \
+      s4 = s4 - w6*C2;  s5 = s5 - w6*C3;  s6 = s6 - w6*C4;  s7 = s7 - w6*C5; \
+      s0 = s0 + w7*C7;  s1 = s1 - w7*C0;  s2 = s2 - w7*C1;  s3 = s3 - w7*C2; \
+      s4 = s4 - w7*C3;  s5 = s5 - w7*C4;  s6 = s6 - w7*C5;  s7 = s7 - w7*C6; \
+      ESL(T,DSTRIDE,DP,1)  = cp0 OPA s0;  ESL(T,DSTRIDE,DP,16) = cp0 OPB s0; \
+      ESL(T,DSTRIDE,DP,3)  = cp1 OPA s1;  ESL(T,DSTRIDE,DP,14) = cp1 OPB s1; \
+      ESL(T,DSTRIDE,DP,8)  = cp2 OPB s2;  ESL(T,DSTRIDE,DP,9)  = cp2 OPA s2; \
+      ESL(T,DSTRIDE,DP,7)  = cp3 OPB s3;  ESL(T,DSTRIDE,DP,10) = cp3 OPA s3; \
+      ESL(T,DSTRIDE,DP,4)  = cm0 OPB s4;  ESL(T,DSTRIDE,DP,13) = cm0 OPA s4; \
+      ESL(T,DSTRIDE,DP,5)  = cm1 OPA s5;  ESL(T,DSTRIDE,DP,12) = cm1 OPB s5; \
+      ESL(T,DSTRIDE,DP,2)  = cm2 OPB s6;  ESL(T,DSTRIDE,DP,15) = cm2 OPA s6; \
+      ESL(T,DSTRIDE,DP,6)  = cm3 OPB s7;  ESL(T,DSTRIDE,DP,11) = cm3 OPA s7; \
+    } \
+}
+
+#define DEF_K17_H(SUF, T, STRIDE, DSTRIDE) \
+static inline __attribute__((always_inline)) void k17_##SUF( \
+        const double *sr, const double *si, size_t off, \
+        double *dpr, double *dpi, size_t doff, \
+        const T C0, const T C1, const T C2, const T C3, \
+        const T C4, const T C5, const T C6, const T C7) \
+{ \
+    K17H_PHASE(T, STRIDE, sr, si, DSTRIDE, dpr, +, -, C0,C1,C2,C3,C4,C5,C6,C7) \
+    K17H_PHASE(T, STRIDE, si, sr, DSTRIDE, dpi, -, +, C0,C1,C2,C3,C4,C5,C6,C7) \
+}
+
+/* h2_*: fused pass-2 (A scratch in, ky-major mini out).  h3_*: fused pass-3
+ * (mini in; "array out" is the strided store with row stride w and doff 0,
+ * i.e. exactly a T[17] -- the tsto transpose then consumes it unchanged). */
+DEF_K17_H(h2_8, v8, SP, 136)
+DEF_K17_H(h2_4, v4, SP, 68)
+DEF_K17_H(h3_8, v8, 8, 8)
+DEF_K17_H(h3_4, v4, 4, 4)
+static inline void tr8(v8 *a)
+{
+    const v8 t2_0 = SH8(a[0], a[4], 0,1,2,3,8,9,10,11);
+    const v8 t2_4 = SH8(a[0], a[4], 4,5,6,7,12,13,14,15);
+    const v8 t2_1 = SH8(a[1], a[5], 0,1,2,3,8,9,10,11);
+    const v8 t2_5 = SH8(a[1], a[5], 4,5,6,7,12,13,14,15);
+    const v8 t2_2 = SH8(a[2], a[6], 0,1,2,3,8,9,10,11);
+    const v8 t2_6 = SH8(a[2], a[6], 4,5,6,7,12,13,14,15);
+    const v8 t2_3 = SH8(a[3], a[7], 0,1,2,3,8,9,10,11);
+    const v8 t2_7 = SH8(a[3], a[7], 4,5,6,7,12,13,14,15);
+    const v8 t1_0 = SH8(t2_0, t2_2, 0,1,8,9,4,5,12,13);
+    const v8 t1_2 = SH8(t2_0, t2_2, 2,3,10,11,6,7,14,15);
+    const v8 t1_1 = SH8(t2_1, t2_3, 0,1,8,9,4,5,12,13);
+    const v8 t1_3 = SH8(t2_1, t2_3, 2,3,10,11,6,7,14,15);
+    const v8 t1_4 = SH8(t2_4, t2_6, 0,1,8,9,4,5,12,13);
+    const v8 t1_6 = SH8(t2_4, t2_6, 2,3,10,11,6,7,14,15);
+    const v8 t1_5 = SH8(t2_5, t2_7, 0,1,8,9,4,5,12,13);
+    const v8 t1_7 = SH8(t2_5, t2_7, 2,3,10,11,6,7,14,15);
+    a[0] = SH8(t1_0, t1_1, 0,8,2,10,4,12,6,14);
+    a[1] = SH8(t1_0, t1_1, 1,9,3,11,5,13,7,15);
+    a[2] = SH8(t1_2, t1_3, 0,8,2,10,4,12,6,14);
+    a[3] = SH8(t1_2, t1_3, 1,9,3,11,5,13,7,15);
+    a[4] = SH8(t1_4, t1_5, 0,8,2,10,4,12,6,14);
+    a[5] = SH8(t1_4, t1_5, 1,9,3,11,5,13,7,15);
+    a[6] = SH8(t1_6, t1_7, 0,8,2,10,4,12,6,14);
+    a[7] = SH8(t1_6, t1_7, 1,9,3,11,5,13,7,15);
+}
+
+static inline void tr4(v4 *a)
+{
+    const v4 t1_0 = SH4(a[0], a[2], 0,1,4,5);
+    const v4 t1_2 = SH4(a[0], a[2], 2,3,6,7);
+    const v4 t1_1 = SH4(a[1], a[3], 0,1,4,5);
+    const v4 t1_3 = SH4(a[1], a[3], 2,3,6,7);
+    a[0] = SH4(t1_0, t1_1, 0,4,2,6);
+    a[1] = SH4(t1_0, t1_1, 1,5,3,7);
+    a[2] = SH4(t1_2, t1_3, 0,4,2,6);
+    a[3] = SH4(t1_2, t1_3, 1,5,3,7);
+}
+
+static inline void tst8(const v8 *yr, const v8 *yi, double *dr, double *di,
+                        const int32_t *b)
+{
+    v8 t[8];
+    for (int k = 0; k < 2; ++k) {
+        for (int i = 0; i < 8; ++i) t[i] = yr[k*8 + i];
+        tr8(t);
+        for (int j = 0; j < 8; ++j) *(v8u *)(dr + b[j] + k*8) = t[j];
+        for (int i = 0; i < 8; ++i) t[i] = yi[k*8 + i];
+        tr8(t);
+        for (int j = 0; j < 8; ++j) *(v8u *)(di + b[j] + k*8) = t[j];
+    }
+    for (int j = 0; j < 8; ++j) { dr[b[j]+16] = yr[16][j]; di[b[j]+16] = yi[16][j]; }
+}
+
+static inline void tsto8(const v8 *yr, const v8 *yi, double *out, const int32_t *b)
+{
+    v8 tr_[8], ti_[8];
+    for (int k = 0; k < 2; ++k) {
+        for (int i = 0; i < 8; ++i) { tr_[i] = yr[k*8 + i]; ti_[i] = yi[k*8 + i]; }
+        tr8(tr_); tr8(ti_);
+        for (int j = 0; j < 8; ++j) {
+            double *q = out + b[j] + k*16;
+            *(v8u *)(q)     = SH8(tr_[j], ti_[j], 0,8,1,9,2,10,3,11);
+            *(v8u *)(q + 8) = SH8(tr_[j], ti_[j], 4,12,5,13,6,14,7,15);
+        }
+    }
+    for (int j = 0; j < 8; ++j) { out[b[j]+32] = yr[16][j]; out[b[j]+33] = yi[16][j]; }
+}
+
+static inline void tst4(const v4 *yr, const v4 *yi, double *dr, double *di,
+                        const int32_t *b)
+{
+    v4 t[4];
+    for (int k = 0; k < 4; ++k) {
+        for (int i = 0; i < 4; ++i) t[i] = yr[k*4 + i];
+        tr4(t);
+        for (int j = 0; j < 4; ++j) *(v4u *)(dr + b[j] + k*4) = t[j];
+        for (int i = 0; i < 4; ++i) t[i] = yi[k*4 + i];
+        tr4(t);
+        for (int j = 0; j < 4; ++j) *(v4u *)(di + b[j] + k*4) = t[j];
+    }
+    for (int j = 0; j < 4; ++j) { dr[b[j]+16] = yr[16][j]; di[b[j]+16] = yi[16][j]; }
+}
+
+static inline void tsto4(const v4 *yr, const v4 *yi, double *out, const int32_t *b)
+{
+    v4 tr_[4], ti_[4];
+    for (int k = 0; k < 4; ++k) {
+        for (int i = 0; i < 4; ++i) { tr_[i] = yr[k*4 + i]; ti_[i] = yi[k*4 + i]; }
+        tr4(tr_); tr4(ti_);
+        for (int j = 0; j < 4; ++j) {
+            double *q = out + b[j] + k*8;
+            *(v4u *)(q)     = SH4(tr_[j], ti_[j], 0,4,1,5);
+            *(v4u *)(q + 4) = SH4(tr_[j], ti_[j], 2,6,3,7);
+        }
+    }
+    for (int j = 0; j < 4; ++j) { out[b[j]+32] = yr[16][j]; out[b[j]+33] = yi[16][j]; }
+}
+
+#ifndef L17_DENSE_KERNEL
+/* Blocked pass-1 stores for the fused variants: lane j's 17 kx values go to
+ * the kx-BLOCKED layout -- kx < 16 in chunks of the vector width at
+ * b[j] + (kx/w)*(17*w), kx = 16 to the separate tail region at t[j]. */
+static inline void tst8f(const v8 *yr, const v8 *yi, double *dr, double *di,
+                         const int32_t *b, const int32_t *t)
+{
+    v8 tmp[8];
+    for (int k = 0; k < 2; ++k) {
+        for (int i = 0; i < 8; ++i) tmp[i] = yr[k*8 + i];
+        tr8(tmp);
+        for (int j = 0; j < 8; ++j) *(v8u *)(dr + b[j] + k*136) = tmp[j];
+        for (int i = 0; i < 8; ++i) tmp[i] = yi[k*8 + i];
+        tr8(tmp);
+        for (int j = 0; j < 8; ++j) *(v8u *)(di + b[j] + k*136) = tmp[j];
+    }
+    for (int j = 0; j < 8; ++j) { dr[t[j]] = yr[16][j]; di[t[j]] = yi[16][j]; }
+}
+
+static inline void tst4f(const v4 *yr, const v4 *yi, double *dr, double *di,
+                         const int32_t *b, const int32_t *t)
+{
+    v4 tmp[4];
+    for (int k = 0; k < 4; ++k) {
+        for (int i = 0; i < 4; ++i) tmp[i] = yr[k*4 + i];
+        tr4(tmp);
+        for (int j = 0; j < 4; ++j) *(v4u *)(dr + b[j] + k*68) = tmp[j];
+        for (int i = 0; i < 4; ++i) tmp[i] = yi[k*4 + i];
+        tr4(tmp);
+        for (int j = 0; j < 4; ++j) *(v4u *)(di + b[j] + k*68) = tmp[j];
+    }
+    for (int j = 0; j < 4; ++j) { dr[t[j]] = yr[16][j]; di[t[j]] = yi[16][j]; }
+}
+#endif /* !L17_DENSE_KERNEL */
+static inline __attribute__((always_inline)) void
+p1g4(const double *in, double *dr, double *di,
+     const int32_t *b, const int32_t *t, int g, int lookahead)
+{
+    if (lookahead && g + 2 < 72) {      /* see p1g8; w=4 rows are 1-2 lines */
+        const double *q = in + (size_t)2*4*(g + 2);
+        for (int a = 0; a < 17; ++a)
+            __builtin_prefetch(q + (size_t)578*a, 0, 3);
+    }
+    const double *p = in + (size_t)2*4*g;
+    v4 xr[17], xi[17], yr[17], yi[17];
+    for (int a = 0; a < 17; ++a) {
+        const v4u lo = *(const v4u *)(p + (size_t)578*a);
+        const v4u hi = *(const v4u *)(p + (size_t)578*a + 4);
+        xr[a] = SH4(lo, hi, 0,2,4,6);
+        xi[a] = SH4(lo, hi, 1,3,5,7);
+    }
+    k17_b4(xr, xi, yr, yi);
+    tst4f(yr, yi, dr, di, b + (size_t)4*g, t + (size_t)4*g);
+}
+static void pass1_f4(const double *in, double *dr, double *di,
+                     const int32_t *b, const int32_t *t)
+{
+    for (int g = 0; g < 72; ++g)
+        p1g4(in, dr, di, b, t, g, 0);
+}
+static void tail1_f4(const double *in, double *dr, double *di)
+{
+    double xr[17], xi[17], yr[17], yi[17];
+    for (int a = 0; a < 17; ++a) { xr[a] = in[2*(289*a + 288)]; xi[a] = in[2*(289*a + 288)+1]; }
+    k17_s(xr, xi, yr, yi);
+    for (int a = 0; a < 16; ++a) {
+        const int o = 16*SP + (a/4)*68 + 16*4 + a%4;
+        dr[o] = yr[a];  di[o] = yi[a];
+    }
+    dr[16*SP + 288] = yr[16];  di[16*SP + 288] = yi[16];
+}
+/* ---------- split-free pass 1 (variant i4 = h4 with this pass 1)
+ *
+ * ADOPTED FROM L17_rader panel_r8/r9 ("dy", the one mechanism the node picked
+ * at batch this round: -2.8% at B=2048).  Pass 1's row loads sit on the 16-B
+ * alignment classes of the 4624-B row stride (class = 16*(a mod 4) bytes), so
+ * at w=4 the ymm pair (lo @ c, hi @ c+32) crosses a cache line exactly when
+ * the piece lands on class 48: rows a%4==1 split on hi, rows a%4==3 split on
+ * lo -- 8 of 34 loads per group, 576 per volume, and at batch those lines are
+ * COLD, where a split holds line-fill resources for two fills on the node's
+ * 2-load-port Cascade Lake.  ld4ns re-issues exactly those 8 loads as two
+ * xmm halves (class-48 xmm pieces end at the line boundary, so neither half
+ * splits) + one vinsertf128: +8 loads +8 shuffles per group buys 0 splits.
+ * The loaded VALUES are identical, kernel and stores are h4's, so i4 is
+ * bit-identical to h4 by construction.  Wallaby (3 load ports, DDR5) cannot
+ * price cold splits -- rader measured its dy LOSING ~1.5% there while the
+ * node picked it -- so i4 ships strictly as a tuner candidate. */
+static inline __attribute__((always_inline)) v4 ld4ns(const double *q)
+{
+    const v2u a_ = *(const v2u *)q;
+    const v2u b_ = *(const v2u *)(q + 2);
+    return (v4){a_[0], a_[1], b_[0], b_[1]};
+}
+
+static void pass1_i4(const double *in, double *dr, double *di,
+                     const int32_t *b, const int32_t *t)
+{
+    for (int g = 0; g < 72; ++g) {
+        const double *p = in + (size_t)2*4*g;
+        v4 xr[17], xi[17], yr[17], yi[17];
+#pragma GCC unroll 17
+        for (int a = 0; a < 17; ++a) {
+            const double *ra = p + (size_t)578*a;
+            const v4 lo = ((a & 3) == 3) ? ld4ns(ra)     : (v4)*(const v4u *)ra;
+            const v4 hi = ((a & 3) == 1) ? ld4ns(ra + 4) : (v4)*(const v4u *)(ra + 4);
+            xr[a] = SH4(lo, hi, 0,2,4,6);
+            xi[a] = SH4(lo, hi, 1,3,5,7);
+        }
+        k17_b4(xr, xi, yr, yi);
+        tst4f(yr, yi, dr, di, b + (size_t)4*g, t + (size_t)4*g);
+    }
+}
+#define TAIL_DST (16*SP + 16*17)
+#define TAIL_OUT (2*(16*289 + 16*17))
+
+/* fused pass 2+3 (h4 = component-split kernel H, 4-wide), verbatim from
+ * L17_winograd's fused23_h4 except: the plan indirection is replaced by
+ * explicit scratch/table arguments, and the pf/pfw/CLWB hooks are removed
+ * (hints/flushes only -- the node's winning processes ran pf=0 pfw=0 cw=0). */
+static void wg_fused23_h4(const double *ar, const double *ai, double *out,
+                          double *br, double *bi,
+                          const int32_t *bt, const int32_t *boN4,
+                          const int32_t *botail)
+{
+    DECL_SC(v4); OPAQUE_SC();
+    double *btr = br + 2432, *bti = bi + 2432;
+    for (int blk = 0; blk < 4; ++blk) {
+        const double *sr = ar + 68*blk, *si = ai + 68*blk;
+        for (int z = 0; z < 17; ++z)
+            k17_h2_4(sr, si, (size_t)4*z, br, bi, (size_t)4*z,
+                     C0,C1,C2,C3,C4,C5,C6,C7);
+        double *o = out + (size_t)2312*blk;      /* 2*4*289 doubles per block */
+        for (int h = 0; h < 17; ++h) {
+            v4 yr[17], yi[17];
+            k17_h3_4(br, bi, (size_t)68*h, (double *)yr, (double *)yi, 0,
+                     C0,C1,C2,C3,C4,C5,C6,C7);
+            tsto4(yr, yi, o, boN4 + (size_t)4*h);
+        }
+    }
+    /* tail block, kx = 16 */
+    for (int zg = 0; zg < 4; ++zg) {
+        v4 yr[17], yi[17];
+        k17_e2_4(ar, ai, (size_t)(272 + 4*zg), yr, yi, C0,C1,C2,C3,C4,C5,C6,C7);
+        tst4(yr, yi, btr, bti, bt + (size_t)4*zg);
+    }
+    {
+        double xr[17], xi[17], yr[17], yi[17];
+        for (int a = 0; a < 17; ++a) { xr[a] = ar[(size_t)a*SP + 288]; xi[a] = ai[(size_t)a*SP + 288]; }
+        k17_s(xr, xi, yr, yi);
+        for (int a = 0; a < 17; ++a) { btr[16*24 + a] = yr[a]; bti[16*24 + a] = yi[a]; }
+    }
+    for (int kg = 0; kg < 4; ++kg) {
+        v4 xr[17], xi[17], yr[17], yi[17];
+        for (int a = 0; a < 17; ++a) {
+            xr[a] = *(const v4 *)(btr + (size_t)a*24 + 4*kg);
+            xi[a] = *(const v4 *)(bti + (size_t)a*24 + 4*kg);
+        }
+        k17_b4(xr, xi, yr, yi);
+        tsto4(yr, yi, out, botail + (size_t)4*kg);
+    }
+    {
+        double xr[17], xi[17], yr[17], yi[17];
+        for (int a = 0; a < 17; ++a) { xr[a] = btr[(size_t)a*24 + 16]; xi[a] = bti[(size_t)a*24 + 16]; }
+        k17_s(xr, xi, yr, yi);
+        for (int a = 0; a < 17; ++a) { out[TAIL_OUT + 2*a] = yr[a]; out[TAIL_OUT + 2*a+1] = yi[a]; }
+    }
+}
+
+/* one shared int32 table arena for the wg engine (layout offsets, doubles):
+ * b4f 288 (pass-1 blocked store bases) | tf 288 (pass-1 kx=16 tail bases) |
+ * bt 17 (tail-block mini-buffer rows) | boN4 68 (fused pass-3 -> out, lane =
+ * kx-in-block) | botail 17 (kx=16 -> out) */
+enum { L17WG_TB4F = 0, L17WG_TTF = 288, L17WG_TBT = 576,
+       L17WG_TBON4 = 593, L17WG_TBOTAIL = 661, L17WG_TN = 678 };
+
+/* mode-1 exec body for the streaming regime: each pool thread runs this
+ * serially over its contiguous static block of volumes, out of its OWN
+ * 4 x 17*SP scratch (first-touched by that thread in l17wg_setup).  DRAM
+ * traffic per volume: one contiguous-ish read of `in` (72 vector groups x 17
+ * rows), one write of `out` (fused pass 3, one plane region at a time);
+ * everything between lives in the 157 KB scratch (L2-resident on both
+ * machines).  wgi4 = 1 re-issues pass 1's 8 line-splitting loads per group
+ * as xmm pairs (i4) -- identical VALUES, so h4/i4 are bit-identical. */
+static void l17_execm_wgh4(const fft3d_plan *restrict p,
+                           const double _Complex *restrict in,
+                           double _Complex *restrict out)
+{
+    const int32_t *tb = p->wgt;
+    double *ar = p->wgbuf, *ai = p->wgbuf + (size_t)17*SP;
+    double *br = p->wgbuf + (size_t)2*17*SP, *bi = p->wgbuf + (size_t)3*17*SP;
+    const int nb = p->batch;
+    for (int b = 0; b < nb; ++b) {
+        const double *vin = (const double *)(in + (size_t)b * 4913);
+        double *vout = (double *)(out + (size_t)b * 4913);
+        if (p->wgi4)
+            pass1_i4(vin, ar, ai, tb + L17WG_TB4F, tb + L17WG_TTF);
+        else
+            pass1_f4(vin, ar, ai, tb + L17WG_TB4F, tb + L17WG_TTF);
+        tail1_f4(vin, ar, ai);
+        wg_fused23_h4(ar, ai, vout, br, bi,
+                      tb + L17WG_TBT, tb + L17WG_TBON4, tb + L17WG_TBOTAIL);
+    }
+}
+
+/* Aggregate last-level cache reachable by the team: per-package L3 (sysconf)
+ * times the number of DISTINCT physical packages the team's threads are bound
+ * to (read from sysfs; a pure read, no policy change).  Returns 0 if the
+ * machine will not say -- the caller then falls back to a fixed threshold. */
+static size_t l17wg_aggl3(const cpu_set_t *masks, const int *have, int maxt)
+{
+    long l3 = -1;
+#ifdef _SC_LEVEL3_CACHE_SIZE
+    l3 = sysconf(_SC_LEVEL3_CACHE_SIZE);
+#endif
+    if (l3 <= 0) return 0;
+    int ids[8];
+    int np = 0;
+    for (int t = 0; t < maxt; ++t) {
+        if (!masks || !have || !have[t]) continue;
+        int cpu = -1;
+        for (int c = 0; c < CPU_SETSIZE; ++c)
+            if (CPU_ISSET(c, &masks[t])) { cpu = c; break; }
+        if (cpu < 0) continue;
+        char path[96];
+        int id = -1;
+        snprintf(path, sizeof path,
+                 "/sys/devices/system/cpu/cpu%d/topology/physical_package_id",
+                 cpu);
+        FILE *fp = fopen(path, "r");
+        if (fp) {
+            if (fscanf(fp, "%d", &id) != 1) id = -1;
+            fclose(fp);
+        }
+        if (id < 0) continue;
+        int seen = 0;
+        for (int u = 0; u < np; ++u)
+            if (ids[u] == id) seen = 1;
+        if (!seen && np < 8) ids[np++] = id;
+    }
+    if (np < 1) np = 1;
+    return (size_t)l3 * (size_t)np;
+}
+
+#ifdef _OPENMP
+/* wg engine setup: one shared read-only table arena (master-owned), and one
+ * private 4 x 17*SP scratch per child, allocated AND first-touched by its own
+ * thread (page-aligned, so no two threads share a scratch line or page). */
+static int l17wg_setup(fft3d_plan *p, int maxt)
+{
+    void *traw = NULL;
+    if (posix_memalign(&traw, 64, L17WG_TN * sizeof(int32_t)) != 0 || !traw)
+        return 0;
+    int32_t *tb = traw;
+    for (int s = 0; s < 288; ++s) {
+        int q = s / 17, r = s % 17;
+        tb[L17WG_TB4F + s] = (int32_t)(q * SP + r * 4);
+        tb[L17WG_TTF + s] = (int32_t)(q * SP + 272 + r);
+    }
+    for (int z = 0; z < 17; ++z) {
+        tb[L17WG_TBT + z] = (int32_t)(z * 24);
+        tb[L17WG_TBOTAIL + z] = (int32_t)(2 * (16 * 289 + z * 17));
+    }
+    for (int ky = 0; ky < 17; ++ky)
+        for (int j = 0; j < 4; ++j)
+            tb[L17WG_TBON4 + ky * 4 + j] = (int32_t)(2 * (j * 289 + ky * 17));
+    p->wgt_raw = traw;
+    p->wgt = tb;
+    int fail = 0;
+#pragma omp parallel num_threads(maxt) reduction(||: fail)
+    {
+        int t = omp_get_thread_num();
+        fft3d_plan *k = (t < p->nkids) ? p->kids[t] : NULL;
+        void *raw = NULL;
+        if (k && posix_memalign(&raw, 4096,
+                                (size_t)4 * 17 * SP * sizeof(double)) == 0 &&
+            raw) {
+            memset(raw, 0, (size_t)4 * 17 * SP * sizeof(double));
+            k->wgbuf_raw = raw;
+            k->wgbuf = (double *)raw;
+            k->wgt = tb;
+        } else {
+            fail = 1;
+        }
+    }
+    return !fail;
+}
+#endif /* _OPENMP */
+
+#ifdef _OPENMP
+/* ---- persistent spin pool ----------------------------------------------
+ * gcc's fork/join for an execute-time OpenMP region measured 3.4 us (4
+ * threads) to 13.9 us (32) per execute on wallaby -- more than the whole
+ * parallel B=1 transform.  So the execute-time team is pthreads created
+ * ONCE in create() (the brief: "thread pools belong in fft3d_create()"),
+ * pinned to the SAME cores OpenMP was given (each OMP thread's affinity
+ * mask is captured inside the child-building parallel region and copied to
+ * the pool worker of the same index, so `close/cores` is reproduced
+ * exactly).  A job is released by one atomic generation store and
+ * collected by per-thread padded done flags; workers busy-spin (pause)
+ * between back-to-back executes -- the driver's timing loop -- and decay
+ * to a futex sleep after ~4 ms idle so the plan-time single-thread probes
+ * and anything else on the machine are not perturbed. */
+enum { L17MT_MAXT = 64 };
+
+typedef struct { volatile int v; char pad[60]; } l17mt_flag;
+
+struct l17mt_pool;
+typedef struct l17mt_warg { struct l17mt_pool *pl; int t; } l17mt_warg;
+
+typedef struct l17mt_pool {
+    fft3d_plan *plan;                   /* job spec: written before release */
+    const double _Complex *in;
+    double _Complex *out;
+    int mode, nthr, dynb, nxr;
+    int gen;                            /* master generation (main thread only) */
+    volatile int quit;
+    volatile int next;                  /* mode-1 dynamic block counter */
+    int nwork;
+    /* mode-2 barrier state (mt_r2: flat arrival/release, one line per
+     * arriver plus one release line -- see l17mt_barrier) */
+    l17mt_flag barr[L17MT_MAXT];
+    l17mt_flag brel;
+    /* per-worker release/ack flags, one cache line each: only the ACTIVE
+     * team's flags are touched per execute, idle workers never wake, never
+     * read the job fields, and cause no coherence traffic at all */
+    l17mt_flag gof[L17MT_MAXT];
+    l17mt_flag done[L17MT_MAXT];
+    pthread_t th[L17MT_MAXT];
+    l17mt_warg warg[L17MT_MAXT];
+    cpu_set_t mask[L17MT_MAXT];
+    int have_mask[L17MT_MAXT];
+} l17mt_pool;
+
+static inline void l17mt_pause(void)
+{
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#endif
+}
+
+/* Flat arrival-flag/release barrier (round mt_r2), ADOPTED FROM
+ * L17_winograd's mt_r1 record: the r1 central atomic counter is nt
+ * serialized RFOs on one line (winograd measured ~1.2 us at T=16 for that
+ * design and 0.3-0.4 us for this one; this entry's own skip-probe read
+ * 1.56 us at nt=16).  Each arriver writes its OWN padded line -- the
+ * caller's scan misses then overlap -- and the caller publishes one release
+ * word.  The sequence number is the pool generation g of the current job:
+ * unique per execute and strictly increasing, so a thread that sat out
+ * earlier (smaller-team) dispatches can never be out of phase, exactly
+ * winograd's derive-the-seq-from-the-dispatch-epoch argument.  Mode 2 has
+ * one barrier per execute, so g needs no per-barrier subdivision. */
+static void l17mt_barrier(l17mt_pool *pl, int nt, int t, int g)
+{
+    if (t == 0) {
+        for (int u = 1; u < nt; ++u)
+            while (__atomic_load_n(&pl->barr[u].v, __ATOMIC_ACQUIRE) < g)
+                l17mt_pause();
+        __atomic_store_n(&pl->brel.v, g, __ATOMIC_RELEASE);
+    } else {
+        __atomic_store_n(&pl->barr[t].v, g, __ATOMIC_RELEASE);
+        while (__atomic_load_n(&pl->brel.v, __ATOMIC_ACQUIRE) < g)
+            l17mt_pause();
+    }
+}
+
+/* thread t's share of the current job (t == 0 is the caller's thread);
+ * g is the job's pool generation, used as the barrier sequence */
+static void l17mt_work(l17mt_pool *pl, int t, int g)
+{
+    fft3d_plan *p = pl->plan;
+    fft3d_plan *k = p->kids[t];
+    const int nt = pl->nthr, nb = p->batch;
+    const double _Complex *in = pl->in;
+    double _Complex *out = pl->out;
+    if (pl->mode == 2) {
+        const int NPL = 17 * nb, NCH = 73 * nb;
+        const int nx = pl->nxr < nt ? pl->nxr : nt;
+        if (!(p->mtskip & 1))
+            l17mt_planes(k, (const double *)in, p->t1g,
+                         (int)(((long)NPL * t) / nt),
+                         (int)(((long)NPL * (t + 1)) / nt));
+        if (!(p->mtskip & 4))
+            l17mt_barrier(pl, nt, t, g);
+        if (!(p->mtskip & 2) && t < nx)
+            l17mt_xrange(k, p->t1g, (double *)out,
+                         (int)(((long)NCH * t) / nx),
+                         (int)(((long)NCH * (t + 1)) / nx), p->xpf);
+    } else if (pl->dynb > 0) {
+        const int db = pl->dynb, nblk = (nb + db - 1) / db;
+        int blk;
+        while ((blk = __atomic_fetch_add(&pl->next, 1, __ATOMIC_RELAXED)) < nblk) {
+            int v0 = blk * db;
+            int nv = nb - v0 < db ? nb - v0 : db;
+            k->batch = nv;
+            k->exec(k, in + (size_t)v0 * 4913, out + (size_t)v0 * 4913);
+        }
+    } else {
+        int v0 = (int)(((long)nb * t) / nt);
+        int v1 = (int)(((long)nb * (t + 1)) / nt);
+        if (v1 > v0) {
+            k->batch = v1 - v0;
+            k->exec(k, in + (size_t)v0 * 4913, out + (size_t)v0 * 4913);
+        }
+    }
+}
+
+static double l17_now(void); /* fwd (defined with the tuner utilities) */
+
+static void *l17mt_worker(void *argp)
+{
+    l17mt_pool *pl = ((l17mt_warg *)argp)->pl;
+    const int t = ((l17mt_warg *)argp)->t;
+    if (pl->have_mask[t])
+        pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &pl->mask[t]);
+    volatile int *mygo = &pl->gof[t].v;
+    int myg = 0;
+    for (;;) {
+        int g;
+        long spins = 0;
+        double idle0 = 0.0;
+        while ((g = __atomic_load_n(mygo, __ATOMIC_ACQUIRE)) == myg) {
+            l17mt_pause();
+            if ((++spins & 8191) == 0) {
+                /* decay from a hot spin to a 0.1-1 ms poll after ~4 ms idle:
+                 * an idle worker then costs ~0.1% of a core and nothing on
+                 * the release path (no futex handshake); the up-to-1 ms wake
+                 * latency hits only the first execute after a long gap,
+                 * which the driver's discarded warmups absorb */
+                double tn = l17_now();
+                if (idle0 == 0.0) {
+                    idle0 = tn;
+                } else if (tn - idle0 > 4e-3) {
+                    struct timespec ts;
+                    ts.tv_sec = 0;
+                    ts.tv_nsec = (tn - idle0 > 0.1) ? 1000000 : 100000;
+                    nanosleep(&ts, NULL);
+                }
+            }
+        }
+        myg = g;
+        if (__atomic_load_n(&pl->quit, __ATOMIC_ACQUIRE)) break;
+        l17mt_work(pl, t, g); /* released <=> t < nthr, so no membership test */
+        __atomic_store_n(&pl->done[t].v, g, __ATOMIC_RELEASE);
+    }
+    return NULL;
+}
+
+static void l17mt_pool_run(fft3d_plan *p, const double _Complex *in,
+                           double _Complex *out)
+{
+    l17mt_pool *pl = p->poolv;
+    pl->plan = p;
+    pl->in = in;
+    pl->out = out;
+    pl->mode = p->mode;
+    pl->nthr = p->nthr > pl->nwork ? pl->nwork : p->nthr;
+    pl->dynb = p->dynb;
+    pl->nxr = p->nxr > 0 ? p->nxr : pl->nthr;
+    pl->next = 0;
+    const int g = ++pl->gen, nt = pl->nthr;
+    for (int t = 1; t < nt; ++t)
+        __atomic_store_n(&pl->gof[t].v, g, __ATOMIC_RELEASE);
+    l17mt_work(pl, 0, g);
+    for (int t = 1; t < nt; ++t)
+        while (__atomic_load_n(&pl->done[t].v, __ATOMIC_ACQUIRE) != g)
+            l17mt_pause();
+}
+
+static l17mt_pool *l17mt_pool_new(int nwork, const cpu_set_t *masks,
+                                  const int *have)
+{
+    if (nwork > L17MT_MAXT) nwork = L17MT_MAXT;
+    l17mt_pool *pl = calloc(1, sizeof *pl);
+    if (!pl) return NULL;
+    pl->nwork = nwork;
+    for (int t = 0; t < nwork; ++t) {
+        pl->mask[t] = masks[t];
+        pl->have_mask[t] = have[t];
+        pl->warg[t].pl = pl;
+        pl->warg[t].t = t;
+    }
+    for (int t = 1; t < nwork; ++t) {
+        if (pthread_create(&pl->th[t], NULL, l17mt_worker, &pl->warg[t]) != 0) {
+            __atomic_store_n(&pl->quit, 1, __ATOMIC_SEQ_CST);
+            for (int u = 1; u < t; ++u)
+                __atomic_store_n(&pl->gof[u].v, pl->gen + 1, __ATOMIC_SEQ_CST);
+            for (int u = 1; u < t; ++u) pthread_join(pl->th[u], NULL);
+            free(pl);
+            return NULL;
+        }
+    }
+    return pl;
+}
+
+static void l17mt_pool_free(l17mt_pool *pl)
+{
+    if (!pl) return;
+    __atomic_store_n(&pl->quit, 1, __ATOMIC_SEQ_CST);
+    for (int t = 1; t < pl->nwork; ++t)
+        __atomic_store_n(&pl->gof[t].v, pl->gen + 1, __ATOMIC_SEQ_CST);
+    for (int t = 1; t < pl->nwork; ++t) pthread_join(pl->th[t], NULL);
+    free(pl);
+}
+#endif /* _OPENMP */
+
+#ifdef _OPENMP
+/* Round mt_r4: OMP-region dispatch for the streaming engine.  Identical
+ * work assignment to the pool's static mode-1 path (same kids, same
+ * contiguous split, same kernel), so the output is bit-identical to the
+ * pool dispatch -- only the team that runs it differs.  The mt_r3 node
+ * data that forced this: the SAME wg engine scored 11924 us under my spin
+ * pool against L17_winograd's 4991.7 under its OMP region (VERDICT 4.4),
+ * with my process's own clk512 probe reading 2.29 GHz (base) against
+ * winograd's 2.89 and my sbw probes 14-26% low -- 31 pinned spin workers
+ * next to libgomp's 32 threads is a process picture the node punishes and
+ * single-socket wallaby cannot see.  L17_rader made this exact move
+ * (dsp=omp, pool destroyed) in mt_r3 and gained 1.71x at the same cell.
+ * The ~14 us/execute fork/join cost that justified the pool at B=1 (r1)
+ * is 0.3% of a ~5 ms streaming execute -- irrelevant where this runs. */
+static void l17mt_omp_run(fft3d_plan *p, const double _Complex *in,
+                          double _Complex *out)
+{
+    const int nt = p->nthr;
+    const int nb = p->batch;
+#pragma omp parallel num_threads(nt)
+    {
+        const int t = omp_get_thread_num();
+        fft3d_plan *k = (t < p->nkids) ? p->kids[t] : NULL;
+        const int v0 = (int)(((long)nb * t) / nt);
+        const int v1 = (int)(((long)nb * (t + 1)) / nt);
+        if (k && v1 > v0) {
+            k->batch = v1 - v0;
+            k->exec(k, in + (size_t)v0 * 4913, out + (size_t)v0 * 4913);
+        }
+    }
+}
+#endif /* _OPENMP */
+
+static void l17mt_dispatch(fft3d_plan *p, const double _Complex *in,
+                           double _Complex *out)
+{
+#ifdef _OPENMP
+    if (p->mode != 0 && p->wgomp) { l17mt_omp_run(p, in, out); return; }
+    if (p->mode != 0 && p->poolv) { l17mt_pool_run(p, in, out); return; }
+#endif
+    p->exec(p, in, out);
+}
+
+#ifdef _OPENMP
+static void l17mt_set_kids(fft3d_plan *p,
+                           void (*fn)(const fft3d_plan *,
+                                      const double _Complex *,
+                                      double _Complex *),
+                           int pf, int pw, int pt)
+{
+    for (int t = 0; t < p->nkids; ++t)
+        if (p->kids[t]) {
+            p->kids[t]->exec = fn;
+            p->kids[t]->pf = pf;
+            p->kids[t]->pw = pw;
+            p->kids[t]->pt = pt;
+        }
+}
+
+/* seconds per transform for p AS CURRENTLY CONFIGURED (mode/nthr/dynb/kids),
+ * on the tuner arena with nv volumes: 2 warmups (the first also calibrates an
+ * inner count that clears timer resolution), MEDIAN of 5 blocked samples.
+ * mt_r2: the statistic was min-of-3; the r1 VERDICT (section 3.2) showed nine
+ * entries -- this one included, 1.12x at B=256 -- installing different picks
+ * in different processes because two candidates within noise flip on their
+ * luckiest sample.  A median flips only when the underlying distributions
+ * actually cross. */
+static double l17mt_time_cfg(fft3d_plan *p, int nv)
+{
+    int sb = p->batch;
+    p->batch = nv;
+    l17mt_dispatch(p, p->ti, p->to);
+    double t0 = l17_now();
+    l17mt_dispatch(p, p->ti, p->to);
+    double dt = l17_now() - t0;
+    long inner = dt > 1e-9 ? (long)(2e-3 / dt) + 1 : 1000;
+    if (inner > 4000) inner = 4000;
+    double s[5];
+    for (int r = 0; r < 5; ++r) {
+        t0 = l17_now();
+        for (long i = 0; i < inner; ++i) l17mt_dispatch(p, p->ti, p->to);
+        s[r] = l17_now() - t0;
+    }
+    for (int a = 1; a < 5; ++a) { /* insertion sort, take s[2] */
+        double v = s[a];
+        int b = a;
+        while (b > 0 && s[b - 1] > v) { s[b] = s[b - 1]; --b; }
+        s[b] = v;
+    }
+    p->batch = sb;
+    return s[2] / (double)inner / (double)nv;
+}
+
+/* mt_r2: the tuner arena for the batch>=64 races, with its pages placed the
+ * way the SCORED run's pages end up, not the way they start.  r1 filled the
+ * arena serially "to match the driver's first touch"; the r1 VERDICT
+ * established that the driver's serially-touched pages do not STAY on
+ * socket 0 through the multi-second scored loop (AutoNUMA migrates them
+ * toward the threads that keep faulting them -- L=6 B=65536 sustains
+ * 175 GB/s, well above one socket), so the serial-touch arena prices a
+ * transient, and this entry's B=4096 pick (NT+pipelined, 2.106 us/t on the
+ * node) lost 1.72x to a plain static schedule.  Touching volume v's pages
+ * with the thread that will process v under the static split is the
+ * migrated steady state; it is also what the harness would produce if it
+ * adopts the VERDICT's parallel-first-touch fix.  Values are then filled
+ * serially into the already-homed pages (first touch is per PAGE, at first
+ * write after mmap; later writes move nothing). */
+static int l17_tune_alloc_mt(fft3d_plan *p, int nv, int nt)
+{
+    size_t n = (size_t)nv * 4913;
+    if (p->tn >= n) return 1; /* only ever called first; already owner-touched */
+    l17_tune_free(p);
+    if (posix_memalign((void **)&p->ti, 64, n * sizeof *p->ti) != 0) { p->ti = NULL; return 0; }
+    if (posix_memalign((void **)&p->to, 64, n * sizeof *p->to) != 0) {
+        free(p->ti); p->ti = NULL; p->to = NULL; return 0;
+    }
+    p->tn = n;
+#pragma omp parallel num_threads(nt)
+    {
+        int t = omp_get_thread_num();
+        size_t d0 = ((size_t)nv * t / nt) * 4913;
+        size_t d1 = ((size_t)nv * (t + 1) / nt) * 4913;
+        if (d1 > d0) {
+            memset(p->ti + d0, 0, (d1 - d0) * sizeof *p->ti);
+            memset(p->to + d0, 0, (d1 - d0) * sizeof *p->to);
+        }
+    }
+    unsigned sr = 12345u;
+    for (size_t i = 0; i < n; ++i) {
+        sr = sr * 1103515245u + 12345u;
+        double a = (double)(sr >> 8) / 8388608.0 - 1.0;
+        sr = sr * 1103515245u + 12345u;
+        double b = (double)(sr >> 8) / 8388608.0 - 1.0;
+        p->ti[i] = a + b * (double _Complex)I;
+    }
+    return 1;
+}
+
+/* mt_r2: (re)map and first-touch the mode-2 t1g by the map of an nt-thread
+ * team.  mmap rather than malloc because a RE-touch must start from fresh
+ * untouched pages (free()+malloc may recycle pages that already have a home
+ * node); the memset below is then the first touch, page by page, by the
+ * thread that will write that plane in phase 1.  Called once with the full
+ * team before the mode race (t1g must exist to race mode 2 at all), and
+ * again with the PICKED team: under close binding on a two-socket node a
+ * 16-thread pick would otherwise read planes 8..16 out of pages homed on
+ * socket 1 forever -- the full-team touch map and the picked-team use map
+ * disagree exactly when nthr < maxt. */
+static void l17mt_t1g_map(fft3d_plan *p, int batch, int nt)
+{
+    const size_t nd = (size_t)batch * L17MT_T1VOL * sizeof(double);
+    if (p->t1g_raw) {
+        munmap(p->t1g_raw, p->t1g_sz);
+        p->t1g_raw = NULL;
+    }
+    void *m = mmap(NULL, nd, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    p->t1g_raw = m == MAP_FAILED ? NULL : m;
+    p->t1g_sz = p->t1g_raw ? nd : 0;
+    p->t1g = (double *)p->t1g_raw;
+    if (!p->t1g) return;
+    const int NPL = 17 * batch;
+#pragma omp parallel num_threads(nt)
+    {
+        int t = omp_get_thread_num();
+        int g0 = (int)(((long)NPL * t) / nt);
+        int g1 = (int)(((long)NPL * (t + 1)) / nt);
+        for (int g = g0; g < g1; ++g)
+            memset(p->t1g + (size_t)(g / 17) * L17MT_T1VOL +
+                       (size_t)(g % 17) * L17_T1SP,
+                   0, L17_T1SP * sizeof(double));
+    }
+}
+#endif /* _OPENMP */
+
 /* -----------------------------------------------------------------------
  * ROUND panel_r10: in-plan STREAMING bandwidth decomposition (sbw), the
  * batch-regime sibling of r9's b1dec, same instrument (timed in create(),
@@ -2531,12 +4473,8 @@ int fft3d_supports(int L) { return L == 17; }
  * measured to stderr.  Silent otherwise, so a graded run says nothing. */
 static int l17_verbose(void)
 {
-#ifdef L17_VERBOSE_BUILD
-    return 1; /* tryout.sh cannot pass environment through ssh; -DL17_VERBOSE_BUILD can */
-#else
     const char *e = getenv("L17_VERBOSE");
     return e && *e && *e != '0';
-#endif
 }
 
 static double l17_now(void)
@@ -2568,52 +4506,14 @@ static int l17_tune_nv(int batch)
     return batch < cap ? batch : cap;
 }
 
-/* -----------------------------------------------------------------------
- * ROUND ice_r1: chain-shaped tuner unit for the graded regime.
- * The scored workload (cases.txt "17:32:98") is a CHAIN: execute over 32
- * volumes, then a driver-side unitary scale of the whole 2.4 MB output,
- * then the output becomes the next step's input, ping-ponging between two
- * destination buffers.  All three buffers are L3-resident (7.2 MiB total,
- * L2 is 1.25 MB), so each execute reads its input from L3 (it was written
- * by the scale pass one step ago) and RFOs an output that was last written
- * two steps ago.  The old stage-1 arena (16 volumes, fixed src->dst, no
- * scale pass) measures a DIFFERENT regime; candidates are now timed under
- * the driver's own loop shape.  Values stay O(1) under the unitary scale,
- * so no overflow and no denormal drift (corpus 10's trap) in the arena.
- * --------------------------------------------------------------------- */
-static void l17_chain_scale(double *restrict v, size_t nd)
+/* Allocate the coefficient/scratch block and fill every table.  Factored out
+ * of fft3d_create() for the multicore phase: each thread's child plan calls
+ * this from inside the parallel region, so its scratch is first-touched (and
+ * therefore homed) on that thread's own socket.  astab_src != NULL copies the
+ * master's de-aliasing tables instead of rebuilding them (they are pure
+ * integer arithmetic, identical on every thread). */
+static int l17_init_block(fft3d_plan *p, const void *astab_src)
 {
-    const double s = 1.0 / 70.09279563550022; /* 1/sqrt(17^3), as the driver */
-    for (size_t i = 0; i < nd; ++i) v[i] *= s;
-}
-
-typedef void (*l17_execfn)(const fft3d_plan *, const double _Complex *,
-                           double _Complex *);
-
-static double l17_chain_unit(fft3d_plan *p, l17_execfn fn,
-                             double _Complex *tb2, int steps)
-{
-    const size_t nd = (size_t)p->batch * 4913 * 2;
-    const double _Complex *src = p->ti;
-    double _Complex *dst = p->to;
-    double t0 = l17_now();
-    for (int s = 0; s < steps; ++s) {
-        fn(p, src, dst);
-        l17_chain_scale((double *)dst, nd);
-        src = dst;
-        dst = (dst == p->to) ? tb2 : p->to;
-    }
-    return l17_now() - t0;
-}
-
-fft3d_plan *fft3d_create(int L, int batch)
-{
-    if (L != 17 || batch < 1) return NULL;
-    fft3d_plan *p = calloc(1, sizeof *p);
-    if (!p) return NULL;
-    p->L = L;
-    p->batch = batch;
-
     const size_t nc = 8 * 9, ns = 8 * 8;
     const size_t nnc = 4 * 8, nns = 8 * 8; /* nested kernel coefficient rows */
     const size_t nsc = 17 * 8;
@@ -2629,10 +4529,8 @@ fft3d_plan *fft3d_create(int L, int batch)
     const size_t ntot = 12 * nc + 12 * ns + 12 * nnc + 12 * nns + nsc +
                         2 * npb + 2 * nt1e + 2 * nso + nt1 + 1024;
     void *blk = NULL;
-    if (posix_memalign(&blk, 64, ntot * sizeof(double)) != 0 || !blk) {
-        free(p);
-        return NULL;
-    }
+    if (posix_memalign(&blk, 64, ntot * sizeof(double)) != 0 || !blk)
+        return 0;
     memset(blk, 0, ntot * sizeof(double));
     p->block = blk;
 
@@ -2723,26 +4621,23 @@ fft3d_plan *fft3d_create(int L, int batch)
 
     /* de-aliasing shift tables for the address-safe twins -- must exist
      * before the tuner runs them.  Pure integer arithmetic, ~30 ms. */
-    l17_as_build(p->astab);
+    if (astab_src)
+        memcpy(p->astab, astab_src, sizeof p->astab);
+    else
+        l17_as_build(p->astab);
+    return 1;
+}
 
-    /* Clock-settle spin (round ice_r1, adopted from L17_winograd's tuner
-     * protocol): ~150 ms of dense 512-bit FMA before anything is timed.
-     * This entry's create() is short (~0.23 s); on the Ice Lake node's
-     * schedutil governor every clock probe read exactly the 2.90 GHz base
-     * while L17_winograd's longer create read 3.50/3.30 -- i.e. the tuner
-     * was ranking candidates and the b1dec/clk probes were reporting on a
-     * partially unramped core.  The spin costs unscored plan time only. */
-    {
-        double t0 = l17_now();
-        vd_w4 sa = {1, 1, 1, 1, 1, 1, 1, 1}, sb = sa, sc2 = sa, sd = sa;
-        vd_w4 sm = {1e-15, 1e-15, 1e-15, 1e-15, 1e-15, 1e-15, 1e-15, 1e-15};
-        do {
-            for (long i = 0; i < 100000; ++i) {
-                sa = sa * sm + sa; sb = sb * sm + sb;
-                sc2 = sc2 * sm + sc2; sd = sd * sm + sd;
-            }
-        } while (l17_now() - t0 < 0.15);
-        l17_clk_sink = sa[0] + sb[0] + sc2[0] + sd[0];
+fft3d_plan *fft3d_create(int L, int batch)
+{
+    if (L != 17 || batch < 1) return NULL;
+    fft3d_plan *p = calloc(1, sizeof *p);
+    if (!p) return NULL;
+    p->L = L;
+    p->batch = batch;
+    if (!l17_init_block(p, NULL)) {
+        free(p);
+        return NULL;
     }
 
     /* ---- pick the variant by measuring it, here, on this machine ----
@@ -2756,7 +4651,16 @@ fft3d_plan *fft3d_create(int L, int batch)
     {
         typedef void (*l17_fn)(const fft3d_plan *, const double _Complex *,
                                double _Complex *);
-        enum { L17_NCAND = 54 };
+        enum { L17_NCAND = 50 };
+        /* round mt_r1: when OpenMP gives us a team, the batch>=64 kernel
+         * choice moves to the MULTITHREADED race below (the single-thread
+         * ranking does not predict the 32-thread, bandwidth-shared one), so
+         * the old single-thread stage 1b/2 run only as a no-OpenMP fallback. */
+#ifdef _OPENMP
+        const int l17mt_on = omp_get_max_threads() > 1;
+#else
+        const int l17mt_on = 0;
+#endif
         static const l17_fn cand[L17_NCAND] = {
             exec_w4, exec2_w4, exec3_w4, exec4_w4, exec6_w4, exec7_w4,
             exec10_w4, exec11_w4, exec12_w4, exec13_w4, exec14_w4, exec15_w4,
@@ -2770,8 +4674,6 @@ fft3d_plan *fft3d_create(int L, int batch)
             l17_execm_xla, l17_execm_xlda, l17_execm_xfa, l17_execm_xfda,
             l17_execm_xfsa, l17_execm_xfdsa,
             l17_execm_xfso, l17_execm_xfdso,
-            l17_execm_xfax, l17_execm_xfdax,
-            l17_execm_xlax, l17_execm_xldax,
         };
         static const char *const tags[L17_NCAND] = {
             "dense 17x17 matrix/axis, conj-folded, 512-bit, fused transpose",
@@ -2824,10 +4726,6 @@ fft3d_plan *fft3d_create(int L, int batch)
             "nested cyclic/negacyclic 17-pt/axis, 512-bit+ymm tail, pinned, X-first, deferred-Z, staged input, addr-safe t1",
             "nested cyclic/negacyclic 17-pt/axis, 512-bit+ymm tail, pinned, X-first, staged output, addr-safe t1",
             "nested cyclic/negacyclic 17-pt/axis, 512-bit+ymm tail, pinned, X-first, deferred-Z, staged output, addr-safe t1",
-            "nested cyclic/negacyclic 17-pt/axis, 512-bit+ymm tail, pinned, X-first, addr-safe t1, extract-store",
-            "nested cyclic/negacyclic 17-pt/axis, 512-bit+ymm tail, pinned, X-first, deferred-Z, addr-safe t1, extract-store",
-            "nested cyclic/negacyclic 17-pt/axis, 512-bit+ymm tail, pinned, addr-safe t1, extract-store",
-            "nested cyclic/negacyclic 17-pt/axis, 512-bit+ymm tail, pinned, deferred-Z, addr-safe t1, extract-store",
         };
         /* The tuner may only SELECT within one bit-equivalence class, chosen
          * deterministically by the batch size; everything else is measured for
@@ -2843,9 +4741,9 @@ fft3d_plan *fft3d_create(int L, int batch)
          *   batch >= 64: X-first pinned class {exec13/15, both widths}
          * The regime rule itself is measurement-based (wallaby, panel_r3):
          * X-first won batch 256/2048 by 14-17%, lost B=1/B=8 by ~5%. */
-        const int selB[11] = {8, 10, 20, 22, 32, 33, 36, 42, 43, 52, 53}; /* X-last pinned */
-        const int selD[23] = {9, 11, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-                              34, 35, 37, 44, 45, 46, 47, 48, 49, 50, 51};
+        const int selB[9] = {8, 10, 20, 22, 32, 33, 36, 42, 43}; /* X-last pinned */
+        const int selD[21] = {9, 11, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                              34, 35, 37, 44, 45, 46, 47, 48, 49};
         /* selD = the X-first pinned bit class: plain/pipelined/NT, both
          * widths, ALL cmp-verified bit-identical (r4).  NT variants are in
          * the class itself rather than a separate stage-2 A/B because the
@@ -2882,23 +4780,8 @@ fft3d_plan *fft3d_create(int L, int batch)
          * same bits at a staged address and flush them by bit-exact copy;
          * cmp-verified bit-identical to 44 resp. 45 on full outputs before
          * being added. */
-        /* ice_r1 adds 50/51 (X-first extract-store twins) to class D and
-         * 52/53 (X-last extract-store twins) to class B; all four store
-         * bit-identical values through different store instructions and were
-         * cmp-verified against 44 resp. 42 on full outputs before being
-         * listed here.
-         *
-         * CLASS RULE (ice_r1): the X-first class D now starts at batch 17,
-         * not 64.  The old boundary was set on CLX DRAM-streaming data; on
-         * the Ice Lake node the GRADED chain (cases.txt 17:32:98, all three
-         * buffers L3-resident) was measured chain-shaped across the whole
-         * table: X-first addr-safe 14.29-14.36 us/step vs the best X-last
-         * 15.80 -- the X-last order serialises the 73-chunk output RFO burst
-         * at the end of every volume, exactly what X-first spreads across
-         * the plane phase.  batch < 17 keeps class B and its whole tuner
-         * path untouched. */
-        const int *sel = (batch >= 17) ? selD : selB;
-        const int nsel = (batch >= 17) ? 23 : 11;
+        const int *sel = (batch >= 64) ? selD : selB;
+        const int nsel = (batch >= 64) ? 21 : 9;
         int bestv = sel[0];
         p->exec = cand[bestv];
         g_desc = tags[bestv];
@@ -2910,7 +4793,7 @@ fft3d_plan *fft3d_create(int L, int batch)
          * biased the ranking.  Blocks of >= 64 volume-transforms also give the
          * clock time to settle.  Everything is measured (the table is the
          * record); only the batch-regime's bit-class may be selected. */
-        if (batch < 17) {
+        if (batch < 64) {
             int nv = batch < 16 ? batch : 16;
             int inner = (64 + nv - 1) / nv;
             if (l17_tune_alloc(p, nv)) {
@@ -2940,125 +4823,13 @@ fft3d_plan *fft3d_create(int L, int batch)
             }
         }
 
-        /* stage 1g (17 <= batch < 64, round ice_r1): the GRADED-CHAIN regime.
-         * Candidates are timed under the driver's own chain loop -- nv = batch
-         * volumes, output scaled unitarily and fed back as the next input,
-         * ping-ponging between two destination arenas -- because the scored
-         * number at batch 32 is exactly that loop, and its memory behaviour
-         * (L3-resident ping-pong, RFO on a two-steps-old buffer, a scale
-         * pass between executes) matches neither the old 16-volume fixed
-         * src->dst arena nor the >L3 streaming arena.  6 steps per unit
-         * (step 0 from the pristine arena, 5 in steady state), blocked,
-         * 1 warmup unit + min of 3.  Selection stays inside the batch
-         * regime's bit class; everything is measured for the table. */
-        if (batch >= 17 && batch < 64) {
-            double _Complex *tb2 = NULL;
-            if (l17_tune_alloc(p, batch) &&
-                posix_memalign((void **)&tb2, 64,
-                               (size_t)batch * 4913 * sizeof *tb2) != 0)
-                tb2 = NULL;
-            if (tb2) {
-                memset(tb2, 0, (size_t)batch * 4913 * sizeof *tb2);
-                const int steps = 6;
-                double best[L17_NCAND];
-                for (int v = 0; v < L17_NCAND; ++v) {
-                    best[v] = 1e30;
-                    l17_chain_unit(p, cand[v], tb2, steps);
-                    for (int r = 0; r < 3; ++r) {
-                        double dt = l17_chain_unit(p, cand[v], tb2, steps);
-                        if (dt < best[v]) best[v] = dt;
-                    }
-                }
-                for (int s = 1; s < nsel; ++s)
-                    if (best[sel[s]] < best[bestv]) bestv = sel[s];
-                p->exec = cand[bestv];
-                g_desc = tags[bestv];
-                if (l17_verbose())
-                    for (int v = 0; v < L17_NCAND; ++v)
-                        fprintf(stderr, "[L17_matrixsimd tune chain nv=%d] %-72s %8.2f us/transform%s\n",
-                                batch, tags[v],
-                                best[v] * 1e6 / ((double)batch * steps),
-                                v == bestv ? "  <== kept" : "");
-
-                /* joint (pf,pw,pt) grid on the winner, chain-shaped, same
-                 * hook conditions as stage 2 (interacting knobs are never
-                 * A/B'd sequentially -- the r4 lesson).  Prefetches change
-                 * no bits, so the grid is free within the class. */
-                {
-                    const int pipewin = (bestv >= 24 && bestv <= 27) ||
-                                        bestv == 30 || bestv == 31 || bestv == 35;
-                    const int stagewin = bestv == 46 || bestv == 47;
-                    const int sowin = bestv == 48 || bestv == 49;
-                    const int haspf = ((bestv >= 4 && bestv <= 11) ||
-                                       (bestv >= 16 && bestv <= 23) ||
-                                       bestv == 28 || bestv == 29 ||
-                                       bestv == 34 || bestv == 37 ||
-                                       bestv == 44 || bestv == 45) &&
-                                      !pipewin && !stagewin && !sowin &&
-                                      (tags[bestv] && strstr(tags[bestv], "X-first") != NULL);
-                    const int haspw = bestv == 9 || bestv == 11 || bestv == 21 ||
-                                      bestv == 23 || bestv == 28 || bestv == 29 ||
-                                      bestv == 34 || bestv == 35 || bestv == 37 ||
-                                      bestv == 40 || bestv == 41 ||
-                                      bestv == 44 || bestv == 45 ||
-                                      bestv == 46 || bestv == 47 ||
-                                      bestv == 48 || bestv == 49 ||
-                                      bestv == 50 || bestv == 51;
-                    const int haspt = bestv == 32 || bestv == 33 || bestv == 36 ||
-                                      bestv == 42 || bestv == 43 ||
-                                      bestv == 34 || bestv == 37 ||
-                                      bestv == 44 || bestv == 45 ||
-                                      bestv == 50 || bestv == 51 ||
-                                      bestv == 52 || bestv == 53;
-                    if (haspf || haspw || haspt) {
-                        double bt = 1e30;
-                        int bpf = 0, bpw = 0, bpt = 0;
-                        for (int fp = 0; fp <= haspf; ++fp)
-                            for (int fw = 0; fw <= haspw; ++fw)
-                                for (int ft = 0; ft <= haspt; ++ft) {
-                                    p->pf = fp;
-                                    p->pw = fw;
-                                    p->pt = ft;
-                                    double bb = 1e30;
-                                    l17_chain_unit(p, p->exec, tb2, steps);
-                                    for (int r = 0; r < 3; ++r) {
-                                        double dt = l17_chain_unit(p, p->exec, tb2, steps);
-                                        if (dt < bb) bb = dt;
-                                    }
-                                    if (l17_verbose())
-                                        fprintf(stderr, "[L17_matrixsimd tune chain] pf=%d pw=%d pt=%d  %.2f us/transform\n",
-                                                fp, fw, ft, bb * 1e6 / ((double)batch * steps));
-                                    if (bb < bt) { bt = bb; bpf = fp; bpw = fw; bpt = ft; }
-                                }
-                        p->pf = bpf;
-                        p->pw = bpw;
-                        p->pt = bpt;
-                        static char g_desc_cg[220];
-                        snprintf(g_desc_cg, sizeof g_desc_cg, "%s, pf=%d, pw=%d, pt=%d",
-                                 g_desc, p->pf, p->pw, p->pt);
-                        g_desc = g_desc_cg;
-                    } else {
-                        p->pf = 0;
-                        p->pw = 0;
-                        p->pt = 0;
-                    }
-                }
-                free(tb2);
-            } else {
-                free(tb2);
-            }
-        }
-
-        /* stage 1c (batch < 17, round panel_r9; ice_r1 narrowed it from
-         * batch < 64 -- the graded-chain regime now has its own joint
-         * (pf,pw,pt) grid inside stage 1g): A/B the in-pass source
+        /* stage 1c (batch < 64, round panel_r9): A/B the in-pass source
          * prefetch (pt) on the stage-1 winner, blocked, two warmups --
          * prefetches change no bits, so the choice is free within the class.
          * Only the mixed execs carry the hook. */
-        if (batch < 17) {
+        if (batch < 64) {
             const int haspt = bestv == 32 || bestv == 33 || bestv == 36 ||
-                              bestv == 42 || bestv == 43 ||
-                              bestv == 52 || bestv == 53;
+                              bestv == 42 || bestv == 43;
             int nv = batch < 16 ? batch : 16;
             if (haspt && l17_tune_alloc(p, nv)) {
                 int inner = (64 + nv - 1) / nv;
@@ -3099,7 +4870,7 @@ fft3d_plan *fft3d_create(int L, int batch)
          * different kernel outright.  Borrowed from L17_winograd round 2,
          * which measured a 90% penalty for trusting the small-set pick at
          * batch. */
-        if (batch >= 64) {
+        if (batch >= 64 && !l17mt_on) {
             int nv2 = l17_tune_nv(batch);
             if (l17_tune_alloc(p, nv2)) {
                 int sb = p->batch;
@@ -3138,7 +4909,7 @@ fft3d_plan *fft3d_create(int L, int batch)
          * interleaved X chunks already touch volume b+1's input); pw is
          * offered only to the variants that have the hook (the X-first
          * nested/mixed family and the mixed pipelined exec). */
-        if (batch >= 64) {
+        if (batch >= 64 && !l17mt_on) {
             const int pipewin = (bestv >= 24 && bestv <= 27) ||
                                 bestv == 30 || bestv == 31 || bestv == 35;
             /* r10: the staged twins' sequential copy IS the cross-volume
@@ -3157,15 +4928,13 @@ fft3d_plan *fft3d_create(int L, int batch)
                               bestv == 40 || bestv == 41 ||
                               bestv == 44 || bestv == 45 ||
                               bestv == 46 || bestv == 47 ||
-                              bestv == 48 || bestv == 49 ||
-                              bestv == 50 || bestv == 51;
+                              bestv == 48 || bestv == 49;
             /* r9: the in-pass source prefetch, offered to the mixed X-first
              * non-pipelined execs.  In the (pf, pw, pt) grid jointly, per
              * the r4 lesson that interacting knobs cannot be raced
              * sequentially. */
             const int haspt = bestv == 34 || bestv == 37 ||
-                              bestv == 44 || bestv == 45 ||
-                              bestv == 50 || bestv == 51;
+                              bestv == 44 || bestv == 45;
             int nv2 = l17_tune_nv(batch);
             if ((haspf || haspw || haspt) && l17_tune_alloc(p, nv2)) {
                 int sb = p->batch;
@@ -3208,11 +4977,11 @@ fft3d_plan *fft3d_create(int L, int batch)
         }
         l17_tune_free(p);
 #if defined(L17_FORCE)
-        /* development override: -DL17_FORCE=0..59 pins one variant;
+        /* development override: -DL17_FORCE=0..55 pins one variant;
          * -DL17_FORCE_PF / -DL17_FORCE_PW / -DL17_FORCE_PT pin the
          * prefetch flags */
         {
-            static const l17_fn all[60] = {
+            static const l17_fn all[56] = {
                 exec_w4, exec2_w4, exec3_w4, exec4_w4,
                 exec_w2, exec2_w2, exec3_w2, exec4_w2, exec5_w4, exec5_w2,
                 exec6_w4, exec7_w4, exec6_w2, exec7_w2, exec8_w4, exec8_w2,
@@ -3231,8 +5000,6 @@ fft3d_plan *fft3d_create(int L, int batch)
                 l17_execm_xfa, l17_execm_xfda,     /* 50,51: addr-safe X-first (r8) */
                 l17_execm_xfsa, l17_execm_xfdsa,   /* 52,53: staged input (r10) */
                 l17_execm_xfso, l17_execm_xfdso,   /* 54,55: staged output (r11) */
-                l17_execm_xfax, l17_execm_xfdax,   /* 56,57: extract-store X-first (ice_r1) */
-                l17_execm_xlax, l17_execm_xldax,   /* 58,59: extract-store X-last (ice_r1) */
             };
             p->exec = all[L17_FORCE];
             g_desc = "forced variant (L17_FORCE)";
@@ -3247,6 +5014,359 @@ fft3d_plan *fft3d_create(int L, int batch)
 #  endif
         }
 #endif
+
+#ifdef _OPENMP
+        /* ============== round mt_r1: the multicore layer ==============
+         * Children first (per-thread plans, NUMA-local scratch), then the
+         * (mode, kernel, team, schedule, flags) choice by timing the REAL
+         * parallel path on this machine.  Every candidate raced within one
+         * batch regime is in that regime's bit class, so the wall-clock
+         * pick cannot change the output bits (the phase-1 discipline,
+         * carried over unchanged). */
+        if (l17mt_on) {
+            int maxt = omp_get_max_threads();
+            if (maxt > L17MT_MAXT) maxt = L17MT_MAXT;
+            {   /* dev-only timing decomposition -- read before the races so
+                 * the verbose race table reflects it (output goes wrong) */
+                const char *es = getenv("L17MT_SKIP");
+                if (es && *es) p->mtskip = atoi(es);
+            }
+            p->nkids = maxt;
+            p->kids = calloc((size_t)maxt, sizeof *p->kids);
+            cpu_set_t *masks = calloc((size_t)maxt, sizeof *masks);
+            int *havem = calloc((size_t)maxt, sizeof *havem);
+            int okk = p->kids && masks && havem;
+            if (okk) {
+                int fail = 0;
+#pragma omp parallel num_threads(maxt) reduction(||: fail)
+                {
+                    int t = omp_get_thread_num();
+                    fft3d_plan *k = calloc(1, sizeof *k);
+                    if (k) {
+                        k->L = 17;
+                        k->batch = 1;
+                        if (!l17_init_block(k, p->astab)) {
+                            free(k);
+                            k = NULL;
+                        }
+                    }
+                    if (!k) fail = 1;
+                    p->kids[t] = k;
+                    /* capture this OMP thread's binding so the pool worker
+                     * of the same index runs on exactly the same core(s) */
+                    if (sched_getaffinity(0, sizeof(cpu_set_t), &masks[t]) == 0)
+                        havem[t] = 1;
+                }
+                okk = !fail;
+            }
+            /* mt_r3: aggregate LLC reachable by this team (per-package L3 x
+             * distinct packages), read while the captured masks are alive --
+             * the input to the working-set gate below */
+            const size_t wg_aggl3 = okk ? l17wg_aggl3(masks, havem, maxt) : 0;
+
+            /* ============ round mt_r3: the working-set gate ============
+             * Above the aggregate-cache threshold the streaming engine is
+             * INSTALLED, not raced: this entry's create-time arena misranked
+             * the streaming cell in both prior rounds (r1 NT+pipelined
+             * arena-picked, scored 2.106 us/t; r2 plain X-first arena-picked,
+             * scored 2.858 -- while L17_winograd's engine held 1.220 on the
+             * same node in both rounds), and the mt_r2 VERDICT's L=17
+             * directive is exactly this: "the threshold set from the working
+             * set rather than from an arena".  The gate is deterministic --
+             * same machine, same batch => same path in every process -- so
+             * repeatability is by construction, not by racing discipline.
+             * Threshold: in+out > 1.5x aggregate L3 (node: 66 MB, so B=256's
+             * 40 MB working set stays on the dense X-first path that WON that
+             * cell; wallaby: 90 MB, same split), floored at 96 MB in case
+             * sysconf/sysfs will not answer.  dyn is gone here: dyn != 0 lost
+             * in every scored process that picked it, panel-wide (VERDICT
+             * mt_r2 section 6).
+             *
+             * ============ round mt_r4: the dispatch, not the engine ========
+             * mt_r3 shipped this engine on the spin pool and scored 2.911
+             * us/t against L17_winograd's 1.219 running the SAME arithmetic
+             * under an OMP region -- 2.39x apart, stable in all three
+             * processes (mt_r3 VERDICT 4.4, "the round's most actionable
+             * single gap").  My process's own telemetry convicts the process
+             * picture, not the kernel: clk512 read 2.29 GHz (the part's base)
+             * against winograd's 2.89, and sbw rd/wr/cp read 14-26% low, same
+             * node, same hour.  So at a gated cell the engine now runs from
+             * an OMP parallel region (l17mt_omp_run, bit-identical work
+             * assignment) and the spin pool is NEVER CREATED -- no pinned
+             * spinner shares a core with a libgomp thread anywhere in the
+             * process (L17_rader mt_r3: "31 extra threads have no business
+             * next to the OMP team"; it gained 1.71x on this exact move).
+             * The clk512/256 probes at the end of create() then read the
+             * no-pool side of the A/B the VERDICT asked for; r3's description
+             * strings are the pool side. */
+            int wgon = 0;
+            if (okk && batch >= 64) {
+                const size_t wg_ws = (size_t)batch * (size_t)(4913 * 16 * 2);
+                size_t wg_thr = wg_aggl3 + wg_aggl3 / 2;
+                if (wg_thr < ((size_t)96 << 20)) wg_thr = (size_t)96 << 20;
+                wgon = wg_ws > wg_thr;
+                {   /* dev-only override for wallaby A/Bs; harness never sets it */
+                    const char *ew = getenv("L17MT_WG");
+                    if (ew && *ew) wgon = atoi(ew) != 0;
+                }
+                if (wgon && !l17wg_setup(p, maxt)) wgon = 0;
+                if (wgon) {
+                    p->mode = 1;
+                    p->nthr = maxt;
+                    p->dynb = 0;
+                    p->pf = p->pw = p->pt = 0;
+                    p->wgomp = 1; /* mt_r4: OMP-region dispatch, no pool */
+                    {   /* dev-only A/B (L17MT_WGDISP=pool re-creates the r3
+                         * shipped shape); the harness never sets it */
+                        const char *ed = getenv("L17MT_WGDISP");
+                        if (ed && *ed) p->wgomp = strcmp(ed, "pool") != 0;
+                    }
+                    p->wgi4 = 1; /* split-free pass 1: the node's 2-load-port
+                                  * CLX pays double fill resources for cold
+                                  * line-splitting loads (L17_rader's "dy" was
+                                  * node-picked at batch); wallaby measures i4
+                                  * ~1.5% behind h4 and cannot price the cold
+                                  * case -- see the strategy record */
+                    {
+                        const char *ei = getenv("L17MT_WGI4");
+                        if (ei && *ei) p->wgi4 = atoi(ei) != 0;
+                    }
+                    for (int t = 0; t < p->nkids; ++t)
+                        if (p->kids[t]) {
+                            p->kids[t]->exec = l17_execm_wgh4;
+                            p->kids[t]->pf = 0;
+                            p->kids[t]->pw = 0;
+                            p->kids[t]->pt = 0;
+                            p->kids[t]->wgi4 = p->wgi4;
+                        }
+                    static char g_desc_wg[380];
+                    snprintf(g_desc_wg, sizeof g_desc_wg,
+                             "17-pt rotating-pass fused engine (adopted from "
+                             "L17_winograd, %s), mt[wg nt=%d static disp=%s "
+                             "ws=%zuMB aggl3=%zuMB]",
+                             p->wgi4 ? "i4" : "h4", p->nthr,
+                             p->wgomp ? "omp" : "pool",
+                             wg_ws >> 20, wg_aggl3 >> 20);
+                    g_desc = g_desc_wg;
+                }
+            }
+
+            /* The spin pool exists for the cells that need an execute-time
+             * team cheaper than a fork/join (B=1's 5-us transforms, the
+             * mode-1/2 races below).  At a gated streaming cell the engine
+             * dispatches from an OMP region instead, and the pool must not
+             * exist at all (round mt_r4 -- see the gate comment above). */
+            if (okk && !(wgon && p->wgomp)) {
+                p->poolv = l17mt_pool_new(maxt, masks, havem);
+                okk = p->poolv != NULL;
+                if (!okk && wgon) {
+                    /* wg pool-dispatch A/B requested but the pool could not
+                     * be built: fall back to the shipped omp dispatch */
+                    p->wgomp = 1;
+                    okk = 1;
+                }
+            }
+            free(masks);
+            free(havem);
+            masks = NULL;
+            havem = NULL;
+            if (okk && !wgon && batch < 64) {
+                /* intra-volume t1: batch padded volumes, first-touched by the
+                 * full-team plane->thread map for the race; re-homed with the
+                 * PICKED team's map after the mode race below (mt_r2) */
+                l17mt_t1g_map(p, batch, maxt);
+            }
+
+            if (!wgon && okk && batch >= 64 &&
+                l17_tune_alloc_mt(p, batch < 1024 ? batch : 1024, maxt)) {
+                const int nv = batch < 1024 ? batch : 1024;
+                /* stage A: kernel race inside bit class D under the full
+                 * team, on the owner-touched arena (see l17_tune_alloc_mt),
+                 * under STATIC scheduling.  r1 raced under dyn=2 because the
+                 * serial-touch arena starved the remote socket and dynamic
+                 * hid that; with owner-local pages there is no imbalance to
+                 * hide, static is what the r1 node picked at every batched
+                 * cell panel-wide, and the ranking should be taken in the
+                 * schedule that will actually run.  dyn stays in stage B. */
+                p->mode = 1;
+                p->nthr = maxt;
+                p->dynb = 0;
+                int mbest = sel[0];
+                double bt = 1e30;
+                for (int s = 0; s < nsel; ++s) {
+                    int v = sel[s];
+                    l17mt_set_kids(p, cand[v], 0, 0, 0);
+                    double tt = l17mt_time_cfg(p, nv);
+                    if (l17_verbose())
+                        fprintf(stderr, "[L17_matrixsimd mtA nt=%d nv=%d] %-72s %8.3f us/t\n",
+                                maxt, nv, tags[v], tt * 1e6);
+                    if (tt < bt) { bt = tt; mbest = v; }
+                }
+                l17mt_set_kids(p, cand[mbest], 0, 0, 0);
+                bestv = mbest;
+                g_desc = tags[mbest];
+                /* stage B: team size x schedule on the winner.  Fewer threads
+                 * can win when the caller's serially-first-touched buffers
+                 * leave the remote socket bandwidth-starved; dynamic blocks
+                 * rebalance that at the cost of one atomic per grab. */
+                {
+                    const int ntc[4] = {maxt, (3 * maxt) / 4, maxt / 2, maxt / 4};
+                    const int dyc[4] = {0, 1, 2, 4};
+                    int bnt = maxt, bdy = 2;
+                    bt = 1e30;
+                    for (int a = 0; a < 4; ++a) {
+                        int dup = ntc[a] < 1;
+                        for (int a2 = 0; a2 < a; ++a2)
+                            if (ntc[a2] == ntc[a]) dup = 1;
+                        if (dup) continue;
+                        for (int d = 0; d < 4; ++d) {
+                            p->nthr = ntc[a];
+                            p->dynb = dyc[d];
+                            double tt = l17mt_time_cfg(p, nv);
+                            if (l17_verbose())
+                                fprintf(stderr, "[L17_matrixsimd mtB] nt=%d dyn=%d  %8.3f us/t\n",
+                                        ntc[a], dyc[d], tt * 1e6);
+                            if (tt < bt) { bt = tt; bnt = ntc[a]; bdy = dyc[d]; }
+                        }
+                    }
+                    p->nthr = bnt;
+                    p->dynb = bdy;
+                }
+                /* stage C: (pf,pw,pt) jointly on the final configuration --
+                 * same grid as the phase-1 stage 2, timed multithreaded */
+                {
+                    const int pipew = (mbest >= 24 && mbest <= 27) ||
+                                      mbest == 30 || mbest == 31 || mbest == 35;
+                    const int hpf = !pipew && mbest != 46 && mbest != 47 &&
+                                    mbest != 48 && mbest != 49;
+                    const int hpw = mbest == 9 || mbest == 11 || mbest == 21 ||
+                                    mbest == 23 || mbest == 28 || mbest == 29 ||
+                                    mbest == 34 || mbest == 35 || mbest == 37 ||
+                                    (mbest >= 44 && mbest <= 49);
+                    const int hpt = mbest == 34 || mbest == 37 ||
+                                    mbest == 44 || mbest == 45;
+                    int bpf = 0, bpw = 0, bpt = 0;
+                    if (hpf || hpw || hpt) {
+                        bt = 1e30;
+                        for (int fp = 0; fp <= hpf; ++fp)
+                            for (int fw = 0; fw <= hpw; ++fw)
+                                for (int ft = 0; ft <= hpt; ++ft) {
+                                    l17mt_set_kids(p, cand[mbest], fp, fw, ft);
+                                    double tt = l17mt_time_cfg(p, nv);
+                                    if (l17_verbose())
+                                        fprintf(stderr, "[L17_matrixsimd mtC] pf=%d pw=%d pt=%d  %8.3f us/t\n",
+                                                fp, fw, ft, tt * 1e6);
+                                    if (tt < bt) { bt = tt; bpf = fp; bpw = fw; bpt = ft; }
+                                }
+                    }
+                    l17mt_set_kids(p, cand[mbest], bpf, bpw, bpt);
+                    p->pf = bpf;
+                    p->pw = bpw;
+                    p->pt = bpt;
+                }
+                static char g_desc_mtv[380];
+                snprintf(g_desc_mtv, sizeof g_desc_mtv,
+                         "%s, mt[vol nt=%d dyn=%d pf=%d pw=%d pt=%d ar=ot]",
+                         g_desc, p->nthr, p->dynb, p->pf, p->pw, p->pt);
+                g_desc = g_desc_mtv;
+            }
+
+            if (okk && batch < 64 && l17_tune_alloc(p, batch)) {
+                /* small batch: single-thread vs volume-parallel vs the
+                 * intra-volume decomposition, all bit class B */
+                l17mt_set_kids(p, p->exec, 0, 0, p->pt);
+                int bmode = 0, bnt = 1;
+                p->mode = 0;
+                double bt = l17mt_time_cfg(p, batch);
+                if (l17_verbose())
+                    fprintf(stderr, "[L17_matrixsimd mt] single       %8.3f us/t\n", bt * 1e6);
+                if (batch > 1) {
+                    int nt = batch < maxt ? batch : maxt;
+                    p->mode = 1;
+                    p->nthr = nt;
+                    p->dynb = 0;
+                    double tt = l17mt_time_cfg(p, batch);
+                    if (l17_verbose())
+                        fprintf(stderr, "[L17_matrixsimd mt] vol nt=%-3d   %8.3f us/t\n", nt, tt * 1e6);
+                    if (tt < bt) { bt = tt; bmode = 1; bnt = nt; }
+                }
+                if (p->t1g) {
+                    static const int ntl[9] = {1, 2, 4, 8, 12, 16, 17, 24, 32};
+                    p->mode = 2;
+                    p->nxr = 0; /* = nthr */
+                    p->xpf = 0;
+                    for (int a = 0; a < 9 && ntl[a] <= maxt; ++a) {
+                        p->nthr = ntl[a];
+                        double tt = l17mt_time_cfg(p, batch);
+                        if (l17_verbose())
+                            fprintf(stderr, "[L17_matrixsimd mt] intra nt=%-3d %8.3f us/t\n",
+                                    ntl[a], tt * 1e6);
+                        if (tt < bt) { bt = tt; bmode = 2; bnt = ntl[a]; }
+                    }
+                }
+                int bnx = 0, bxpf = 0;
+                if (bmode == 2) {
+                    /* mt_r2: re-home t1g with the picked team's map BEFORE
+                     * the nxr/xpf race, so that race (and every execute
+                     * after it) runs on pages homed where the team is */
+                    l17mt_t1g_map(p, batch, bnt);
+                    if (!p->t1g) bmode = 0;
+                }
+                if (bmode == 2) {
+                    /* the two phases saturate at different team sizes (the
+                     * plane phase scales to ~17 threads, the X phase stops
+                     * near 4 -- see strategies), so race the X-phase team,
+                     * and the cross-core prefetch shape (mt_r2: 0 = none,
+                     * 1 = 2-chunks-ahead, 2 = bulk at barrier exit) on the
+                     * winning nthr */
+                    static const int nxl[5] = {2, 4, 8, 12, 0};
+                    p->mode = 2;
+                    p->nthr = bnt;
+                    for (int a = 0; a < 5; ++a) {
+                        int nx = nxl[a] ? nxl[a] : bnt;
+                        if (nx > bnt || (nx == bnt && nxl[a])) continue;
+                        for (int fx = 0; fx <= 2; ++fx) {
+                            p->nxr = nx;
+                            p->xpf = fx;
+                            double tt = l17mt_time_cfg(p, batch);
+                            if (l17_verbose())
+                                fprintf(stderr, "[L17_matrixsimd mt] intra nt=%d nxr=%-3d xpf=%d %8.3f us/t\n",
+                                        bnt, nx, fx, tt * 1e6);
+                            if (tt < bt) { bt = tt; bnx = nx; bxpf = fx; }
+                        }
+                    }
+                }
+                p->mode = bmode;
+                p->nthr = bnt;
+                p->nxr = bnx;
+                p->xpf = bxpf;
+                p->dynb = 0;
+                static char g_desc_mts[380];
+                snprintf(g_desc_mts, sizeof g_desc_mts, "%s, mt[%s nt=%d nxr=%d xpf=%d]",
+                         g_desc,
+                         bmode == 0 ? "single" : bmode == 1 ? "vol" : "intra",
+                         bnt, bnx ? bnx : bnt, bxpf);
+                g_desc = g_desc_mts;
+            }
+
+            /* dev-only overrides (never set by the harness), for bit-class
+             * verification: L17MT_MODE / L17MT_NT pin mode and team size. */
+            {
+                const char *em = getenv("L17MT_MODE");
+                const char *en = getenv("L17MT_NT");
+                const char *es = getenv("L17MT_SKIP");
+                const char *ex = getenv("L17MT_NXR");
+                if (em && *em) p->mode = atoi(em);
+                if (en && *en) p->nthr = atoi(en);
+                if (es && *es) p->mtskip = atoi(es);
+                if (ex && *ex) p->nxr = atoi(ex);
+                if (p->mode != 0 && p->nthr < 1) p->nthr = 1;
+                if (p->mode == 2 && !p->t1g) p->mode = 0;
+                if (p->mode != 0 && (!okk || !p->kids ||
+                                     (!p->poolv && !p->wgomp))) p->mode = 0;
+            }
+        }
+#endif /* _OPENMP */
     }
     if (batch >= 64) {
         /* ROUND panel_r10: the streaming bandwidth decomposition (see the
@@ -3278,7 +5398,7 @@ fft3d_plan *fft3d_create(int L, int batch)
                 }
                 us[m] = bestp * 1e6 / nvp;
             }
-            static char g_desc_sbw[340];
+            static char g_desc_sbw[420];
             snprintf(g_desc_sbw, sizeof g_desc_sbw,
                      "%s, sbw[rd/wr/cp/s17]=%.2f/%.2f/%.2f/%.2f",
                      g_desc, us[0], us[1], us[2], us[3]);
@@ -3322,7 +5442,7 @@ fft3d_plan *fft3d_create(int L, int batch)
                 }
                 us[m] = bestp * 1e6 / inner;
             }
-            static char g_desc_b1[280];
+            static char g_desc_b1[460];
             snprintf(g_desc_b1, sizeof g_desc_b1,
                      "%s, b1dec[yz/kyz/x/kx]=%.2f/%.2f/%.2f/%.2f",
                      g_desc, us[0], us[1], us[2], us[3]);
@@ -3334,12 +5454,24 @@ fft3d_plan *fft3d_create(int L, int batch)
        * carried back on the leaderboard via the description string.  r6 adds
        * d256 = the DENSE (2 FMA/cycle) 256-bit clock, same process, to close
        * the r5 VERDICT's clk256 question: sparse-256 3.89 vs dense-256 2.89
-       * in one string would confirm density as the licence discriminator. */
+       * in one string would confirm density as the licence discriminator.
+       * mt_r2 adds anb = /proc/sys/kernel/numa_balancing on the scoring
+       * node (-1 if unreadable): the mt_r1 VERDICT's leading explanation
+       * for the >=500 MiB band's page-placement behaviour is AutoNUMA
+       * migration, named as a hypothesis needing exactly this check. */
         double c512 = l17_clk512(), c256 = l17_clk256(), c256d = l17_clk256d();
-        static char g_desc_clk[400];
+        int anb = -1;
+        {
+            FILE *f = fopen("/proc/sys/kernel/numa_balancing", "r");
+            if (f) {
+                if (fscanf(f, "%d", &anb) != 1) anb = -1;
+                fclose(f);
+            }
+        }
+        static char g_desc_clk[520];
         snprintf(g_desc_clk, sizeof g_desc_clk,
-                 "%s, clk512/256=%.2f/%.2f GHz, d256=%.2f",
-                 g_desc, c512 * 1e-9, c256 * 1e-9, c256d * 1e-9);
+                 "%s, clk512/256=%.2f/%.2f GHz, d256=%.2f, anb=%d",
+                 g_desc, c512 * 1e-9, c256 * 1e-9, c256d * 1e-9, anb);
         g_desc = g_desc_clk;
     }
     return p;
@@ -3349,6 +5481,22 @@ void fft3d_destroy(fft3d_plan *p)
 {
     if (!p) return;
     l17_tune_free(p); /* normally already freed at the end of create() */
+#ifdef _OPENMP
+    l17mt_pool_free(p->poolv);
+#endif
+    if (p->kids) {
+        for (int t = 0; t < p->nkids; ++t)
+            if (p->kids[t]) {
+                free(p->kids[t]->wgbuf_raw); /* mt_r3 streaming scratch */
+                free(p->kids[t]->block);
+                free(p->kids[t]);
+            }
+        free(p->kids);
+    }
+    free(p->wgt_raw); /* mt_r3 shared wg tables (master-owned) */
+#ifdef _OPENMP
+    if (p->t1g_raw) munmap(p->t1g_raw, p->t1g_sz);
+#endif
     free(p->block);
     free(p);
 }
@@ -3372,7 +5520,7 @@ void fft3d_execute(fft3d_plan *plan, const double _Complex *in, double _Complex 
                     (long)(((uintptr_t)out - (uintptr_t)in) & 4095u));
         }
     }
-    plan->exec(plan, in, out);
+    l17mt_dispatch(plan, in, out);
 }
 
 #endif /* L17_TEMPLATE_PASS */

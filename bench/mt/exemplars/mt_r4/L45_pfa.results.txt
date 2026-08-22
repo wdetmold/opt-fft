@@ -1,0 +1,4 @@
+   L45_pfa                       55.838 us    55.838 us   134.44       5.3%    0.208s  ok 4.0e-16       1.00x
+   L45_pfa                       14.701 us   235.224 us   510.61       2.1%    0.585s  ok 4.0e-16       1.00x
+   L45_pfa                       26.595 us  6808.420 us   282.25       2.7%    3.900s  ok 4.0e-16       1.00x
+   L45_pfa                  GT-PFA 9x5 pool T=32; pick=pw4-mtf-blk (B=1 nv=1) mtf-rr=60.1 mtf-blk=57.7 mtf-bpf=57.9 mtf-t23=57.6 ip-pf0=323.1 ip-pf3=323.1 mtf-blk=75.5 ip-pf0=371.6 gov{nb=1,c=7008,i=32/0,o=32/0}
