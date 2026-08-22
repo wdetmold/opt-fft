@@ -119,6 +119,54 @@
  *     post-migration fast wide samples can become the scored number.
  *   Knobs: L8_GOV_FLOOR=<pct> far-share floor (0 = pure rate-following),
  *   L8_GOV_MW=0 disables the warmup passes, L8_GOV=0 the whole governor.
+ *
+ * ROUND mt_r4 -- B=32768 still lost (0.1723 vs fftw 0.1595).  The mt_r3
+ * VERDICT closed the placement/team-width question for good: fr=0 in 7/7
+ * instruments panel-wide, and four independent on-buffer races (mine
+ * included: wide 0.2038 vs safe 0.1719) all priced the wide team 19-35%
+ * slower.  "Stop building placement instruments."  What DID move bandwidth
+ * 2-3x this round was S4.3's L2-staged construction (L36_mixedradix 150.9,
+ * L36_pencilfused 137.5 GB/s), whose records both finger DDR4 read/write
+ * turnaround: their winning shapes stage a volume in L2 scratch so DRAM
+ * sees long pure-read and pure-write runs instead of a fine interleave.
+ * At L=8 the per-volume interleave is 8 KiB read / 8 KiB write from every
+ * thread -- the finest-grained stream mix on the panel -- and the nt16
+ * ceiling has sat at 94 GB/s for three rounds while fftw's 32-thread plan
+ * reaches 103 on the same socket-0 pages.  So this round ports the tile:
+ *
+ *   * VARIANTS 18 "grp-nt+pfs" / 19 "grpSy-nt+pfs": GROUPED TWO-PHASE
+ *     streaming.  The thread's chunk is processed in groups of G volumes
+ *     (default 32, env L8_GRP_G, arena sized for 64).  Phase A runs the
+ *     seq3AA deinterleave+y-DFT for all G volumes into a per-thread
+ *     G x 8 KiB scratch (AA-pinned sigma=48 vs `in`, L2-resident: 256 KiB
+ *     at G=32 vs 1 MiB node L2) -- DRAM traffic is G x 8 KiB of pure reads.
+ *     Phase B runs B1+B2 per volume out of that scratch (B1 order from the
+ *     same forbidden-successor table keyed to (scr2 - gscr), B2 natural
+ *     order NT to out with the r7 scr2 pin) -- DRAM traffic is G x 8 KiB of
+ *     pure NT writes.  Same arithmetic, same 384+384 L1/L2 loads/stores as
+ *     seq3AA, output bit-identical.  This also collapses the S4.5
+ *     volume-boundary alias exposure (in-loads vs the NT store tail) from
+ *     every 8 KiB to every 256 KiB: the store buffer during phase A holds
+ *     only AA-pinned scratch stores.
+ *   * Variant 19 adds a per-group PHASE BARRIER (central sense-reversing,
+ *     padded, reset per dispatch; ~0.5-1 us at T=16 against ~40+40 us
+ *     phases): all team threads run phase A together, so each socket's
+ *     memory controller sees globally pure read bursts alternating with
+ *     pure NT write bursts -- the read/write turnaround amortisation the
+ *     L=36 records point at, made explicit.  Equal cuts only; empty-chunk
+ *     threads still attend every barrier (rounds = ceil(ceil(B/T)/G) is
+ *     computed identically by all participants).
+ *   * STREAMING CREATE-GRID reworked: {seq3AA-nt/16 (anchor, the 3/3 node
+ *     pick), fused-nt/16, seq3-nt/16, grp/16, grpSy/16, grp/32, grpSy/32};
+ *     plain veto and 24-team rows retired on three rounds of node evidence.
+ *   * GOVERNOR REBUILT (settled questions deleted): no more wide-team
+ *     cycling, weighted cuts, far-share floor, migration warmup, or fr
+ *     trajectory (one fr0 scan is kept for the record).  The cyclic no-lock
+ *     *reporting* design stays -- the VERDICT called it the right design --
+ *     but the calls now race what is actually open: 8-call blocks cycling
+ *     {create pick, grpSy/16, grp/16, grp/32} on the caller's real buffers,
+ *     every block long enough to yield one clean driver sample (inner <= 4),
+ *     min-of-min does the choosing, all four bests published in gov{}.
  */
 /* L8_fusedaxes -- forward complex-double 3D DFT of an 8x8x8 cube with all three
  * axes fused: one trip in from memory, one trip out, nothing but an L1
@@ -592,17 +640,67 @@ struct l8_lane {
                         placed at a 4 KiB-slack line offset chosen per (in,out) */
     double *aab2;    /* 12 KiB seq3AA arena: the seq3 scratch2, base chosen so
                         pass B2's contiguous loads never alias its out stores */
+    double *grp;     /* mt_r4: 516 KiB grouped-streaming arena, 64 volume
+                        slots of AA-layout phase-A output + 4 KiB base slack */
     /* AA per-(in,out) choices, filled by aa_setup on pointer change;
        deterministic in (in,out) so execute stays repeatable */
     const double *aa_in;
     const double *aa_out;
     double *aa_scr;
     double *aa_scr2;
+    double *aa_gscr;                 /* mt_r4: pinned grp base, sigma=48 vs in */
     const unsigned char *aa_perm;
     const unsigned char *aa_perm1;
     const unsigned char *aa_perm2;   /* r11: the depth-3 fusedAA2 row */
+    const unsigned char *aa_permg;   /* mt_r4: B1 row keyed to (scr2 - gscr) */
     void *raw;
 } __attribute__((aligned(128)));
+
+/* mt_r4: grouped-streaming geometry.  G volumes staged per phase; the arena
+ * always holds L8_GRP_MAX slots so L8_GRP_G can force any G in [4,64]. */
+#define L8_GRP_MAX 64
+#define L8_GRP_D   ((size_t)L8_GRP_MAX * 1024 + 512)  /* doubles, incl. slack */
+static int g_grpG = 32;
+
+/* mt_r4: central sense-reversing barrier for the phase-synchronised grouped
+ * variant.  Reset by the dispatcher before every job (safe: main only writes
+ * it while every worker has acked the previous epoch), so thread-local
+ * generation counters always start at 0 and the participant set may change
+ * between dispatches.  Padded to a line; ~0.5-1 us per episode at T=16. */
+#if defined(_OPENMP)
+struct l8_bar {
+    _Atomic int cnt;
+    _Atomic unsigned gen;
+    char pad[128 - sizeof(_Atomic int) - sizeof(_Atomic unsigned)];
+} __attribute__((aligned(128)));
+static inline void grp_bar_sync(struct l8_bar *b, int T, unsigned *lgen)
+{
+    const unsigned g = *lgen;
+    if (atomic_fetch_add_explicit(&b->cnt, 1, memory_order_acq_rel) == T - 1) {
+        atomic_store_explicit(&b->cnt, 0, memory_order_relaxed);
+        atomic_store_explicit(&b->gen, g + 1, memory_order_release);
+    } else {
+        while (atomic_load_explicit(&b->gen, memory_order_acquire) == g) {
+#if defined(__x86_64__) || defined(__i386__)
+            __builtin_ia32_pause();
+#else
+            sched_yield();
+#endif
+        }
+    }
+    *lgen = g + 1;
+}
+static inline void grp_bar_reset(struct l8_bar *b)
+{
+    atomic_store_explicit(&b->cnt, 0, memory_order_relaxed);
+    atomic_store_explicit(&b->gen, 0, memory_order_relaxed);
+}
+#else
+struct l8_bar { int cnt; };
+static inline void grp_bar_sync(struct l8_bar *b, int T, unsigned *lgen)
+{ (void)b; (void)T; (void)lgen; }
+static inline void grp_bar_reset(struct l8_bar *b) { (void)b; }
+#endif
 
 struct l8_pool;  /* pinned spin-wait worker pool, batched plans only */
 
@@ -650,6 +748,8 @@ struct fft3d_plan {
     struct l8_lane *lanes;   /* per-thread lanes, NULL for B=1 plans */
     struct l8_pool *pool;    /* NULL for B=1 plans or if creation failed */
     struct l8_gov gov;       /* streaming governor (mt_r2), zero when off */
+    struct l8_bar bar;       /* mt_r4: phase barrier for variant 19; reset
+                                by the dispatcher before every job */
 };
 
 /* description carries the plan-time pick and (r10) the tuner's own candidate
@@ -770,16 +870,19 @@ fft3d_plan *fft3d_create(int L, int batch);   /* defined per mode below */
  * are the first touch and the pages land on the owner's socket. */
 static int lane_init(struct l8_lane *ln)
 {
+    const size_t nd = 4 * 512 + 2 * 1536 + L8_GRP_D;
     void *raw = NULL;
-    if (posix_memalign(&raw, 64, (4 * 512 + 2 * 1536) * sizeof(double)) != 0 || !raw)
+    if (posix_memalign(&raw, 64, nd * sizeof(double)) != 0 || !raw)
         return -1;
-    memset(raw, 0, (4 * 512 + 2 * 1536) * sizeof(double));
+    memset(raw, 0, nd * sizeof(double));
     ln->raw  = raw;
     ln->scr  = (double *)raw;
     ln->aab  = (double *)raw + 4 * 512;
     ln->aab2 = (double *)raw + 4 * 512 + 1536;
+    ln->grp  = (double *)raw + 4 * 512 + 2 * 1536;
     ln->aa_scr  = ln->aab;               /* safe defaults until aa_setup runs */
     ln->aa_scr2 = ln->aab2;
+    ln->aa_gscr = ln->grp;
     ln->aa_in = ln->aa_out = NULL;
     return 0;
 }
@@ -960,6 +1063,14 @@ static void aa_setup(struct l8_lane *p, const double *in, double *out)
     p->aa_perm  = aa_perm_tab[(outl - s1l) & 7];
     p->aa_perm1 = aa_perm_tab[(s2l - s1l) & 7];
     p->aa_perm2 = aa_perm2_tab[(outl - s1l) & 7];
+    {   /* mt_r4 grouped arena: phase A stores/loads keep the AA sigma=48
+         * relation for every group slot (slot stride 8192 B == 0 mod 4096);
+         * B1's k1 order dodges its scr2 stores exactly as seq3AA's does. */
+        const size_t bgl = (uintptr_t)p->grp >> 6;
+        const size_t kg  = (48 + inl - bgl) & 63;
+        p->aa_gscr  = p->grp + kg * 8;
+        p->aa_permg = aa_perm_tab[(s2l - (bgl + kg)) & 7];
+    }
     p->aa_in  = in;
     p->aa_out = out;
 }
@@ -1076,6 +1187,79 @@ static void vol_saa_nt_s(const double *restrict in, const double *restrict nxt,
     }
 }
 
+/* ---- mt_r4 variants 18/19: grouped two-phase streaming (header note) ----
+ * One thread's chunk in groups of G volumes: phase A = seq3AA's AA phase A
+ * for all G volumes into the L2-resident grp arena (DRAM sees G x 8 KiB of
+ * pure reads; the store buffer holds only AA-pinned scratch stores, so the
+ * S4.5 in-vs-out volume-boundary alias is gone by construction); phase B =
+ * B1+B2 per volume from that arena, NT to out (DRAM sees G x 8 KiB of pure
+ * NT writes).  Arithmetic and output bit-identical to seq3AA.  bar != NULL
+ * (variant 19) phase-locks the whole team so each memory controller sees
+ * globally pure read/write bursts; `rounds` must then be the barrier count
+ * every participant computes identically (ceil(ceil(B/T)/G)) -- threads
+ * whose chunk runs dry keep attending.  Prefetch: next volume's 16 input
+ * lines per phase-A x-iteration; the next GROUP's first volume is prefetched
+ * across the LAST B-phase volume's k0 loop (its A-phase prefetch would not
+ * survive a whole B phase in L1). */
+static void grp_chunk(struct l8_lane *ln, const double *restrict ip,
+                      double *restrict op, long nvol, int G,
+                      struct l8_bar *bar, int T, long rounds)
+{
+    aa_setup(ln, ip, op);
+    double *const gs = ln->aa_gscr;
+    double *const s2 = ln->aa_scr2;
+    const unsigned char *const permg = ln->aa_permg;
+    unsigned lgen = 0;
+    if (!bar)
+        rounds = (nvol + G - 1) / G;
+    long done = 0;
+    for (long r = 0; r < rounds; ++r) {
+        long gn = nvol - done;
+        if (gn > (long)G) gn = G;
+        if (gn < 0) gn = 0;
+        const double *const gin = ip + (size_t)done * 1024;
+        /* next group's first input volume (clamped inside the mapping) */
+        const double *nip = ip + (size_t)(done + gn) * 1024;
+        if (done + gn >= nvol)
+            nip = ip + (size_t)(nvol > 0 ? nvol - 1 : 0) * 1024;
+        for (long v = 0; v < gn; ++v) {                    /* phase A */
+            const double *const iv = gin + (size_t)v * 1024;
+            double *const gv = gs + (size_t)v * 1024;
+            if (v + 1 < gn) {
+                const double *const nx = iv + 1024;
+                for (int x = 0; x < 8; ++x) {
+                    pf_lines_t0(nx + (size_t)x * 128, 16);
+                    PHASE_A_AA_ONE(iv, gv, x);
+                }
+            } else {
+                for (int x = 0; x < 8; ++x)
+                    PHASE_A_AA_ONE(iv, gv, x);
+            }
+        }
+        if (bar) grp_bar_sync(bar, T, &lgen);
+        for (long v = 0; v < gn; ++v) {                    /* phase B */
+            const double *const gv = gs + (size_t)v * 1024;
+            double *const ov = op + (size_t)(done + v) * 1024;
+            for (int ki = 0; ki < 8; ++ki)
+                PASS_B1_AA_ONE(gv, s2, permg[ki]);
+            if (v == gn - 1) {
+                for (int k0 = 0; k0 < 8; ++k0) {
+                    pf_lines_t0(nip + (size_t)k0 * 128, 16);
+                    PASS_B2_BODY(s2, ov, k0, NTST);
+                }
+            } else {
+                for (int k0 = 0; k0 < 8; ++k0)
+                    PASS_B2_BODY(s2, ov, k0, NTST);
+            }
+        }
+        if (bar) grp_bar_sync(bar, T, &lgen);
+        done += gn;
+    }
+#if defined(__AVX512F__)
+    _mm_sfence();   /* order the WC-buffered NT tail before the ack/return */
+#endif
+}
+
 #define DEF_VOL_F(NAME, SIOFF, STOREOP, HA, HB)                                \
 static void NAME(const double *restrict in, const double *restrict nxt,       \
                  double *restrict nxo, double *restrict out,                   \
@@ -1112,20 +1296,22 @@ DEF_VOL_F(vol_p_si_s, 520, ST,   HFA_S,  HFB_S)      /* 14 fusedSI plain sprd  *
                                                      /*    with the depth-3 row*/
                                                      /* 16 fusedAA2+pfs        */
                                                      /* 17 seq3AA-nt+pfs (r2)  */
-#define NVAR 18
+                                                     /* 18 grp-nt+pfs   (r4)   */
+                                                     /* 19 grpSy-nt+pfs (r4)   */
+#define NVAR 20
 static const char *vname[NVAR] = {
     "fused",      "fused+pfs",  "fused+pfs+pfw", "fused-nt+pfs", "fused-nt+pf_t1",
     "seq3",       "seq3+pfs",   "seq3+pfs+pfw",  "seq3-nt+pfs",  "seq3-nt+pf_t0",
     "fusedAA",    "fusedAA+pfs", "seq3AA",       "fusedSI",      "fusedSI+pfs",
-    "fusedAA2",   "fusedAA2+pfs", "seq3AA-nt+pfs"
+    "fusedAA2",   "fusedAA2+pfs", "seq3AA-nt+pfs", "grp-nt+pfs", "grpSy-nt+pfs"
 };
 /* the plain twin of each NT variant, for the alignment fallback in execute */
-static const unsigned char plain_twin[NVAR] = { 0,1,2,1,0, 5,6,7,6,5, 10,11,12, 13,13, 15,15, 12 };
+static const unsigned char plain_twin[NVAR] = { 0,1,2,1,0, 5,6,7,6,5, 10,11,12, 13,13, 15,15, 12, 12,12 };
 /* NT-store variants: the chunk runner issues sfence after these (mt_r2 --
  * NT stores are weakly ordered; the pool's ack release-store does not flush
  * WC buffers, adopted from L8_radix8/L8_batchsimd mt_r1) */
 static const unsigned char v_is_nt[NVAR] __attribute__((unused)) =
-    { 0,0,0,1,1, 0,0,0,1,1, 0,0,0, 0,0, 0,0, 1 };
+    { 0,0,0,1,1, 0,0,0,1,1, 0,0,0, 0,0, 0,0, 1, 1,1 };
 /* variants that touch nxo (write-intent prefetch) */
 
 /* One batch pass with variant v.  Prefetch target: L8_PF_DIST volumes ahead,
@@ -1159,6 +1345,9 @@ static void run_variant(struct l8_lane *p, int v, const double *restrict ip,
     case 15: for (long b = 0; b < B; ++b, ip += 1024, op += 1024) vol_aa(ip, NULL, NULL, op, p->aa_scr, p->aa_perm2);  break;
     case 16: for (long b = 0; b < B; ++b, ip += 1024, op += 1024) vol_aa_s(ip, NXT, NXTO, op, p->aa_scr, p->aa_perm2); break;
     case 17: for (long b = 0; b < B; ++b, ip += 1024, op += 1024) vol_saa_nt_s(ip, NXT, NXTO, op, p->aa_scr, p->aa_scr2, p->aa_perm1); break;
+    case 18: case 19:   /* serial fallback for the grouped variants: nosync
+                           (a one-thread barrier is a no-op anyway) */
+             grp_chunk(p, ip, op, B, g_grpG, NULL, 1, 0); break;
     default: for (long b = 0; b < B; ++b, ip += 1024, op += 1024) vol_saa(ip, op, p->aa_scr, p->aa_scr2, p->aa_perm1); break;
     }
 #undef NXT
@@ -1195,19 +1384,20 @@ static int lanes_alloc(fft3d_plan *p, int T)
     return 0;
 }
 
+static inline void l8_run_chunk(fft3d_plan *p, int v, const double *ip,
+                                double *op, long B, int T, int t,
+                                const long *cuts);
+
 static void run_batch(fft3d_plan *p, int v, const double *restrict ip,
                       double *restrict op, long B, int T)
 {
     if (T > p->nlanes) T = p->nlanes;
+    grp_bar_reset(&p->bar);
     /* each lane is owned by exactly one thread; run_variant does that lane's
      * aa_setup itself with its chunk-base pointers (cached after call one) */
     #pragma omp parallel num_threads(T)
     {
-        const int t = omp_get_thread_num();
-        const long lo = B * (long)t / T, hi = B * (long)(t + 1) / T;
-        if (hi > lo)
-            run_variant(&p->lanes[t], v, ip + (size_t)lo * 1024,
-                        op + (size_t)lo * 1024, hi - lo);
+        l8_run_chunk(p, v, ip, op, B, T, omp_get_thread_num(), NULL);
     }
 }
 /* ---- pinned spin-wait pool (mt_r1).  One omp parallel region + implicit

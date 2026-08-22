@@ -379,15 +379,34 @@ PROMPT
 
     if [ "$DRYRUN" = 1 ]; then log "  [dry-run] would launch implementer $name (L=$L)"; continue; fi
 
-    ( timeout "$AGENT_TIMEOUT" "$CLAUDE" -p "$(cat "$pdir/$name.txt")" \
+    ( t0=$(date +%s)
+      timeout "$AGENT_TIMEOUT" "$CLAUDE" -p "$(cat "$pdir/$name.txt")" \
         --model "$IMPL_MODEL" --allowedTools Bash Read Write Edit Glob Grep \
         --permission-mode acceptEdits > "$adir/$name.log" 2>&1
-      printf '%s exit=%s\n' "$name" "$?" >> "$adir/exits.txt" ) &
+      rc=$?
+      # An agent that dies within seconds did not fail at its task -- its PROCESS failed to
+      # start (the overcommit storm looked exactly like this: 19 instant exit-134s). Record
+      # the distinction so the storm detector below can see it.
+      if [ $rc -ne 0 ] && [ $(( $(date +%s) - t0 )) -lt 20 ]; then
+        printf '%s exit=%s INSTANT\n' "$name" "$rc" >> "$adir/exits.txt"
+      else
+        printf '%s exit=%s\n' "$name" "$rc" >> "$adir/exits.txt"
+      fi ) &
 
     running=$((running + 1))
     if [ "$running" -ge "$JOBS" ]; then wait -n 2>/dev/null || wait; running=$((running - 1)); fi
     sleep 3      # stagger the launches
   done
+    # Storm detector: if the first few workers all died instantly, every later one will
+    # too (environment problem, not a task problem). Stop launching, say so loudly, and
+    # leave the round un-run rather than burning it.
+    if [ "$(grep -c ' INSTANT$' "$adir/exits.txt" 2>/dev/null || echo 0)" -ge 4 ]; then
+      log "WORKER CRASH STORM: 4+ agents died within seconds of launch -- aborting the"
+      log "  development phase. Check memory/overcommit on the worker host and the CLAUDE"
+      log "  wrapper. This round will retry on the next cron tick."
+      wait
+      return 1
+    fi
   wait
   log "implementers finished: $(grep -c . "$adir/exits.txt" 2>/dev/null || echo 0) reported"
   grep -v 'exit=0' "$adir/exits.txt" 2>/dev/null | sed 's/^/    nonzero: /' | tee -a "$LOGDIR/rounds.log"
