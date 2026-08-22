@@ -61,3 +61,6 @@ bench/geom/results/**/context.md
 # per-round snapshots of the sweep/probe scripts handed to slurm
 bench/geom/.sweep_snapshot_*.sh
 bench/geom/.probe_snapshot_*.sh
+
+# wave-2 case list and per-series config are generated, not authored
+bench/geom/results/.rounds_config

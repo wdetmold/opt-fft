@@ -46,7 +46,11 @@ make list
 # The batched points are chosen per L to sit (a) inside L2 and (b) well past L3, since
 # small-transform performance is decided by where the working set lives.
 #   bytes per volume = 16 * L^3
-if [ "$QUICK" = 1 ]; then
+if [ -f cases.txt ]; then
+  # A geometry wave can extend the sweep by dropping a cases.txt here, rather than by
+  # editing this script (which a running job may be executing).
+  CASES=$(grep -vE '^\s*(#|$)' cases.txt | tr '\n' ' ')
+elif [ "$QUICK" = 1 ]; then
   CASES="6:1 6:512 8:1 8:512 17:1 17:64 36:1 36:8"
 else
   CASES="6:1 6:64 6:4096 6:32768 8:1 8:64 8:2048 8:16384 \
@@ -62,6 +66,14 @@ for case in $CASES; do
   IN=$OUT/in_L${L}_B${B}.bin
   python3 gen_input.py --L "$L" --batch "$B" --seed $((SEED + L * 1000 + B)) --out "$IN" >/dev/null
   for backend in $BACKENDS; do
+    # The dense-matrix floor is O(L^4) per volume per axis, so on a big case it costs more
+    # wall clock than every real backend combined (2.8 s per call at 36^3 x 256). It is a
+    # sanity floor, not a contender: skip it once the case is large.
+    if [ "$backend" = "baseline_matrix" ] && [ $((L * L * L * B)) -gt 2000000 ]; then
+      echo "   skipping baseline_matrix at L=$L B=$B (too expensive to be informative)" \
+        >> "$OUT/timing.log"
+      continue
+    fi
     for run in $(seq 1 "$RUNS"); do
       # A panel entry that hangs or crashes must not take the round down with it.
       timeout 600 "$BINDIR/$backend" --L "$L" --batch "$B" --in "$IN" \

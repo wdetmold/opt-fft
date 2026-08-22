@@ -54,6 +54,16 @@ done
 # different jobs, so they get different models.
 IMPL_MODEL=${FFT_IMPL_MODEL:-claude-fable-5}
 MONITOR_MODEL=${FFT_MONITOR_MODEL:-claude-opus-5}
+
+# A geometry wave can change where and how long rounds are benchmarked without editing this
+# script, by writing KEY=VALUE lines here (e.g. FFT_PARTITION=prod, FFT_TIME=150). Needed
+# because a wider sweep does not fit the devel partition's one-hour cap.
+if [ -f results/.rounds_config ]; then
+  # shellcheck disable=SC1091
+  . results/.rounds_config
+fi
+PARTITION=${FFT_PARTITION:-devel}
+TIMELIMIT=${FFT_TIME:-55}
 JOBS=${FFT_JOBS:-6}                 # implementer agents in flight at once
 AGENT_TIMEOUT=${FFT_AGENT_TIMEOUT:-5400}    # 90 min per implementer
 TIMING_TIMEOUT=${FFT_TIMING_TIMEOUT:-7200}  # 2 h for the benchmark job to produce a leaderboard
@@ -298,11 +308,11 @@ run_timing() {
   if [ "$DRYRUN" = 1 ]; then log "  [dry-run] would submit timing round $round (seed $seed)"; return 1; fi
   log "submitting timing round $round (seed $seed) to the exclusive benchmark node"
   rm -f "$GEOM/results/$round/leaderboard.txt"
-  if ! ./submit.sh --round "$round" --seed "$seed" --partition devel --time 55 \
+  if ! ./submit.sh --round "$round" --seed "$seed" --partition "$PARTITION" --time "$TIMELIMIT" \
         --samples 12 --runs 3 >> "$LOGDIR/rounds.log" 2>&1; then
     log "sbatch submission failed; retrying once in 120s"
     sleep 120
-    ./submit.sh --round "$round" --seed "$seed" --partition devel --time 55 \
+    ./submit.sh --round "$round" --seed "$seed" --partition "$PARTITION" --time "$TIMELIMIT" \
         --samples 12 --runs 3 >> "$LOGDIR/rounds.log" 2>&1 || {
       log "submission failed twice -- skipping the timing pass for $round"; return 1; }
   fi
@@ -489,6 +499,15 @@ done
 
 if [ "$NEXT" -gt "$LAST" ]; then
   log "=== series complete: rounds through panel_r$LAST are done ==="
+  # A hook lets the next phase of the project arm itself: expand_geometries.sh installs
+  # itself here so that widening the geometry pool happens the moment this series ends,
+  # without anyone having to be watching.
+  if [ -x "$GEOM/after_series.sh" ]; then
+    log "running the series-completion hook: after_series.sh"
+    "$GEOM/after_series.sh" >> "$LOGDIR/rounds.log" 2>&1 \
+      && log "hook finished; cron will pick up whatever it armed" \
+      || log "hook FAILED -- see the log above"
+  fi
 else
   log "=== halted before panel_r$NEXT (STOP file); 'rm $STOPFILE' then resume ==="
 fi
