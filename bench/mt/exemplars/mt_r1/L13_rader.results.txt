@@ -1,0 +1,4 @@
+   L13_rader                      5.784 us     5.784 us    21.08      12.4%    0.016s  ok 4.0e-16       1.02x
+   L13_rader                      0.317 us   162.545 us   384.12       4.0%    0.048s  ok 4.0e-16       1.03x
+   L13_rader                      0.976 us  7997.508 us   124.91       0.1%    0.705s  ok 4.0e-16       1.24x
+   L13_rader                Rader-13 split cyc/nega (186 FP/pt), X-first, 512-bit, batch-parallel ntb=32/32 NUMA-local scratch, B1 team t1=1; fuse=0 um=1 ys=0 pf=1 pw=0 nts=0 pace=1 znb=22 ab[B512]=i:446,pw!:428,pf!:426,nt!:1177,n16:761 pick=pw!

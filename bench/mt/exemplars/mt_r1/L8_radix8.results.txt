@@ -1,0 +1,4 @@
+   L8_radix8                      0.581 us     0.581 us    39.63       0.0%    0.056s  ok 1.2e-16       1.05x
+   L8_radix8                      0.035 us    70.975 us   664.82       1.0%    0.141s  ok 1.9e-16       1.32x
+   L8_radix8                      0.173 us  5654.237 us   133.52      71.1%    0.242s  ok 1.9e-16       1.07x
+   L8_radix8                radix-8 52-instr codelet; B=1 serial, B>1 batch-parallel 3p; pick[B=1,T=32]=avx512-2p (fixed) arena{2p=0.572 1f520*=0.577 1f*=0.578 3p*=0.608}

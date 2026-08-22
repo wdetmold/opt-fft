@@ -1,0 +1,4 @@
+   L8_fusedaxes                   0.554 us     0.554 us    41.62       0.8%    0.077s  ok 2.2e-16       1.00x
+   L8_fusedaxes                   0.026 us    53.721 us   878.35       0.7%    0.176s  ok 2.3e-16       1.00x
+   L8_fusedaxes                   0.176 us  5779.072 us   130.64       0.3%    0.437s  ok 2.3e-16       1.10x
+   L8_fusedaxes             8^3 fused/AA/AA2 c52 mt=vol/pool; B=2048 pick=fused+pfs/nt32 (mt-tuned) arena{fused+pfs/32=0.027,fused+pfs+pfw/32=0.028,fused-nt+pfs/32=0.180,seq3-nt+pfs/32=0.173,fused+pfs/24=0.040,fused+pfs/16=0.095,fused-nt+pfs/24=0.156,fused-nt+pfs/16=0.115}

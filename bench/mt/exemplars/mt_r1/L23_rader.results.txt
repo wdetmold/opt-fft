@@ -1,0 +1,4 @@
+   L23_rader                     14.150 us    14.150 us    58.34       0.8%    0.107s  ok 3.8e-16       1.20x
+   L23_rader                      2.350 us   300.810 us   351.30       6.8%    0.187s  ok 3.8e-16       1.03x
+   L23_rader                      6.052 us 12393.893 us   136.42      18.8%    0.210s  ok 3.8e-16       1.00x
+   L23_rader                rader23 MT batch w4 team=32 pf=0 pw=0, tuner pick=3.40 inc=5.51 us/t nv=148

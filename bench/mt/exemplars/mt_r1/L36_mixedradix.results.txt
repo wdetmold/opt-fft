@@ -1,0 +1,4 @@
+   L36_mixedradix                28.947 us    28.947 us   124.99       1.2%    0.234s  ok 3.6e-16       1.13x
+   L36_mixedradix                 5.589 us   178.857 us   647.33       0.6%    0.610s  ok 3.6e-16       1.00x
+   L36_mixedradix                14.170 us  7254.849 us   255.34      62.2%    3.015s  ok 3.6e-16       1.00x
+   L36_mixedradix           MT PFA 4x9 n1_9; pick=v1-split8-pf0 (B=1 m=32 arena=1 stream=0 18c) us/vol ser=123.9 pick=35.0 eff=0.44

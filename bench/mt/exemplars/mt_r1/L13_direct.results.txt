@@ -1,0 +1,4 @@
+   L13_direct                     5.670 us     5.670 us    21.51       1.2%    0.052s  ok 2.8e-16       1.00x
+   L13_direct                     0.308 us   157.602 us   396.17       1.1%    0.056s  ok 2.9e-16       1.00x
+   L13_direct                     1.275 us 10443.760 us    95.66       0.4%    0.057s  ok 2.9e-16       1.62x
+   L13_direct               conj-folded dense 13x13 per axis, pinned sines; 512b all-pinned zsolidY+xmm-tail X-first+pf; mt t32 g1; ab[B64]=t1g1:7642,t32g1:6842,t16g1:1157,t8g1:2018,t4g1:2497

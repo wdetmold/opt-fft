@@ -1,0 +1,4 @@
+   L45_mixedradix                58.317 us    58.317 us   128.72       1.4%    0.170s  ok 4.1e-16       1.00x
+   L45_mixedradix                16.873 us   269.968 us   444.89       0.2%    0.214s  ok 4.1e-16       1.00x
+   L45_mixedradix                79.067 us 20241.037 us    94.94       0.2%    0.442s  ok 4.1e-16       2.94x
+   L45_mixedradix           MT PFA9x5 pool; pick=vol32-v2-pfpp (B=256 nt=32 str=1 thr=32 nc=10); vol32-v2-pp=28.8 vol32-v2-pfpp=25.4 vol32-v2-cpin=39.9 vol32-v2-cpinpf=34.0 vol32-v2-cpy=41.4 vol32-v2-m0=33.4 grp16x2-v2-pp=29.9 grp8x4-v2-pp=34.3 vol16-v2-pp=67.8 vol32-v1-pp=31.2

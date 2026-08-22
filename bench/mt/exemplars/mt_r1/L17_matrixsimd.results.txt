@@ -1,0 +1,4 @@
+   L17_matrixsimd                 7.112 us     7.112 us    42.36       3.6%    0.347s  ok 3.3e-16       1.00x
+   L17_matrixsimd                 0.726 us   185.851 us   414.92      12.2%    0.373s  ok 3.3e-16       1.00x
+   L17_matrixsimd                 2.106 us  8627.951 us   143.00       9.8%    0.745s  ok 3.3e-16       1.72x
+   L17_matrixsimd           nested cyclic/negacyclic 17-pt/axis, 256-bit, pinned, X-first, pipelined, mt[vol nt=32 dyn=0 pf=0 pw=0 pt=0], sbw[rd/wr/cp/s17]=4.37/6.26/15.12/4.09, b1dec[yz/kyz/x/kx]=15.34/14.70/5.99/5.62, clk512/256=2.29/2.79 GHz, d256=2.79
