@@ -1,0 +1,4 @@
+   L13_rader                      6.065 us     6.065 us    20.11      40.1%    0.021s  ok 4.0e-16       1.03x
+   L13_rader                      0.302 us   154.577 us   403.92      49.6%    0.063s  ok 4.0e-16       1.00x
+   L13_rader                      0.983 us  8056.362 us   124.00       3.1%    0.663s  ok 4.0e-16       1.63x
+   L13_rader                Rader-13 split cyc/nega (186 FP/pt), X-first, 512-bit, batch ntb=32/32 dsp=omp as=0, B1 pt=0 t1=1; fuse=1 um=7 ys=0 pf=0 pw=0 nts=0 znb=22 ab[B1]=i:6880,f0:6914,t2:12743,t4:12478,t8:11918,p2:11744,p4:14370,p8:13811 pick=i

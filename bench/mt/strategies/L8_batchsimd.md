@@ -276,3 +276,176 @@ haswell (AVX2), and -DL8_EMU8.
   variant where each rank streams its slice through a small NUMA-local
   bounce buffer before the NT write.  Price it first; it may cost more than
   the UPI it saves.
+
+## Round mt_r3 — the handshake the node convicted twice, and the VERDICT's L=8 order: use the whole machine
+
+### Where mt_r2 landed on the node, and the diagnosis
+
+* **B=1: 0.557 us — won the cell** (fusedaxes 0.558, a 0.2% tie).  But
+  poolrt{2=0.276–0.445, 8=0.878–1.484, **32=5.205–5.544**}: my mt_r2 tree
+  collect made the round-trip WORSE than mt_r1's flat 4.424 us.  Each of the
+  log2(T) tree hops pays a cross-socket detection latency *serially*; the
+  revert rule my own mt_r2 record pre-registered ("if poolrt{32} is not well
+  below ~2.5, revert") fired.
+* **B=2048: 56.9 us/call vs fusedaxes 53.9.**  The pick was right (T=32/s0,
+  arena 0.029 — the driver ran 0.0278/t), so the ~3 us/call gap **is** the
+  handshake: fusedaxes' epoch-word pool joins in ~0.8 us.  Also a 3-process
+  pick lottery (s0w/s0/s0 → 62.7/56.9/58.3): s0w and s0 tie in-arena at
+  0.029 and the hysteresis can't separate them.
+* **B=32768: 0.174 us/t — mt_r1's 0.295 repaired (1.70x), three-way tie with
+  the siblings at 0.13%, still 0.92x vs fftw3_patient's 0.159.**  The mt_r2
+  VERDICT §5 measured why, using fusedaxes' governor: `gov{fr=0,nb=1}` —
+  the driver's 512 MiB is 100% socket-0 — and all three L=8 entries (mine:
+  mt{T=16 run=nt-s0}) chose single-socket teams and parked at 94 GB/s,
+  while L=6 proves T=32 reaches 200 GB/s at a streaming cell on this node
+  and fftw's winning mode is >102 GB/s.  The VERDICT's L=8 instruction is
+  explicit: "use the whole machine … force T=32 with a socket-aware chunk
+  split and re-measure", and its §6 names the settling experiment: "nobody
+  has yet read fr under a 32-thread team at a streaming cell."
+
+### What changed this round
+
+1. **Epoch-word pool protocol** (borrowed whole from **L8_fusedaxes**, who
+   took it from **L36_pfa mt_r1**; the all-ack invariant from **L17_rader
+   mt_r1**).  Release is now ONE store to a single cache-line-aligned epoch
+   word that all 31 workers spin-acquire on (they re-read it *shared*; my
+   old per-worker release flags cost rank 0 31 separate store RFOs).
+   Collect is a flat publish-then-scan over per-worker padded done lines,
+   and EVERY worker acks every epoch — team members and idle ranks alike —
+   which is what makes rewriting the job fields for the next dispatch safe
+   with no tree, no fence gymnastics.  The tree collect is deleted.
+   Workers with tid >= nthr ack without working, so the execute-time
+   governor can switch team width call-by-call on one pool.
+2. **Execute-time streaming governor** (armed when ws > 6x L3, batch >=
+   4096, pool built, >= 8 threads; `L8_GOV=0` disables).  cfg0 = the create
+   pick (node: T16/nt-s0, the known 0.174); cfg1 = the OTHER width on nt-s0
+   (node: T=32).  Three baseline calls at cfg0, then a **self-extending
+   full-width dwell** on the caller's real buffers — minimum 16 calls,
+   extended while still improving >1.5%, hard cap 44 — with
+   `get_mempolicy(MPOL_F_NODE|MPOL_F_ADDR)` scans of ~128 sampled pages of
+   in/out every 8th call.  A sustained wide dwell is also exactly the
+   remote-fault pattern AutoNUMA needs if it is ever going to spread
+   socket-0 pages, and "still improving" is what migration looks like from
+   inside.  Lock = argmin with 2% hysteresis to cfg0; the loser is revisited
+   once every 24 calls (a late migration re-locks on a >3% win).  Publishes
+   `gov{fr0,fr,nb,T…=…,T…=…,lock}` in the description, so this round's L=8
+   JSONs finally carry **fr under a wide team** — the §6 experiment — from
+   every process.  Legality is fusedaxes' mt_r2 argument, adopted verbatim:
+   every probe call is a full, correct, bit-identical execute, and
+   min-of-min ignores slow ones.
+3. **Tuner surface pruned per the VERDICT**: dynamic scheduling REMOVED
+   from all candidate sets (d2 2.4x worse, d8 lost 3/3, d128 tied-to-worse
+   3/3 across two rounds of node tables; VERDICT: "it should be removed
+   from the tuner surface, not re-raced"); s0w removed from the streaming
+   set (zero node picks in mt_r1/mt_r2; the one process that picked it at
+   B=2048 was the 62.7 outlier — this also shrinks that cell's lottery).
+
+### Operation count
+
+Unchanged per volume: 1248 vector FP + 896 shuffles + 256/256 loads/stores
+(FUSED); 16 KiB DRAM traffic per volume with NT, 24 with plain.  The epoch
+protocol is one release store + one done store per worker per execute (the
+tree's extra acquire spins are gone).  The governor adds two clock_gettime
+per call and, on scan calls only, ~256 get_mempolicy syscalls (~tens of us
+against a 5.8 ms call).
+
+### Measured on wallaby (SPR 6448Y, 32 threads = one socket, shared login
+node — same-window comparisons only, quiet minima)
+
+| case | mt_r2 | mt_r3 | note |
+|---|---|---|---|
+| B=1     | 0.340 | 0.329–0.333 us | serial path untouched; rel L2 2.27e-16 |
+| B=2048  | 34.4 us/call | **32.3–33.3 us/call = 0.0158–0.0163 us/t** (−4–6%) | pick T=32/s0 static, stable 3/3 (one 43.2 outlier was a busy window — its own arena rows were inflated 35% too) |
+| B=32768 | 2508–2531 us | **2490–2498 us = 0.0760–0.0762 us/t** | single-socket null test: `gov{fr0=0,fr=0,nb=1,T32/nt-s0=0.0748,T16/nt-s0=0.0777,lock=cfg0}` — governor correctly reads 0% remote, prices both widths on the real buffers, locks the incumbent |
+
+poolrt (empty round-trip, all-ack pool): wallaby {2=1.73, 8=1.44,
+**32=1.27**} vs mt_r2 tree {32=1.53–1.96} and mt_r1 flat {32=1.68}.  Note
+the semantics changed: with all-ack the round-trip is ~team-independent
+(the "T=2" figure now pays all 31 acks), so the one number that matters is
+the full-pool one, and it dropped ~25% on a single socket.  The node —
+where the flat/tree numbers were 4.4/5.4 us — is where the epoch word
+should pay: fusedaxes measures ~0.8 us for the identical protocol.
+
+Correctness: PASS (rel L2 1.3–2.3e-16, tol 1e-12) at B = 1, 2, 3, 5, 31,
+33, 64, 100, 513, 2048, 4096, 32768; repeatable bit-identical across runs
+at every size (including with the governor probing); builds warning-free
+(-Wall -Wextra) at native SPR, cascadelake, haswell (AVX2), scalar, and
+-DL8_EMU8.
+
+### What did not work / what was deliberately not done, with reasons
+
+* **Tree collect: reverted for cause.**  Node poolrt{32} 5.24–5.54 vs flat
+  4.42 — my mt_r2 record's own revert threshold (2.5 us) was missed by 2x.
+  Not patched (prefetch-then-scan etc.); replaced by the protocol a rival
+  measured at 0.8 us.  Lesson recorded: on this node, serializing the
+  collect path through worker-to-worker acquire chains adds latency per
+  hop; one shared read-mostly line beats both of my designs.
+* **Weighted per-thread re-cut (fusedaxes' cfg2/3 machinery): not ported.**
+  Their node result shows it converging to nt16-equivalent when fr=0, i.e.
+  it re-derives cfg0, and if pages spread under the wide dwell a static
+  equal split is already balanced (stable contiguous ownership means each
+  thread's pages migrate to its own socket).  Two static widths + the fr
+  scan cover both regimes at a fraction of the machinery.
+* **A T=24 governor config: not added.**  Node arena T24/nt-s0 =
+  0.196–0.198 sits between T32 (0.209) and T16 (0.184) in the socket-0
+  regime — it is never the argmin in either regime, and every extra config
+  dilutes the dwell that makes cfg1 informative.  T24/nt-s0 stays in the
+  create-time arena only.
+* **B=1: no change.**  Cell won at the serial floor; poolrt keeps
+  documenting why it stays serial (even at 1.27 us the empty handshake is
+  ~4x the whole 0.33 us transform).
+
+### Borrowed, and from whom
+
+* **Epoch-word release + flat all-ack collect**: L8_fusedaxes (protocol via
+  L36_pfa mt_r1; all-ack invariant via L17_rader mt_r1).
+* **Execute-time governor pattern, its legality argument, gov_scan_remote
+  (get_mempolicy fr scan, ported nearly verbatim), the numa_balancing
+  read, and the gov{} publication format**: L8_fusedaxes mt_r2.
+* **Dyn removal**: the mt_r2 VERDICT's panel-wide ruling plus my own three
+  rounds of node tables.
+* The self-extending wide dwell (probe budget that rides improvement, so a
+  migration in progress extends its own experiment) is my construction,
+  motivated by fftw3_patient's within-process bimodality at this cell
+  (minima 5215/5222/5230 vs medians ~9640 — something improves DURING a
+  process under a wide team, in all three of its processes).
+
+### Node predictions (stated to be scored)
+
+* **B=1: 0.55–0.56 us**, byte-identical serial path.  poolrt{32} should
+  read ~0.8–2 us (from 5.2–5.5); if it does not drop below ~2.5 us the
+  epoch protocol underdelivered cross-socket and the record should say so.
+* **B=2048: 53–55 us/call** (0.026–0.027 us/t) — parity with fusedaxes ±1
+  us, since the ~3 us handshake gap was the only stable difference and we
+  now run the same protocol.  Pick T=32/s0 static.
+* **B=32768, keyed on the governor's published fr under the T=32 dwell**:
+  (a) fr rises (AutoNUMA spreads under the wide team): lock=cfg1 and
+  0.09–0.14 us/t — takes the cell from fftw's 0.159 outright;
+  (b) fr stays 0 and T32 never beats T16 on the real buffers: lock=cfg0,
+  ~0.174 us/t (the probe calls cost only early, unscored samples) — the
+  cell stays a narrow loss but the §6 experiment is finally on record in
+  every process, with the wide-team driver-buffer number published beside
+  it;  (c) fr stays 0 but T32 wins anyway (fftw's 103-GB/s mode is
+  concurrency into one socket's controllers, not placement): lock=cfg1 at
+  ~0.15–0.16 — a photo finish either way.
+* Pick-lottery risk at B=2048 is reduced (s0w gone, dyn gone): expect one
+  pick string across all three processes.
+
+### What I would do next
+
+* **Read gov{fr0,fr,…,lock} from all three B=32768 processes first.**  It
+  decides which of (a)/(b)/(c) happened and whether the dwell budget (44)
+  was the binding constraint — if fr was still climbing at lock time,
+  lengthen the dwell or start cfg1 from call 0.
+* If (b): the remaining 9% is single-socket stream efficiency; the next
+  levers are fusedaxes' seq3AA alias-free store order inside MY pool
+  runners (they measured seq3-nt > fused-nt in-arena at T=32), and the
+  §4.5 counter if perf_event_paranoid ever drops.
+* **B=2048**: if parity with fusedaxes is reached, the cell is closed —
+  both entries at the same protocol, same shape, same pick.  If a ~1 us
+  gap persists, diff the remaining per-call work (their pool shrinks to
+  the picked team; mine keeps 31 ackers for the governor's sake — a
+  shrink-when-not-armed is a 10-line change).
+* If the node's poolrt{32} lands ~1 us, B=64-class mid batches (not scored
+  at L=8, but tryout-visible) become handshake-light too; nothing to do
+  unless a future round scores them.

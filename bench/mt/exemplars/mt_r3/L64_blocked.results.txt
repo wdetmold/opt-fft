@@ -1,0 +1,4 @@
+   L64_blocked                  128.691 us   128.691 us   183.33       1.2%    0.549s  ok 4.5e-16       1.00x
+   L64_blocked                   77.127 us   617.013 us   305.90       0.8%    2.329s  ok 4.5e-16       1.07x
+   L64_blocked                   73.715 us  9435.503 us   320.06      23.8%    6.286s  ok 4.5e-16       1.00x
+   L64_blocked              L64 8x8 split-sc two-stage, hugepage scratch; mt pick: eng=1(S:slab) G=1 nth=16 dyn=0 sb=0 mode=cached pf=0 st=3 pro=0 (B=1 nv=1)

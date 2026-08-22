@@ -1,0 +1,6 @@
+   L17_winograd                   7.563 us     7.563 us    39.83       0.8%    0.609s  ok 3.2e-16       1.27x
+   L17_winograd                   0.823 us   210.797 us   365.82       0.7%    1.224s  ok 3.3e-16       1.09x
+   L17_winograd                   1.219 us  4991.721 us   247.17       0.4%    2.339s  ok 3.3e-16       1.00x
+   L17_matrixsimd           17-pt rotating-pass fused engine (adopted from L17_winograd, i4), mt[wg nt=32 static ws=614MB aggl3=44MB], sbw[rd/wr/cp/s17]=5.55/8.52/14.84/4.41, b1dec[yz/kyz/x/kx]=15.40/14.48/5.88/5.62, clk512/256=2.29/2.79 GHz, d256=2.79, anb=1
+   L17_rader                Rader-17 cyclic/negacyclic (kernel from L17_winograd), plane-fused; mt mode=1 nt=32, xl 512t dy, pf=0, pfw=0, clk256=3.89 clk512=2.89, par=1.119 us/t cut=eq spr=1.04x dsp=omp str=1 tn=2 tr=1 bw=213GB/s
+   L17_winograd             17-pt cyclic+negacyclic module (296 FP instr), 3 rotating passes, var=h4, pf=0, pfw=0, cw=0, nt=0, mt[n=32 bt=32 dyn=0 t1=0 s2=0 ns=2 strm=1 ar=ot], clk256=2.89GHz, clk512=2.89GHz, p1=6.15 f23=10.86 fu=16.43 fu4=17.39, sbw[rd/wr/cp/s17]=6.44/11.39/18.41/6.06

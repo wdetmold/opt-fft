@@ -1,0 +1,4 @@
+   L8_radix8                      0.576 us     0.576 us    40.01       1.4%    0.084s  ok 1.4e-16       1.05x
+   L8_radix8                      0.028 us    56.894 us   829.36       1.2%    0.147s  ok 2.3e-16       1.06x
+   L8_radix8                      0.174 us  5715.018 us   132.10       0.4%    0.656s  ok 2.3e-16       1.09x
+   L8_radix8                radix-8 52-instr codelet; B=1 serial, B>1 pool-parallel 1f (3p probes); pick[B=2048,T=32]=mt-1f-pfs (default,pool) arena{mt-1f-pfs=0.028 mt-1f=0.029 mt-1f-pfw=0.031 mt-1f520-pfs=0.028 mth-1f-pfs=0.085 mt-1f-nt-pfs=0.183 mt-3p-pfs*=0.029} govm{mt-1f-pfs=0.0278,mt-1f520-pfs=0.0279,mt-1f=0.0291,lock=mt-1f-pfs}

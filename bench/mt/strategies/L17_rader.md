@@ -308,3 +308,157 @@ or measured better on wallaby too (4, 5).
    (44 MB combined L3 vs 77 MB working set streams more than wallaby's
    60 MB single-socket L3 suggested); if matrixsimd still leads, steal
    their staged-input mechanism next.
+
+## Round mt_r3
+
+### Where mt_r2 landed on the node, and the diagnosis this round is built on
+
+B=1 6.776 (2nd, matrixsimd 6.163), B=256 0.792 (2nd, 0.755), B=4096
+**2.200 against L17_winograd's 1.220** -- with MY OWN arena having raced
+the shipped config honestly at 1.93 (par=1.926 in the description), so
+mt_r2's arena-fidelity fix worked and was not enough.  The r3 diagnosis
+comes from lining up EVERY streaming cell in the round across entries:
+
+* Entries at ~193-200 GB/s: L17_winograd B=4096 (1.220 us/t = 193 GB/s
+  with the RFO, `nt=0 dyn=0` OMP static split, **setup 4.2 s**),
+  L6_unrolled B=65536 (199.6 GB/s, `disp=omp`, **setup 2.7 s**),
+  L6_pfa's T=32 process (200 GB/s, **setup 12.8 s**).
+* Entries at 66-82 GB/s: me (NT pool, **setup 0.68 s**, 71 GB/s),
+  L17_matrixsimd (plain pool, **0.87 s**, 82), L23_matrixsimd (NT pool,
+  **0.47 s**, 66).
+
+Store shape does not separate the groups (winograd won PLAIN, L6_unrolled
+won NT); dispatch and setup time do.  The mechanism I believe (extending
+the mt_r2 VERDICT SS5): fft3d_create(L, batch) never sees the caller's
+buffers -- the driver memsets `out` and freads `in` on its main thread
+BEFORE create, all socket-0 -- and the kernel NUMA balancer needs WALL
+TIME while the process runs to mark 1.2 GB of PTEs (scan delay ~1 s,
+~256 MB per scan pass) before the warmup/timed executes can fault pages
+over to the socket that uses them.  A 4 s create hands the timed loop
+pre-marked pages that migrate during warmup; a 0.7 s create gets scored
+in the unspread all-socket-0 regime at one socket's bandwidth.  My mt_r2
+arena was faithful to the driver's INITIAL placement -- which is exactly
+the regime the scored loop of a long-setup entry has already left.
+
+### What was built (all schedule/dispatch/timing; zero FP change; bit classes untouched -- outputs cmp-identical to mt_r2 at B=1 and B=4096 on wallaby)
+
+1. **Streaming-cell classification from the working set, not from a
+   race**: streaming iff 2*batch*78608 B > 2x (per-socket L3 x nodes the
+   TEAM spans).  Team span measured from the create-time OMP region's
+   sched_getcpu list against /sys/devices/system/node (wallaby's 32
+   close-bound threads span 1 of its 2 sockets; the node's span 2).
+   Node: B=4096 streaming, B=256 not (38 < 88 MB).
+2. **2 s migration settle before the streaming race** (was 0.15 s clock
+   settle): full-team static-cut plain streaming over the arena walks the
+   serially-memset (driver-faithful-initial) arena to the owner-local
+   steady state the scored loop reaches, so the race prices THAT regime.
+3. **Plain-incumbent discipline at streaming cells**: best-plain
+   bandwidth is computed from stage 1 (235824 B/vol / us); on a
+   multi-node team below 130 GB/s the arena provably never left the
+   unspread regime, whose NT-vs-plain verdict did not transfer in either
+   prior round -- then plain is pinned outright.  If the regime WAS
+   reached (or single-node, e.g. wallaby), the race stands but a
+   staged/NT winner must beat best-plain by 10% (was 3%), in stage 1 and
+   in the (variant,pf,pfw) grid both.  The near-tie NT pick is the exact
+   shape of the 2.904 (r1) and 2.200 (r2) losses.
+4. **Team width hard-pinned wide at streaming cells** (shrink race
+   deleted there, kept elsewhere) -- the mt_r2 VERDICT's prescription
+   verbatim (its L6_pfa evidence: 85 vs 200 GB/s on team width alone).
+5. **Dispatch-shape race, spin pool vs OMP parallel region** (same
+   l17r_work_batch, same shadow plans, bit-identical), streaming cells
+   only; on a multi-node team OMP WINS TIES since it is the only dispatch
+   shape with node evidence at 193 GB/s; single-node keeps the pool on
+   ties.  If OMP ships, the pool is destroyed (31 extra threads have no
+   business next to the OMP team).  Wallaby raced pool 0.704 / omp 0.677
+   -> omp shipped there too.
+6. **5.5 s create() dwell at streaming cells**: after the pick, create
+   keeps executing the final configuration on the arena until 5.5 s of
+   wall time -- the same marked-PTE head start the round's fast entries
+   had, bought with the exact scored code path.  Setup is "arbitrarily
+   expensive" by contract; B=1/B=256 setups stay ~0.3-0.6 s.
+7. **B=1**: team grid refined to {2,4,8,12,14,16,17,20,24,32} (node
+   picked 16 in r2; winograd's t1=12 also in range), and an x-phase
+   cross-core prefetch `xpf` (ADOPTED FROM L17_matrixsimd mt_r1) raced
+   JOINTLY with team size: before each x block, pull the NEXT block's
+   2x17 A lines (dirty in the plane writers' caches) under this block's
+   ~300-cycle compute.  Wallaby: neutral at the winning nt=17
+   (6.665/6.680) but -35% at nt=32 (11.14 -> 7.18) and -33% at nt=24 --
+   exactly the cross-core-latency signature; the node's slower uncore and
+   16-thread pick is where it may actually pay.
+
+### Operation count
+
+Unchanged: 296 FP instr per 17-point transform, 867 transforms = ~423
+kflop per volume.  The round touched placement, margins, dispatch, and
+one read-prefetch knob.
+
+### Measured (wallaby, SPR 6448Y, 32 threads, shared login node, contended window: clk256 probe read 1.47-3.40 GHz across sessions)
+
+| case | mt_r3 | mt_r2 binary SAME window | note |
+|---|---|---|---|
+| B=1 | 5.32-6.13 us | 5.40-6.15 | mode 2 nt=17 xpf=0; outputs identical |
+| B=8 | 9.71 us/call = 1.21 us/t | (14.0 in r2's window) | mode-1 race |
+| B=256 | 122.4 us/call = 0.478 us/t | 122.9 (r2 window) | plain, no dwell (setup 0.28 s) |
+| B=4096 | 3947-4309 us/call = 0.964-1.052 us/t | 3969-4187 | stnt dy, dsp=omp, str=1 tn=1 tr=1 bw=294GB/s, setup 5.52 s; outputs identical |
+
+rel_l2 3.11-3.15e-16 at every batch tried (1, 8, 256, 4096), repeatable
+bit-identical across runs, and cmp-identical to the mt_r2 binary at B=1
+and B=4096.  Wallaby CANNOT show the round's point (tn=1: no unspread
+regime to escape); the honest single-socket race still picks NT there
+(0.659 vs plain 0.802, past the 10% gate), which is correct for wallaby.
+
+### What did not work / what to know, with numbers
+
+* Nothing was tried and reverted this round; the round is three verdicts
+  applied (working-set incumbency, hard-pin wide, arena regime) plus two
+  borrowed mechanisms and one forensic conclusion.  The risk carried:
+  wallaby A/B at B=4096 is a wash (3947-4309 vs 3969-4187 across two
+  interleaved reps) -- every change is either node-conditional (tn>1) or
+  tie-broken toward the node-proven shape, so a wallaby wash is the
+  expected reading, not a warning sign.
+* xpf=1 at nt<=17 on wallaby: within noise (see table in item 7).  Do
+  not force it; it is raced.
+
+### Borrowed this round, named
+
+* **x-phase cross-core prefetch (xpf)** -- L17_matrixsimd mt_r1's xpf
+  mechanism, applied one-block-ahead (their xpf=2 bulk variant lost on
+  wallaby in their own r2 record, so only the lookahead form is raced).
+* **OMP-region static dispatch at streaming cells** -- L17_winograd
+  mt_r1/r2 (the `mt[n=32 dyn=0]` shape that scored 1.220 = 193 GB/s).
+* **Working-set incumbency, hard-pinned wide teams, and the
+  pre-spread-arena mechanism** -- the mt_r2 VERDICT (SS5, SS6 item 1);
+  the setup-time forensics across L6/L17/L23 entries are this round's
+  own addition.
+
+### Pre-registered node expectations (read these against the mt_r3 leaderboard)
+
+* **B=4096**: the whole round.  Dwell + warmup should put the scored
+  loop in the spread regime: plain floor ~1.2-1.3 us/t (winograd
+  parity).  Branches: (a) settled arena, NT wins >=10% -> expect
+  0.85-1.1 us/t and a cell win (desc: tr=1 bw>=130, NT tag, dsp=omp
+  likely); (b) arena unsettled -> plain pinned (desc: tr=0 bw<130),
+  scored still ~1.2-1.3 if the dwell alone spreads the driver's pages;
+  (c) scored ~2.2 again with tr=0 -> the dwell did NOT spread the
+  driver's pages and the setup-time theory is wrong for the node --
+  in that case next round must test whether numa_balancing is even
+  active there (matrixsimd's anb=1 says it is) and consider that
+  winograd's advantage is the OMP region itself (my dsp=omp branch
+  covers that this round).
+* **B=1**: 6.3-6.8 us; upside if the node picks xpf=1 at nt=14-20
+  (cross-socket A pulls are its target).  Watch `b1 st/vp(nt,xpf)`.
+* **B=256**: unchanged path, expect 0.78-0.80 (desc: str=0, no dwell).
+
+### Next round
+
+1. Read desc telemetry first: str/tn/tr/bw + dsp + par-vs-scored at
+   B=4096 decides which branch above happened; act on that branch only.
+2. If (c): race a create-time get_mempolicy page-home scan of the ARENA
+   (L8_fusedaxes's governor, legal read-only) to measure directly what
+   fraction migrated during settle/dwell, and report fr in the desc.
+3. B=1 floor: merge the deint/z/transpose/y plane pipeline into fewer
+   dispatch units at nt<=8 (fewer release/collect trips), or split the
+   x phase's 37 blocks into 74 half-blocks for balance at nt=14-20
+   (needs a half-width wino17 store path -- check cost first).
+4. B=256: if matrixsimd still leads, their staged-input mechanism is the
+   remaining unstolen piece.

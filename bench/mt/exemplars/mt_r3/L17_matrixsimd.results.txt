@@ -1,0 +1,4 @@
+   L17_matrixsimd                 5.976 us     5.976 us    50.41       1.8%    0.474s  ok 3.3e-16       1.00x
+   L17_matrixsimd                 0.756 us   193.459 us   398.61       1.2%    0.621s  ok 3.3e-16       1.00x
+   L17_matrixsimd                 2.911 us 11924.409 us   103.47       1.5%    0.132s  ok 3.3e-16       2.39x
+   L17_matrixsimd           17-pt rotating-pass fused engine (adopted from L17_winograd, i4), mt[wg nt=32 static ws=614MB aggl3=44MB], sbw[rd/wr/cp/s17]=5.55/8.52/14.84/4.41, b1dec[yz/kyz/x/kx]=15.40/14.48/5.88/5.62, clk512/256=2.29/2.79 GHz, d256=2.79, anb=1

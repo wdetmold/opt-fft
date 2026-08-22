@@ -1,0 +1,4 @@
+   L8_fusedaxes                   0.551 us     0.551 us    41.84       1.3%    0.084s  ok 2.3e-16       1.00x
+   L8_fusedaxes                   0.026 us    53.496 us   882.05       1.3%    0.171s  ok 2.3e-16       1.00x
+   L8_fusedaxes                   0.172 us  5646.393 us   133.71       0.4%    0.430s  ok 2.3e-16       1.08x
+   L8_fusedaxes             8^3 fused/AA/AA2 c52 mt=vol/pool; B=32768 pick=seq3-nt+pfs/nt16 (mt-tuned) arena{fused-nt+pfs/32=0.212,seq3-nt+pfs/32=0.202,seq3AA-nt+pfs/32=0.201,fused+pfs+pfw/32=0.265,fused-nt+pfs/24=0.189,fused-nt+pfs/16=0.177,seq3-nt+pfs/16=0.170,seq3AA-nt+pfs/16=0.170,seq3AA-nt+pfs/24=0.184} gov{fr0=0,fr=0,frmax=0,nb=1,nfar=16,fs=25,fcur=42,mw=120/0.84s,safe=seq3-nt+pfs/16:0.1721/16,wide=seq3AA-nt+pfs/32w:0.2050/161}

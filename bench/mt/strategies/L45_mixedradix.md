@@ -331,3 +331,173 @@ login-node window noise (the picks are identical to r1's).
   node answer.
 * **B=1**: unchanged code path; expect 55–60 µs, T∈{16,20,23,28} — the new
   T values tell the cross-socket barrier story for free.
+
+## Round mt_r3
+
+### Where r2 landed on the node, and the diagnosis
+
+Node (Gold 5218, mt_r2 scored): B=1 **57.549 µs, 2nd by 0.6%** (pfa 57.197 —
+a tie); B=16 **16.822 µs/vol, 2nd by 1.07×** (pfa's g2-pfw, i.e. MY r1 pair
+decomposition on their kernel with their pfin+pfw+poke+PFNX mechanism, won
+at 15.751); B=256 **50.216 µs/vol, 2nd by 1.10×** (pfa's static-block mtn at
+45.446).  My r2 repair worked (79.07 → 50.22, arena now honest: 51.5–53.5
+in-arena vs 50.2 driver), but two facts frame this round:
+
+1. **The mt_r2 VERDICT's central finding (§5): two page-placement regimes
+   exist on the node.**  The driver fills `in`/`out` on its main thread
+   (all pages socket-0; L8_fusedaxes *measured* fr=0 there), and a cell
+   runs at ~64–94 GB/s in that regime — but L=6 B=65536 sustained
+   **200 GB/s** on a T=32 static-block schedule, i.e. the caller's pages
+   can end up effectively spread during the timed loop (AutoNUMA;
+   `numa_balancing=1` is confirmed on).  pfa's r1 B=256 number, **26.9
+   µs/vol ≈ 108 GB/s**, is only reachable in the spread regime; their r2
+   regression to 45.4 (1.69×, "the round's largest") and my 50.2 are both
+   ~64 GB/s = the socket-0 regime.
+2. AutoNUMA can only migrate a page toward the thread that touches it if
+   the page→thread map is **stable across calls**.  My r2 vnt claims
+   volumes off a dynamic atomic counter — a page is touched from socket 0
+   on one call and socket 1 on the next, so there is nothing for the
+   balancer to settle.  pfa's mtn comment says it outright: "each thread
+   touches the same volumes every call (prefetcher- and NUMA-stable)".
+
+### What changed (serial kernel untouched again; zero new FP)
+
+1. **New mode `vns`** — vnt with STATIC contiguous volume blocks
+   (thread t owns [B·t/T, B·(t+1)/T)), i.e. exactly **L45_pfa's mtn shape,
+   BORROWED with attribution**.  Same private NUMA-local mid volume M, same
+   linear NT flush + per-thread sfence; only the volume assignment changes,
+   so it stays one bit class.  vns rows LEAD the streaming pool
+   (earliest-wins hysteresis): static and dynamic tie in the pre-migration
+   regime the create-time arena races in, and static is the only one that
+   can get faster during the driver's loop — this is the VERDICT §6
+   "make the right class the incumbent, don't re-race it in the wrong
+   regime" rule applied to my pool ordering.  vnt32-v2-m0 (the r2 node
+   pick) stays as the dynamic control.
+2. **New mechanisms m8/m9/m10 with PFNX** — BORROWED from L45_pfa's
+   node-winning mechanisms (their `pfw` at B=16, `pfi` at B=256): during
+   phase 2, pre-cover the first ~63 KB of the NEXT volume's input with two
+   paced T1 prefetch lines per tile (phase 2 + the NT flush otherwise leave
+   the DRAM read stream idle for ~half the volume time).  m8 =
+   pfin+pfw+poke+pfnx (their g2-pfw analog, for grp), m9 = pfin+pfnx
+   (their mtn-pfi analog), m10 = pfnx alone — fielded because the node's
+   r2 vnt table disliked MY pfin pacing (m0 52.2 vs pf 56.8 µs/vol; my
+   pfin bursts ~42 T1 lines per group vs their fine-grained 32-KB-ahead
+   pacing, a plausible LFB-swamping difference on CLX I did not try to
+   re-tune this round).  In grp mode each member pre-covers its OWN
+   phase-1 plane range [x0,x1) of the next volume.
+3. **Placement diagnostic** — BORROWED from **L8_fusedaxes mt_r2** (the
+   instrument the VERDICT praised and asked to be pointed at a 32-thread
+   streaming team): a read-only `get_mempolicy(MPOL_F_NODE|MPOL_F_ADDR)`
+   scan of ~64 sampled pages of each caller buffer, on the 1st and every
+   24th execute, only when an NT-staged mode (vns/vnt) was picked.  ~128
+   syscalls ≈ 0.1 ms once per 24 calls — invisible to min-over-samples.
+   Published as `gov{nb,fr0,fr,sc,n}` appended to the description, which
+   the driver writes to JSON AFTER the timed loop, so `fr` is the
+   post-loop placement.  This directly runs the experiment VERDICT §5
+   names ("nobody has yet read fr under a 32-thread team at a streaming
+   cell"): fr>0 at B=256 confirms the migration mechanism; fr=0 with a
+   slow number says the spread regime needs something else entirely.
+4. **Streaming pool re-headed** (10 rows): vns32-v2-{nx,m0,pfnx},
+   vnt32-v2-m0 (control), vns32-v1-nx (512-bit probe), grp16x2-{v2,v1}-
+   {ppnx,pp} (node B=16; m8 = pfa's winning mech, and the v1 width
+   restored — my r1 B=16 winner was v1 and pfa's r2 win was pw4, while my
+   r2 pool only fielded v2 grp rows), vnt32-v2-pfpk (r2 runner-up
+   control).  **DROPPED** (zero picks in r1+r2, ≥10% off in every node
+   table): all mode-1 vol rows, grp8x4, vnt16, and the cpy-family
+   mechanisms from the fielded set (code kept, restorable).  Cached pool
+   unchanged except one grp16x2-v2-ppnx probe; B=1 pool untouched (the
+   cell is a 0.6% tie and the T-sweep answer was stable across r1/r2).
+
+### Operation count
+
+Serial arithmetic unchanged: 514,968 zmm FMA-port ops + 90 xmm tail lines
+per volume.  vns = vnt's traffic exactly (2 compulsory caller-buffer passes
+per volume, one fetch_add less per volume).  pfnx adds ≤1012 prefetch
+instructions per volume (2/tile), zero FP.  The gov scan adds 128 read-only
+syscalls per 24 executes, main thread only, modes 3/4 only.
+
+### Measured (wallaby, Gold 6448Y, 32 threads; dev numbers, relative only)
+
+| cell | mt_r3 | mt_r2 same host | pick |
+|---|---|---|---|
+| B=1   | 35.4 µs (min), PASS, repeatable | 35.4–36.5 | grp T=16/23 v1 (unchanged path) |
+| B=16  | 193.6 µs = 12.1 µs/vol, PASS | 195.8–252 | grp16×2 (cached pool there) |
+| B=64  | 1114.9 µs = 17.4 µs/vol, PASS, repeatable | — | vns32-v1-nx (that window) |
+| B=256 | **4479.0–4626.9 µs = 17.5–18.1 µs/vol**, PASS, repeatable | 4428.7–4690 | vns32-v2-pfnx |
+
+In-arena (nv=128, B=256, one window): vns32-v2-pfnx **17.3**, vnt32-v2-pfpk
+17.7, vns32-v1-nx 18.1, vns32-v2-nx 19.7, vns32-v2-m0 20.3, vnt32-v2-m0
+20.4, grp16x2-v1-pp 25.0, grp16x2-v2-pp 25.1, grp16x2-v1-ppnx 25.4,
+grp16x2-v2-ppnx 26.4.  Reading: **pfnx is worth −15% vs m0 on wallaby's
+DDR5** (17.3 vs 20.3) and static ≥ dynamic at equal mechanism (nx 19.7 vs
+m0-dynamic 20.4; both within window noise — the static-vs-dynamic verdict
+can only come from the node, where migration exists).  rel_l2
+4.055–4.065e-16 at B=1/4/16/32/64/256 (identical to r1/r2/phase 1), gate at
+1e-13 passed for all 10 streaming candidates, driver two-run cmp
+bit-identical everywhere including the vns pick.  wombat (AVX2): B=4
+autotuned PASS; FORCED vns32-v0-nx at B=32 PASS (exercises nt_flush_256 +
+pfnx on the 2-lane path), 97–101 µs/vol.
+
+### What did NOT work / traps, with numbers
+
+* **m8 (poke+pfnx) loses on wallaby streaming**: grp16x2-v2-ppnx 26.4 vs
+  -pp 25.1 at B=256, 22.5 vs 20.5 at B=64 — the phase-2 poke on a 60-MiB-L3
+  socket is a uop tax, as every prior record predicted.  Fielded anyway,
+  ordered FIRST among grp rows, because the node is where it won for pfa
+  (g2-pfw 15.6 vs g2-pf0 17.3 in their node arena) and node B=16 is the
+  cell being chased; if the node also prefers pp, the hysteresis order
+  costs me nothing (pp sits right behind it).
+* **Wallaby pick lottery, again (sixth appearance of the window trap)**:
+  one B=64 window returned grp16x2-v1-pp=19.6 as its best row with
+  vnt-pfpk at 19.3 and the vns rows at 20–22.5 — a whole-table inversion
+  vs the window an hour earlier.  Same binary, same arena.  Nothing new to
+  fix (min-over-interleaved-rounds already hardens the in-window race);
+  recorded so nobody reads one wallaby table as a ranking.
+* Nothing failed correctness at any point: vns, pfnx on all three widths,
+  and the gov scan passed the gate, numpy, and the two-run cmp on the
+  first successful build.
+
+### Borrowed this round (attributions)
+
+* **L45_pfa mt_r1/mt_r2**: the static-block NT-staged decomposition (vns is
+  their mtn shape verbatim, including the NUMA-stability rationale their
+  impl_2 comment states), and the PFNX next-volume-input pre-cover plus the
+  poke+pfnx B=16 mechanism (m8/m9/m10 are transcriptions of their pfw/pfi).
+* **L8_fusedaxes mt_r2**: the read-only get_mempolicy placement scan and
+  the publish-in-description discipline (their `gov{fr,nb}` instrument),
+  re-cadenced to 1st + every-24th call.
+* **mt_r2 VERDICT §5/§6**: the two-regime mechanism this round's pool
+  ordering is built around (static/lowest-traffic as incumbent, dynamic as
+  challenger), and the directive to read fr under a wide team.
+
+### Node predictions (pre-registered, falsifiable)
+
+* **B=256**: pick vns32-v2-{nx or pfnx} (pfnx if my pfin pacing was the
+  CLX problem rather than prefetch per se; nx if not).  If AutoNUMA
+  settles during the loop: **gov fr rises above 0 and the cell lands
+  27–38 µs/vol**, taking it back.  If fr stays 0: **44–50 µs/vol** (the
+  socket-0 ceiling, pfnx worth a few % of the 50.2), and the gov line
+  becomes the round's diagnostic payload: it would falsify the migration
+  hypothesis for L=45 and point r4 at explicit wide-team warmup or
+  harness-level first-touch instead.
+* **B=16**: pick grp16x2 (m8 if the node likes the poke as it did for pfa,
+  pp otherwise; v1/v2 is a coin flip there), **14.5–16.5 µs/vol** —
+  closing most of the 1.07× via pfnx.  vns/vnt stay losers at this cell
+  (nb=16 halves their team and NT bypasses a useful L3 half the time).
+* **B=1**: unchanged code path, **56–59 µs**, pick grp T∈{23,28,32} —
+  still a coin-flip cell against pfa.
+
+### Next round
+
+1. Read gov{fr0,fr} at B=256 first — it decides everything at that cell.
+   fr>0: pursue the spread regime harder (e.g. an execute-time
+   static-partition REMAP that reassigns block ownership once, keyed on a
+   mid-run fr read, so both sockets' controllers carry their own pages).
+   fr=0: the 26.9 target needs the harness first-touch fix the VERDICT
+   recommends; say so and stop burning rounds on it.
+2. If the node picked nx over pfnx, my pfin pacing is convicted on CLX:
+   rebuild it as pfa's fine-grained 32-KB-ahead cursor (FFT45_PFD-style)
+   instead of per-group plane bursts.
+3. B=1 remains a tie decided by window luck; the half-plane phase-1 split
+   only pays at T=32 (analysis in r2, unchanged).  Build it only if r3's
+   node B=1 pick lands on T=32.
