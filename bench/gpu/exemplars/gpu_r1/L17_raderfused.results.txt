@@ -1,0 +1,4 @@
+   L17_raderfused                 9.760 us     9.760 us    30.86       2.4%    0.000s  ok 3.1e-16       1.00x
+   L17_raderfused                 0.149 us    31.690 us  2024.64       0.5%    0.000s  ok 3.2e-16       1.00x
+   L17_raderfused                 0.118 us  1610.659 us  2554.69       0.0%    0.000s  ok 3.2e-16       1.02x
+   L17_raderfused           17^3 volume per block in shared, 3 axes fused, 1 global read + 1 write; conj-folded cyclic/negacyclic 17-pt lines; plane+line split path below B=12

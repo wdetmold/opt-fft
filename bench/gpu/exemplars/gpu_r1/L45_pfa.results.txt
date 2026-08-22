@@ -1,0 +1,4 @@
+   L45_pfa                       14.340 us    14.340 us   523.49       1.7%    0.000s  ok 8.2e-16       1.00x
+   L45_pfa                        3.870 us    42.568 us  1939.78       1.5%    0.000s  ok 8.2e-16       1.00x
+   L45_pfa                        4.559 us  3355.341 us  1646.60       0.1%    0.000s  ok 8.2e-16       1.00x
+   L45_pfa                  two-pass PFA 9x5: unit-parallel zy-plane + x-tile kernels, L2-chunked dual-stream pipeline, direct-store variants for L2-resident batches

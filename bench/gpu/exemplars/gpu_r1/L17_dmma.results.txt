@@ -1,0 +1,4 @@
+   L17_dmma                      11.357 us    11.357 us    26.52       0.3%    0.000s  ok 3.6e-16       1.16x
+   L17_dmma                       0.168 us    35.815 us  1791.48       0.3%    0.000s  ok 3.1e-16       1.13x
+   L17_dmma                       0.116 us  1584.725 us  2596.50       0.1%    0.000s  ok 3.1e-16       1.00x
+   L17_dmma                 one volume/block in shared, fused 3-axis conj-folded dense 17-pt DFT, cp.async staged, 1 global read + 1 write; coop plane-split at batch<=4

@@ -172,3 +172,123 @@ and `-Wall -Wextra` builds clean.
    uncertain, cost high.
 3. Expected node standings: graded 6.4–6.9 µs/xform depending on the
    window (MKL 6.39 ± 0.05); B=1 ~5.37, ahead of MKL's 5.73.
+
+---
+
+## Round ice_r2 (2026-08-22)
+
+### The verdict that drove the round
+
+ice_r1 leaderboard: L13_direct 4.661 µs/xform, this entry 6.131 (behind
+mkl2026's 6.066). Their in-plan instrument read 3947 ns/vol against my 5455
+on the same silicon — a 28% structural gap, not a knob. Their pipeline works
+in the driver's interleaved layout (lanes = 4 whole lines per zmm, real
+coefficients as broadcasts, −i folded into lane-alternating sine splats),
+so it has NO split-re/im buffers, no de/re-interleave passes, and no
+512-bit transpose networks; its only permutes are a per-v re/im swap and
+128-bit tile transposes fused into stores. My pipeline paid for all four.
+Per the round's cumulative mandate, this round REBUILT the entry inside
+their pipeline and kept the one thing of mine that is strictly better: the
+Rader/CRT arithmetic.
+
+### What shipped (full rewrite of impl/L13_rader.c; ice_r1 code preserved in exemplars/ice_r1/)
+
+**Adopted wholesale from L13_direct (geom panel_r6–r11 lineage, via the ice
+exemplar), with attribution per item:** the lanes=lines pass structure
+(X: in[x][p] lanes over 169 contiguous p → t1; Y: t1 plane lanes over z →
+pb[z][ky] transposing store; Z: pb lanes over ky → out transposing store);
+X-first everywhere (their r10 retest); the 128-bit TTILE/TILE4_/LASTCOL_
+store bodies (their r7); ZSOLID Y groups + xmm Z/X tails (their r11
+junction hygiene, including the "never put a narrow-store tail where the
+next pass wide-loads it" lesson — not re-learned here); the t1 odd-line
+pad rule (their r8 ← L23_rader r6); pb rows padded to 32 doubles; the
+streaming prefetch schedule and its L3 gate (their r8, kill knobs
+-DL13R_PW/-DL13R_PFIN); the all-pinned-constant discipline ("below ~15
+distinct constants, pin everything", their r6); the lane-alternating
+sign-fold of the sine tables (their r9 MULI fold); template
+self-#include at WC=4/2/1. Retained from my own lineage: the in-plan
+timed race with L6_pfa's >3%-in-both-blocks incumbency rule, and the
+Rader kernel math below.
+
+**The kernel (mine): Rader-13 split cyclic/negacyclic on interleaved
+lanes, 93 vector FP per chunk vs the dense conj-folded matvec's 102
+(−8.8%).** Fold pairs (g^t, 13−g^t), g=2: u_t, v_t; cosine side = x0-seeded
+cyclic-3 on P_t=u_t+u_{t+3} plus negacyclic-3 on Q_t=u_t−u_{t+3}, halved
+constants CP/CM (6 broadcasts); sine side = dense negacyclic-6 on
+w_t = SWAPRI(v_t) with lane-alternating splats S_t = (+sin(2πg^t/13), −sin…)
+— the i·SS mix that cost my split-format kernel its whole layout is now a
+free swap plus sign-in-table, exactly the generalization of their r9 fold
+to Rader order. Outputs X[g^n] = cc_n ± T_n land in tile order via the
+Rader permutation baked into the store macros. 12 constants pinned per
+execute, 13 line loads, zero constant loads per chunk. Census unchanged
+from their r11 default: 133 zmm + 14 xmm chunks/volume → 93·133+~46·14 ≈
+13.0k op-equivalents, ~6.5k-cycle port floor on this node's two FMA pipes.
+Asm audit (their L45_pfa r7 habit): default exec 852 insns total vs their
+1098, ZERO zmm spills; only the xmm tail's unpinned constants touch the
+stack (their design, ≤12 reloads per tail chunk).
+
+### What was measured (node a80n0, tryout.sh, graded chain m=1278; three
+process windows, cross-window drift is the documented ±5–10% lottery)
+
+| case | this round | MKL same window | ice_r1 self |
+|---|---|---|---|
+| graded B=32 | **4.801 / 4.829 / 4.929 µs/xform** (min, three windows; sd ≤0.5% within run) | 6.338 / 6.349 / 6.472 | 6.131 (scored) |
+| B=1 m=1278 | **4.257 / 4.301** | 6.518 / 6.569 | 5.369 |
+| B=512 (36 MB > L3, pf tier) | **7.193** | 8.651 | — |
+| B=4, forced -mno-avx512f (AVX2 path) | 5.800 (PASS, unscored) | 6.665 | — |
+
+In-plan race (full scored batch, ns/vol): B=32 windows read
+zs:4368/4504/4967 vs my ice_r1 incumbent's 5455 — a 15–20% in-plan gain,
+plus everything the old pipeline paid outside the race. B=1: zs:3690/3790.
+Correctness: rel_l2 = 2.95–3.0e-16 single-transform, 5.73–5.76e-14
+whole-chain (tol 3.6e-11), bit-identical outputs across re-runs at every
+batch tried, -Wall -Wextra clean on both ISAs.
+
+Race arms this round (all output-bit-identical, so adoption can never
+change results; xl priced but never adoptable):
+* **zs** (default, their r11 shape): incumbent, kept every window.
+* **y2** (their r10 ymm tails): 4406/4926/4516 vs zs 4368/4967/4504 —
+  statistical tie, exactly their ice_r1 ab pattern (3989 vs 3947).
+* **p7** (pure zmm, zsolid everywhere): +3–15% every window. Even with two
+  FMA pipes the mixed tail earns its keep through access hygiene, not ports.
+* **xl** (X-last): +30–38% every window. X-first is settled on ICX too.
+
+### What was tried and did NOT work, with the number that killed it
+
+1. **Row-padded t1 (the "t1" arm; L13_direct r11's sketched-but-unbuilt
+   fix, built here): +6–14%.** t1 rows 26→32 doubles, X pass re-chunked
+   per y-row zsolid (z0=0,4,8,9; 52 zmm chunks vs 42.5-equiv) so every
+   Y-pass load is address-exact against one X-pass store: deletes ~480
+   3/4-split zmm loads + the straddle SF-blocks per volume. Node: t1
+   5279 vs zs 4967, 4840 vs 4504 (B=32), 4308 vs 3790 (B=1) — the +10
+   zmm chunks of X-pass port time cost MORE than the split/SF deletion
+   recovers, in every window, both batches. Their r11 gate ("build only
+   if within ~0.4 µs of floor") was right and I built it anyway; now it
+   is priced. Kept as FORCE=7/8 and a race arm — if a future round makes
+   the kernel cheaper, the tradeoff shifts toward it.
+2. **Everything my ice_r1 pipeline was**: split re/im A-volume, TR8/
+   extract-form transposes, the fused zy schedule, MB loads, pw/pf knob
+   races — all superseded by the structure change, not individually
+   disproven. The old file with its full knob set is the ice_r1 exemplar.
+
+### For the monitor / next round
+
+1. Expect the scored cell at **~4.8–4.95 µs/xform** (window lottery), vs
+   MKL ~6.3–6.5 and L13_direct's r1 4.661. This entry is now at parity
+   with L13_direct's r1 form on the same pipeline with 9% fewer FP ops;
+   the two entries differ only in kernel arithmetic, so any remaining gap
+   between us is window noise or their r2 improvements (their working
+   tree shows a t1b double-buffer mid-build — price whatever it turns out
+   to be next round).
+2. B=1 in-plan is 3690–3790 ns vs a ~2250 ns port floor: the ~1.4 µs
+   residue is junction latency (Z-pass out stores 3/4-split — driver
+   layout, unfixable per-axis) and the t1→Y junction (the row-pad fix
+   failed on port cost; the untried alternative is making the X pass
+   store t1 transposed so Y reads contiguous rows — moves the strided
+   access to the pass that has port slack, sketch only).
+3. The Rader kernel's 93-op census could drop ~6 more ops by CRT-splitting
+   the negacyclic-6 (x⁶+1 = (x²+1)(x⁴−x²+1)), but the chain is
+   latency-bound and that split deepens the dependency tree — the same
+   tradeoff L17_matrixsimd r2 measured at −12% ops → −1.4% time. Parked.
+4. Race arms worth keeping: zs/y2 tie means y2 is live insurance if the
+   xmm tail ever sours; t1/p7/xl are documentation at ~1.5 ms of setup.

@@ -1,0 +1,4 @@
+   L36_globalpass                10.490 us    10.490 us   344.90       1.0%    0.000s  ok 4.8e-16       1.04x
+   L36_globalpass                 1.745 us    38.390 us  2073.41       0.5%    0.000s  ok 4.8e-16       1.00x
+   L36_globalpass                 1.534 us  2205.403 us  2359.14       0.5%    0.000s  ok 4.8e-16       1.03x
+   L36_globalpass           two-pass plane-per-block radix-6^2, padded shared stride 37, L2-chunked batch

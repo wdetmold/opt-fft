@@ -1,0 +1,4 @@
+   L6_warpvolume                  5.365 us     5.365 us     1.56       0.7%    0.000s  ok 2.2e-16       1.47x
+   L6_warpvolume                  0.004 us    18.381 us  2211.77       0.6%    0.000s  ok 2.2e-16       1.00x
+   L6_warpvolume                  0.005 us  1548.245 us  1680.24       1.1%    0.000s  ok 2.2e-16       1.01x
+   L6_warpvolume            L6: 4 volumes/warp all-register, DIF-z/DIT 2x3 parity split, shuffle butterflies, zero shared memory, one kernel

@@ -1,0 +1,4 @@
+   L8_warpradix8                  3.632 us     3.632 us     6.34       6.6%    0.000s  ok 2.3e-16       1.14x
+   L8_warpradix8                  0.007 us    14.024 us  3364.74       0.6%    0.086s  ok 2.3e-16       1.06x
+   L8_warpradix8                  0.012 us  1560.448 us  1935.28       0.0%    0.398s  ok 2.3e-16       1.02x
+   L8_warpradix8            one volume per warp in registers, radix-8 x3, butterfly shuffle transposes, no shared/barriers

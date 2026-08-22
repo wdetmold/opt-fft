@@ -1,0 +1,4 @@
+   L8_blockfused                  3.184 us     3.184 us     7.24      10.5%    0.000s  ok 1.5e-16       1.00x
+   L8_blockfused                  0.006 us    13.238 us  3564.31       0.6%    0.057s  ok 1.6e-16       1.00x
+   L8_blockfused                  0.012 us  1536.768 us  1965.10       0.1%    0.304s  ok 1.6e-16       1.00x
+   L8_blockfused            fused block of V volumes in shared (row pad 8->9), min-op radix-8 per thread-line, V autotuned

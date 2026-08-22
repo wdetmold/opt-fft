@@ -1,0 +1,4 @@
+   L13_dmma                       7.875 us     7.875 us    15.49       1.9%    0.000s  ok 3.2e-16       1.00x
+   L13_dmma                       0.059 us    28.334 us  2052.99       0.4%    0.000s  ok 3.2e-16       1.00x
+   L13_dmma                       0.051 us  1563.307 us  2383.02       0.0%    0.000s  ok 3.2e-16       1.00x
+   L13_dmma                 fused block-per-volume in shared, conj-symmetric folded dense-13 per thread-line

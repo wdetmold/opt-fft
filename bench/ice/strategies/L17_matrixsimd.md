@@ -198,3 +198,142 @@ L=17 unless winograd's next round moves.
   re-price the B=1 cell on ICX.
 - If the monitor's next leaderboard shows winograd's ice agent recovered,
   re-read its record before spending anything on the kernel.
+
+## Round ice_r2
+
+### Where this round started
+
+ice_r1 leaderboard: L17_matrixsimd **14.471 us/step**, first at L=17
+(winograd 16.113, rader 19.099, MKL 76.0).  The quiet-window tuner picked
+xfax (X-first, addr-safe, extract-store) with pt=1 — extract-store won in
+the scoring window despite losing every contended dev table, which says the
+quiet window is more compute-bound than any window we can measure in.
+b1dec on the leaderboard string: yz/kyz/x/kx = 8.67/7.90/4.30/3.91 —
+L1-hot ≈ in-situ for the fifth round, i.e. the residual is IN the kernel
+(issue/dependency-shaped), exactly what ice_r1's "open for next round"
+declared.  This round executed that declared lever.
+
+### What was changed
+
+1. **Merged-phase (ZIPP-style) kernel `chunk17z`** (the ice_r1 record's
+   costed next lever; interleaving idea from corpus §10, source-level this
+   time instead of the scheduling pragma).  The shipped kernel's cosine and
+   sine phases each load the same 16 source rows (33 row loads per chunk);
+   chunk17z loads every row ONCE (17): it walks m = 0..7 in the sine
+   phase's own order, parks the four first-half u values in registers
+   (U0..U3), and closes cosine pair p as row m = p+4 arrives.  Every
+   accumulator chain still sees its own operands in the exact shipping
+   order (sine gets w_0..w_7 in m order, cosine/X0a get pairs 0..3 in
+   order), FP count unchanged at 148/chunk.  Also, being straight-line, it
+   deletes chunk17n's rolled cosine loop (gcc keeps that loop rolled by
+   design — unrolling it in chunk17n makes gcc spill, r1 lesson — but the
+   merged shape unrolls for free because values die immediately).
+   Disassembly on the Ice Lake ISA: **246 -> 220 dynamic instructions per
+   tr=0 zmm chunk (-10.6%), 272 -> 246 per tr=1 group chunk (-9.6%)**, FP
+   mix identical (84 fma + 12 mul + 52 addsub), at the cost of ~31
+   stack-operand references per chunk (the 32-register file is exactly
+   full: 17 accumulators + 8 pinned K + U0..U3 + temps).
+2. **Four new candidates** xfza / xfdza / xfzax / xfdzax (FORCE 60–63,
+   cand[] 54–57): merged kernel in the Y/Z groups AND the X pass, X-first,
+   addr-safe t1, plain/deferred-Z crossed with tile-store/extract-store.
+   The ymm tail keeps chunk17n (a 16-register file cannot hold the merged
+   live set).  The exec macros L17_EXEC_MXF/MXFD gained XP/XPT parameters
+   (the xpass macro names) — textual only; the pre-change no-force outputs
+   were re-verified (PASS + repeatable) before anything else.
+3. **Bit-class discovery — the merged kernel is a NEW rounding class Z, not
+   class D.**  On paper it is the same arithmetic in the same per-chain
+   order; a host build with -ffp-contract=off is bit-identical to chunk17n.
+   With contraction ON, gcc's FMA formation lands differently in the two
+   source shapes once they are inlined into the 72-chunk loop (single
+   isolated chunk: bit-identical; loop context: 1-ulp diffs) — same op
+   COUNTS, different placement.  Node cmp on full chain outputs (B=8,
+   m=98): F60 == F61 == F62 == F63 mutually bit-identical, all four differ
+   from F50/F51.  Correctness rel_l2 3.257e-16, chain 1.075e-14,
+   repeatable.  So the four form their own clean class.
+4. **Class rule moved: batch >= 17 now selects within class Z** (selZ =
+   {54,55,56,57}); batch < 17 keeps class B untouched.  Evidence,
+   chain-shaped within-run contrasts on the node (cross-run numbers stay
+   contention-poisoned — ice_r1 lesson, reconfirmed):
+   run 1 (contended, everything ~1.5 us high): xfdza 16.46 / xfza 16.60 vs
+   class-D best xfda 16.69 / xfa 16.77;
+   run 2 (quiet-ish): xfdza 15.04 / xfza 15.17 vs xfda 15.20 / xfa 15.27.
+   Merged wins ~1% in both windows, deferred-Z merged best in both.  Small
+   but reproducible, and the mechanism is a pure dynamic-uop deletion in
+   the identical pass schedule, so it should not invert in the quieter
+   scoring window (where compute weighs MORE, per the xfax quiet-window
+   pick).  The (pf,pw,pt) grid hooks were extended to 54–57.
+
+### Operation count
+
+Unchanged in FP: 148 ops per zmm chunk (96 mult-ops + 52 add/sub), 527
+kflop/volume.  What changed is the non-FP stream: 16 of ~65 loads per zmm
+chunk deleted plus the rolled-loop overhead, 246 -> 220 dynamic
+instructions (tr=0).
+
+### Measured on the node (tryout.sh, graded chain L=17 B=32 m=98)
+
+- Old (ice_r1 shipped) code, same day, quiet-ish window: min 14.200 /
+  median 14.204 us/step (sd 0.26%) — for cross-day reference only.
+- Within-run candidate tables: see item 4 above (the round's real
+  evidence).
+- **FINAL SHIPPED STATE**: graded chain B=32 **min 14.762 / median 14.770
+  us/step (sd 0.04%)** under mid-grade load (MKL on the same core read
+  79.3 with sd 13%, vs 76.4 in the morning quiet — the absolute number is
+  window-shaped; the within-run tables are the comparison that counts).
+  rel_l2 3.254e-16, chain-98 check 1.075e-14, bit-repeatable.
+- B=1 chain (class B, tuner path untouched): **min 14.230 / median 14.236
+  us/step (sd 0.04%)**, rel_l2 3.226e-16, chain check 1.086e-14,
+  repeatable; MKL 84.1 on the same core.  Matches the ice_r1 shipped
+  14.188 — the batch<17 cells are unharmed by the round's changes.
+
+### What did NOT work / negative results with numbers
+
+- **Merged + extract-store composes badly** (both within-run tables):
+  xfzax 16.97 / xfdzax 17.15 vs xfza 16.60 / xfdza 16.46 (run 1); 15.59 /
+  15.70 vs 15.17 / 15.04 (run 2).  Extract-store pays its store-forwarding
+  tax (ice_r1 post-mortem) for port-5 relief the merged kernel no longer
+  needs — and the xst body spills hardest (446 stack refs in the exec vs
+  417 plain-merged, 259 incumbent).  Both twins stay in class Z as
+  candidates (~40 ms of tuner time) in case the quiet window flips the
+  ranking the way it flipped xfax in ice_r1.
+- **The merged kernel is NOT bit-identical to class D despite identical
+  per-chain operand order** — gcc 11.4's loop-context FMA placement is
+  shape-sensitive even at equal op counts.  Lesson for every future
+  "pure scheduling, same order" claim: the r3 rule (cmp, never derive)
+  remains mandatory even when the derivation looks airtight.
+
+### Borrowed this round
+
+- The ZIPP source-level interleaving cure: corpus §10 (GCC item on prime
+  passes), continuing the ice_r1 adoption of its compiler half (the
+  scheduling pragma).
+- Read L17_rader's ice_r1 record before starting: its "the cell is
+  latency-bound, width/port tricks wash at B=32" conclusion is about ITS
+  plane pipeline (probe ph = 70% of its cell); our b1dec says our kernel is
+  issue-bound, so the kernel lever remained correct for us.  Its plan to
+  port the winograd engine wholesale is noted as the rival threat to watch.
+
+### Score projection
+
+Shipped 14.76 under mid-grade load; the ice_r1-shipped code measured 14.20
+in the same morning's quieter window, and merged is ~1% under the incumbent
+within-run, so expect **~14.0–14.4 us/step in the scoring window** (ice_r1
+scored 14.471 for the previous code).  Winograd stands 16.11; margin
+should widen slightly.
+
+### Open for next round
+
+- **Spill diet for chunk17z**: ~31 stack refs/chunk because the register
+  file is exactly full.  Candidates: park U0..U3 in the L1 scratch
+  (4 stores + 4 loads, frees 4 registers for temps), or unpin K4..K7 in
+  the merged body only.  Each is a new bit-class risk -> cmp first.
+- **Merged X-last twin for class B** if B=1 ever returns to scoring
+  (B=1 keeps the old kernels this round; the merged win is issue-side and
+  should transfer).
+- Re-read the scored description string: which class-Z member the quiet
+  window picks (extract-store flipped there in ice_r1), and the new b1dec
+  numbers — kyz should drop ~8–10% if the merged kernel does what the
+  disassembly says.
+- If winograd's agent recovered and moved, re-read its record before
+  spending anything; the 3-pass engine port threat from L17_rader's plan
+  applies to it, not to us.
