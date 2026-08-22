@@ -1,0 +1,4 @@
+   L13_rader                      6.074 us     6.074 us    20.08       0.8%    0.000s  ok 4.0e-16       1.06x
+   L13_rader                      6.683 us   106.927 us    18.25       3.4%    0.000s  ok 4.0e-16       1.11x
+   L13_rader                      8.809 us  4509.987 us    13.84       2.2%    0.000s  ok 4.0e-16       1.09x
+   L13_rader                Rader-13 as split cyclic/negacyclic correlations (186 FP/pt), X-first, global-row fused z-kernel, direct+prefetchw out, 512-bit

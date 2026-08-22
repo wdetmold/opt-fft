@@ -1349,3 +1349,140 @@ at B=8, EVEX-only candidates self-eliminate).
    exhausted; the read side (A + T + U ≈ 250 KB of L2 scratch traffic per
    volume) and the kx-blocked two-volume x pass (r5 item 4) are the only
    uncosted ideas left.
+
+---
+
+## Round panel_r8 (2026-08-22)
+
+### Standing going in (panel_r7 node leaderboard)
+
+3rd in all four cells and flat: B=1 17.156 (matrixsimd 15.227, winograd
+16.567), B=8 18.586, B=256 24.467, B=2048 25.537.  The node picked
+`xl 512t, pf=0, pfw=0` in ALL FOUR cells — meaning every r6 and r7 bet was
+rejected at once: sp (r6), pfw (r6), dz / dz pin / dzsp (r7) all got zero
+picks.  The r7 VERDICT's L=17 synthesis is one-directional and this round
+executes it: the node has now declined THREE scheduling attacks at this
+geometry (my ov r5 0/4, my dz r7 0/4, matrixsimd's deferred-Z at the small
+cells 0/2), while the only mechanism that moved an L=17 cell in three
+rounds is uop DELETION (L17_winograd's g8: delete a transposed store,
+−8..−10% in all four cells).  Delete uops, don't reschedule them.
+
+### What changed (kernel arithmetic untouched: 296 FP / 488 flops per 17-pt)
+
+**512-bit plane transposes in the w8 pipeline.**  The per-plane
+transpose/deinterleave loops — the bulk of my ~13.5k-cycle non-FP residue
+at B=1 (at clk512=2.89) — were still round-1's 4x4 ymm tiles even inside
+the 512-bit pipeline.  Replaced, in the w8 template only, with 8x8 zmm
+blocks:
+
+* `tz8x8`: the classic 3-stage network (vunpck{l,h}pd / 128-bit-granule
+  permute / 256-bit-granule permute) = 8 loads + 24 shuffles + 8 stores
+  per 64 elements, against 64 uops for the same elements at 4x4 ymm.
+* `dz8x8`: interleaved-complex 8x8 tile, same scheme as the ymm one
+  (transpose complex at 128-bit granularity first — two 4x4 granule
+  transposes per register half — split re/im after) = 16 + 48 + 16 = 80
+  uops per 64 complex against 128.
+* `transpose17z_part` / `deint_transpose17z_part` keep the exact part
+  contract of the ymm versions (part 0 writes dest cols 0..7, part 1 cols
+  8..16, same scalar edges), so all six exec bodies (plain/ov/sp/dz, both
+  classes) took the swap through two width-selected macros (TP17/DT17)
+  with no restructuring.  w4 keeps the ymm tiles.
+
+Movement-uop count per volume (deint x17 planes + transpose17 x34 arrays):
+~20.7k uops at 4x4 → ~14.3k at 8x8, i.e. **~6.4k uops deleted (−31%),
+about half of them load/store slots** — which is where the node hurts most
+(2 load ports on CLX vs 3 on SPR; T/U/A rows are all 64-B aligned at w8
+strides TR=24/PS=296, so the zmm accesses split no cache lines except the
+deint's source loads from `in`).  Emitted code verified in objdump: the
+transposes land as single-uop vpermt2pd/vpermi2pd/vshuff64x2/vunpck with
+the index constants hoisted (38 vmovdqa64 in the whole exec body).
+
+**Pure data movement — identical values to identical places — so every
+class-A candidate stays bit-identical by construction**, and the outputs
+are bit-identical to panel_r7's too (fingerprints at every batch match
+r5/r6/r7 exactly).
+
+### What was measured — wallaby (Gold 6448Y, gcc 11.4, panel flags; forced
+### pairs are same-window alternating runs, min over >= 2 reps)
+
+Forced `512t` (F2), same-window alternating old (=impl_7) vs new:
+
+| case | old | new | delta |
+|---|---|---|---|
+| B=1 (pfw auto) | 9.059 / 9.063 | **8.828 / 8.800** | **−2.8%** |
+| B=256 (pf=pfw=0 forced), us/t | 11.37 / 11.05 | **10.87** / 11.04 | −1.6% best-vs-best |
+
+Autotuned end-to-end (mixed windows; wallaby clock bimodal as always):
+
+| case | panel_r7 code (best windows) | this round |
+|---|---|---|
+| B=1 | 8.889 | **8.660** (pinned direct; tuner session 8.808, pick `xl 512, pfw=1`) |
+| B=8 | 9.33 | **9.19 us/t** |
+| B=64 | 10.84 (r6) | 11.02 us/t (window-limited) |
+| B=256 | 11.51 | **10.87 us/t** (forced window; autotuned 10.90–11.34) |
+| B=2048 | 16.74 | **16.34 us/t** |
+
+Correctness: PASS rel_l2 = 3.114e-16 (B=1), 3.171e-16 (B=3, forced dz and
+dzsp), 3.151e-16 (B=8), 3.158e-16 (B=64), 3.153e-16 (B=256), 3.155e-16
+(B=2048) — the same fingerprints as r5–r7 at every batch, so the bit class
+is preserved across rounds; bitwise repeatable at every batch size;
+full-output cmp at B=8: forced 512t ≡ dz ≡ sp ≡ **xl 256** (the last one
+matters: the w4 path still uses the ymm tiles, so the cmp also proves the
+zmm transposes move identical values); `-Wall -Wextra` silent;
+`-fsanitize=undefined` clean at B=8; AVX2 host (wombat) verified
+end-to-end (30.0 us/t at B=8, PASS, repeatable — gcc emulates the 64-byte
+shuffles correctly and the EVEX candidates self-eliminate).
+
+### What was tried and did NOT work — with the numbers that killed it
+
+1. **`#pragma GCC optimize("unroll-loops")` — the L45_pfa panel_r7
+   build-flag fix — tested and REJECTED.**  Their finding: the scored build
+   lacks tryout.sh's `-funroll-loops` and that cost them 10%.  Same-window
+   3-way on wallaby (forced 512t, pfw=0, B=1): unroll ON via command line
+   9.29/9.37 us, unroll OFF 9.36/9.49, **pragma form 9.55/9.62**.  So (a)
+   the flag itself is worth <1% for THIS file — the hot tile loops fully
+   unroll under -O3's complete peeling anyway, and the 2-trip kernel loops
+   are deliberately kept rolled by asm-opaque bounds; and (b) the pragma
+   form actively costs ~2%: the optimize attribute perturbs codegen beyond
+   the named flag (gcc rebuilds the whole per-function option set).  The
+   node build (no -funroll-loops) is therefore ~fine for this entry as-is.
+   Do not add the pragma back; the file header carries the numbers.
+2. A first A/B of the autotuned builds (not forced) read new SLOWER at
+   B=1 (9.24–9.63 vs old best 8.888) — that was pick/window variance, not
+   the transposes; the forced same-window pairs above and the later
+   8.660/8.808 sessions are the honest statistic.  Recorded as a reminder:
+   **never judge a mechanism from autotuned runs when the tuner's pick can
+   differ between builds.**
+3. (All inherited dead ends stand.  In particular this round did NOT
+   revisit transpose-fusion-into-stores (r1 item 2) — the 8x8 blocks make
+   the standalone transpose cheaper, which moves the trade FURTHER against
+   fusion.)
+
+### Borrowed this round (attribution)
+
+* **L17_winograd (panel_r7, via the VERDICT's L=17 synthesis)**: the
+  delete-uops-don't-reschedule lesson that selected this round's mechanism.
+* **L45_pfa (panel_r7)**: the build-flag gap finding and the scalar-audit
+  discipline — tested; the pragma fix does not transfer to this structure
+  (numbers above); their objdump-the-hot-function habit found my transpose
+  index constants properly hoisted, so no scalar-junk fix was needed.
+
+### Next (in order)
+
+1. **Read the node's panel_r8 picks and the B=1 number.**  The transposes
+   benefit every class-A candidate equally, so the pick strings should
+   stay `xl 512t pf=0 pfw=0`-shaped; the question is the size of the B=1
+   move.  Wallaby says −2.8% on two 512-bit FMA units and 3 load ports;
+   the node's single FMA unit means the FMA stream hides LESS of the
+   movement work and its 2 load ports price the deleted load/store slots
+   HIGHER — both push the node gain above wallaby's.
+2. **If B=1 is still >1 us behind matrixsimd after this lands**: the
+   remaining residue is inside the kernel blocks (~90 constant loads + ~60
+   stack moves per block) — the honest next step is the r7 item-3 kernel
+   reshape (matrixsimd's half-size chunks), which is a big rewrite; the
+   alternative one-round lever is splitting the negacyclic-8 into two
+   4-accumulator passes over vv (r5 next-item 3) to cut the vv/cc spills.
+3. **Scalar edges**: the 17th row/column of every transpose is still ~66
+   scalar movsd per array (~4.5k/volume).  An AVX-512 masked-store version
+   is a small, class-safe uop deletion (~2k uops) if the node shows the
+   movement passes still matter after item 1's answer.

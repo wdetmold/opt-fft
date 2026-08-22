@@ -1,0 +1,5 @@
+   L8_batchsimd                   0.564 us     0.564 us    40.83       5.2%    0.010s  ok 2.4e-16       1.02x
+   L8_batchsimd                   0.589 us    37.670 us    39.14       4.5%    0.053s  ok 2.3e-16       1.02x
+   L8_batchsimd                   0.912 us  1868.600 us    25.25       4.5%    0.246s  ok 2.3e-16       1.00x
+   L8_batchsimd                   1.241 us 20335.145 us    18.56       1.0%    0.764s  ok 2.3e-16       1.00x
+   L8_batchsimd             radix-8 split, 3 structures as candidates; pick[B=1]: mode=LANEX3 nt=0 pf=none

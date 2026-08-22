@@ -968,3 +968,153 @@ tuner protocol) is unchanged from my r2–r5 work.
    binaries at B=64 — the VERDICT names 4K aliasing (8192-byte volume stride) as the
    uninvestigated suspect for the whole L2-cliff band, and the two entries' different
    scratch geometries would show up exactly there.
+
+---
+
+## Round panel_r8
+
+### Where round 7 landed (node, panel_r7)
+
+Third in all four cells for the first time: B=1 **0.572** (batchsimd 0.558, fusedaxes
+0.571), B=64 **0.612** (fusedaxes 0.587, batchsimd 0.588), B=2048 **0.980** (fusedaxes
+0.930, batchsimd 0.945 — read honestly ≈0.984 per the VERDICT §3b), B=16384 **1.277**
+(batchsimd 1.232, fusedaxes 1.234).  Three of my four predictions hit (VERDICT §4 item 7),
+and my crossed `{1f,3p} × {pfw,no-pfw}` table is what withdrew the r5 "fusion wins"
+reading (VERDICT §4.3: the answer is pfw, not fusion; my node picks split 3p-pfs-pfw at
+B=2048 / 1f-pfs-pfw at B=16384, both carrying pfw).  The B=1 news is the actionable item:
+**L8_batchsimd took the cell (0.5577/0.5647, picks FUSED 2/3) by offering the fused shape
+at B=1** — the shape I have carried as `1f` since r5, with the same 52-instr codelet class
+— while my node tuner shipped the `2p` default 3/3 (pick strings read `avx512-2p
+(default)`), i.e. `1f` never displaced `2p` past the 2 % hysteresis bar.  fusedaxes' B=1
+tuned to `fused` 3/3 at 0.571 with the heavier 56-op codelet.  The arithmetic is
+consistent: their 0.571 − 48 FP instructions at 2.89 GHz ≈ 0.554–0.558 = batchsimd's
+number, and my `1f` is that same configuration.
+
+### What changed (two candidate-policy edits; zero kernel changes)
+
+1. **B=1 default flipped `2p` → `1f`** (borrowed from **L8_batchsimd**'s panel_r7 B=1 win,
+   which is itself their port of **L8_fusedaxes**' shape; my `1f` has been compiled and
+   correctness-verified since r5).  Set is now {1f (default), 2p, 3p}.  Rationale: two
+   rivals' node tuners independently converged on the fused shape at B=1, and default-first
+   + hysteresis ships the node-proven config without exposure to in-tuner noise — the exact
+   mechanism (r7: my own tuner could not see a 2 % win for `1f` in its own arena) that kept
+   me on 2p while the cell moved.
+2. **`3p-pfs` added to the mid-regime set** (borrowed from **L8_batchsimd**'s LANEX3+s0,
+   which read **0.588 at node B=64** in r7, 2/3 picks).  My mid set had every other
+   {shape} × {plain, pfs} combination but never 3-pass + spread-t0; batchsimd's number says
+   it is competitive exactly in the L2-cliff cell where I trail by 4 %.  Set is now
+   {1f-pfs (default), 3p-pfs, 2p, 1f, 2p-pfs, 3p}.  Default unchanged: 1f-pfs is still the
+   node's 3/3 tuned pick from r5; if 3p-pfs is genuinely 0.588-fast in my code the tuner
+   takes it (it needs >2 %, and the r7 gap is 4 %).
+
+Streaming (big regime) is **byte-identical to r7** — candidate set, defaults, kernels,
+prefetch cadences untouched.  The VERDICT says L=8 streaming is converged on one technique
+across three entries; I am not churning a working path for the residual 3–4 %.
+
+Also read but deliberately NOT adopted this round:
+* **fusedaxes' last-volume prefetch clamp** (pf pointer clamped to the last volume instead
+  of my NULL branch): the only structural difference between our fused kernels.  Its cost
+  in my code is 16 fully-predicted branches per volume ≈ 0.2 %; their fusedAA/seq3AA work
+  (the actual alias mechanisms) was declined by their own node tuner and is the monitor's
+  §6 counter experiment now.  Not worth code churn ahead of that counter.
+* **The mixed-width (ymm interleave) B=1 candidate** from my own r7 "Next" list: the r7
+  VERDICT §5 falsified instruction-count reasoning for L1-resident kernels three ways at
+  L=6 (17–25 % uop reductions, licence-fair race, measured 2.89 GHz clock: zero picks in
+  eight cells — "width buys nothing where the kernel is not front-end-bound").  My B=1 is
+  1.24–1.29× its p0 floor for the same class of reason; I decline to spend the round
+  rediscovering L=6's null.
+
+### Operation count per volume
+
+Unchanged in every shape: 1248 vector FP (24 × 52-instr codelets, 4 real mul + 52 add =
+56-flop optimum per codelet), 896 shuffles, 256+256 (2p/1f) or 384+384 (3p) L1
+loads/stores, 0 copies, 0 spills.  This round moved plan-time policy only; `fft3d_execute`
+code paths are bit-for-bit the r7 kernels.
+
+### What was measured (wallaby, Gold 6448Y SPR, gcc 11.4; clock state mixed across the
+session — driver minima quoted from fast-state runs, comparisons only from same-process
+in-tuner tables)
+
+| B | r7 | this round | pick (fingerprint) | note |
+|---|---|---|---|---|
+| 1 | 0.308 µs | **0.308** | wallaby tunes away from the 1f default (in-tuner, one noisy process: 2p 0.446 < 3p 0.482 < 1f 0.496) | the known wallaby/node B=1 inversion, unchanged from r5–r7: wallaby cannot validate the flip; the basis is the two rivals' node numbers |
+| 64 | 0.310 | **0.309** | **3p-pfs, tuned** (rel_l2 1.910e-16 = 3p family) | in-tuner same-process: **3p-pfs 0.602** < 3p 0.604 < 2p-pfs 0.633 < 2p 0.647 < 1f-pfs 0.658 < 1f 0.681 — the new candidate wins the wallaby table outright |
+| 2048 | — | 0.522 µs/vol | mid set (wallaby ws = 0.53×its L3) | PASS, repeatable |
+| 5632 | 0.595 | 0.594 | 1f-pfs-pfw / 3p-pfs-pfw (flip, see below) | streaming path byte-identical to r7 |
+
+Correctness: PASS at B = 1, 64, 2048, 5632 (rel_l2 1.87e-16 … 2.27e-16, tol 1e-12).
+Forced runs of the two configs the node may newly ship, each checked against numpy
+individually: `L8R_FORCE=avx512-1f` at B=1 (rel_l2 2.269e-16, the 1f-family fingerprint)
+and `L8R_FORCE=avx512-3p-pfs` at B=64 (rel_l2 1.910e-16, bit-matches plain 3p — the
+prefetch is a pure hint, as established in r4).  Builds warning-free under `-Wall -Wextra`
+at cascadelake, haswell, and x86-64.
+
+**A tryout artifact worth recording so nobody reads it as a bug**: at B=5632 tryout.sh
+printed `NOT REPEATABLE` across two *process* runs.  Traced with three tune-debug runs: it
+is the 1f-pfs-pfw ↔ 3p-pfs-pfw pick flip (runs 1–2 picked 1f-pfs-pfw and are bit-identical
+to each other; run 3's table read 3p-pfs-pfw 0.8913 vs 1f-pfs-pfw 0.9101 = 2.06 % — just
+past the hysteresis bar — and its output is the 3p-family bit pattern, also PASS).  Each
+plan is repeatable within itself, which is the contract (rule 4); the twins straddling the
+2 % line on wallaby was documented and accepted in r7.  The node's r7 behavior (3p-pfs-pfw
+3/3 at B=2048, 1f-pfs-pfw 3/3 at B=16384) shows its per-cell preferences are stable and
+>2 % apart, so the flip risk is a wallaby phenomenon.
+
+### What was tried and did NOT work
+
+* Nothing new failed — the round is deliberately two low-risk, node-evidenced policy
+  edits.  The r1–r7 failure lists all stand; the wallaby B=1 inversion (wallaby prefers
+  2p/3p over 1f) was re-confirmed and remains a non-result for node purposes.
+* Known residual, deliberately not attacked: my 1f-pfs at node B=64 runs 4 % behind
+  fusedaxes' isomorphic fused+pfs (0.612 vs 0.587).  I diffed our fused kernels line by
+  line this round: same phase structure, same store tables, same 8+8 spread cadence, my
+  codelet 48 FP lighter; the only structural difference is the prefetch NULL branch
+  (≈0.2 %).  The remaining suspects are the scratch-vs-out 4K-alias allocation lottery
+  (fusedaxes' r7 model: 12–16 blocked loads/volume set by `(scratch − out) mod 4096`) and
+  measurement spread; the VERDICT §6 counter run (`ld_blocks_partial.address_alias`)
+  adjudicates exactly this, so building anything ahead of it would be guessing.  3p-pfs
+  in the mid set is this round's hedge: batchsimd's 0.588 shows the 3-pass family dodges
+  whatever the fused family pays there.
+
+### Attribution summary
+
+Fused shape at B=1: **L8_batchsimd** (panel_r7 B=1 win, 0.558), which is itself
+**L8_fusedaxes**' structure — my `1f` port of it (r5) needed only the default flip.
+3p-pfs at mid: **L8_batchsimd**'s LANEX3+s0 node number.  The decision NOT to build
+mixed-width at B=1: **L6_pfa / L6_unrolled**'s three-way falsification (r7 VERDICT §5).
+The decision NOT to build alias-avoidance: **L8_fusedaxes**' r7 declined-candidate result
+plus the VERDICT §6 pending counter.
+
+### Node predictions (stated to be scored)
+
+* **B=1: 0.555–0.565, pick = 1f (default).**  Basis: batchsimd's FUSED (same shape, same
+  codelet class) measured 0.5577/0.5647 on this node in r7; my 1f is that configuration
+  and ships without needing a tuner win.  If it lands ≈0.572 instead, the 4 %
+  B=64-style gap between my 1f and their FUSED exists at B=1 too and is then almost
+  certainly the scratch-alias lottery — one more datum for the §6 counter.  If 2p
+  displaces 1f (needs >2 % in-tuner), read the pick string: that would mean my 1f
+  genuinely loses to 2p on the node and the batchsimd analogy fails inside my file.
+* **B=64: 0.590–0.615.**  If 3p-pfs behaves like batchsimd's LANEX3+s0 (0.588), the
+  tuner takes it (4 % > the 2 % bar) and the cell lands ≈0.59; if my 3-pass pays the
+  same tax my fused does, the 1f-pfs default ships ≈0.612 unchanged.  The pick string
+  is the diagnostic either way.
+* **B=2048: 0.96–1.00, pick 3p-pfs-pfw; B=16384: 1.25–1.30, pick 1f-pfs-pfw** —
+  byte-identical code and candidate sets to r7.
+* Standing asks for the monitor, unchanged: the §6 `ld_blocks_partial.address_alias`
+  counter at L=8 B=1/B=64 (fusedaxes' variants, but the answer transfers to all three
+  entries), and the `-DL8R_SCRX=128` A/B (r3–r7, settles LITERATURE §4.5's padding
+  question for my 3p scratch).
+
+### Next
+
+1. **Read the B=1 and B=64 pick strings first** — each of this round's two edits carries
+   its own diagnostic (see predictions above).
+2. **If the §6 alias counter lands and shows my scratch drew a bad residue**, the fix is
+   cheap and already designed: allocate the scratch with 4 KiB of slack and choose the
+   base at create time against the tuner arena's residue — but only *after* the counter
+   says the mechanism is real and mine, because fusedaxes' node tuner already declined
+   their execute-time version of exactly this.
+3. **If B=1 lands ≈0.558**, the three entries have converged on one B=1 configuration
+   and the cell is done at 1.24× floor pending the alias counter; propose to the panel
+   that L=8 B=1, like streaming, stops being tuned.
+4. Still do not touch the codelet, the transpose networks, or the streaming candidate
+   set.

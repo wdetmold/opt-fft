@@ -1326,3 +1326,154 @@ independent kills, same verdict.
 4. **B=4**: if istream+pfw is picked and the cell still trails mixedradix,
    the difference is inside the small-batch pass A ordering; diff their
    y-pass against my y-first order before spending a round.
+
+---
+
+## Round panel_r8
+
+### Where round r7 landed, and the diagnosis
+
+Node (Gold 5218, panel_r7): third in all four cells, but close everywhere —
+B=1 123.987 vs mixedradix 118.532 (−4.4%), B=4 130.665 vs 129.562 (−0.8%),
+B=32 169.577 vs 166.444 (−1.8%, second, ahead of pfa's 170.083), B=256
+186.452 vs pfa 183.529 (−1.6%). Node picks matched my predictions exactly:
+pw4 inplace at B=1/B=4, pw4 istream+pfw at B=32/B=256. The r6 mode-8 port
+finally scored and delivered (B=32 −9.3%, B=256 −19.0% vs r5); the NTA bet
+was a clean null in all three entries' forms (my modes 9/10 included) —
+NTA is closed for L=36. The verdict's honest reading of my "B=1 regression"
+(121.255 → 123.987): r5's 121.255 was the outlier run; this entry has been
+at ~124 all along. Not promoted this round (bit-identical to pfa at
+B=32/256, third at B=1). The monitor's L=36 instruction: **stop tuning the
+batched cells** (B=256 is at its own modelled traffic floor), and the B=1
+counter run (`l2_rqsts.all_demand_miss,LLC-loads,idq.dsb_uops,idq.mite_uops`)
+comes before anyone writes another candidate.
+
+The actionable signal was elsewhere in the verdict (§4, cross-cutting,
+"applies to every entry"): **L45_pfa r7 objdump-diffed the scored build and
+found it does NOT carry `-funroll-loops`**, which tryout.sh does, and
+measured their own code 10% slower without it; they pinned the codegen with
+a file-level `#pragma GCC optimize("unroll-loops")`. That fits my one
+unexplained cross-machine anomaly precisely: on wallaby I *beat* mixedradix
+at B=1 (51.5–53.2 vs their 54.2–55.2, same sessions) yet trail them by 4.4%
+on the node, and my wallaby→node ratio (2.33×) is the worst of the three
+L=36 entries (mixedradix 2.15–2.19×). Every wallaby number in this file
+since round 1 was taken under `-funroll-loops`; every node number without
+it. The two machines were not running the same code.
+
+### Technique (round r8): build-flag parity — one pragma, verified at the disassembly level
+
+Line kernel, both widths, all modes 0–10, tuner: byte-identical logic. One
+change: **`#pragma GCC optimize("unroll-loops")` at the top of the common
+part** (adopted from **L45_pfa r7** — stated plainly, this is the round's
+only change and it is a borrow). It applies to every function defined after
+it, including both `#include __FILE__` instantiations, and composes with
+the per-function `target(...)` attributes.
+
+Why my code is exposed: the hot loops are 9-iteration subloops (pass A's
+zg/kg groups at PW=4) and the 324-iteration pass-B group loop, each wrapping
+a ~250-vector-op straight-line PFA36 body plus runtime offset arithmetic
+and per-line prefetch loops (PFRD/PFWR = 18-iteration prefetch bursts).
+With `-funroll-loops` gcc unrolls these and constant-folds the offsets;
+without it they stay rolled. Disassembly evidence (gcc 11.4,
+`-march=cascadelake`, static counts):
+
+| function | node build (no unroll) | tryout build (unroll) | pragma, no flag | pragma + explicit `-fno-unroll-loops` |
+|---|---|---|---|---|
+| exec_v4 total / prefetch | 3529 / 8 | 3888 / 54 | 4080 / 54 | 4080 / 54 |
+| passA_plane_v4 total / prefetch | 1236 / 5 | 1361 / 45 | 1360 / 45 | 1360 / 45 |
+| passB_nt_v4 total / prefetch | 613 / 2 | 696 / 30 | 700 / 30 | 700 / 30 |
+
+The pragma restores the unrolled codegen exactly and **wins even against an
+explicit `-fno-unroll-loops` on the command line**, so the scored build now
+executes the shape every measurement in this file was taken on. (The
+prefetch column is static site count — rolled loops still issue the same
+dynamic prefetches — but it is the cleanest fingerprint of which codegen
+you got.)
+
+### Scalar-instruction audit (L45_pfa r7's second finding, checked and clean)
+
+Audited exec_v4 in the pragma build: 2403 vector instructions (218
+stack-touching — the known yv/zv/u live-set spills), 522 scalar-integer,
+167 `lea`, and **zero** computed-index addressing (`(%r_,%r_,8)`) — gcc is
+using constant displacements throughout; there is no materialised offset
+table and no L45_pfa-style 758-scalar pathology here. Recorded as a checked
+negative so nobody re-audits this file.
+
+### Operation count
+
+Unchanged: 248 FMA-port ops + 49 port-5 shuffles per 36-point line over PW
+lanes; 241k FMA-port vector ops/volume at PW=4; ~83 µs/volume port floor at
+the 2.89 GHz licence clock. The pragma changes codegen, not arithmetic:
+rel_l2 fingerprints are unchanged to the last digit (mode 0: 3.835e-16,
+istream family: 3.654e-16), i.e. the arithmetic order is identical.
+
+### What was measured (wallaby, Gold 6448Y; µs per transform, driver min;
+rel_l2 3.65–3.84e-16, bit-identical re-runs on every run listed)
+
+The motivating A/B — current code, default tryout flags vs appended
+`-fno-unroll-loops` (emulating the node build), fast-window mins across
+alternating runs: **51.5 / 52.3 (unrolled) vs 53.7 / 59.5 (rolled)** —
+the rolled build is +4–13% at B=1 on wallaby. (Session had the documented
+bimodal ~2× slow state; two ~100 µs runs discarded per the r2 rule.)
+
+Final code (pragma in), default flags: B=1 **52.7** / 54.2 / 57.4 across
+windows (parity with the 51.5–52.3 baseline — under tryout flags the pragma
+is a near-no-op, as designed); B=4 79.6 µs/vol (fast window; one slow-state
+131.2 discarded); B=32 **73.4 µs/vol** (r7: 73.8); B=256 **98.9 µs/vol**
+(r7: 99.9). Final code + explicit `-fno-unroll-loops`: 53.9 at B=1 in its
+window, and the binary is instruction-identical to the unrolled one, so the
+node's flag set can no longer change the codegen. Hygiene: AVX2-only path
+end-to-end on the Haswell login node (B=2, PASS 3.818e-16, bit-repeatable);
+clean builds under bare `-O2` and `-march=haswell`; `-march=cascadelake`
+disassembly carries all prefetch sites.
+
+### What was tried and did NOT work — with the number that killed it
+
+1. Nothing failed this round; it was deliberately the narrowest round yet
+   (one pragma), on the monitor's explicit L=36 instruction: the batched
+   cells are at their traffic floor and B=1's residual is waiting on the
+   counter run, so writing new candidates before that data exists would be
+   guessing. The scalar audit was the round's second planned lever and it
+   returned clean (above), which closes it for this file.
+
+### Attribution summary
+
+Build-flag gap discovery, the 10% measurement, and the pragma fix:
+**L45_pfa r7** (verdict §4, flagged as applying to every entry). The
+scalar-instruction audit protocol: **L45_pfa r7**. The wallaby −fno-unroll
+A/B and the pragma-beats-explicit-flag disassembly verification: this file,
+this round.
+
+### Predictions for the node (stated so they can be scored)
+
+* Picks unchanged: B=1/B=4 pw4 inplace, B=32/B=256 pw4 istream+pfw.
+* **B=1: 117–122** (from 123.987). The wallaby rolled-vs-unrolled delta is
+  +4–13%; if even the low end transfers, ~119. If B=1 lands at 123–125
+  unchanged, the node's gcc/uarch pair is insensitive to the rolled loops
+  and the build-flag theory is dead for L=36 — a clean null worth having,
+  since it would leave the B=1 gap to mixedradix purely structural.
+* B=4: **125–130** (from 130.665; same mechanism, thinner margin).
+* B=32: **164–170** (from 169.577), B=256: **181–187** (from 186.452) —
+  streaming cells are memory-shaped, so the unroll gain is mostly hidden;
+  parity or small gains only.
+* Caveat stated for fairness: mixedradix and pfa read the same verdict and
+  will likely ship the same pragma, so the *relative* standings may not
+  move even if every absolute number does.
+
+### Next
+
+1. **The B=1 counter run** (three rounds requested, still unrun):
+   `perf stat -e l2_rqsts.all_demand_miss,LLC-loads,idq.dsb_uops,idq.mite_uops`
+   at B=1 discriminates L2-thrash from front-end for the whole L=36 board.
+   With NTA closed by null and the two-group pipeline dead, nobody should
+   write another B=1 candidate before this number exists.
+2. If the pragma pays and the counters say front-end (MITE-heavy): the
+   unrolled exec_v4 is ~4080 instructions against a ~1.5k-uop DSB, so the
+   next lever is *shrinking* the unrolled body (e.g. rolling the pass-B
+   prefetch bursts back into the PFA36 macro sites), not growing it.
+3. If the counters say L2: pfa's diagnosis was right and NTA was the wrong
+   instrument; the remaining instrument is a smaller resident set — e.g. an
+   L2-blocked pass B that processes out in half-volume slabs interleaved
+   with pass A. Design only with the counter data in hand.
+4. B=256 remains at its modelled floor; leave it alone until something
+   structural changes (monitor's standing instruction).

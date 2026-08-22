@@ -305,3 +305,160 @@ leaderboard.
 4. The arithmetic is settled (L23_rader r6's counting).  If the panel wants
    a genuinely new experiment at a prime, L=13 (p−1 = 4·3) is the
    interpolating case — noted for the panel, not for this entry.
+
+## Round panel_r8 (2026-08-22)
+
+### Standing going in (first node numbers, r7 leaderboard + verdict)
+
+Node: **B=1 47.717 µs (cell best, 1.14× the 41.9 µs port floor — the
+tightest floor ratio on the board), B=4 49.440, B=128 65.593** — a
+statistical tie with L23_rader in all three cells (47.854 / 49.232 /
+65.197; rader holds B=4 and B=128 on the minima).  My r7 B=1 prediction
+(53–58 µs) was beaten from the right side.  Two verdict findings define
+this round:
+
+1. **Not promoted.**  The verdict (§3, §7) found L23_matrixsimd ≡
+   L23_rader bit-identically at every batch size — L=23 is one algorithm
+   implemented twice — and promoted rader, in part because **my entry was
+   "the board's worst timed-≠-checked offender": all three cells reported
+   a time from a tuner pick that run 3 (the checked run) did not make.**
+   The picks differed across processes because 18 near-tied variants were
+   ranked by min-of-noise.  My cmp discipline means the numbers are almost
+   certainly right, but the harness could not prove them.  That is a
+   protocol defect in MY plan code, and fixing it is worth more than a
+   kernel this round.
+2. The verdict's remaining kernel lever for L=23: "row-padded t1 to fix
+   the Y-pass load splits, at +1.2% volume FP — one tuner-gated
+   experiment."  (My own r7 next-item 2.)
+
+### What changed (protocol first, one gated kernel experiment)
+
+1. **Deterministic tuner: canonical-order hysteresis.**  The selectable
+   set (now 26) is listed in a canonical preference order (512-bit cached
+   family first — the node's r7 pick family — then 512-bit NT, then
+   256-bit); walking the list, a candidate displaces the incumbent only if
+   it beats it by **>2%**.  Near-ties now resolve to the same variant in
+   every process; a real mechanism still wins (wallaby's NT-at-streaming
+   is +13%, far above the margin).  Verified: 4/4 independent plan
+   creations at B=1 picked the same variant on a *contended* wallaby
+   (r7's tuner flipped constantly under the same conditions).
+2. **Two-sweep ranking + selectables only** (adopted from **L17_rader
+   r6**): two full fixed-order sweeps with per-candidate minima, and the
+   14 never-selectable variants (X-last, table kernels) are no longer
+   timed at plan time at all — they exist for forced experiments only.
+   Cuts tuner licence churn and plan time roughly in half.
+3. **za variants (the verdict's named experiment), tuner-gated.**  The
+   z-extent of t1 is padded 23 → 24 complex per row (row stride 48
+   doubles, plane 1104 doubles = 138 lines, 640 mod 4096 — decorrelated
+   from the driver's 272): **every plane-phase Y load from t1 becomes
+   64-byte aligned** (flat layout: ~3/4 split a cache line, ~2400 split
+   loads/volume).  Cost: the X pass goes row by row — 138 chunks instead
+   of 133 (+1.2% volume FP).  Construction detail: rows y<22 use exactly
+   WC-aligned offsets {0,4,8,12,16,20}; lane 23 of the last chunk reads
+   input element (y+1,0) — real and in-bounds — and writes a pad column
+   that flows only into plane-buffer row 23, which the Z pass never
+   reads.  Row y=22 keeps the overlapping offsets so nothing reads past
+   the volume, and its pad element is never written (buffer zeroed at
+   create, stays finite even after other variants scribble t1 — vector
+   ops are lanewise, so the garbage lane cannot contaminate lanes 20–22).
+   Eight variants (plain/pipelined/deferred-Z/NT × width), candidates
+   40–47.
+4. **Two checked nulls from L45_pfa r7's findings** (so nobody re-runs
+   them here): (i) the `-funroll-loops` build-flag gap **does not apply
+   to this entry** — same-window alternating A/B with node flags: unroll
+   {21.91, 21.49, 22.23} vs no-unroll {21.73, 21.82, 21.17} µs at B=1, a
+   wash with bit-identical outputs (hot kernels are hand-unrolled; the
+   rolled loops carry an intentional `unroll 1`).  My first cross-window
+   reading said "6.3% gap" — that was wallaby's clock-state swing, not
+   the flag.  No pragma shipped.  (ii) Scalar-instruction audit: 142
+   scalar instructions in the whole hot exec (loop control + addressing),
+   1482 vector; no offset-table materialisation.  Nothing to fix.
+
+### Operation count
+
+Unchanged in the canonical variants: 594 real flop/line, 943 kflop/volume,
+297 vector FP ops per chunk, 409 zmm chunks.  za variants: 414 chunks
+(+1.2%); node FP floor for za ≈ 42.4 µs vs 41.9 flat.
+
+### Bit-class verification (every call site recompiled, so redone in full)
+
+One class, pinned X-first, now 26 selectable variants.  Forced-variant cmp
+on full outputs, wallaby, every run asserting its own PASS: **all 26 at
+B=4 IDENTICAL** to the class representative (v8), including all eight new
+za variants; spot re-check at B=64 (8, 13, 35, 40, 41, 42, 43, 45) all
+IDENTICAL.  AVX2 host (wombat): PASS at 85.1 µs/vol B=2, repeatable.
+
+### What was measured (wallaby, Xeon Gold 6448Y; contended day, best of
+quiet windows; full-tuner end-to-end via tryout.sh)
+
+| case | r8 | r7 | pick |
+|---|---|---|---|
+| B=1   | **21.03 µs**  | 21.32 | 512-bit pinned X-first (canonical), pw per grid |
+| B=8   | 24.87 µs/vol  | 25.11 | canonical |
+| B=64  | 24.56 µs/vol  | 25.63 | canonical |
+| B=256 | 30.27 µs/vol  | 30.77 | 512-bit pinned X-first NT planes |
+
+rel L2 3.8e-16 everywhere, bit-repeatable.  Differences from r7 are within
+wallaby's window-to-window swing — expected: the arithmetic is unchanged
+and this round was protocol + one gated experiment.
+
+**za A/B (forced, same-window alternating, pf=pw=0):** B=1 mins over six
+rounds: za 21.16 vs flat 21.17; pipelined-za 21.12 vs pipelined 21.18.
+Streaming B=256: za 33.59 vs flat 33.77 µs/vol cached; za-NT 29.28 vs NT
+29.44.  **A wash everywhere on wallaby** — the +1.2% FP does not show
+(two FMA units halve its cost here) and the split-load saving does not
+show either.  On the node (one 512-bit FMA unit: +1.2% FP costs the full
+1.2%; but split economics also differ) it stays selectable and the 2%
+hysteresis means it is picked only on a real win.  Honest expectation:
+the node keeps the flat canonical variant and za is a documented null —
+the counter (`ld_blocks_partial.address_alias`, verdict §6) would settle
+*why*.
+
+### What did NOT work / caveats (with numbers)
+
+* **The unroll-flag "gap" was a clock artifact** — see checked null above.
+  Do not trust a cross-window wallaby comparison for a ≤6% effect, even
+  with sd < 1% in both runs; the clock state shifts *between* runs.
+* **Deferred-Z at B=1 on wallaby no longer shows its r7 win**: quiet-window
+  forced mins 21.74 (dz) / 21.41 (dz-za) vs 21.17 (plain).  r7's "24.1 vs
+  43–45" table was contended; the node never picked dz at B=1/B=4 either
+  (r7 picks: plain and pipelined).  dz stays selectable but behind the 2%
+  margin it will likely never be picked — consistent with the L17 story
+  (three scheduling attacks rejected on the node, verdict §6).
+* **One pick flip under heavy contention remains possible**: in 3 plan
+  creations at B=256 on the worst window, NT-za once displaced NT (true
+  ~0.5% tie; one bad draw of the incumbent across both sweeps).  Stage 1b
+  now takes 3 reps × 2 sweeps.  On the node (0.3% spread) a 2% margin is
+  many sigma; the exposure should be closed there.
+* wallaby was heavily contended all session (same-variant B=1 mins swung
+  21–41 µs between windows); every number above is min-of-alternation or
+  a quiet-window tryout, per the r5/r7 measurement lessons.
+
+### Where this stands
+
+Node prediction: **B=1 ≈ 47.7 µs unchanged** (arithmetic identical;
+canonical pick = r7's timed pick), B=4 ≈ 49.4, B=128 ≈ 65.6 with pw per
+grid — but now **the same variant in every process**, so timed = checked
+and the §3a exposure is gone.  za: expected null on the node (picked only
+if it wins >2%; wallaby says it will not).  If the panel wants the L=23
+slot decided on substance rather than protocol, this round removes the
+protocol objection; the algorithms remain identical, which is the
+verdict's real point.
+
+### Next
+
+1. **Node feedback**: confirm timed pick == checked pick in all three
+   cells (the round's purpose); note whether pw survives at B=128 under
+   the deterministic variant.
+2. If the monitor runs the outstanding counter
+   (`perf stat -e ld_blocks_partial.address_alias,cycles`, verdict item 1)
+   the za pair (`-DL23_FORCE=8` vs `40`) is the cleanest split-load A/B on
+   the board: identical arithmetic ±5 chunks, both in the shipped binary.
+3. The streaming cells (B=128, 65.6 µs vs a ~47–50 µs bandwidth-overlap
+   bound) are the only place with real headroom left; the node rejected
+   pf, pipelining and NT there in r7, so the next mechanism would have to
+   be a genuinely better overlap schedule (e.g. pacing the X pass of
+   volume b+1 into the *tail* planes only).  Wallaby cannot rank this
+   (different L2/L3 and BW); it needs node A/Bs or the counter first.
+4. The arithmetic remains settled (L23_rader r6 counting; verdict §5
+   confirms dense wins at 13, 17 and 23).
