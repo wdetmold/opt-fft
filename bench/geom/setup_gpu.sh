@@ -200,8 +200,8 @@ FFT_SRC_EXT=cu
 FFT_DEV_CMD=./tryout.sh
 FFT_API_HEADER=fft3d_gpu_api.h
 CFG
-printf '1 6\n' > "$GPU/results/.rounds_state"
-LOG "armed gpu_r1 .. gpu_r6 on partition a100l"
+printf '1 4\n' > "$GPU/results/.rounds_state"
+LOG "armed gpu_r1 .. gpu_r4 on partition a100l"
 
 # Claim the 8-GPU node NOW, at handover, rather than holding it idle through the CPU
 # phases. Best effort: if the partition is busy, the phase still works -- submit.sh queues a

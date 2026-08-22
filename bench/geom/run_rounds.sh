@@ -95,11 +95,13 @@ mkdir -p "$LOGDIR" "$GEOM/results"
 ROUNDS=6
 RESUME=0
 DRYRUN=0
+FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --rounds) ROUNDS=$2; shift 2 ;;
     --resume) RESUME=1; shift ;;
     --dry-run) DRYRUN=1; shift ;;
+    --force) FORCE=1; shift ;;
     --harness) shift 2 ;;   # already consumed above, before the cd
     --jobs) JOBS=$2; shift 2 ;;
     --impl-model) IMPL_MODEL=$2; shift 2 ;;
@@ -121,9 +123,18 @@ else
   NEXT=${FFT_FIRST_ROUND:-2}      # panel_r1 was run by hand; other phases start at 1
   [ -f "$STATE" ] && read -r EXISTING _ < "$STATE" && NEXT=$EXISTING
   LAST=$((NEXT + ROUNDS - 1))
-  # A dry run must not touch real state. Truncating the series here once caused the next
-  # phase's setup hook to fire four rounds early, from a simulation.
-  if [ "$DRYRUN" != 1 ]; then
+  # Starting a series REPLACES the plan for a live campaign, so it must be deliberate. This
+  # has gone wrong twice: a --dry-run truncated the series and fired the next phase's hook
+  # four rounds early, and a bare `--rounds 1` typed against the live harness while a round
+  # was in flight silently cut the series short. An existing state file is now refused
+  # unless --force says otherwise, and a dry run never writes at all.
+  if [ "$DRYRUN" = 1 ]; then
+    :
+  elif [ -f "$STATE" ] && [ "$FORCE" != 1 ]; then
+    log "refusing to restart the series: $STATE already says '$(cat "$STATE")'."
+    log "  use --resume to continue it, or --rounds N --force to deliberately replace it."
+    exit 2
+  else
     printf '%s %s\n' "$NEXT" "$LAST" > "$STATE"
   fi
 fi

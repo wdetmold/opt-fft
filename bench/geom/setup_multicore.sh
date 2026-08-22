@@ -227,8 +227,8 @@ FFT_FIRST_ROUND=1
 FFT_PARTITION=devel
 FFT_TIME=59
 CFG
-printf '1 6\n' > "$MT/results/.rounds_state"
-LOG "armed mt_r1 .. mt_r6"
+printf '1 4\n' > "$MT/results/.rounds_state"
+LOG "armed mt_r1 .. mt_r4"
 
 # The GPU phase takes over when the multicore series finishes.
 cp "$GEOM/setup_gpu.sh" "$MT/setup_gpu.sh" 2>/dev/null && chmod +x "$MT/setup_gpu.sh" \
