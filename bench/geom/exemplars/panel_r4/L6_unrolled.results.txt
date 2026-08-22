@@ -1,0 +1,5 @@
+   L6_unrolled                    0.219 us     0.219 us    38.32       2.9%    0.468s  ok 2.4e-16       1.00x
+   L6_unrolled                    0.214 us    13.684 us    39.17       3.5%    0.463s  ok 2.4e-16       1.00x
+   L6_unrolled                    0.397 us  1626.062 us    21.10       1.4%    0.419s  ok 2.4e-16       1.03x
+   L6_unrolled                    0.566 us 18550.399 us    14.79       1.6%    2.135s  ok 2.4e-16       1.00x
+   L6_unrolled              L=6: unrolled PFA 2x3 codelet (48 flop/36 instr, no twiddles), AVX2 2-complex lanes; variant=fused_pf clk=3.89GHz

@@ -1,0 +1,5 @@
+   L8_radix8                      0.570 us     0.570 us    40.41       6.6%    0.032s  ok 1.4e-16       1.00x
+   L8_radix8                      0.680 us    43.511 us    33.89       1.6%    0.034s  ok 1.9e-16       1.09x
+   L8_radix8                      1.136 us  2325.552 us    20.29       1.0%    0.255s  ok 1.9e-16       1.00x
+   L8_radix8                      1.418 us 23229.808 us    16.25       3.8%    0.796s  ok 1.9e-16       1.00x
+   L8_radix8                radix-8 split-complex 52-instr codelet, copy-free transposes; 3-pass writes the volume sequentially; tuner pick[B=64]=avx512-3p (default)

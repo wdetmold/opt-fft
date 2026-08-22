@@ -1,0 +1,5 @@
+   L17_rader                     17.742 us    17.742 us    16.98       0.6%    0.026s  ok 3.2e-16       1.08x
+   L17_rader                     19.293 us   154.346 us    15.61       3.3%    0.036s  ok 3.2e-16       1.07x
+   L17_rader                     25.202 us  6451.740 us    11.95       3.7%    0.296s  ok 3.2e-16       1.17x
+   L17_rader                     25.704 us 52642.740 us    11.72       1.0%    0.439s  ok 3.2e-16       1.15x
+   L17_rader                Rader-17 cyclic/negacyclic (kernel from L17_winograd), plane-fused; tuned: xl 512t, pf=0
