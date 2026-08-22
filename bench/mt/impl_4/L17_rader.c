@@ -3310,23 +3310,33 @@ fft3d_plan *fft3d_create(int L, int batch)
              * knob-after-team race can never see the interaction (the
              * panel's standing "never race interacting knobs
              * sequentially" lesson). */
-            static const int teams[] = {2, 4, 8, 12, 14, 16, 17, 20, 24, 32};
+            /* mt_r4: grid trimmed to the sizes any machine has ever picked
+             * (node: 16, 16, 12/8 across three rounds; wallaby: 16-17).
+             * nt=2/4 and 24/32 have never been within 20% of winning --
+             * dropping them buys the survivors more reps. */
+            static const int teams[] = {8, 12, 14, 16, 17, 20};
             int tlist[12], ntc = 0;
             for (unsigned i = 0; i < sizeof teams / sizeof *teams; ++i)
                 if (teams[i] <= ntm) tlist[ntc++] = teams[i];
             double us_vp[12][2];
             for (int i = 0; i < ntc; ++i)
-                us_vp[i][0] = us_vp[i][1] = 1e30;
-            double us_st = 1e30;
+                us_vp[i][0] = us_vp[i][1] = 0.0;
+            double us_st = 0.0;
             for (int pass = 0; pass < 2; ++pass) {   /* order-bias guard */
                 /* the incumbent is timed with the workers PARKED (idle
                  * cores, full single-core turbo -- its real conditions if
                  * it wins and the pool is torn down) and the vp candidates
-                 * with the workers spinning (their real conditions) */
+                 * with the workers spinning (their real conditions).
+                 * mt_r4: the pick statistic is the SUM over both sweeps
+                 * (was min) -- a config must be fast in both to win.  The
+                 * node's r3 processes picked nt=12/12/8 off lucky minima
+                 * and scored 6.955 where r2's nt=16 scored 6.776; the
+                 * sweep-sum is the cheap version of the median statistic
+                 * that stabilised matrixsimd's and winograd's picks. */
                 l17r_pool_hold(p->pool, 1);
                 p->mode = 0;
                 double u = l17r_time_cfg(p, 1, 3);
-                if (u < us_st) us_st = u;
+                us_st += u;
                 l17r_pool_hold(p->pool, 0);
                 for (int i = 0; i < ntc; ++i)
                     for (int xp = 0; xp < 2; ++xp) {
@@ -3334,8 +3344,13 @@ fft3d_plan *fft3d_create(int L, int batch)
                         p->nt = tlist[i];
                         p->xpf = xp;
                         u = l17r_time_cfg(p, 1, 3);
-                        if (u < us_vp[i][xp]) us_vp[i][xp] = u;
+                        us_vp[i][xp] += u;
                     }
+            }
+            us_st *= 0.5;             /* back to us/t for the margins/desc */
+            for (int i = 0; i < ntc; ++i) {
+                us_vp[i][0] *= 0.5;
+                us_vp[i][1] *= 0.5;
             }
             int bi = 0, bx = 0;
             for (int i = 0; i < ntc; ++i)
@@ -3891,6 +3906,7 @@ void fft3d_destroy(fft3d_plan *p)
     for (int t = 0; t < L17R_MAXT; ++t)
         if (p->sh[t]) {
             free(p->sh[t]->mem);
+            free(p->sh[t]->wgbuf_raw);
             free(p->sh[t]);
         }
     free(p->vpmem);

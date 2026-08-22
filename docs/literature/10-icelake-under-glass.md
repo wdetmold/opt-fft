@@ -3,7 +3,7 @@
 > **Provenance.** Transcribed from Will's artifact "Ice Lake Under Glass"
 > (claude.ai/code artifact `3eaceed9`, 2026-08-22): a hand-optimizer's digest of the
 > microarchitectural forensics performed by **seven independent optimization agents** on the
-> **Taiga grading tier** — a KVM/Firecracker slice of an Ice Lake-SP Xeon (family 6, model
+> **grading tier** — a KVM/Firecracker slice of an Ice Lake-SP Xeon (family 6, model
 > 106, "Intel Xeon Processor @ 2.60GHz", 4 vCPU of an n2-standard-128). All seven optimized
 > the same batched 3D complex-double FFT workload, single core, AVX-512. Sources: full
 > session transcripts of the seven graded attempts (main-v4, 2026-08-22), independently
