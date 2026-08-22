@@ -216,6 +216,34 @@ setup_impl_dir() {
 
 # What previous generations did. Every implementer is pointed at ALL of it, not just its
 # own lineage: a technique that won at one geometry frequently transfers.
+# A new phase starts with an empty harness, so its first round would otherwise see nothing:
+# mt_r1's context pack was 13 lines against 344 for the CPU rounds, leaving the multicore
+# implementers blind to a whole phase of results. FFT_PREV_HARNESS names the phase this one
+# grew out of, and its material is appended to the pack.
+append_prev_phase() {
+  local out=$1
+  local prev=${FFT_PREV_HARNESS:-}
+  [ -n "$prev" ] || return 0
+  [ -d "$prev" ] || return 0
+
+  echo "## The PREVIOUS PHASE ($prev)" >> "$out"
+  echo "   Different hardware, so its TIMES are not comparable to yours -- but the same" >> "$out"
+  echo "   kernels, and its reasoning is directly useful. Read the record for YOUR file" >> "$out"
+  echo "   first, then its rivals'." >> "$out"
+  echo >> "$out"
+  ls -1 "$prev"/strategies/*.md 2>/dev/null | sed 's/^/    /' >> "$out"
+  ls -d "$prev"/exemplars/*/ 2>/dev/null | sed 's/^/    /' >> "$out"
+  echo >> "$out"
+  echo "### That phase's final standings" >> "$out"
+  local final
+  final=$(ls -1t "$prev"/results/*/leaderboard.txt 2>/dev/null | head -1)
+  if [ -n "$final" ]; then
+    echo "   from $final" >> "$out"
+    sed -n '1,140p' "$final" >> "$out"
+  fi
+  echo >> "$out"
+}
+
 build_context() {
   local round=$1 out=$2
   {
@@ -253,6 +281,7 @@ build_context() {
     latest=$(ls -1t "$GEOM"/results/*/leaderboard.txt 2>/dev/null | head -1)
     if [ -n "$latest" ]; then sed -n '1,200p' "$latest"; else echo "  (none yet)"; fi
   } > "$out"
+  append_prev_phase "$out"
 }
 
 # ---------------------------------------------------------------- phase 1: implementers

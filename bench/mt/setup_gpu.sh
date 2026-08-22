@@ -199,7 +199,6 @@ FFT_TIME=120
 FFT_SRC_EXT=cu
 FFT_DEV_CMD=./tryout.sh
 FFT_API_HEADER=fft3d_gpu_api.h
-FFT_PREV_HARNESS=/home/lqcd/wdetmold/fft/bench/mt
 CFG
 printf '1 4\n' > "$GPU/results/.rounds_state"
 LOG "armed gpu_r1 .. gpu_r4 on partition a100l"

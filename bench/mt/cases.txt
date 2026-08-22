@@ -1,0 +1,11 @@
+# Multicore sweep. B=1 is kept because it is the hard case for parallelism -- one small
+# volume across many cores is latency-bound and may not scale at all, which is itself a
+# result worth recording. The large batches are where the cores should pay.
+6:1     6:4096    6:65536
+8:1     8:2048    8:32768
+17:1    17:256    17:4096
+36:1    36:32     36:512
+13:1    13:512    13:8192
+23:1    23:128    23:2048
+45:1    45:16     45:256
+64:1    64:8      64:128
