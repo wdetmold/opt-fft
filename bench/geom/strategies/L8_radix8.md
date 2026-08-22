@@ -1267,3 +1267,171 @@ L36_mixedradix, L8_fusedaxes).  The decision not to ship an unroll pragma:
    this record.
 4. Still do not touch the codelet, the transpose networks, or the streaming candidate
    set.
+
+---
+
+## Round panel_r10
+
+### Where round 9 landed (node, panel_r9)
+
+Third in all four cells for the second round, not promoted, and named the consolidation
+donor (VERDICT §6/§7).  B=1 **0.5784** (batchsimd 0.5527, fusedaxes 0.5530); my prediction
+failed on both the number (0.570 ± 0.002) and the pick (2p shipped 1/3, not 3/3 — the
+arena displaced the 2p default to `1f` in runs 1–2).  But the arena strings I built in r9
+delivered exactly the discrimination they were built for: **the node's create() arena
+ranks `1f` above `2p` in 5 of 6 runs across r8–r9 (r9: 1f 0.565–0.574 vs 2p 0.561–0.603)
+while the driver ranks `1f` 0.6–2 % slower (r8: 1f 0.5813/0.5829 vs 2p 0.5700)** — the
+arena-inverts-the-driver failure, now measured in one binary.  B=64 **0.5971 min /
+0.6369 median, spread 11.3 % at IDENTICAL picks (1f-pfs 3/3) and identical scratch residue
+(scr@0x4c0 all runs)** — so the B=64 spread is the driver-buffer allocation lottery, not
+pick noise.  B=2048 0.9774 / B=16384 1.269, both within 1.5–3 % of fusedaxes, streaming
+declared converged.
+
+Two rival results define this round's moves:
+
+1. **L8_batchsimd won B=1 (0.5527, "fixed, no tuner" 3/3, tail eliminated)** with three
+   changes: SI moved from scr+512 to scr+520 doubles (breaking an **exact 4096-byte**
+   relation between the two halves of its own scratch), a page-aligned arena, and **no
+   B=1 tournament at all** (its arena had picked a driver-slower variant in 4 of 6
+   creates).  The VERDICT (§5) elevates the first into the §4.5 refinement: **the 4K-alias
+   mechanism is reachable when both colliding addresses are inside the plan's own scratch,
+   and unreachable when one is a driver buffer.**  My `1f` has exactly the reachable
+   defect: `sr = scr, si = scr + 512` doubles — si is EXACTLY 4096 B after sr, so every
+   phase-A store pair ST(sr+o)/ST(si+o) and every phase-B load pair LD(rrow+o)/LD(irow+o)
+   shares its bits-11:6 line residue, and phase-B loads from sr can be 4K-blocked by
+   phase-A's in-flight si stores.
+2. **The bill**: batchsimd applied the layout change to every mode and paid **+5.2 % at
+   B=2048** and +2.5 % at B=64 (VERDICT §2); its r10 file now gates SI=520 to B=1 only.
+   L8_fusedaxes has likewise added de-aliased `fusedSI` variants at +520 this round.
+
+### What changed (three edits)
+
+1. **De-aliased fused-shape twins `1f520`** (borrowed from **L8_batchsimd**'s panel_r9
+   B=1 node win; same fix L8_fusedaxes adopted as `fusedSI`): `KERNEL1F_BODY` gained an
+   SI-offset parameter; the new `kernel1f520` places si at **scr + 520 doubles (+4160 B,
+   still 64-B aligned)** instead of +512.  Arithmetic, shuffles, prefetch cadence:
+   byte-identical to `1f`; output is bit-identical (verified by `cmp` on wallaby).
+   **Gated to B=1 and the mid regime** — the streaming kernels keep the +512 layout
+   byte-identical to r7–r9, because batchsimd's streaming regression is the documented
+   cost of applying it everywhere and the attribution A/B is still pending in their file.
+   `-DL8R_SIOFF=512` reverts.  The scratch allocation grows to max(8·SCRX, SIOFF+512)
+   doubles so the standing `-DL8R_SCRX=128` A/B flag cannot underallocate.
+2. **B=1 tournament removed** (borrowed from **L8_batchsimd**'s "fixed, no tuner" rule:
+   after two rounds of the arena inverting the driver at this cell, the right amount of
+   arena trust is zero).  B=1 ships **avx512-1f520 hardwired**.  The candidates
+   {1f520, 1f, 2p, 1f520j} are still timed with the full r4 protocol and published
+   through `fft3d_description()` (`arena{...}`, now 4 entries), and `L8R_FORCE` still
+   works, but nothing can displace the pick.  Shipping the fused shape rather than 2p is
+   the mechanism bet: my r8 flip to unfixed `1f` measured 0.5813–0.5829 vs 2p 0.5700, and
+   the difference between my `1f` and batchsimd's winning FUSED (0.5527) that this round
+   can act on is the scratch alias.
+3. **Mid default → `1f520-pfs`**; set trimmed to {1f520-pfs, 3p-pfs, 1f-pfs, 2p} (1f,
+   2p-pfs, 3p dropped — never picked at node B=64 in five rounds).  **Association-order
+   probe `1f520j`** added at B=1 only (the r9 VERDICT §6 directive to propagate L=6's
+   codelet-association result to L=8's radix-8): `RADIX8J` issues the 16 final add/subs
+   feeding outputs 0,4,2,6 as FMA/FNMA with a broadcast 1.0, so **every output join is
+   FMA-class** at identical DAG, depth, and count.  round(1.0·x+y) = round(x+y), so the
+   output is bit-identical (cmp-verified).  Timed and published, never picked; if the
+   node reads `1f520j` ≤ −2 % vs `1f520`, r11 adopts it.  (Honest caveat recorded: at
+   L=6 the winning joins fed stores directly; my joins feed the ZUNTRI shuffle network,
+   and on CLX all 512-bit FP shares one port — the probe measures whether any of the L=6
+   effect survives those two differences.)
+
+### Operation count per volume
+
+Unchanged in every shipped shape: 1248 vector FP (24 × 52-instr codelets, the 56-flop
+optimum), 896 shuffles, 256+256 (2p/1f/1f520) or 384+384 (3p) L1 loads/stores, 0 copies,
+0 spills.  `1f520` differs from `1f` only in the si base register value; `RADIX8J` swaps
+16 add/sub for 16 FMA-class ops (probe only, never shipped).  DRAM-facing traffic
+unchanged; streaming paths bit-for-bit the r7 kernels.
+
+### What was measured (wallaby, Gold 6448Y SPR, gcc 11.4, tryout.sh)
+
+| B | r9 | this round | pick (fingerprint) | note |
+|---|---|---|---|---|
+| 1 | 0.308 µs | **0.337** | 1f520 (fixed) — rel_l2 2.269e-16, the 1f family | wallaby prefers 3p/2p here (in-tuner 2p 0.6335 < 1f ≈ 1f520 0.655 — the standing inversion); the hardwire basis is node data, not this number |
+| 64 | 0.313 | **0.603/vol** | 3p-pfs (tuned; the known wallaby inversion — node should ship 1f520-pfs default) | forced runs: all four mid candidates PASS individually |
+| 2048 | 0.522 | **0.862/vol** | mid set (wallaby ws = 0.53×its L3), 1f-family fingerprint | PASS, repeatable |
+| 5632 | 0.582 | **0.597/vol** | 1f-pfs-pfw (default) 3/3 in a dedicated tune-debug check (twins 0.3–2 % apart in-arena) | streaming byte-identical to r9 |
+
+Key wallaby readings for the two experiments:
+
+* **si520 is wallaby-invisible, as expected**: in-tuner same-process, 1f = 0.6549/0.6551
+  vs 1f520 = 0.6555/0.6559 — dead even, exactly batchsimd's r9 wallaby null (SPR's alias
+  penalty is small and its heap offsets differ).  Only the node can read this experiment;
+  the published arena string will carry its answer on the next leaderboard.
+* **1f520j (FMA-join) reads +0.5–0.6 % on wallaby** (0.6593/0.6594 vs 1f520's
+  0.6555–0.6590) — flat within session noise.  The L=6 association result was likewise
+  wallaby-invisible and sign-inverted on the node (SPR's extra add ports hide join-order
+  effects), so this null does not decide the probe; the node's arena string does.
+
+Correctness: PASS at B = 1, 64, 2048, 5632 via tryout (rel_l2 1.910e-16 … 2.271e-16, tol
+1e-12), repeatable within every plan.  One B=5632 tryout printed `NOT REPEATABLE` across
+two *processes* — traced (again, third round running) to the documented 1f-pfs-pfw ↔
+3p-pfs-pfw twin flip at the 2 % hysteresis line; a dedicated 3-process tune-debug check
+picked 1f-pfs-pfw 3/3 and each plan is bit-identical across its own runs, which is the
+contract.  Forced runs, each checked against numpy individually at B=64: 1f520-pfs =
+1f-pfs = 2.268e-16 (same bit class, confirming the de-alias is address-only), 3p-pfs
+1.916e-16, 2p 1.337e-16.  `cmp`-verified at B=1: 1f520j ≡ 1f520 ≡ 1f bit-identical.
+Builds warning-free under `-Wall -Wextra` at native (SPR), `-march=cascadelake`
+(run-verified on wallaby: B=1 PASS + repeatable), `-mno-avx512f` (AVX2, B=64 PASS), and
+`-march=x86-64` (portable, B=8 PASS).
+
+### What was tried and did NOT work
+
+* Nothing new failed on wallaby — but two null readings are recorded above so nobody
+  mistakes them for failures: the si520 wallaby null (expected; node-only experiment) and
+  the 1f520j wallaby flat (expected; the L=6 precedent is that only the node can read
+  association order).
+* **Not done, deliberately**: page-aligning the scratch (the second half of batchsimd's
+  r9 change) — my scr residue is already published per run (scr@0x540/0x4c0, stable per
+  build), there is no evidence which residue is good, and page-aligning is the prime
+  suspect for their streaming bill.  Execute-time scratch-base selection against the
+  driver's buffers (fusedaxes' fusedAA, first node pick at B=64 r9 run 3) — one weak
+  signal against a panel record of 0-for-4 alias interventions aimed at driver buffers;
+  my B=64 lottery evidence says the mechanism is real there, but the in-scratch fix must
+  be attributed first or the two changes confound, exactly like batchsimd's r9 pair.
+
+### Attribution summary
+
+In-scratch de-alias (si +512 → +520) and the no-tournament-at-B=1 rule:
+**L8_batchsimd** (panel_r9 node win, 0.5527, "fixed no tuner" 3/3), elevated by the
+**panel_r9 VERDICT §4.5/§5**; the same fix appears as **L8_fusedaxes**' fusedSI this
+round.  The gate keeping the streaming kernels at +512: batchsimd's own +5.2 % B=2048
+bill (**VERDICT §2**) and their r10 gating, read directly from their file.  The
+association-order probe: **L6_pfa / L6_unrolled**'s panel_r9 experiment (store-feeding
+FMAs beat adds 3–6 % on CLX, sign-inverted on SPR), propagated here on the **VERDICT
+§6**'s explicit instruction.  The probe-but-never-pick pattern: **L36_pfa**'s
+create-side measurement, panel default since r8.
+
+### Node predictions (stated to be scored)
+
+* **B=1, pick string reads `avx512-1f520 (fixed)` 3/3 by construction.**  Pre-registered
+  fork: **if ≤ 0.565, the sr/si 4K alias was the 1f driver tax** and the fused shape +
+  de-alias transfers (batchsimd's 0.5527 is the existence proof at this exact cell);
+  **if ~0.578–0.583, the fix bought nothing in my file** and the residual 1f-vs-2p gap
+  is code layout — in that case r11 hardwires 2p at ~0.570–0.578 and B=1 is closed here.
+  Either way the arena string carries 1f520-vs-1f same-process, which reads the alias
+  mechanism independently of the driver lottery.
+* **B=64: 0.59–0.62, pick = 1f520-pfs (default) 3/3.**  The de-alias attacks the only
+  reachable part of the 11.3 % r9 spread; the driver-buffer lottery part is untouched, so
+  the *median* may stay noisy even if the min improves.
+* **B=2048: 0.95–1.00; B=16384: 1.25–1.28** — streaming byte-identical for the fourth
+  round.
+* **1f520j arena reading**: expected within ±1 % of 1f520 (null) given the shuffle-fed
+  stores; if it reads ≤ −2 %, r11 adopts RADIX8J in all shapes — it is bit-identical, so
+  adoption is free of accuracy risk.
+
+### Next
+
+1. **Read the B=1 driver number against the pre-registered fork above** — it is a clean
+   one-bit answer on whether §4.5's reachable case transfers into this file.
+2. **If B=1 lands ≤ 0.565**: propose the same si-offset audit to the streaming shapes,
+   but only via a create-time published A/B (1f520-pfs-pfw twin), never by default —
+   batchsimd's bill says the streaming sign may be opposite.
+3. **If the 1f520j probe reads ≤ −2 %**: adopt RADIX8J everywhere (bit-identical, zero
+   risk) and record L=8 as the second geometry where association order pays on CLX.
+4. **If the panel cuts L=8 to two slots**, this record now carries the donor assets in
+   final form: the regime-gated tuner, the spread/pfw cadences, the arena-publication
+   pattern, the arena-inverts-driver evidence, and both of this round's mechanism
+   experiments with their node readings.

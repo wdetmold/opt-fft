@@ -614,3 +614,158 @@ bound is pure DRAM overlap and the schedule space is close to empty.
    entry's transferable assets are the canonical-order hysteresis (already
    lifted into the verdict's recommendation for rader) and the 4%-margin
    streaming policy introduced here.
+
+## Round panel_r10 (2026-08-22)
+
+### Standing going in (r9 leaderboard + verdict)
+
+Node: B=1 47.945 / B=4 49.632 / B=128 65.112 µs — statistical ties with
+L23_rader in all three cells (47.795 / 49.524 / 64.882); the verdict calls
+L=23 **closed** (1.14× floor at B=1, one algorithm implemented twice) and
+keeps L23_rader as the promoted arm.  Two r9 findings drive this round:
+
+1. **My B=128 determinism goal failed and my incumbent was wrong.**  With
+   za+pf2+pw1 at the list head, the pick flipped (flat in run 1, za in
+   runs 2–3): the node's za-vs-flat gap (~3.4%) straddles my 4% margin from
+   the head slot.  Worse, the gap has the OPPOSITE sign to what the r8
+   evidence suggested: L23_rader's r9 telemetry shows the node's own arena
+   displacing rp (≡ za) with FLAT 3/3, pick=59.54–60.20 vs inc=61.63–62.36
+   µs/t — flat is 3.4% FASTER at streaming on the node.  Verdict: "the r8
+   B=128 win was the knobs (pf=2, pw=1), not the folded-pair layout."  The
+   hysteresis lesson, sharpened: **the head must be the fastest known cell,
+   not a hoped-for one** — a wrong head converts real speed differences
+   into cross-process flips.
+2. The only cell with headroom is B=128 (65 µs vs a ~47–50 µs bandwidth-
+   overlap bound); the node has now rejected NT, deferred-Z, pf=1 and
+   uniform pipelining there.  The one streaming schedule never raced on the
+   node is my own r8 next-item 3: pace volume b+1's X pass into the TAIL
+   planes only.
+
+### What changed (all streaming-side; B=1/B=4 untouched and closed)
+
+1. **Streaming incumbent demoted to flat: list head = (v8 pinned X-first,
+   pf=2, pw=1)** — the node's r9 pick (rader 3/3, my run 1), za rows moved
+   below the flat family.  With flat at the head, za must now be >4%
+   *faster* to be picked; the node measured it 3.4% slower, so 3/3 flat
+   should follow there.
+2. **Tail-paced pipeline (new variant 48, X0=12)** — my r8 next-item 3,
+   finally built: cross-volume pipelining (t1 double-buffered) but volume
+   b+1's whole X pass is issued during planes 12..22 of volume b's plane
+   phase only (~12 chunks per plane over the tail 11 planes; the classic
+   pipeline spreads ~6 over all 23).  Rationale: plain (no overlap of the
+   next in-read with the plane phase) beats uniform pipelining on the node,
+   and v48 is the midpoint of that axis — the in-read overlap is confined
+   to the tail, where cur-t1 planes are dying at the rate t1b fills, and
+   the front planes' out-store stream runs uninterfered.  Implemented as a
+   pacing-window parameter X0 on the existing pipelined macro (X0=0
+   reproduces the old schedule exactly).  Walk rows (48,2,1), (48,0,1),
+   (48,0,0), gated behind the incumbent by the 4% margin.
+3. **pf=2 in-pass X prefetch wired into the pipelined family** (prologue
+   and both insertion loops), so pipelined rows race the incumbent with the
+   same prefetch help it enjoys; row (13,2,1) added.  Prefetch only —
+   changes no bits.
+4. **Tuner telemetry in the description string** — adopted from
+   **L23_rader r9** (itself **L36_pfa r8**'s in-plan probe pattern):
+   `tune[pick=… inc=… tp=… us/t nv=…]` — the picked cell's arena time, the
+   canonical head's, and the best tail-paced row's.  Every leaderboard run
+   now reports the node's own create()-time numbers for the round's
+   experiment, picked or not — this is how the tail-paced question gets a
+   node answer without any monitor time.
+
+### Operation count
+
+Unchanged: 594 real flop/line, 943 kflop/volume, 297 vector FP ops/chunk,
+409 zmm chunks flat (414 za).  v48 is the flat layout: 409 chunks, zero
+extra FP; its only cost is t1 double-buffering (+195 KiB scratch footprint,
+same as the uniform pipeline).  pf=2 adds 23 prefetch µops per X chunk when
+selected, as before.
+
+### Bit-class verification (every call site recompiled → redone in full)
+
+One class, pinned X-first, now 28 selectable streaming combos over 11
+variants + 26 resident selectables.  Forced-variant cmp on full outputs,
+wallaby: **{9, 13, 30, 34, 40, 41, 42, 43, 48, 49} ≡ v8 at B=4** (including
+both new tail-paced widths); spot re-check {13, 40, 48} at B=64 IDENTICAL;
+knob grid {(0,0),(2,0),(0,1),(2,1)} on v8 AND on v48 at B=64 all IDENTICAL.
+check.py PASS asserted on v48's outputs at B=4 and B=64.  tryout
+repeatability PASS at B=1, 4, 8, 128, 256.  4 independent full-tuner
+processes at B=256 produced bit-identical outputs (picks differed — see
+below — but every pick is inside the class, so outputs cannot differ).
+AVX2 host (wombat): PASS at 85.3 µs/vol B=2, repeatable.
+
+### What was measured (wallaby, Xeon Gold 6448Y; mixed-quality windows)
+
+| case | r10 | r9 | pick |
+|---|---|---|---|
+| B=1   | 21.72 µs      | 21.25 | flat canonical, pf=0 pw=0 |
+| B=4   | 21.75 µs/vol  | 22.41 | flat canonical |
+| B=8   | 24.26 µs/vol  | 23.59 | flat + pf=2 pw=1 (knob grid: 21 = 24.01 vs 00 = 27.80) |
+| B=128 | 25.50 µs/vol  | 25.86 | flat + pf=2 pw=1 (that process; see flips below) |
+| B=256 | 28.24 µs/vol  | 28.5–29.1 | za or flat + pf2 pw1 (process-dependent) |
+
+rel L2 3.767e-16 – 3.808e-16 everywhere.  B=256 walk table (nv=256, one
+window): flat pf2pw1 29.29 / flat pw1 29.32 / **za pf2pw1 28.14** / za pw1
+28.64 / park pf2pw1 29.22 / dz pf2pw1 29.37 / dz-za pf2pw1 28.60 /
+**tail-paced pf2pw1 28.62** / tail-paced pw1 29.15 / uniform-pipe pf2pw1
+29.56 / NT 29.52 / za-NT 29.28 / 256-bit 39.1.  Readings: pw=1 is worth
+~12% on wallaby streaming and pf=2 is ~neutral (both repeat r9); the
+tail-paced schedule beats the uniform pipeline (28.62 vs 29.56) and flat
+(29.29) but not za — **on wallaby**.  One B=128 arena read pick=25.43
+(flat) with tp=26.14.
+
+### Determinism check, honestly recorded
+
+4 independent plan creations at B=256 on wallaby: **v40 (za) 3/4, v8
+(flat) 1/4** — on wallaby za genuinely IS ~4% faster at streaming (DDR5,
+2 MB L2: the same machine-inversion r8/r9 documented), so the za-vs-flat
+gap straddles the 4% margin HERE just as it straddled it on the node in r9
+with the heads reversed.  This is unavoidable with a fixed margin when two
+machines order the same two cells oppositely by ~the margin size; the fix
+is that the head now matches the SCORING machine's own 3/3 evidence
+(rader's r9 node telemetry), so on the node — spread 0.3%, flat 3.4%
+ahead — the head should hold 3/3.  Wallaby flips are cosmetic: outputs are
+bit-identical across every pick in the class.
+
+### What did NOT work / caveats (with numbers)
+
+* **Tail-paced did not win on wallaby**: 28.62 vs za's 28.14 at B=256,
+  tp=26.14 vs pick=25.43 in the one B=128 arena.  But wallaby cannot rank
+  node streaming (it inverted za-vs-flat, its B=128 half-fits L3); the
+  round's design is that the node's tp= telemetry answers this cell-by-cell
+  in every process.  Expectation set in advance: if tp lands within 4% of
+  pick, the tail schedule joins NT/dz/pf1/uniform-pipe as a documented
+  streaming null and the schedule space is empty.
+* **A wallaby tryout window can read +27% on a resident cell**: B=8 read
+  30.88 µs/vol in one window and 24.26 in the next with the same binary and
+  pick — wallaby's per-core slow state (L45_mixedradix r9: invisible to an
+  MKL sentinel).  Do not read a single tryout level as a regression;
+  re-run before reacting.
+* The raw-ssh missing-`cd` trap fired AGAIN despite my own r9 warning
+  (fourth round it has bitten someone on the panel).  The helper-script
+  rule works; it is now the only way I run remote commands.
+
+### Where this stands / node prediction
+
+B=1 ≈ 47.9 and B=4 ≈ 49.6 unchanged (identical pick and arithmetic).
+B=128: pick = **flat + pf=2 + pw=1 in all three processes** (the round's
+protocol goal, now with the head on the node's own evidence), level ≈
+**64.5–65.0 µs** (rader measured 64.882 with the identical cell).  The
+description string will carry pick/inc/tp for every cell: tp is the round's
+one real question — the last untried streaming schedule at this geometry.
+If it shows nothing, L=23's honest status is: closed at every cell, both
+arms identical, 1.14× floor at B=1, B=128 at the DRAM-overlap wall.
+
+### Next
+
+1. **Read tp= off the r10 leaderboard descriptions.**  tp < pick by >4%:
+   promote the window start X0 to a tuned parameter (8/12/16) next round.
+   tp ≈ pick: record the streaming schedule space as EXHAUSTED — plain,
+   uniform-pipe, tail-paced, deferred-Z, NT, pf1 all raced on the node,
+   knobs (pf=2, pw=1) are the only movers — and stop spending rounds here.
+2. Confirm 3/3 flat at B=128 (protocol goal).  If za somehow displaces
+   flat on the node this round, the r9 telemetry was window luck and the
+   4% margin needs a per-machine head table instead — but rader's 3/3 ×
+   3.4% makes that unlikely.
+3. If the panel consolidates L=23 (verdict has floated it twice), carry to
+   the survivor: the fastest-known-head rule, the pick/inc/tp telemetry,
+   and the tail-paced result whichever way it lands.

@@ -1,0 +1,5 @@
+   L36_mixedradix               113.423 us   113.423 us    31.90       2.5%    0.245s  ok 3.6e-16       1.00x
+   L36_mixedradix               124.274 us   497.095 us    29.11       0.4%    0.229s  ok 3.6e-16       1.00x
+   L36_mixedradix               162.137 us  5188.386 us    22.32       2.0%    0.417s  ok 3.6e-16       1.00x
+   L36_mixedradix               179.219 us 45879.959 us    20.19       1.4%    0.521s  ok 3.6e-16       1.00x
+   L36_mixedradix           PFA 4x9 2-sweep, lanes=lines, n1_9 DFT9; pick=v1-cached-pf1-pfin-pfw (B=32, arena=32 vol, stream=1, 6 cand, pinD=-1)

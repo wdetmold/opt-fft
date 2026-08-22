@@ -1,0 +1,5 @@
+   L36_pfa                      113.128 us   113.128 us    31.98       2.9%    0.169s  ok 3.6e-16       1.00x
+   L36_pfa                      124.221 us   496.884 us    29.13       4.2%    0.299s  ok 3.6e-16       1.00x
+   L36_pfa                      165.182 us  5285.810 us    21.90       0.7%    3.228s  ok 3.6e-16       1.02x
+   L36_pfa                      181.643 us 46500.713 us    19.92       1.5%    6.768s  ok 3.6e-16       1.01x
+   L36_pfa                  GT-PFA 4x9 (n1_9 DAG) two-sweep; tuner pick: pw=4 mode=inplace pf=2 (B=32, nv=32, nc=34); probe us p1=89.0 p2w=33.3 fu=117.2

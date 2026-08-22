@@ -1692,3 +1692,212 @@ Setup: 0.26–0.31 s at B=1, ~1.0 s at B=256, 4.8 s at wallaby B=2048
    remaining move is the interleaved-complex rewrite both rivals costed at
    "likely a wash" — recommend the slot be judged on that basis rather
    than spending r10 building it.
+
+---
+
+## Round panel_r10 (2026-08-22)
+
+### Standing going in (panel_r9 node leaderboard)
+
+3rd in all four cells: B=1 16.543 (matrixsimd 14.866, winograd 16.460), B=8
+18.063, B=256 24.610 (matrixsimd 21.073, winograd 21.512), B=2048 24.983
+(winograd/matrixsimd tied 21.716/21.718).  Node picks: `xl 512t` at B=1,
+`xl 512t dy` at B=8/256/2048, pf=0 pfw=0 everywhere — so r9's dy bet was
+PICKED at batch and recovered the r8 regression (B=2048 −2.8%, B=256 −1.5%
+on medians), while the joint (variant,pf,pfw) grid's sp bet was DECLINED 6/6
+(the r9 VERDICT prices it as "the round's largest single divergence":
+wallaby −12.4%, node 0).  L17_winograd's q+pfw died identically (declined
+6/6), so the VERDICT's synthesis is one-directional: **the L=17 write path
+does not respond to cross-volume spreading plus prefetchw on this machine;
+fund traffic DELETION at B=256/2048 or declare it closed.**  B=1 is formally
+closed panel-wide (matrixsimd's b1dec: 1.30–1.34× port floor from L1, phases
+additive; winograd's rewrite gate read 37.4% < 42%).  My r9 probe, node:
+ph/xp/fu = 14.93/5.48/22.79 (B=256) and 16.38/6.77/23.46 (B=2048) µs/vol —
+input-side excess ~+4.9, output-side ~+2.8 over its ~4 µs compute share,
+contention +2.4 (B=256) / +0.5 (B=2048).  The VERDICT also names this entry
+the consolidation donor; this round is the counter-argument or the
+confirmation.
+
+### The diagnosis this round acts on
+
+The rivals and I move the same compulsory DRAM traffic per volume
+(~236 KB: read `in`, RFO + write back `out`), yet at B=2048 they run at
+10.9 GB/s effective and I run at 9.4.  The one traffic term unique to me:
+my x pass emits `out` through 17 CONCURRENT k-row streams of
+16-byte-aligned 128-byte pieces strided 4624 B apart.  A piece at 16-B
+misalignment touches 3 cache lines; the boundary lines are completed only
+by the same stream's NEXT kernel block (~300 cycles later); and 17 live
+streams exceed the ~12 fill buffers — so write-combining entries are
+evicted half-filled and the same `out` line is RFO'd and written back MORE
+THAN ONCE.  Both rivals write finished planes densely (matrixsimd's chunk
+store, winograd's g8) and pay none of this.  ~30–50 KB/vol of refetch waste
+closes my 9.4-vs-10.9 GB/s gap arithmetically.  Deleting it is exactly the
+funded direction.
+
+### What changed (kernel arithmetic untouched: 296 FP / 488 flops per 17-pt)
+
+1. **"st" / "st dy" (L17R_FORCE 13/14): staged dense out flush.**  The
+   mixed x pass stores into a 78.6 KB L2-resident staging volume `vo`
+   (same kernel, same operands, base pointer swapped), then `vo_flush`
+   emits the volume to `out` as ONE sequential dense stream of full lines
+   (1228 zmm load/store pairs + 2 scalars; pfw composes as one prefetchw
+   per line, 512 B ahead).  Costs ~157 KB of extra L2 round trip and ~2.5k
+   movement µops; deletes the partial-line refetch waste.  Values and
+   final addresses identical → bit-identical, class A.
+
+2. **"stp" / "stp dy" (L17R_FORCE 15/16): the flush paced under compute.**
+   The first forced wallaby A/B showed the immediate flush fully EXPOSED
+   (nothing behind it): st +23% at B=2048 streaming.  stp keeps the staged
+   x pass and flushes volume b−1 across volume b's plane phase, one 4.5 KB
+   sequential chunk (`vo_flush_chunk`, 72 zmm) after each plane's y pass,
+   with vo ping-ponged (+78.6 KB scratch).  NOT a rerun of the falsified
+   sp: sp's paced pieces were kernel blocks with 17-stream scattered
+   partial-line stores; stp's are single dense sequential bursts — the
+   pattern prefetchers and LFBs handle at line rate.  Bit-identical (out
+   writes only reordered across independent volumes; cmp-verified).
+
+3. **Grid partner slot goes to the staged family; sp demoted.**  Stage 1
+   ranks all four staged shapes on the streaming arena; the joint
+   (variant, pf, pfw) grid races the best of them (by stage-1 time)
+   against the incumbent, or the unstaged twin if a staged shape already
+   won stage 1.  sp stays a stage-1 candidate but loses its grid
+   privilege (node: declined 6/6 in r9).
+
+4. **Flush loops left unrollable** (no `#pragma GCC unroll 1` — they are
+   simple 2-op loops that -funroll-loops handles well; the pfw branch is
+   hoisted into loop twins so the hot loop is branch-free).
+
+### Operation count
+
+Unchanged per 17-point transform: 296 FP instr (192 FMA + 104 add/sub),
+488 flops.  st/stp add zero FP: ~2456 movement µops + ~157 KB L2 traffic
+per volume (~0.4–0.9 µs equivalent), against the targeted ~30–50 KB/vol of
+DRAM refetch waste (~2.5–4 µs at node streaming bandwidth).  I-footprint
+(objdump, wallaby): exec_stm_w8 6326 instr ≈ 25 KB, exec_stpm_w8 6687 ≈
+27 KB, dy twins slightly smaller — all under r2's 38 KB kill line;
+exec_npm/npmdy byte-comparable to r9 (6507/6401).
+
+### Measured — wallaby (Gold 6448Y, gcc 11.4, panel flags; clock bimodal as
+### always; forced tables are same-window pinned alternations, min over 3)
+
+Forced B=2048 (`taskset -c 17`, µs/call over 2048 vols; in+out 314 MB):
+
+| config | rep1 | rep2 | rep3 |
+|---|---|---|---|
+| F2  (xl 512t, incumbent) | **30144** | **29827** | **29753** |
+| F13+pfw (st, pfw=1) | 36572 | 36551 | 36722 |
+| F15 (stp) | 37429 | 37822 | 37540 |
+| F15+pfw | 38778 | 37608 | 37434 |
+| F15+pf+pfw | 37910 | 37450 | 37490 |
+
+**Every staged shape loses ~22–27% forced on wallaby streaming.**  Expected
+direction, surprising magnitude: wallaby (DDR5, deeper LFB pool, 3 load
+ports) pays no partial-line tax, so staging is pure overhead there — but
+the overhead reads ~3.5 µs/vol, larger than the µop+L2 estimate.  In the
+autotuned B=2048 grid the same window read incumbent 15.32 (pf=1: 14.59)
+vs stp 18.30 → stp+pf+pfw 16.48 — i.e. **pfw is worth −9.5% ON the staged
+flush** (the dense stream responds to write-intent prefetch exactly as the
+mechanism predicts), it is the staging cost wallaby refuses to fund.  At
+B=8 (cache-resident) staging reads +1.7 µs/vol (85.97 vs 72.67 forced).
+
+Autotuned end-to-end (tryout.sh; picks in parentheses):
+
+| case | r9 best (same machine) | this round |
+|---|---|---|
+| B=1 | 8.87 | **8.847** (xl 512; B=1 path untouched) |
+| B=8 | 9.23 | 9.25–9.56 µs/t (window spread) |
+| B=64 | 10.38 | 10.68 µs/t |
+| B=256 | 10.59 | **10.78** µs/t (xl 512 pf=0 pfw=0; grid kept incumbent 10.78 vs st+pfw 12.44) |
+| B=2048 | 15.01 | **16.30** µs/t contended window (xl 512 pf=1 pfw=0; grid kept incumbent 14.59 vs stp+pf+pfw 16.48 in-arena) |
+
+The tuner machinery behaves exactly as designed on a machine where the bet
+is wrong: all four staged candidates ranked, the best raced through the
+grid with (pf, pfw), the incumbent kept, defaults unchanged — **zero
+regression risk if the node also declines.**
+
+Correctness, all PASS with the r5–r9 fingerprints preserved: rel_l2 =
+3.114e-16 (B=1), 3.171e-16 (B=3), 3.151e-16 (B=8), 3.158e-16 (B=64),
+3.153e-16 (B=256), 3.155e-16 (B=2048); bitwise repeatable at every batch;
+full-output cmp vs forced 512t: st (F13) and st dy (F14) at B=8, stp (F15)
+and stp dy+pfw (F16) at B=8, stp+pfw at B=3 (odd batch exercises the vo
+ping-pong parity), UBSan build of stp+pfw at B=8 — all identical;
+`-fsanitize=undefined` clean; `-Wall -Wextra` silent (one unused-parameter
+warning found and fixed during the round); AVX2 host (wombat) verified
+end-to-end (30.2 µs/t at B=8, PASS, repeatable, EVEX candidates
+self-eliminate).  Setup: 0.29 s at B=1, 1.1–1.3 s at B=256, 5.9 s at
+wallaby B=2048 (977-vol arena; node arena stays 384 → roughly half).
+
+### What was tried and did NOT work — with the numbers
+
+1. **The immediate (un-paced) flush is a fully exposed serial burst**:
+   forced st at wallaby B=2048 35.5–36.6 ms vs incumbent 28.7–29.9 — the
+   scattered stores it replaces were at least riding under the x-pass FMA
+   stream.  stp exists because of this measurement.
+2. **No staged shape wins anywhere on wallaby** (tables above) — recorded
+   so nobody deletes them for the wrong reason: the machine that ranks
+   them honestly is the node, whose 2-load-port/12-LFB/DDR4 memory system
+   is where the deleted waste lives.  Note the precedent record is mixed:
+   r4's mixed tail was a wallaby-loser the node took everywhere; ov (r5),
+   dz (r7) and sp (r9) were wallaby-losers the node also declined.  This
+   one differs from ov/dz/sp in kind: it deletes traffic rather than
+   rescheduling work, which is the only mechanism class with L=17 node
+   wins (winograd g8, rader r8 transposes at B=1/B=8).
+3. **The raw-ssh missing-`cd` trap fired THREE more times, on me, in one
+   round** — including once with a STALE /tmp binary silently executing
+   instead of the fresh build (caught because setup=0.014 s was
+   impossible), and twice while my own message text said "cd first".
+   matrixsimd's r9 observation ("re-reading your own composed command is
+   unreliable once you believe it is fixed") is exactly right.  Durable
+   fix used for everything afterwards: write the command sequence to a
+   script file on the shared filesystem with `cd` baked in, run the
+   script by absolute path.  Recommend the panel adopt the script form
+   for ALL remote build/measure sequences, not just tryout.sh.
+
+### Borrowed this round (attribution)
+
+* **L17_matrixsimd**: the dense chunk-store principle itself — their r3
+  X-first reorder (−10.8% at B=256 on the node) is the standing proof
+  that dense finished-region stores beat scattered ones on this machine;
+  st/stp is that principle retrofitted to my X-last structure without
+  changing bit class.
+* **L17_winograd**: g8 (delete a transposed store, −8–10% all cells) as
+  the other half of the "dense stores win" evidence; and their r9 q+pfw
+  null, which (with my sp null) is why this round deletes instead of
+  spreads.
+* **Monitor's r9 VERDICT**: the funded direction ("traffic deletion at
+  B=256/2048"), the 10.9 GB/s effective-bandwidth framing that the
+  diagnosis rests on, and the donor warning this round answers.
+
+### Expectations for the node (pre-registered)
+
+* **The bet fires**: the grid picks `st`/`st dy`/`stp`/`stp dy` (most
+  likely with pfw=1 — the wallaby grid already shows pfw pays ON the
+  flush) at B=256 and/or B=2048.  Arithmetic: waste deleted ~2.5–4 µs/vol
+  minus staging cost ~1.5–2 µs/vol → **B=2048 from 25.0 toward
+  22.5–23.5; B=256 similarly**.  That would be the first node-positive
+  batched mechanism for this entry since r4 and closes half the gap to
+  the tied leaders.
+* **The bet dies**: picks stay `xl 512t dy pf=0 pfw=0` and the cells stay
+  ~24.6/25.0.  Then the partial-line-waste theory joins spreading in the
+  falsified list, the 9.4-vs-10.9 GB/s gap must be input-side or
+  intrinsic to the extra pass structure (my A round trip), and the honest
+  position is the r9 VERDICT's: this slot is the donor.  Say so.
+* **B=1/B=8 flat by design** (~16.5/18.1; paths untouched).  The B=1
+  stage now ranks 4 more candidates (~+25 ms plan time); picks should be
+  unchanged.
+
+### Next (in order)
+
+1. Read the node's r10 picks and grid tables.  If st-family is picked
+   with pfw=1, try upgrading the flush to `vmovntpd` on the 64-B-aligned
+   interior (NT is dead for SCATTERED stores 4 rounds running, but a
+   single dense aligned stream is the one shape it was designed for —
+   worth exactly one gated candidate, no more).
+2. If st-family is picked at B=2048 but not B=256: the B=256 contention
+   term (fu−ph−xp = +2.4) is the difference; consider staging `in` reads
+   the same way (dense per-volume copy-in) only then.
+3. If everything is declined again: recommend the panel take the r9
+   VERDICT's consolidation (this slot to L=64 or L=13) — four rounds of
+   node-declined batched bets from this structure is the evidence, and
+   the leaders sit at the bandwidth floor where my remaining deficit
+   lives in structure, not knobs.

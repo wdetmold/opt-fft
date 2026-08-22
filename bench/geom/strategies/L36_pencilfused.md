@@ -1658,3 +1658,155 @@ the tournament-as-DSB-discriminator: this file, this round.
    MLP of the ×2 body while still halving pass A.
 4. Batched cells: still frozen (monitor's standing instruction, two rounds
    running).
+
+---
+
+## Round panel_r10
+
+### Where round r9 landed, and the diagnosis
+
+Node (Gold 5218, panel_r9): third at B=1 (123.657 vs mixedradix 120.478), second
+at B=4 (130.993 vs 128.957), third-inside-spread at B=32 (168.959 vs pfa
+168.253, 0.4%) and third at B=256 (189.323 vs mixedradix 184.140). The verdict's
+distribution reading: **not one of the four L=36 cells is separated** — B=4 is a
+three-way tie within 0.9% on medians, B=256 a dead tie between the leaders — and
+this file was NOT promoted (third in three cells, the front-end null already
+carried by two promoted records, r7→r9 B=256 regression unrecovered). The r9
+probe deliverables both resolved:
+
+* **My `ip4`/`cs4` pair read flat on the node** (126.1/126.5, 121.0/120.4,
+  121.9/124.9 — picks split on a coin flip), the pre-registered null branch.
+  Combined with mixedradix's `roll` probe (+22–24% the wrong way) and pfa's
+  `fug − fu = +0.3%`, **the front-end/code-size theory at L=36 B=1 is dead by
+  three independent node measurements** — as the cache theory was in r8.
+* The r8 pragma removal did NOT recover the B=256 regression (189.3 vs r7's
+  186.5), the third failed ±2% attribution at this geometry in one round. The
+  verdict's conclusion, now adopted here as a standing rule: **±2% at these
+  cells is the code-layout noise floor of recompiling the file; never read it
+  as mechanism in either direction.**
+
+The verdict's single named L=36 lever (§6): *"transcribe genfft's `n1_9` FMA
+DAG into all three L=36 arms — 44 → 40 FMA-port vector ops per DFT9, the only
+lever at this geometry that has not been falsified; transcribe, do not derive."*
+That is this round, and it is deliberately the only change.
+
+### Technique (round r10): DFT9 = genfft n1_9 FMA DAG, transcribed
+
+**Adopted from L45_pfa r9** (stated plainly: the round's only change is a
+borrow — their `DFT9F` vector transcription of `n1_9`, node-proven at
+rel_l2 4.0e-16, adapted to this file's macro idiom) and ultimately from
+`ext/src/fftw-3.3.10/dft/scalar/codelets/n1_9.c` (24 add + 56 fma = 80 scalar
+FMA-port ops, genfft `-fma` branch). The hand CT 3×3 `SB_` (6 DFT3I + 4 CMULI
+= 44 FMA-port ops + 10 swaps) is replaced by the DAG form: radix-3 columns
+build s/S/a/e/i and the rotated pair p,q per column; the k2={0,3,6} block is a
+DFT3 on the column sums; the k2={1,4,7} and {2,5,8} blocks build the
+(1 ± c·i) spiral factors w = p + c·i·p (one CSWAP+FMA each), cross them (u/z,
+consuming CSWAP(w)), and fan out through the K984/K492/K852 tail. **40 FMA-port
+ops + 12 swaps per DFT9.** Transcription rule as L45_pfa r9 wrote it: every
+scalar re/im line pair is one interleaved-vector op; every re/im crossing is
+one CSWAP with the signs folded into a VC pair constant. Written in this
+file's contraction style (plain +,− ,* → gcc contracts to FMA; verified below)
+rather than L45's explicit `_mm256_fmadd` intrinsics — same DAG, same op
+count. DFT3I/CMULI and the W9 twiddle constants are deleted (unused); the
+n1_9 constants (K176/K839/K777/K984/K492/K852/K363/K954) added verbatim.
+
+Everything else — SA_ (DFT4, 8+1, already optimal), both widths, modes 0–11,
+tuner, gates, hysteresis, the cs/ip twins — is untouched. The change flows
+through every mode and both instantiations automatically because SB_ is the
+one shared macro; the cs/ip bit-identity and the plan-time 1e-11 interlock
+across all candidates are preserved by construction.
+
+### Operation count
+
+Per 36-point line over PW lanes: 9 DFT4 × (8+1) + 4 DFT9 × (40+12) =
+**232 FMA-port ops + 57 port-5 shuffles** (was 248 + 49): −16 FMA-port
+(−6.5%), +8 swaps onto the port the FP work leaves ~75% idle. Per volume at
+PW=4: 972 kernel calls × 232 = **225 504 FMA-port vector ops** (was 241 056);
+single-512-bit-pipe floor at the 2.89 GHz licence clock ≈ **78 µs/volume**
+(was ~83). Disassembly under the node's flag set (gcc 11.4,
+`-march=cascadelake -O3 -funroll-loops`): **exactly 232 FP-port instructions
+per line body** — halfplane_v4 232, passA_plane_v4 464 (two subloops),
+passB_small_v4 232 — i.e. the model is exact, every one of the old vmulpd is
+gone and gcc contracted the whole DAG to FMA forms. Shuffles per halfplane_v4
+body: 81 (57 kernel swaps + 24 transpose/boundary), port 5.
+
+### What was measured (wallaby, Gold 6448Y; µs per transform, driver min;
+bit-identical re-runs on every run listed)
+
+* **Correctness first** (the point of transcribing, not deriving — it passed
+  on the first build): rel_l2 **3.748e-16** (B=1), 3.760e-16 (B=4), 3.586e-16
+  (B=32, B=256); rel_max ≤ 4.9e-16. These are the file's NEW fingerprints
+  (the arithmetic order changed): mode-0 family 3.748/3.760e-16, streaming
+  family 3.586e-16. AVX2-only PW=2 path end-to-end on wombat/Haswell at B=2:
+  PASS 3.752e-16, bit-repeatable. Clean builds: `-march=cascadelake`, bare
+  `-O2`, `-march=native` on both hosts.
+* **Timings — wallaby-flat, exactly as pre-stated** (wallaby has two 512-bit
+  FMA pipes, so a port-0 cut cannot show there; same logic and same outcome
+  as L45_pfa's r9 wallaby wash): B=1 **51.8 / 52.7** across two windows (r9
+  best: 51.77), B=4 **71.2**/vol fast window (r9: 70.9–71.7; one slow-state
+  127.6 discarded per the r2 rule), B=32 **72.3**/vol (r9: 72.8), B=256
+  **100.5**/vol (r9: 100.1). Parity everywhere — the bet is entirely that the
+  node's single FMA unit prices the deleted 15.5k port-0 cycles/volume.
+
+### What was tried and did NOT work — with the number that killed it
+
+1. Nothing failed this round; the transcription passed the reference gate on
+   the first build, which is the point of taking the generated DAG instead of
+   re-deriving it (L36_pfa r1 burned three hand attempts on exactly this
+   gap; my own r2 record wrongly closed the item using split-complex
+   accounting — the r9 verdict's counted form, 44 → 40 in interleaved-vector
+   currency, supersedes that note).
+2. Calibration to keep expectations honest: **L45_pfa's identical cut bought
+   only 1.2% at their B=1 on the node** (315.9 vs a 305–316/318 branch pair;
+   the verdict's reading: port 0 is not the binding resource at L=45). L=36
+   differs in its favor here — smaller volume, hotter caches, and my B=1
+   already sits at 1.46× a floor that is 66% port-0 arithmetic — but the
+   possibility that the cut prices near zero at L=36 too is real, and the
+   branches below give it a number.
+
+### Attribution summary
+
+DFT9 n1_9 vector transcription, the pairwise re/im rule, the sign-folded
+VPAIR/VC idiom, and the constant set: **L45_pfa r9** (their DFT9F; DAG from
+FFTW 3.3.10 genfft, `n1_9.c` on this filesystem). The instruction to ship it
+into all three L=36 arms: **r9 VERDICT §6**. The ±2%-is-noise standing rule:
+**r9 VERDICT §3d**. Nothing else in the file changed.
+
+### Predictions for the node (stated so they can be scored)
+
+* **Picks unchanged**: B=1 pw4 inplace/inplace-cs (coin flip, bit-identical
+  twins), B=4 pw4 inplace family, B=32/B=256 pw4 istream+pfw.
+* **B=1: 118.5–123** (from 123.657). Bands: **≤121.5** = the port-0 cut
+  prices at L=36 (≥2 µs of a 5.4 µs full-binding model) and arithmetic
+  op-shaving remains live here even though it died at L=45; **122.5–125** =
+  the L45 result repeats (port 0 not binding at B=1 either) and the honest
+  statement becomes that B=1 is at its structural limit for this kernel
+  family — caches, front end, prefetch, AND arithmetic all measured null.
+* **B=4: 127–131** (same mechanism, thinner exposed-compute fraction).
+* **B=32: 165–169.5, B=256: 185–190** — memory-shaped cells at their
+  modelled traffic floor (monitor's standing instruction, frozen third round
+  running); the cut is mostly hidden under traffic there.
+* Caveat for fairness: the verdict handed the same lever to all three arms;
+  if mixedradix and pfa ship it too, absolute times move together and the
+  relative standings stay put. The discriminating readout is *whether the
+  cell moves at all*, not who wins it.
+
+### Next
+
+1. **Read B=1 against the branch pair above.** If ≤121.5: op-shaving is
+   live — the only remaining counted surplus is the 9 DFT4 swaps/line
+   (already minimal) and there is no next arithmetic lever; the follow-up is
+   the r9-verdict association-order search (L=6's one positive mechanism:
+   store-feeding FMAs beat store-feeding adds 3–6% on CLX) applied to the
+   line kernel's STORE-feeding ops — the n1_9 DAG already feeds 7 of 9 DFT9
+   outputs from FMAs, but o0 (=S0+sg) and the DFT4's u[0]/u[2] are add-fed,
+   and a raced twin re-associating those is a ~40-line experiment on the
+   L6_unrolled pattern.
+2. If 122.5–125: say "closed" plainly. Every theory at L=36 B=1 would then
+   have a node-measured null: caches (r8), front end (r9, three ways),
+   prefetch (r5–r7, every tuner), two-group pipelining (r6, twice), and
+   arithmetic (this round). The remaining gap to the floor is intra-kernel
+   issue limitation, the same shape L17_matrixsimd's b1dec positively
+   identified — and the consolidation the verdict proposes (cut to two arms)
+   is then correct on the merits.
+3. Batched cells: frozen (third round of the standing instruction).
