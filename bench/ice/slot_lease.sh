@@ -3,7 +3,7 @@
 #
 # A lease is a DIRECTORY, because mkdir is atomic even over NFS -- flock is not reliable
 # here, and a "check then create" file test is a race. Whoever succeeds in creating
-# leases/gpuN owns slot N until it removes it.
+# leases/slotN owns slot N until it removes it.
 #
 #   ./slot_lease.sh acquire [--label NAME]   claim any free slot; prints its index
 #   ./slot_lease.sh release N                give slot N back
@@ -34,7 +34,7 @@ slot_to_core() { echo $(( $1 + 2 )); }
 
 reap() {
   local now=$(date +%s) owner ts
-  for d in "$LEASES"/gpu*; do
+  for d in "$LEASES"/slot*; do
     [ -d "$d" ] || continue
     ts=$(stat -c %Y "$d/owner" 2>/dev/null || echo 0)
     if [ $(( (now - ts) / 60 )) -ge "$STALE_MIN" ]; then
@@ -113,10 +113,10 @@ acquire-all)
     printf '%s\n%s\n%s\n%s\n' "$LABEL (scoring)" "$(hostname -s)" "$$" "$(date -Is)" \
       > "$LEASES/slot$i/owner"
   done
-  echo "scoring window open: all $n GPUs held"
+  echo "scoring window open: all $n slots held"
   ;;
 release-all)
-  rm -rf "$LEASES"/gpu* "$LEASES/SCORING"
+  rm -rf "$LEASES"/slot* "$LEASES/SCORING"
   echo "scoring window closed"
   ;;
 reap)
@@ -127,11 +127,11 @@ status)
   [ -e "$LEASES/SCORING" ] && echo "SCORING WINDOW OPEN: $(head -1 "$LEASES/SCORING")"
   for i in $(seq 0 $((n - 1))); do
     if [ -d "$LEASES/slot$i" ]; then
-      printf '  gpu%-2s held by %-28s since %s\n' "$i" \
+      printf '  slot%-2s held by %-28s since %s\n' "$i" \
         "$(sed -n 1p "$LEASES/slot$i/owner" 2>/dev/null)" \
         "$(sed -n 4p "$LEASES/slot$i/owner" 2>/dev/null)"
     else
-      printf '  gpu%-2s free\n' "$i"
+      printf '  slot%-2s free\n' "$i"
     fi
   done
   ;;
