@@ -1,0 +1,304 @@
+[
+ {
+  "L": 8,
+  "candidates": [
+   {
+    "algorithm": "split-radix (conjugate-pair form, exact)",
+    "real_flops_per_1d_dft": 56,
+    "adds": 52,
+    "mults": 4,
+    "derivation": "Formula: 4*N*lg N - 6*N + 8 = 4*8*3 - 6*8 + 8 = 96 - 48 + 8 = 56. Constructive derivation, verified by an instrumented Python implementation against numpy.fft.fft (max err 1.8e-15 over 50 random complex128 trials): DFT4 on evens (x0,x2,x4,x6) = 8 complex adds = 16 real adds, 0 mults (the single twiddle is -i, free); two DFT2s on (x1,x5) and (x3,x7) = 4 complex adds = 8 real adds; twiddle stage multiplies Z1 by w=(1-i)/sqrt2 and Y1 by w^3=(-1-i)/sqrt2, each costing 2 real adds + 2 real mults (the only nontrivial constants are +-1/sqrt2) = 4 adds + 4 mults; combine forms T0=Z0+Y0, S0=Z0-Y0, T1=A+B, S1=A-B (8 real adds) then 8 complex output adds X_k = U +- {T, iS} (16 real adds). Total: 16+8+4+8+16 = 52 adds, 4 mults, 56 flops.",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.143
+   },
+   {
+    "algorithm": "Winograd 8-point module (minimal-multiplication)",
+    "real_flops_per_1d_dft": 56,
+    "adds": 52,
+    "mults": 4,
+    "derivation": "Winograd's small-N DFT module table (complex data, real-op counts): N=8 uses 4 real multiplications and 52 real additions -- for N=8 the split-radix flowgraph already achieves the Winograd multiplicative minimum (the only nontrivial constant in the 8th roots of unity is 1/sqrt2, applied to two complex intermediates = 4 real mults), so the module is identical in cost to the derived-exact split-radix count above and adds no improvement. Cross-checked against the instrumented count (52a + 4m).",
+    "confidence": "literature-recalled",
+    "fma_pairable_fraction": 0.143
+   },
+   {
+    "algorithm": "radix-2 Cooley-Tukey (5N lg N sanity bracket)",
+    "real_flops_per_1d_dft": 120,
+    "adds": 72,
+    "mults": 48,
+    "derivation": "5*N*lg N = 5*8*3 = 120. Bookkeeping: (N/2)*lg N = 12 butterflies, each charged one generic complex twiddle multiply (4 real mults + 2 real adds) plus 2 complex adds (4 real adds) = 10 flops. This overcounts for N=8 (most twiddles are 1, +-i, or (1+-i)/sqrt2), so 120 is a safe upper bracket; an exact radix-2 that skips trivial twiddles lands between 56 and 120.",
+    "confidence": "formula",
+    "fma_pairable_fraction": 0.4
+   }
+  ],
+  "best_flops_per_point_3d": 21,
+  "notes": "L=8 is a power of two, so only the power-of-two branch of the instructions applies (Good-Thomas needs coprime factors; 8=2^3 has none, and 8 is not prime). Cheapest credible candidate: 56 real flops (52 adds + 4 mults), achieved simultaneously by exact split-radix and the Winograd 8-point module -- this is the standard best-known count for N=8. Verified numerically: an op-counted Python implementation (scratchpad file dft8_count.py) reproduces exactly 52 adds + 4 mults and matches numpy.fft.fft to 1.8e-15 on complex128. Roofline: best_flops_per_point_3d = 3*56/8 = 21.0 flops per complex point for three axis passes over an 8^3 volume. FMA note: the 8-point kernel is butterfly-dominated -- only the 4 mults by 1/sqrt2 can fuse with a downstream add (T1=A+B, S1=A-B), giving 4 FMAs covering 8 of 56 flops (~14%). In a realistic AVX-512 implementation (8 transforms in parallel across vector lanes, one lane-set per line of the volume), ~86% of the work issues as pure vaddpd/vsubpd, so the kernel rooflines near the ADD port throughput, not the FMA peak; effective peak is roughly (0.143*2 + 0.857*1)x the add-only rate, i.e. about 57% of nominal FMA peak flops."
+ },
+ {
+  "clock_ghz": {
+   "low": 2.33,
+   "mid": 2.9,
+   "high": 3.107
+  },
+  "ceilings": [
+   {
+    "name": "ISA ideal (2x512-bit FMA pipes)",
+    "flops_per_cycle": 32,
+    "basis": "All seven sessions independently confirmed two full 512-bit FMA pipes via 8-independent-accumulator probes (saturating 2 pipes x 4-cyc latency): 1000f989 bench1 '~2 zmm FMA/cyc, ymm same rate'; 8dc1a96d mb2 'dual 512-bit FMA'; 1760b1bf bench1 '8 zmm FMAs in ~3.6 cyc'; a31f5f85 fmabench2 '~2 FMA/cycle confirmed'; dd9fa88c bw.c '~99 GF/s'; 0f45aeae bench2/3 committed to all-512-bit design; f7f192ab fmatest '~2/cyc'. 2 FMA/cyc x 8 lanes x 2 flops = 32."
+   },
+   {
+    "name": "Measured reg-reg sustained",
+    "flops_per_cycle": 30,
+    "basis": "1760b1bf fetest.c: register-constant FMA kernel sustained 1.88 FMA/cyc (vs 1.1 for embedded-broadcast); dd9fa88c bw.c 99 GF/s FP64 = 2.0 FMA/cyc at its 3.09-3.107 GHz calibration; a31f5f85 barrier-hardened fmabench2 'reg-reg FMA 2/cyc'. Sustained 1.88-2.0 FMA/cyc -> ~30 flops/cyc, achievable only when almost nothing else issues."
+   },
+   {
+    "name": "Measured issue-cap model (~2.1 vector uops/cyc, realistic FFT mix)",
+    "flops_per_cycle": 16.8,
+    "basis": "a31f5f85 ipctest.c: fixed 9-uop mix (4 reg-reg FMA + 2 load+add + 1 store) capped at ~2.1 vector uops/cyc TOTAL any mix; ipc256.c showed ymm does not escape the cap; its kernels all matched this ceiling (L=13 at 93%). Mix assumption: 2 FMA : 1 add/sub : 1 load : 1 store per 5 vector uops (register-blocked twiddle-folded FFT pass with fused map) = (2x16+8)/5 = 8 flops/uop; 8 x 2.1 = 16.8 flops/cyc. Consistent with 1000f989 synth4 (2.1 FMA/tsc-cyc at 1:1 load:FMA) and dd9fa88c's ~1.2 FMA/cyc cap when every FMA carries a 64B load."
+   },
+   {
+    "name": "Measured table-sweep equilibrium (broadcast+FMA triples)",
+    "flops_per_cycle": 20,
+    "basis": "1000f989 synth.c: exact dft23 sweep op-mix (1 scalar broadcast + 2 FMA per (j,k), 24 live accumulators) reached only 1.25 FMA/core-cyc ('even ideal code only reaches 1.25 FMA/cyc with broadcasts'), diagnosed as issue-bandwidth/port equilibrium; 1.25 x 16 = 20 flops/cyc. Corroborated by every session that probed broadcast/memory-operand FMA: 1760b1bf fetest ~1.1/cyc (17.6), a31f5f85 isolate2 ~1.0/cyc (16), dd9fa88c synth.c ~1.2/cyc (19.2), f7f192ab bcfma.c ~1.2/cyc (19.2) -- so table-driven twiddle sweeps land at 16-20 flops/cyc regardless of hand-tuning."
+   }
+  ],
+  "l1_bytes_per_cycle": 64,
+  "min_bytes_per_point_per_iteration": 112,
+  "notes": "CLOCK WEIGHING: the guest TSC/brand string is 2.60 GHz but the core floats. Strongest calibrations are latency-anchored: dd9fa88c freq.c (serial dependent FMA chain / known 4-cyc ICX latency) = 3.107 GHz, cross-checked in-session by 99 GF/s throughput (= 3.09 GHz) -- taken as HIGH. 1760b1bf's 2.2 FMA/TSC-cyc (above the 2.0 hardware limit) implies ~2.89 GHz; 1000f989 assumed 3.0 (1.155x TSC); a31f5f85's scalar-add chain gave 'fixed 2.5' after observing 2.45-3.2 GHz drift. LOW = 2.33 GHz is 0f45aeae's wall-clock-effective figure, which folds in KVM steal/throttle -- a floor on delivered cycles, not the silicon clock. MID = 2.9 GHz (median of credible calibrations; use it for cycle<->ns conversion, with the caveat that delivered throughput under neighbor pressure can look like 2.3-2.5).\n\nL1 = 64 B/cyc: dd9fa88c l1bw2/3/4 measured ~1 cyc per 64B load and ~1 cyc per 64B store in isolation but mixed zmm ld+st pairs at 4.8 cyc/pair, recovering to '~1x64B L1 op/cycle TOTAL' when batched -- its explicit machine model. a31f5f85 measured loads 1.4/cyc and stores ~1/cyc individually, but both sit inside the 2.1-vector-uop global cap, so any kernel that also computes gets ~1 memory uop/cyc. f7f192ab's 243 GB/s stridetest is prefetched streaming (load-only) and not a mixed-traffic bound. Planning number for mixed load+store kernels: 64 B/cyc.\n\nMIN BYTES/POINT/ITERATION = 112, pass by pass (L1 traffic = register<->L1 moves; cache-resident means no traffic beyond L1 refills, but every load/store uop still touches L1): PASS 1 (z-axis, in-place): each complex point (16 B) loaded once into registers and stored once = 32 B. Perfect register blocking means no point is touched twice within the pass; in-place transposes (8x8 in-register) add shuffle uops, not bytes. PASS 2 (y-axis): same, 32 B. PASS 3 (x-axis): same, 32 B; the +c add and the elementwise map z/(1+|z|) fuse into this pass's register-resident window (all sessions shipped exactly this fusion -- 1000f989 'map fused at z-pass stores'/lazy premap, 8dc1a96d pxf, a31f5f85/dd9fa88c/f7f192ab fused x-pass), so they add no state traffic. STREAMED c: read exactly once per point per iteration = +16 B (every session laid c out for sequential consumption to hold this floor; 1000f989's key regression was c loaded at plane stride). Total = 3x32 + 16 = 112 B/pt/iter. Note the three-pass structure is forced for L^3 volumes exceeding the 48 KB L1; deeper fusion (e.g. 8dc1a96d's z+y slab fusion) cuts L2/L3 sweeps but not per-pass L1 traffic. Implied memory-floor at 64 B/cyc: 1.75 cyc/pt/iter, i.e. with 18-19 flops/pt/pass-triple (dd9fa88c's 1176-flop 64-pt plan = 18.4 flops/pt) the FFT sits near the crossover where the 16.8-20 flops/cyc issue/broadcast ceilings and the L1 bound coincide -- matching the sessions' observation that best kernels pinned at the ~2.1-uop ceiling, not the FMA ideal. Measured best end-to-end: ~1.7-5 ns/pt/iter across sessions, i.e. ~3-5x this composite floor, the gap being shuffles, twiddle-broadcast traffic, and VM noise. All evidence is wall-clock/rdtscp based: no session ever obtained PMU counters (perf absent in the VM)."
+ },
+ {
+  "L": 64,
+  "candidates": [
+   {
+    "algorithm": "split-radix (Yavne / Duhamel-Hollmann), radix-2/4 recursion",
+    "real_flops_per_1d_dft": 1160,
+    "adds": 912,
+    "mults": 248,
+    "derivation": "Formula 4*N*lgN - 6*N + 8 with N=64, lgN=6: 4*64*6=1536; 1536-384+8=1160. Independently verified by an instrumented recursive split-radix implementation (counters on every real add/mult, 4m+2a general twiddles, 2m+2a for w=+-(1+-i)/sqrt2, free for +-1,+-i): counted exactly adds=912, mults=248, total=1160, output matched numpy.fft.fft to 7e-15. Twiddle census: 52 general, 20 sqrt2-type, 42 trivial (4*52+2*20=248 mults, cross-check passes). Same counter reproduces N=8: 56=4*8*3-48+8.",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.18
+   },
+   {
+    "algorithm": "modified split-radix / tangent FFT (Johnson-Frigo 2007, Lundy-Van Buskirk)",
+    "real_flops_per_1d_dft": 1152,
+    "derivation": "Published exact count flops = (34/9)N lgN - (124/27)N - 2 lgN - (2/9)(-1)^lgN lgN + (16/27)(-1)^lgN + 8; evaluated with exact rational arithmetic for N=64, lgN=6: (34/9)*384 - (124/27)*64 - 12 - 4/3 + 16/27 + 8 = 1152 exactly. This is the best-known (lowest published) exact count for N=64; formula recalled from the literature, not re-derived from the algorithm here, but its arithmetic evaluation is exact.",
+    "confidence": "literature-recalled",
+    "fma_pairable_fraction": 0.17
+   },
+   {
+    "algorithm": "radix-2 Cooley-Tukey (sanity bracket, all twiddles counted general)",
+    "real_flops_per_1d_dft": 1920,
+    "adds": 768,
+    "mults": 1152,
+    "derivation": "5*N*lgN = 5*64*6 = 1920. Per butterfly: 1 complex twiddle mult (4m+2a=6 flops) + complex add/sub (4 adds) = 10 flops; (N/2)lgN = 192 butterflies * 10 = 1920. Adds/mults split shown for the 4m+2a convention counting all 192 twiddles as general (the 5NlgN convention); trivial-twiddle pruning would reduce this, which is why it is only an upper bracket.",
+    "confidence": "formula",
+    "fma_pairable_fraction": 0.4
+   }
+  ],
+  "best_flops_per_point_3d": 54,
+  "notes": "L=64=2^6 is a pure power of two, so the Good-Thomas/Winograd (composite-coprime) and Rader/prime bullets do not apply; only the power-of-two derivations are relevant. Bracket: 1152 <= F1D(64) <= 1920, with the fully self-derived split-radix value 1160 (3*1160/64 = 54.375 per 3D point) and the best-known literature value 1152 (3*1152/64 = 54.0, the reported minimum). FMA pairing derivation (split-radix): only the 52 general twiddle multiplies fuse -- each is 4m+2a done as 2 vmulpd + 2 vf(n)madd, so 4 of its 6 flops live in FMAs -> 208/1160 = 0.179; the 768 butterfly-add flops and the sqrt2 twiddles ((a+b)*s is add-then-mul, wrong order for FMA) do not pair. Roofline caveat: the flop-minimal schedule is add-port-bound on AVX-512 (FMA fraction ~0.18); FMA-restructured variants (Linzer-Feig style, folding twiddle into butterfly) raise the FMA fraction toward ~0.5-1.0 but increase raw flops, so a time roofline should be built from instruction issue (adds vs FMA ports), not raw flops alone. Radix-2's higher FMA fraction (0.40) does not compensate its 1.66x flop count. Verification script: /private/tmp/claude-501/-Users-wdetmold-MIT-Dropbox-William-Detmold-2026-problems/3e8ea67f-c989-4b31-8f6e-316caac734df/scratchpad/sr64.py"
+ },
+ {
+  "L": 6,
+  "candidates": [
+   {
+    "algorithm": "Good-Thomas PFA 6=2x3 with Winograd small-N modules (no twiddles)",
+    "adds": 36,
+    "mults": 8,
+    "real_flops_per_1d_dft": 44,
+    "derivation": "Modules derived from scratch: DFT2 is X0=x0+x1, X1=x0-x1 -> 4 real adds, 0 mults (complex add = 2 real adds). DFT3 with kernel w=exp(-2pi*i/3)=c+is, c=-1/2, s=-sqrt(3)/2: t1=x1+x2 (2a), t2=x1-x2 (2a), X0=x0+t1 (2a); Winograd trick x0+c*t1=X0+(c-1)*t1: m1=(-3/2)*t1 (2m), b=X0+m1 (2a); m2=-i*(sqrt3/2)*t2=(s*t2.im, -s*t2.re) (2m); X1=b+m2 (2a), X2=b-m2 (2a) -> 12 adds + 4 mults = 16 flops. Good-Thomas rule (coprime factors, CRT index maps n=(3n1+2n2) mod 6, k by CRT, zero twiddles): flops(6)=N2*flops(2)+N1*flops(3)=3*4+2*16=44, split as adds=3*4+2*12=36, mults=2*4=8. Verified by an op-counting implementation in python: counted exactly 36 adds + 8 mults and max|X - numpy.fft.fft(x)| = 9.9e-16 over 20 random complex trials. Matches the long-known best count for n=6 (FFTW's twiddleless n=6 codelet: 36 add, 8 mul).",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.36
+   },
+   {
+    "algorithm": "Cooley-Tukey mixed radix 2x3 with twiddles (sanity bracket)",
+    "adds": 40,
+    "mults": 16,
+    "real_flops_per_1d_dft": 56,
+    "derivation": "n=3*n1+n2, k=k1+2*k2: 3 DFT2 (12 adds) + twiddles W6^(n2*k1) with exactly (2-1)*(3-1)=2 nontrivial complex constants (W6^1, W6^2 for k1=1), each a general complex mult at 4m+2a=6 flops (12 total), + 2 DFT3 (2*16=32). Total 12+12+32=56 (40 adds, 16 mults). Verified by the same op-counting python harness: 40 adds, 16 mults, max err 2.0e-15 vs numpy. Confirms PFA's twiddle elimination saves 12 flops.",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.43
+   },
+   {
+    "algorithm": "Direct symmetric fold (half-matrix style adapted to even L: fold x_j +/- x_{6-j} and x0 +/- x3, real-coefficient sweeps)",
+    "adds": 38,
+    "mults": 8,
+    "real_flops_per_1d_dft": 46,
+    "derivation": "Fold a=x0+x3, b=x0-x3, e_j=x_j+x_{6-j}, o_j=x_j-x_{6-j} (j=1,2): 12 real adds. Even outputs (use a): X0=a+(e1+e2); X2,X4=a-(e1+e2)/2 -/+ i*(sqrt3/2)*(o1-o2) -> 12 adds + 4 mults. Odd outputs (use b): X3=b-e1+e2; X1,X5=b+(e1-e2)/2 -/+ i*(sqrt3/2)*(o1+o2) -> 14 adds + 4 mults. Total 38 adds + 8 mults = 46. Only nontrivial constants are 1/2 and sqrt(3)/2; the cos/sin 'matvecs' degenerate to these. Verified in python: counted exactly 38a+8m, max err 1.8e-15 vs numpy. Essentially re-derives the PFA structure and lands 2 flops above it.",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.35
+   }
+  ],
+  "best_flops_per_point_3d": 22,
+  "notes": "Best credible candidate: Good-Thomas PFA with Winograd modules at 44 real flops (36 add, 8 mul), the long-standing optimal practical count for n=6 (equal to FFTW's n=6 codelet). best_flops_per_point_3d = 3*F1D/L = 3*44/6 = 22.0 real flops per complex point for three axis passes over a 6^3 volume. Power-of-two formulas are inapplicable at L=6 (not a power of two); the CT-with-twiddles count (56) serves as the upper sanity bracket and the direct fold (46) as an independent near-optimal check, so 44 is bracketed and cross-verified. FMA pairing: the algorithm is add-dominated (only 8 mults of 44 flops); each mult fuses with a following add (b=fma(-1.5,t1,X0); X1/X2=fma(+/-s,t2,b)), so ~2*8/44 = 36% of flops pair into FMAs \u2014 expect roofline throughput closer to the ADD/SUB port limit than the FMA peak. All arithmetic machine-verified: op-counting scalar class + comparison to numpy.fft.fft (forward, unnormalized), max error < 2e-15 over 20 random complex128 trials per candidate. Script: /private/tmp/claude-501/-Users-wdetmold-MIT-Dropbox-William-Detmold-2026-problems/3e8ea67f-c989-4b31-8f6e-316caac734df/scratchpad/dft6_count.py"
+ },
+ {
+  "L": 17,
+  "candidates": [
+   {
+    "algorithm": "Rader (length-16 cyclic convolution via two split-radix-16 FFTs, kernel spectrum precomputed with 1/16 folded in)",
+    "real_flops_per_1d_dft": 428,
+    "mults": 108,
+    "adds": 320,
+    "derivation": "X_{g^{-m}} = x0 + (a (*) c)_m with a_k = x_{g^k}, c_l = w^{g^{-l}}, g=3, g^8 = -1 mod 17. Convolution via FFT-16: forward split-radix FFT-16 = 4*16*4 - 6*16 + 8 = 168 flops (24m+144a in the 4m+2a cmult convention; verified by a flop-counting implementation that hits 168 exactly and matches numpy to 1e-15). Pointwise multiply by Chat = DFT16(c)/16: numerically verified Chat has exactly 2 purely real bins (q=0: -1/16; q=8: sqrt(17)/16, quadratic Gauss sum, real since 17 = 1 mod 4) costing 2m each, and 14 full complex bins costing 4m+2a each -> 4 + 84 = 88 flops (60m+28a). Inverse FFT-16 via index reversal of a forward FFT = 168. Fixups: X0 = x0 + U_0 (U_0 is the DC bin of the forward FFT, already computed) = 2 adds; adding x0 to all 16 remaining outputs done by adding x0 to spectral bin 0 before the inverse = 2 adds. Total = 168 + 88 + 168 + 4 = 428 = 108m + 320a. VERIFIED end-to-end: a counting-arithmetic implementation of exactly this algorithm counts 108 mults + 320 adds and matches numpy.fft.fft(x,17) to 5e-15.",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.25
+   },
+   {
+    "algorithm": "Winograd-style minimal-multiplication prime module (Johnson-Burrus large DFT module N=17)",
+    "real_flops_per_1d_dft": 384,
+    "mults": 70,
+    "adds": 314,
+    "derivation": "Rader convolution computed with Winograd short-convolution algorithms instead of FFTs, exploiting c_{l+8} = conj(c_l) to split the 16-point complex-kernel convolution into an 8-point cyclic (real kernel cos part, period 8) plus an 8-point negacyclic (sin part, antiperiod 8) piece. The published Johnson-Burrus N=17 module is recalled as 70 real mults + 314 real adds = 384 for complex input; the mult count is consistent with Winograd multiplicative-complexity bounds (x^16-1 has 5 rational irreducible factors -> 27 mults minimum for the 16-cyclic real convolution; practical modules trade mults for fewer adds). RECALLED, NOT DERIVED: the exact (70, 314) split could be off by a few flops; total is plausible but unverified here, so it is excluded from the best-credible minimum.",
+    "confidence": "literature-recalled",
+    "fma_pairable_fraction": 0.35
+   },
+   {
+    "algorithm": "Direct symmetric half-matrix (fold x_j +/- x_{17-j}, then 8x8 cos and sin real-coefficient matvecs on complex data)",
+    "real_flops_per_1d_dft": 576,
+    "mults": 256,
+    "adds": 320,
+    "derivation": "h = (17-1)/2 = 8. Fold u_j = x_j + x_{17-j}, v_j = x_j - x_{17-j}, j=1..8: 16 complex add/sub = 32 real adds. X0 = x0 + sum u_j = 16 adds. For k=1..8: A_k = x0 + sum_j cos(2pi jk/17) u_j (16m+16a, x0 seeds the accumulator), B_k = sum_j sin(2pi jk/17) v_j (16m+14a), then X_k = A_k - i B_k and X_{17-k} = A_k + i B_k cost 4 adds (mult by i free). Per k: 32m+34a = 66; total = 8*66 + 48 = 576 = 4h^2 mults + (4h^2+8h) adds = 8h(h+1) = 256m + 320a. VERIFIED: counting implementation counts exactly 256m+320a and matches numpy to 9e-15.",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.833
+   }
+  ],
+  "best_flops_per_point_3d": 75.52941176470588,
+  "notes": "Convention: 1 flop = 1 real add or 1 real mult; complex mult by full constant = 4m+2a, by real/imag constant = 2m, by (1+/-i)c = 2m+2a; negation, mult by +/-1, +/-i, permutations free. All counts verified in Python with a counting-arithmetic class checked against numpy.fft (script: /private/tmp/claude-501/-Users-wdetmold-MIT-Dropbox-William-Detmold-2026-problems/3e8ea67f-c989-4b31-8f6e-316caac734df/scratchpad/dft17_counts.py). BRACKETS (all verified): split-radix 4NlgN-6N+8: N=8 -> 96-48+8=56, N=64 -> 1536-384+8=1160 (counting FFT reproduces 56/168/456/1160 exactly); radix-2 5NlgN: N=8 -> 120, N=64 -> 1920. Good-Thomas flops(N1*N2)=N2*f(N1)+N1*f(N2) with Winograd modules on complex data \u2014 N=2:(0m,4a) trivial; N=3:(4m,12a) derived (u=x1+x2, v=x1-x2, m1=-1.5u, m2=i*sin(2pi/3)v); N=4:(0m,16a) radix-2; N=5:(10m,34a) and N=9:(20m,88a) standard Winograd (real-data counts 5m17a / 10m44a doubled, since the algorithms are real-linear): flops(6)=3*4+2*16=44 (8m+36a); flops(36)=9*16+4*108=576 (80m+496a); flops(45)=9*44+5*108=936 (190m+746a). Other primes: Rader-13 = 2*flops(12) + pointwise + 4 = 2*112 + (2*2m + 10*6) + 4 = 292 (flops(12)=4*f(3)+3*f(4)=112 via PFA; kernel spectrum verified: 2 real bins) vs direct-13 = 8h(h+1) = 336; Rader-23 (needs FFT-22 = 11*f(2)+2*Rader-11 = 588) = 1304 vs direct-23 = 1056 \u2014 for 23 the direct half-matrix wins among derived candidates. Kernel-spectrum structure (2 real bins for p=1 mod 4; 1 real + 1 imag for p=3 mod 4) verified numerically for p=11,13,17,23. FMA: direct method is near-FMA-perfect (480 of 576 flops pair: cos-sweep 100%, sin-sweep 14/15, only folds/recombines bare) \u2014 on AVX-512 its 576 flops cost ~336 FMA-slot issues, so despite 35% more raw flops it can beat Rader (whose ~104 of 428 paired flops leave ~376 issue slots) in wall-clock; use 428 for a flops-based roofline but note the direct method is the likely fastest kernel. best_flops_per_point_3d uses the cheapest CREDIBLE (derived-and-verified) candidate, Rader 428: 3*428/17 = 75.5294; schema-literal minimum over all listed candidates would use the recalled Winograd 384 -> 67.76, not adopted because that count is unverified recall. Assumes three 1D passes over the L^3 volume with no additional twiddle/transpose arithmetic (pure roofline flop count)."
+ },
+ {
+  "L": 13,
+  "candidates": [
+   {
+    "algorithm": "Rader via length-12 cyclic convolution (DFT-12 = Good-Thomas PFA(3,4) with Winograd 3/4 modules)",
+    "real_flops_per_1d_dft": 292,
+    "mults": 76,
+    "adds": 216,
+    "derivation": "X_{g^p} = x0 + (a*b)_p with g=2, a_q = x_{g^{-q}}, b_q = W13^{g^q}. Convolution by DFT-12 / pointwise / IDFT-12 with the fixed diagonal D = fft(b)/12 precomputed (1/12 folded in, free). DFT-12 = PFA(3,4): 4*flops(3)+3*flops(4) = 4*16+3*16 = 112 = 16m+96a, verified by op-counted implementation vs numpy. Two DFT-12s (inverse via free conjugation) = 32m+192a. Pointwise: bins 0 and 6 of the diagonal are purely real Gauss sums (D0 = -1/12, 12*D6 = sqrt(13), confirmed numerically), so 2 real-by-complex mults (4m) + 10 full complex mults (40m+20a). x0 folded into all 12 conv outputs by adding it to product bin 0 before the IDFT (2a, since unnormalized IDFT of e0 = all-ones); X0 = x0 + A0 reuses the forward DC bin (2a). Total = 32m+192a + 44m+20a + 4a = 76m + 216a = 292. Full op-counted implementation verified against numpy.fft.fft(x,13) to relerr 3.7e-16 with exactly these counts. (Without the two real-diagonal and x0-fold tricks: 322.)",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.36
+   },
+   {
+    "algorithm": "Winograd 13-point module (Rader convolution done by minimal nesting: cyclic-6 + negacyclic-6 with CRT polynomial factorization)",
+    "real_flops_per_1d_dft": 228,
+    "mults": 40,
+    "adds": 188,
+    "derivation": "Classic WFTA/PFA small-N module table (Winograd/McClellan-Nawab/Burrus): N=13 module = 40 real mults, 188 real adds on complex data (20 real constant multiplications, each applied to re and im). Structural cross-check: for p=13 (p=1 mod 4, g^6=-1) the Rader length-12 convolution splits under q->q+6 into a cyclic-6 convolution (cos kernel) plus a negacyclic-6 convolution (sin kernel); minimal mult counts 2*6-4=8 and 2*6-2=10 real constants respectively -> ~18-20 constants -> 36-40 real mults on complex data, consistent with the recalled 40. The 188-add figure is NOT independently re-derived or numerically verified here; corroborating datapoint: FFTW's generated n1_13 codelet is recalled as ~176 adds + 68 mults = 244 total, bracketing best-known practical at ~228-244.",
+    "confidence": "literature-recalled",
+    "fma_pairable_fraction": 0.3
+   },
+   {
+    "algorithm": "Direct symmetric half-matrix (fold x_j +- x_{13-j}, then 6x6 real cos and sin matvecs per component)",
+    "real_flops_per_1d_dft": 336,
+    "mults": 144,
+    "adds": 192,
+    "derivation": "Folds u_j = x_j + x_{13-j}, v_j = x_j - x_{13-j}, j=1..6: 12 complex adds = 24a. X0 = x0 + sum(u): 12a. For each k=1..6: T_k = x0 + sum_j cos(2pi jk/13) u_j (x0-seeded: 12m+12a), S_k = sum_j sin(2pi jk/13) v_j (12m+10a), X_k = T_k - i S_k and X_{13-k} = T_k + i S_k (mult by i free: 4a). Per k: 24m+26a; times 6: 144m+156a. Totals 144m + (24+12+156)a = 144m+192a = 336. Op-counted implementation verified vs numpy to relerr 9.4e-16 with exactly these counts.",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.786
+   }
+  ],
+  "best_flops_per_point_3d": 52.61538461538461,
+  "notes": "All arithmetic machine-verified in python (op-counting wrapper over real +,-,*; negation/mult-by-\u00b11,\u00b1i free; every module checked vs numpy.fft.fft to \u22641e-15 relerr). METHOD VALIDATION: powers of two: split-radix 4NlgN-6N+8: N=8: 96-48+8=56; N=64: 1536-384+8=1160 (radix-2 5NlgN brackets: 120, 1920; modified split-radix, Johnson-Frigo 2007, shaves N=64 to ~1152 \u2014 recalled). Small-N Winograd modules derived and verified (complex data): N=2: 0m+4a; N=3: 4m+12a (m1=-3/2\u00b7t trick); N=4: 0m+16a; N=5: 10m+34a (symmetric 2x2 cos split + 3-mult [[s1,s2],[s2,-s1]] scheme, derived in-line); N=9: 40m+80a=120 derived-exact via radix-3 with Winograd-3 cores and 4 nontrivial twiddles (true Winograd-9 module is 20m+84a=104, literature-recalled, not verified). Good-Thomas PFA rule f(N1N2)=N2\u00b7f(N1)+N1\u00b7f(N2) implemented with CRT index maps and verified end-to-end: DFT-6=3\u00b74+2\u00b716=44 (8m+36a), DFT-12=112 (16m+96a), DFT-36=9\u00b716+4\u00b7120=624, DFT-45=5\u00b7120+9\u00b744=996 \u2014 all counts exact and outputs correct. With Winograd-9=104: DFT-36\u2192560, DFT-45\u2192916 (recalled variant). L=13 CANDIDATES: min over candidates = 3\u00b7228/13 = 52.615 flops/point uses the literature-recalled Winograd module (228); the fully derived-and-verified floor is Rader 292 \u2192 3\u00b7292/13 = 67.385, and the FMA-friendly half-matrix 336 \u2192 77.538. For a defensible roofline use 52.6 as 'best-known' and 67.4 as 'verified-derived'. AVX-512 NOTE: in a 3D volume every axis pass batches L^2=169 independent lines, so all candidates vectorize across lines (8 doubles/zmm) and the in-algorithm FMA fraction is the right throughput metric. Effective FMA-instruction counts (paired flops issue 2/instr): half-matrix 336 flops \u2192 ~204 instr-slots (0.786 paired: cos sweeps are perfect x0-seeded 6-FMA dot products), Rader 292 \u2192 ~240 (0.356), Winograd 228 \u2192 ~194 (\u22640.35: 80/228 if every mult fuses; adds dominate). So on FMA hardware the three candidates are nearly tied in instruction count, and the half-matrix is the simplest to implement at peak. OTHER PRIMES (same three-candidate method): half-matrix general p: 4m'^2 mults + (3(p-1)+m'(2m'+... ) adds with m'=(p-1)/2 \u2192 p=17: 256m+320a=576; p=23: 484m+572a=1056; Rader p=17 uses conv-16 (2\u00b7flops(16)=2\u00b7168 split-radix + 16 pointwise), p=23 uses conv-22=PFA(2,11) requiring an 11-module. Convention: forward unnormalized e^{-2\u03c0i jk/N}; complex128; flop = one real add or mult. Verification script: /private/tmp/claude-501/-Users-wdetmold-MIT-Dropbox-William-Detmold-2026-problems/3e8ea67f-c989-4b31-8f6e-316caac734df/scratchpad/dft13_counts.py"
+ },
+ {
+  "L": 23,
+  "candidates": [
+   {
+    "algorithm": "Rader-23: length-22 cyclic convolution via two FFT-22s (Good-Thomas 22=2x11 with Winograd-11 modules) + 22 pointwise complex multiplies",
+    "mults": 248,
+    "adds": 808,
+    "real_flops_per_1d_dft": 1056,
+    "derivation": "X_k (k!=0) = x0 + (u*c)_k over Z23* (verified numerically with numpy: Rader structure reproduces np.fft.fft to 1e-10). Conv cost = 2*F(22) + 22 pointwise complex mults; x0 corrections cost 4 real adds total (X0 = x0 + U_0 reuses the forward DC bin; adding x0 to all other outputs = injecting x0 into the DC bin of the product spectrum before the unnormalized inverse FFT). F(22) by PFA rule = 11*f(2) + 2*f(11) = 11*4 + 2*208 = 460 (m=80, a=380), using the classic Winograd-11 module f(11)=40m+168a=208 (literature-recalled ingredient). Pointwise: 22 complex mults at 4m+2a = 132. Total = 2*460 + 132 + 4 = 1056 (248m + 808a). Refinement (verified numerically): kernel spectrum has C_0 = -1 exactly and C_11 = -i*sqrt(23) pure imaginary (quadratic Gauss sum, 23 = 3 mod 4), so those two bins cost 2 real mults each instead of 6 flops -> 1048; the other 20 bins are generically complex (checked: only 2 of 22 bins are pure real-or-imaginary). Confidence limited only by the literature f(11); everything else derived and the assembly arithmetic machine-checked.",
+    "confidence": "formula",
+    "fma_pairable_fraction": 0.35
+   },
+   {
+    "algorithm": "Winograd-style minimal-multiplication 23-point module (Rader + CRT convolution over x^22-1, cos/sin folded C2xC11 nesting)",
+    "mults": 80,
+    "adds": 1170,
+    "real_flops_per_1d_dft": 1250,
+    "derivation": "ESTIMATE - no published module exists for p=23 (classic tables stop at 11,13,16,17,19,25 because 22 = 2*11 factors badly). Multiplicative-complexity theory (Winograd) is exact for the mult count: x^22-1 has t=4 rational irreducible factors (Phi_1, Phi_2, Phi_11, Phi_22), so the length-22 cyclic convolution needs mu = 2*22-4 = 40 rational multiplications minimum, i.e. ~80 real mults on complex data. The add count is the killer and is NOT published: the CRT products modulo the two degree-10 cyclotomics need >=19 mults each only via interpolation schemes whose reconstruction adds run to several hundred per product; my semi-concrete C2(x)C11 construction with conjugate-symmetry folding (2 real cos-kernel + 2 real sin-kernel length-11 convolutions on complex data) lands near 140 mults + ~950 adds ~ 1090, and pushing mults toward the 80 minimum inflates adds well past 1150. Best estimate ~1250 +/- 15%. In no variant does it beat 1056, and its add-dominance makes it the least FMA-friendly candidate. Marked lowest confidence honestly: the mult count is theory-exact, the total is an engineering estimate.",
+    "confidence": "literature-recalled",
+    "fma_pairable_fraction": 0.12
+   },
+   {
+    "algorithm": "Direct symmetric half-matrix: fold s_j = x_j + x_{23-j}, d_j = x_j - x_{23-j}, then real 11x11 cos and sin matvecs on complex data",
+    "mults": 484,
+    "adds": 572,
+    "real_flops_per_1d_dft": 1056,
+    "derivation": "DERIVED-EXACT and verified by an op-counted implementation matching np.fft.fft to 1e-10 with exactly 484 mults + 572 adds. With h=(L-1)/2=11: fold = 4h real adds (44); X_0 = x0 + sum s_j = 2h adds (22); for each k=1..h: cos sweep T_k = x0 + sum_j cos(2pi jk/23) s_j on (re,im) = 2h mults + 2h adds (accumulator preloaded with x0), sin sweep S_k = sum_j sin(2pi jk/23) d_j = 2h mults + 2(h-1) adds, and the conjugate pair X_k = T - iS, X_{23-k} = T + iS costs 4 adds (mult by i free). Totals: mults = 4h^2 = 484, adds = 4h^2 + 8h = 572, flops = 8h(h+1) = 1056. Same closed form gives 336 for L=13 and 576 for L=17 (both also machine-verified). FMA accounting is exact: cos sweep fully fuses (x0-preloaded accumulators), sin sweep fuses all but its first product per output row -> 462 FMAs covering 924 of 1056 flops = 0.875 exactly; only the fold/unfold/X0 adds (110) and 22 lead mults run bare. This is the roofline candidate: exact count, contiguous real-matrix kernels, FMA-near-perfect.",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.875
+   }
+  ],
+  "best_flops_per_point_3d": 137.7391304347826,
+  "notes": "All arithmetic machine-verified (op-counted (re,im) implementations checked against numpy to 1e-10; script at /private/tmp/claude-501/-Users-wdetmold-MIT-Dropbox-William-Detmold-2026-problems/3e8ea67f-c989-4b31-8f6e-316caac734df/scratchpad/dft23_verify.py). CALIBRATION LADDER: Powers of two - split-radix 4N lgN - 6N + 8: N=8 -> 96-48+8 = 56 (= 4m+52a, reproduced exactly by an op-counted split-radix-8 implementation), N=64 -> 1536-384+8 = 1160 (M = N(lgN-3)+4 = 196, A = 3N(lgN-1)+4 = 964); radix-2 bracket 5N lgN: 120 and 1920. Small Winograd modules, all derived from scratch and verified with exact op counts: f(2)=0m+4a, f(3)=4m+12a=16, f(4)=0m+16a=16, f(5)=10m+34a=44. f(9): classic Winograd module is 20m+84a=104 (literature-recalled, Nussbaumer/Duhamel table - not independently re-derived); my derived-exact 3x3 Cooley-Tukey bracket is 40m+80a=120 (op-counted, verified), so 104 <= f(9) <= 120 with the lower value used per the task. Good-Thomas PFA rule verified end-to-end with an op-counted no-twiddle implementation: f(6) = 3*f(2)+2*f(3) = 44 exactly (8m+36a, matches numpy); f(36) = 9*f(4)+4*f(9) = 144+416 = 560 with Winograd-9 (verified 624 with the CT-9 bracket); f(45) = 5*f(9)+9*f(5) = 520+396 = 916 (verified 996 with bracket). PRIMES 13/17 (context): Rader-13 = 2*f(12)+12*6+4 = 2*112+76 = 300 (f(12)=3*f(4)+4*f(3)=112 exact); half-matrix-13 = 8*6*7 = 336 (verified); Winograd-13 lit ~ 40m+188a = 228. Rader-17 = 2*f(16)+16*6+4 = 2*168+100 = 436 (f(16)=168 split-radix exact); half-matrix-17 = 576 (verified); Winograd-17 lit ~ 70m+314a = 384. For 23 the Winograd route collapses because 22 = 2*11 forces degree-10 cyclotomic products - 23 is intrinsically the most expensive small prime per point. CHOICE: candidates (a) and (c) coincidentally tie at 1056; (c) is derived-exact, verified, and FMA-near-perfect (0.875 exactly), so the roofline uses F1D = 1056 -> 3*1056/23 = 3168/23 = 137.739 flops per complex point for three axis passes over a 23^3 volume. If the (literature-dependent) Rader pointwise refinement (C_0 = -1, C_11 = -i*sqrt(23), both verified numerically) is accepted, F1D = 1048 -> 136.696, a 0.8% difference that does not move the roofline. Practical roofline guidance: use the half-matrix count; at 87.5% FMA pairing the effective AVX-512 utilization ceiling is (0.875/2 + 0.125) = 0.5625 ports-saturating ops per flop, i.e. ~1.78 flops per FMA-slot-equivalent, versus ~2.9 for the add-heavy Rader/FFT route - the matvec form wins wall-clock even at equal flops."
+ },
+ {
+  "L": 45,
+  "candidates": [
+   {
+    "algorithm": "Good-Thomas PFA 45 = 9x5 with derived Winograd modules (no twiddles)",
+    "mults": 190,
+    "adds": 746,
+    "real_flops_per_1d_dft": 936,
+    "derivation": "PFA rule F(45) = 5*F(9) + 9*F(5) with modules derived from scratch and implemented as instrumented straight-line code. DFT5 (Winograd): t1=x1+x4, t2=x2+x3, t3=x1-x4, t4=x2-x3; mults by c1=(cos72+cos144)/2-1=-5/4, c2=(cos72-cos144)/2=sqrt(5)/4, and a 3-mult sine pair {sinU*(t3+t4), (sin2U-sinU)*t4, (sin2U+sinU)*t3} -> 5 real-const complex scalings = 10 real mults, 17 complex adds = 34 real adds. DFT9 (Winograd-style): DFT3 on (x0,x3,x6) gives z1,z2 (4M+12A); fold p_a=x_{2^a}+x_{-2^a}, q_a=x_{2^a}-x_{-2^a} over the unit group <2> mod 9 (12A); the k=0 mod 3 outputs reuse y1+y2=p0+p1+p2 and y1-y2=q0-q1+q2 feeding a second DFT3 (4M+16A); cosine part is a 3-point cyclic correlation whose kernel obeys cos40+cos80+cos160=0, killing the (z-1) CRT factor -> 3 mults, 6 complex adds via the symmetric 2x2 trick [C0;C1]=[[g0,g1],[g1,g2]][d1;d2], C2=-(C0+C1); sine part is negacyclic with sin40-sin80+sin160=0 killing the (z+1) factor -> 3 mults, 6 complex adds, S2=S1-S0; assembly X_{2^-b}=z_{1|2}+C_{b mod 3}-+i*S_b costs 12 complex adds. Total DFT9 = 10 real-const scalings = 20 real mults, 44 complex adds = 88 real adds. PFA: M = 5*20+9*10 = 190, A = 5*88+9*34 = 440+306 = 746, total 936. Verified in python against numpy.fft.fft (forward, unnormalized): every module count matched exactly and max relative error 5.6e-16 over 50 random complex128 vectors, including the full 45-point PFA with index maps n=(5n1+9n2) mod 45, k=(10k1+36k2) mod 45.",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.35
+   },
+   {
+    "algorithm": "Nested Winograd (WFTA) 45 = 9 (x) 5",
+    "mults": 130,
+    "adds": 814,
+    "real_flops_per_1d_dft": 944,
+    "derivation": "WFTA nesting with module bilinear-product counts m5=6, m9=11 (including trivial DC products): real mults = 2*m5*m9 = 132 including one trivial x1 pair -> 130 nontrivial. Additions (best nesting order) A = 5*A9 + m9*A5 = 5*88 + 11*34 = 440 + 374 = 814 (other order 9*34+6*88 = 834 is worse). Total = 944. Fewer multiplies than PFA (130 vs 190) but more adds; total slightly worse. Standard WFTA count formula applied to my verified module counts; the nested algorithm itself was not implemented end-to-end.",
+    "confidence": "formula",
+    "fma_pairable_fraction": 0.25
+   },
+   {
+    "algorithm": "Mixed-radix Cooley-Tukey 9x5 with twiddle factors (sanity bracket)",
+    "mults": 318,
+    "adds": 810,
+    "real_flops_per_1d_dft": 1128,
+    "derivation": "5*F(9) + 9*F(5) + (9-1)*(5-1) = 32 nontrivial complex twiddle multiplies (none of w45^m for the required m are +-1 or +-i, so all are general 4-real-mult + 2-real-add complex products): M = 190 + 4*32 = 318, A = 746 + 2*32 = 810, total 1128. Shows the exact cost of NOT using the coprime (Good-Thomas) index map: +192 flops (+20.5%). Module counts are the numerically verified ones; twiddle arithmetic checked in python.",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.4
+   }
+  ],
+  "best_flops_per_point_3d": 62.4,
+  "notes": "Best credible F1D(45) = 936 real flops (PFA 9x5, derived-exact, verified vs numpy to 5.6e-16); best_flops_per_point_3d = 3*936/45 = 62.4 exactly (three axis passes over an L^3 volume: 3*L^2 transforms * F1D / L^3 points). Per-point 1D cost 936/45 = 20.8 real flops, sensibly bracketed by split-radix: SR(8) = 4*8*3-6*8+8 = 56 (7.0/pt), SR(64) = 4*64*6-384+8 = 1160 (18.125/pt); radix-2 brackets 5NlgN = 120 and 1920. PFA rule cross-checks: F(6)=3*F(2)+2*F(3)=44, F(36)=9*F(4)+4*F(9)=576 with the same verified modules. Caveat on the 9-point module: my derived module costs 20 real mults + 88 real adds (= 2x the classic 11-mult/44-add real-input listing, one mult trivial); some literature tables (Nussbaumer) list 84 real adds for the complex 9-point module, which would give F1D(45) = 916 and 61.07 flops/pt-3D. I could not reconstruct the extra 4-add saving, so the roofline uses the verified 936; the difference is 2.1% and immaterial for a roofline denominator. FMA fractions are estimates of the share of flops residing in fused mul-add pairs in a realistic AVX-512 implementation: Winograd/PFA code is add-dominated (mults are 20% of flops; roughly 80% of the real-const scalings fuse into an adjacent add, several fusing twice via fma/fnma pairs) giving ~0.35; WFTA concentrates fewer mults in the center (~0.25); CT twiddles are complex multiplies implementable as 2 mul + 2 fma each, lifting its fraction to ~0.40 despite the worse total. Verification script: /private/tmp/claude-501/-Users-wdetmold-MIT-Dropbox-William-Detmold-2026-problems/3e8ea67f-c989-4b31-8f6e-316caac734df/scratchpad/dft45_counts.py"
+ },
+ {
+  "L": 36,
+  "candidates": [
+   {
+    "algorithm": "Good-Thomas PFA 36=4x9 (coprime, no twiddles) with derived Winograd-style modules: DFT4 = 0m/16a; DFT9 = 20m/84a built from zero-sum 3-orbit convolutions",
+    "mults": 80,
+    "adds": 480,
+    "real_flops_per_1d_dft": 560,
+    "derivation": "PFA rule: flops(36)=9*flops(4)+4*flops(9)=9*16+4*104=144+416=560 (80m+480a). DFT4: two radix-2 stages, all twiddles in {+-1,+-i}: 8 complex adds = 16 real adds, 0 mults (matches split-radix formula at N=4: 4*4*2-6*4+8=16). DFT9 derived from scratch: fold t_j=x_j+x_{9-j}, d_j=x_j-x_{9-j} (16a); k=0,3,6 block via e=x0+t3, q=t1+t2+t4, X0=e+q, X3/6=(e-q/2)-+i*s3*(d1-d2+d4) (4m/16a); for k=1,2,4: cos coefficients (c1,c2,c4)=cos(2pi{1,2,4}/9) sum to EXACTLY 0 and sin combination s1-s2+s4=0 (both verified to 1e-16), so the 3x3 circulant (cos) and negacyclic (sin) orbit blocks each collapse to 3 real mults + 6 adds via the identity A1=m1-m3, A2=m2-m1, A4=m3-m2 with m1=-h1*(g0-g1), m2=-h0*(g1-g2), m3=-h2*(g2-g0) (valid iff h0+h1+h2=0; verified algebraically and numerically); assembling P=x0-t3/2, the s3*d3 column, and the 6 conjugate-pair combines X_k=C_k-+i*S_k gives complex totals 20 mults + 84 adds = 104. Every count instrumented with an operation-counting scalar class (bare negation forbidden, signs folded into constants): DFT9 maxerr 1.1e-15 vs numpy; full PFA36 (CRT input map n=(9*n1+28*n2) mod 36, output map X[k]=Z[k mod 4][(7k) mod 9]) counts exactly 80 mults + 480 adds and matches numpy.fft over 200 random complex trials to <1e-11. Sanity bracket: split-radix 4N lgN-6N+8 gives N=32: 456 and N=64: 1160 (radix-2 5N lgN: N=8: 120, N=64: 1920; split-radix N=8: 4*8*3-48+8=56), and 456 < 560 < 1160 as expected for N=36.",
+    "confidence": "derived-exact",
+    "fma_pairable_fraction": 0.29
+   },
+   {
+    "algorithm": "Good-Thomas PFA 36=4x9 with classical Nussbaumer/Winograd table 9-point module (10 nontrivial real mults, 44 half-adds -> complex 20m/88a = 108)",
+    "mults": 80,
+    "adds": 496,
+    "real_flops_per_1d_dft": 576,
+    "derivation": "flops(36)=9*16+4*108=144+432=576. Uses the widely cited small-N Winograd module table (N=9: 11 real mults incl. one trivial, 44 adds per real half; complex cost doubles). Listed as a cross-check: my independently derived 9-point module above (84 complex adds) came in 4 adds per module cheaper than this recalled table value while keeping 20 mults; since the derived module is numerically verified and fully instrumented, 560 supersedes 576, but I cannot rule out misremembering the exact table adds, hence this candidate is kept at its honest confidence level.",
+    "confidence": "literature-recalled",
+    "fma_pairable_fraction": 0.28
+   },
+   {
+    "algorithm": "Mixed-radix Cooley-Tukey 36=6x6 with twiddles (DFT6 by PFA 2x3 = 8m/36a = 44 flops)",
+    "mults": 168,
+    "adds": 504,
+    "real_flops_per_1d_dft": 672,
+    "derivation": "flops(6)=3*flops(2)+2*flops(3)=3*4+2*16=44 (complex 2-pt: 4 adds; complex 3-pt: 4m/12a, the doubling of the 2m/6a real module - verified by explicit construction). CT: 6 row DFT6 + 6 column DFT6 = 12*44 = 528; twiddle factors W36^(n1*k2), n1,k2 in 1..5: 25 pairs, of which n1*k2=9 gives W36^9=-i (free swap/negate), leaving 24 general complex multiplies at 3m+3a = 6 flops each = 144. Total 528+144 = 672 (168m+504a). Arithmetic verified in python. Strictly dominated by the PFA candidates because Good-Thomas eliminates all twiddle multiplies.",
+    "confidence": "formula",
+    "fma_pairable_fraction": 0.48
+   }
+  ],
+  "best_flops_per_point_3d": 46.666666666666664,
+  "notes": "Best credible candidate: F1D(36)=560 real flops (80 mults + 480 adds), derived and instrumentation-verified (op-counting scalar class, numpy cross-check to 1e-15 per module, 200 random 36-point trials to <1e-11; script: /private/tmp/claude-501/-Users-wdetmold-MIT-Dropbox-William-Detmold-2026-problems/3e8ea67f-c989-4b31-8f6e-316caac734df/scratchpad/dft36_count.py). best_flops_per_point_3d = 3*560/36 = 46.667 (three axis passes over an L^3 volume = 3*L^2 transforms of length L, i.e., 3*F1D/L per complex point). FMA realism on AVX-512: the PFA flow is butterfly/add-heavy; by construction every one of the 80 real mults feeds exactly one subsequent add/sub (R3=e-0.5q, P=x0-0.5t3, orbit products m_i consumed by A_i=m_i-m_j, s3*d3 and s3*u consumed by combines), so all mults fuse: 160/560 = 0.286 of flops pair into FMAs and the remaining 400 flops are bare adds - low FMA utilization but no throughput penalty since adds issue on the FMA ports; effective port-limited cost is ~480 instructions-worth per transform rather than 560/2. The CT 6x6 route looks more FMA-friendly (up to 0.5) but costs 20% more flops and loses on both metrics. Winograd nesting of 4 and 9 coincides with PFA here because the 4-point module has zero nontrivial mults. Caveat: 560 relies on my derived 9-point module (20m/84a complex), which beats the commonly quoted Nussbaumer table entry (20m/88a) by 4 adds; the module is verified correct and the count is exact for this construction, but 'best-known' status vs. all literature is claimed only at the honest confidence labels given. Conservative roofline user may take 576 -> 48.0 flops/point; both bracket tightly."
+ }
+]
