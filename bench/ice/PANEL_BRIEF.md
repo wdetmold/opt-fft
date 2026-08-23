@@ -254,3 +254,25 @@ L=23 in 0.0845 s — FASTER than our 0.0894; read its gen_a.py folded composite 
 gen_asm_prime.py pipelined map (dev_generators/). L=6 at 0.065 is confirmed
 family-wide (three independent attempts land 0.0651-0.0662). Cohort bests now:
 6:0.0651 8:0.0843 13:0.1451 17:0.0305 23:0.0845 36:0.0530 45:0.1866 64:0.1748.
+
+## FINAL STANDINGS (Aug 23, end of round 8 — campaign close)
+
+All gates two-part (one-step 1.5e-14/step exact + chain-end 300x measured honest
+divergence); every winner below passes both; chain drift sits in the library band.
+
+| L | winner | chain s | vs warm committee best |
+|---|---|---|---|
+| 6 | L6_unrolled | 0.0643 | 0.0592 (00291a90-final) — LOST |
+| 8 | L8_radix8 | 0.0823 | 0.0835 — won |
+| 13 | L13_direct | 0.1406 | 0.1451 — won |
+| 17 | L17_matrixsimd | 0.0277 | 0.0305 — won |
+| 23 | L23_matrixsimd | 0.0892 | 0.0845 (00291a90) — LOST |
+| 36 | L36_mixedradix | 0.0513 | 0.0530 — won |
+| 45 | L45_pfa | 0.1536 | 0.1681 — won |
+| 64 | L64_blocked | 0.1701 | 0.1748 — won |
+
+**Total 0.7791 s vs the 23-attempt + 5-warm rival committee's 0.7987 s (1.025x): the
+panel beats every rival attempt individually AND their combined per-cell best, under a
+stricter precision gate than any rival grader ran.** Open cells for any future round:
+L=6 (their 0.0592 engine: warm_00291a90 dev_generators_final gen_a folded composite),
+L=23 (their 0.0845: same attempt's gen_asm_prime pipelined map).

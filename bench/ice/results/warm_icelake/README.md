@@ -16,3 +16,16 @@ implementation.c both changed on regeneration; timing unchanged within noise).
 Per-size bests across the cohort (chain seconds, gate-clean):
 6: 0.0651 (d43) | 8: 0.0843 (57) | 13: 0.1451 (57) | 17: 0.0305 (d43) |
 23: 0.0845 (00291a90) | 36: 0.0530 (d43) | 45: 0.1866 (d43) | 64: 0.1748 (d43)
+
+## Update: 00291a90 FINAL artifact (dev_generators_final + prelude_c.py, x86-regenerated)
+
+The true final generator state (pushed later) regenerates the graded 2.04 MB C on our
+node (the shipped implementation_final.c was ARM-generated: ~97k bytes of low-order
+constant digits differ). Measured: **0.832 s total**, exact one-steps everywhere, the
+step-1 snapshot bug of the pre-final rebuild gone. Its L=6 = 0.0592 s is the new
+cohort-best cell. Residual gap to its graded 2.13 s shots (= 0.71 s at 1x) is
+consistent with the grading tier's higher clock (GCP n2 Ice Lake turbo ~3.4 GHz vs
+our Gold 6326 ~3.0), not measurement luck.
+
+Cohort bests, final: 6: 0.0592 | 8: 0.0835 | 13: 0.1451 | 17: 0.0305 | 23: 0.0845 |
+36: 0.0530 | 45: 0.1681 | 64: 0.1748  (committee total 0.799 s)

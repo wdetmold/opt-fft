@@ -3,6 +3,7 @@
 numpy is the affordable witness here; numpy's own agreement with the from-scratch
 definition (python/slow_dft.py) is established separately by python/test_fft3d.py.
 """
+import math
 import argparse, json, sys, numpy as np
 
 p = argparse.ArgumentParser()
