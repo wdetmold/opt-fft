@@ -1,0 +1,6 @@
+src = open('implementation.c').read()
+src = src.replace("    RUN_CASE_P_SOA(13, 13, 16, 264, 8 * (169 + 1))", "    RUN_CASE_SOA(13, 13, 16, 264, 8 * (169 + 1))")
+src = src.replace("    RUN_CASE_P_SOA(17, 17, 24, 584, 8 * (289 + 1))", "    RUN_CASE_SOA(17, 17, 24, 584, 8 * (289 + 1))")
+src = src.replace("    RUN_CASE_P(23, 23, 24, 584)", "    RUN_CASE(23, 23, 24, 584)")
+open('implementation.c','w').write(src)
+print("ok")

@@ -1,0 +1,1 @@
+s/#define DEF_ENGINE(LN, L_, LP_, R_, LPS_, SS_, FFTLINE)                               \\\n  static void sweepA/#define DEF_ENGINE/

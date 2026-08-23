@@ -1,0 +1,5 @@
+src = open('implementation.c').read()
+src = src.replace("PRIME_LINE(17, 8, PH17, C17, S17, 4, JU17)", "PRIME_LINE(17, 8, PH17, C17, S17, BLK17, JU17)")
+src = src.replace("PRIME_LINE(23, 11, PH23, C23, S23, 4, JU23)", "PRIME_LINE(23, 11, PH23, C23, S23, BLK23, JU23)")
+src = src.replace("#ifndef JU17", "#ifndef BLK17\n#define BLK17 4\n#endif\n#ifndef BLK23\n#define BLK23 4\n#endif\n#ifndef JU17")
+open('implementation.c','w').write(src)
