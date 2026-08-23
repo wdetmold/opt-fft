@@ -1,0 +1,20 @@
+void k6(vd *restrict xr, vd *restrict xi, ptrdiff_t s,
+        const vd *restrict cr, const vd *restrict ci, const int mode) {
+    vd r0 = xr[0],   i0 = xi[0];
+    vd r1 = xr[s],   i1 = xi[s];
+    vd r2 = xr[2*s], i2 = xi[2*s];
+    vd r3 = xr[3*s], i3 = xi[3*s];
+    vd r4 = xr[4*s], i4 = xi[4*s];
+    vd r5 = xr[5*s], i5 = xi[5*s];
+    if (mode == 2) {
+        mapv_nr(&r0,&i0); mapv_nr(&r1,&i1); mapv_nr(&r2,&i2);
+        mapv_nr(&r3,&i3); mapv_nr(&r4,&i4); mapv_nr(&r5,&i5);
+    }
+    bf6(&r0,&i0,&r1,&i1,&r2,&i2,&r3,&i3,&r4,&i4,&r5,&i5);
+    KSTORE3(xr[0],   xi[0],   r0, i0, cr[0],   ci[0],   mode);
+    KSTORE3(xr[s],   xi[s],   r1, i1, cr[s],   ci[s],   mode);
+    KSTORE3(xr[2*s], xi[2*s], r2, i2, cr[2*s], ci[2*s], mode);
+    KSTORE3(xr[3*s], xi[3*s], r3, i3, cr[3*s], ci[3*s], mode);
+    KSTORE3(xr[4*s], xi[4*s], r4, i4, cr[4*s], ci[4*s], mode);
+    KSTORE3(xr[5*s], xi[5*s], r5, i5, cr[5*s], ci[5*s], mode);
+}

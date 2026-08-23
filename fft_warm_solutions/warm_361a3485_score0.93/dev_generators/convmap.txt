@@ -1,0 +1,26 @@
+static void conv_out_aosoaC_map(const vd *restrict d, double *restrict dst, long nl, long N, long CNT) {
+    long i = 0;
+    for (; i + 4 <= CNT; i += 4) {
+        vd t[8];
+        const vd *o = d + 2*i;
+        for (int q = 0; q < 4; q++) {
+            vd rr = o[2*q], ii = o[2*q+1];
+            mapv_nr(&rr, &ii);
+            t[2*q] = rr; t[2*q+1] = ii;
+        }
+        tr8(t);
+        for (long l = 0; l < nl; l++)
+            _mm512_storeu_pd(dst + (l*N + i)*2, (__m512d)t[l]);
+    }
+    long tail_o = CNT & 3;
+    for (long t2 = 0; t2 < tail_o; t2++, i++) {
+        vd rr = d[2*i], ii = d[2*i+1];
+        mapv_nr(&rr, &ii);
+        const double *R = (const double*)&rr, *I = (const double*)&ii;
+        double *dp = dst + (size_t)i*2;
+        for (long l = 0; l < nl; l++) {
+            dp[(size_t)l*(size_t)N*2]     = R[l];
+            dp[(size_t)l*(size_t)N*2 + 1] = I[l];
+        }
+    }
+}
