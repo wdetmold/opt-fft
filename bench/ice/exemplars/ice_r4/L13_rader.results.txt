@@ -1,0 +1,2 @@
+   L13_rader                      6.363 us 260212.625 us    19.17       0.6%    0.165s  ok 3.0e-16       1.09x
+   L13_rader                Rader-13 CRT (93 FP/chunk) lanes=lines + FUSED MAP CHAIN (lazy X-pass map, 1 vsqrtpd/pt + rcp14 2-Newton), 512-bit; exec=ov chain=fo chain-ab[B32]=fo:6369,fz:6479,fs:7118,uf:6469

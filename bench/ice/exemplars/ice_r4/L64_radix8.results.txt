@@ -1,0 +1,2 @@
+   L64_radix8                  1042.956 us 279512.293 us    22.62       2.0%    0.782s  ok 4.5e-16       1.00x
+   L64_radix8               radix-8^2/axis split-cplx AVX-512; ice_r4 fused chain (map@z-store, rsqrt14+2N, all-FMA recip) ck=1; pick[B=2]=fused-plain+slabpf0+pro0+p10+sc0+xb0+fo0

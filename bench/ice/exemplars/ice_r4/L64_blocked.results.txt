@@ -1,0 +1,2 @@
+   L64_blocked                 1048.605 us 281026.112 us    22.50       5.1%    0.842s  ok 4.5e-16       1.01x
+   L64_blocked              L64 8x8 two-stage, hugepage scratch, fused-chain (lazy map: rsqrt-Newton+1 vdivpd in pass1) ck=1; pick: pw=4 mode=nt pf=1 st=3(split-sc) pro=1 sb=0 (B=2, nv=2)

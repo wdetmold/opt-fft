@@ -1,0 +1,2 @@
+   L45_pfa                      283.339 us 200604.335 us    26.49       4.2%    1.175s  ok 4.0e-16       1.00x
+   L45_pfa                  GT-PFA 9x5 2-sweep +il(xvol-pipeline)+hz; pick pw4-il-pf0 262.2 us/vol (ip0=259.8 il0=262.2 hz=261.6) B=4 nv=4 | ch=vm-zs 301.8us/step ms0 (vm=301.8 vp=315.9 bm=317.3 pp=310.3 uf=320.6)

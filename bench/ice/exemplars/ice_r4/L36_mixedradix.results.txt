@@ -1,0 +1,2 @@
+   L36_mixedradix               111.425 us 57049.604 us    32.47       1.0%    0.314s  ok 3.6e-16       1.00x
+   L36_mixedradix           PFA 4x9 2-sweep + lazy fused map chain (in-place per-vol, own arena hp=2); pick=v1+mB-pf1 pinD=2112 B=8 mA-pf1=114.0 mA-pf0=115.4 mB-pf1=110.4 mB-pf0=111.8 mS-pf1=112.3 mS-pf0=113.5

@@ -1,0 +1,2 @@
+   L8_radix8                      0.564 us 92916.893 us    40.82       0.2%    0.031s  ok 2.3e-16       1.00x
+   L8_radix8                radix-8 52-instr codelet; 2p/1f/3p; fused chain(vol-major L1, map=rsqrt14+2NR+div, ch=2); pick[B=64]=avx512-1faa-pfs (default) arena{1faa-pfs=0.451 1f-pfs=0.455 1faa=0.463 3p-pfs*=0.460}

@@ -1,0 +1,2 @@
+   L8_fusedaxes                   0.744 us 122426.258 us    30.98       0.4%    0.380s  ok 2.3e-16       1.32x
+   L8_fusedaxes             8^3 fused/AA/AA2 c52 + fused-map chain[slot+pfs]; B=64 pick=fusedAA2+pfs (chain-tuned) chain-arena{fused+pfs=0.422,fusedAA2=0.424,fusedAA2+pfs=0.416,fusedAA2b=0.425,fusedAA2b+pfs=0.420} map-arena{div=0.781,div+pfs=0.771,fma=0.831,fma+pfs=0.819,div-pp=0.838,div+pfs-pp=0.832,slot=0.758,slot+pfs=0.756,lz=0.783,lz+pfs=0.770,rr46=0.753} pmc=na

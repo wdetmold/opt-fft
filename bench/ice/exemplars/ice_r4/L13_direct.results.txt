@@ -1,0 +1,2 @@
+   L13_direct                     5.837 us 238703.051 us    20.89       0.4%    0.152s  ok 2.9e-16       1.00x
+   L13_direct               conj-folded dense 13x13 per axis, lanes=lines, pinned sines; 512b all-pinned zsolidY+xmm-tail X-first+ov; fchain=lazy-pairmap(v2)+xstep-ov; chain-ab[B32]=zs4076,ov4013,oz4261,op4605,os4084,pf4419 ns/vol pick=ov(inc); fch-ab=cz6088,cv6087 pick=cv(inc)

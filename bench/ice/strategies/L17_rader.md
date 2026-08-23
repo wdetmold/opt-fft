@@ -203,3 +203,197 @@ table) is dead weight in the chain regime, exactly as predicted.
    so extending the same padding into volume 0's plane phase (which has
    nothing to overlap) using the NEXT volume's deint is the marginal
    version of the same trick.
+
+(This entry sat out ice_r2 and ice_r3; the r3 leaderboard had it at
+19.368 us/step, 1.48x behind L17_matrixsimd's 13.061, FFT-only chain
+semantics.)
+
+## Round ice_r4
+
+### The task changed: the graded step is now FFT + map, and I own the chain
+
+The chain step became `state <- (z + c)/(1 + |z + c|), z = FFT(state)`,
+timed through the optional `fft3d_chain` entry point (weak symbol).  An
+entry without it is timed through the driver fallback -- fft3d_execute
+sweeping all 32 volumes per step plus a driver-side vectorized map -- which
+for this entry would have been ~24 us/step equivalent.  This round is
+entirely about owning that chain; nothing in the FFT kernels changed.
+
+### What was built
+
+1. **`fft3d_chain` with PER-VOLUME iteration** -- each volume runs all
+   m=98 steps while its working set is L2-resident (state ping-pong
+   2 x 78.6 KB in plan scratch, its `c` volume, and the A buffer: ~320 KB
+   against the 1.25 MB L2), instead of the fallback's per-step sweep that
+   keeps 3 full batches live in L3.  This is corpus sec 10.3's consensus
+   design ("iterate each volume through all m steps while cache-resident;
+   never sweep passes across volumes"), and it makes the B=1 and B=32
+   cells nearly the same workload.
+2. **One map ladder, everywhere** -- ADOPTED VERBATIM from the rival
+   1.00-scorer's `mapc` (1000f989, sec 10.2 consensus shape): w = z + c,
+   s = 1e-300 + wr^2 + wi^2, `vrsqrt14pd` seed + 2 Newton steps for
+   sqrt(s) on the FMA pipes, ONE exact `vdivpd` for 1/(1+|w|).  The bias
+   makes s=0 and denormal-range squares safe without touching MXCSR.
+   Exactness: chain m=98 rel_l2 = 2.9e-14 against the numpy reference
+   chain (tol 9.8e-12, ~340x margin); the brief's tiered-precision lever
+   (float-seed maps) was NOT needed -- at ~3 us/step embedded cost the
+   full-precision ladder is not the binding constraint (see probe).
+   vrsqrt14pd is elementwise-identical across 128/256/512 widths, and
+   every point in every variant goes through this one ladder (the tail of
+   a non-multiple-of-8 run is an OVERLAPPED 8-group, not a scalar), so
+   the whole candidate set below is bit-identical -- cmp-VERIFIED on the
+   node: forced xm vs mp vs dz vs w4 chain outputs are byte-equal.
+3. **Map placement variants, plan-time raced** (create-time race, 2
+   sweeps, ~60 ms, runs in the scoring window's quiet like the rest of
+   create):
+   - `mp` (lazy): state stays RAW between steps; the map runs as a
+     per-plane pre-pass into an L1-hot 4.6 KB buffer at the top of the
+     next step's plane phase, one final materialization pass at the end.
+   - `mps` (lazy, shifted): same, but plane x+1's map runs right after
+     plane x's z pass, so the 36 divides per plane issue under the z
+     drain instead of as an exposed burst.
+   - `fd` (lazy, fused): map fused INTO the zmm deint tile (dz8x8m adds
+     c in interleaved space before the transpose and runs the ladder on
+     the split rows before the store).  Built, raced, never won a table
+     (21.4-22.1 vs mp pin 20.9-21.5 same-window); dropped from the table
+     when the scalar-edge bit-unification favored the others; code kept.
+   - `xm` (EAGER): the map runs AT THE X-PASS STORE as a per-block
+     epilogue -- each kernel block's 17 just-stored rows are mapped in
+     place (loads hit the store queue), c streamed from the same offsets.
+     State buffers hold MAPPED state, the plane phase is plain, and the
+     LAST step's x pass writes final_out directly: the separate map pass
+     disappears from the program entirely.  Overlap lanes stay correct
+     because every block re-stores its lanes raw before its own epilogue
+     maps them.
+   - `xk` (EAGER, IN-KERNEL -- the shipped winner): the map moves INSIDE
+     wino17's ST macro (new `cm`/`mst` kernel args, mode-1 stores only):
+     the ladder runs on the split (vr, vi) registers already in hand,
+     BEFORE the interleave shuffles, with c split at the destination
+     offsets.  No epilogue, no reload of just-stored rows; the ladder and
+     its one vdivpd per store site interleave with the kernel's own
+     296-FP drain at instruction granularity -- the rivals' `zpassAB_m`
+     pattern (sec 10.2) applied to my store side.  Kernel signature
+     change touched all 57 call sites mechanically (`, 0, 0` appended);
+     mode!=mst paths are textually unchanged, so every non-chain exec
+     keeps its bit class.
+   - pin twins of all of the above; `ty` twins of xm (ymm transposes);
+     `dz` twin of xm (the deferred-junction plane schedule composed with
+     the eager x pass); w4 twins of xm.
+4. **`nm` probe + telemetry**: create() also times the chain step with
+   the map OFF (unscored) and publishes `ch=<pick> <us> nm=<us>` in the
+   description string, so the scored line carries the map's embedded cost
+   measured in the quiet window.
+5. **Divider/seed microbenchmarks on the bare-metal node** (settling
+   sec 10.2's CONTESTED question): `vrsqrt14pd`/`vrcp14pd` ~1-2 cyc tput
+   (PIPELINED -- 1760b1bf's "~10 cyc microcoded" was a VM artifact),
+   `vdivpd` zmm ~15.5 cyc, `vsqrtpd` zmm ~23 cyc, at clk512 = 3.20 GHz
+   measured in the same process.  Standalone map ladder shapes all land
+   at 0.81-1.06 ns/pt (rsqrt+2N+div 0.88, rsqrt+2N+rcp+2N 0.98,
+   sqrt+rcp 1.06, sqrt+div 1.73, float-seed 0.98; 4-way manual
+   interleave moves div only 0.88 -> 0.81) -- the standalone pass is
+   memory/latency-bound, NOT unit-bound, which is why ladder-op tuning
+   was abandoned in favor of placement (xm).
+
+### Operation count
+
+FFT unchanged: 296 FP instructions (192 FMA + 104 add/sub, 488 flops) per
+17-point transform.  The map adds per point: 2 add + 2 FMA (|w|^2), 1
+rsqrt14 seed + 9 FMA-class Newton ops, 1 FMA (1+|w|), 1/8 vdivpd, 2 mul
+-- ~17 vector-op-lanes + one divider slot per 8 points, 614 groups per
+volume-step.  xk moves those ops into the x pass's 629 ST sites and
+deletes the standalone map pass and xm's epilogue reload entirely.
+
+### Measured (ICE node via tryout.sh; every number below names its window)
+
+| config | result |
+|---|---|
+| graded B=32 m=98, driver steady state, QUIET window (final xk code) | **min 17.551 / median 17.554 us/step, sd 0.02%** |
+| same code, other windows | 18.57 quiet-ish / 20.1-21.6 contended |
+| pre-xk (xm epilogue) code, best windows | 18.75-19.62 |
+| B=1 m=98 (windows with MKL at 99.5 vs its quiet 73.8, i.e. ~35% inflated) | 21.11-21.54 us/step, sd 0.03% |
+| MKL same case/core B=32 | 88.8-90.2 us/step (~5.1x ahead at the pick) |
+| single-transform gate | rel_l2 3.16e-16 |
+| chain gate (m=98, manual check.py) | rel_l2 2.896e-14 at B=32, 1.21e-14 at B=1 (tol 9.8e-12) |
+| repeatability (manual, two runs, final code) | out.bin AND out.bin.chain byte-identical |
+
+The one QUIET same-window table (the round's best evidence): **xk pin
+17.40**, xk 17.90, xm ty pin 18.44, xm pin 18.46, mp pin 18.54, mps pin
+18.69, xm dz pin 18.72, xm 256 pin 21.12; `nm` (map off) = **15.58**,
+which matches r1's quiet B=1 FFT-only 15.83 -- i.e. the per-volume chain
+runs at the old quiet B=1 floor, and the map's embedded cost fell
+4.3 us (standalone pass) -> 2.7-3.5 us (xm epilogue, partial hiding) ->
+**1.82 us (in-kernel xk)**.  Contended windows show the same ranks at an
+inflated level (xm-family 21.3-22.9, nm 18.4-18.7).  Other same-window
+facts: **xm 256 (w4) loses by ~13%** (the "xl 256 won stage 1" pattern
+from the L3-batched cells does NOT transfer to the L2-resident chain);
+xm dz loses by ~1% (junction deferral does not pay here); pin wins in
+every family.  Forced-pick chain outputs xk vs xm vs mp vs dz vs w4 are
+cmp-VERIFIED byte-equal, so the race is free.
+
+### What did NOT work / negatives with numbers
+
+* **w4 chain body** (xm 256 / xm 256 pin): 24.0-24.7 vs 21.3-21.8 for
+  the w8 family, three same-window tables.  Do not re-derive: at
+  L2-resident chain regime the two 512-bit FMA pipes win outright.
+* **fd (map fused into the deint tile)**: never beat mp in any table
+  (22.06 vs 21.85; 21.80 vs 21.52).  The ladder burst inside the tile
+  displaces p5 shuffle slots; the deint is not where the slack is.
+* **mps (map shifted under the z drain)**: wash (within 0.5% of mp in
+  every table).  The OoO window cannot hold a whole 780-uop map_run plus
+  the next kernel group; shifting whole passes is too coarse.
+* **dz + xm**: 21.99 vs 21.72 (one window).  Kept as a candidate.
+* **Ladder arithmetic tuning** (rcp14 vs div, float seeds, 4-way
+  interleave): all within 0.81-1.06 ns/pt standalone -- the standalone
+  map is bound by memory/latency, not by the divider or the seeds.  Do
+  not spend another round micro-tuning the ladder; move it or delete it.
+* **tryout.sh has a `set -u` bug this round** (`$W` used before defined
+  when a chain case exists): run it as
+  `W=$ICE/build/tryout/<name> ./tryout.sh <name> 17 <B>`, and note its
+  check.py invocation also loses `$W` remotely, so the map-chain check
+  silently never runs -- run
+  `python3 check.py ... --map-check 98 --cin $W/c.bin` yourself, and the
+  repeatability cmp too (the shared FS makes both trivial locally).
+
+### Borrowed this round, named
+
+* The map ladder is **1000f989's `mapc`** (rsqrt14 + 2 Newtons + one
+  exact vdivpd), verbatim from
+  `ext/reference/fft_v4_solutions/1000f989_score1.00/implementation.c`.
+* Per-volume cache-resident chaining and the lazy-map idea are corpus
+  **sec 10.3 consensus**; the divider-under-FFT placement is **sec 10.2
+  consensus** (their in-kernel fusion, here approximated at x-block
+  granularity with zero kernel surgery).
+* The settle-the-contested-claim-by-microbenchmark move is 1760b1bf's
+  own advice from sec 10.2 ("benchmark the seed instruction before
+  blaming the ladder") -- their microcode claim itself turned out to be
+  the VM artifact.
+
+### Next round
+
+1. **Read the scored description first**: it now carries
+   `chain pv fused map ch=<pick> <us> nm=<us>` from the quiet window.
+   ch - nm is the map's remaining embedded cost (quiet dev window: 1.82);
+   nm is the FFT residual (quiet: 15.58).
+2. **In-kernel ST fusion was DONE this round** (the xk shape, planned as
+   a next-round item and then executed after the epilogue measurements
+   justified it): -1.06 us/step over xm in the quiet table, no codegen
+   degradation observed (the ST-site temps are short-lived; no new spill
+   pathology at either width).  What remains of the map is ~1.8 us
+   against a ~1.1 us alu/traffic floor estimate -- the next bite is
+   small; do not lead with it.
+3. **The FFT residual (nm = 15.58 quiet) is now the target again**, and
+   it is r1's B=1 structural story: plane-phase junctions at L2 latency.
+   Winograd's 3-pass engine (fu = 12.8 us/vol on this node, r1 probe)
+   remains the wholesale port candidate, worth MORE now because the
+   chain multiplies any per-volume saving by m = 98 and the map fusion
+   (xk lives in the x-pass store macro) ports with it.  Alternative
+   in-structure lever: cross-VOLUME chain interleaving -- two volumes'
+   chains advanced alternately (double working set, still < half of L2)
+   so volume B's plane phase pads volume A's junction stalls; this is
+   sp's winning mechanism transplanted into the chain regime, and
+   nothing else in the chain has independent work to pad with.
+4. If the scoring window's quiet changes the race pick, trust it -- all
+   candidates are cmp-verified bit-identical, so the pick is free.
+5. Housekeeping: tryout.sh's `$W` bug (workaround in the negatives
+   section) also disables its repeatability cmp -- keep running both
+   checks manually until the monitor fixes the script.

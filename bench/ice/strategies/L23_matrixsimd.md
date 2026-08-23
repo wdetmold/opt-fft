@@ -172,3 +172,163 @@ issue/feed slack — see Next.
   regime neither existing tuner stage matches).
 - If the monitor's telemetry shows the za head or pw knob flip-flopping
   across its three runs, pin pw by the L3 gate and re-check.
+
+(NOTE: this entry's ice_r3 agent left no record — ice_r3 scored the
+unmodified ice_r2 code at 39.761 us/t, second to L23_rader 39.502, with
+tune[ch pick=50.73 inc=50.73 nv=16] and clk512/256 = 2.90/2.90 in the
+description: the settle spin ran but the clk probes still read base clock
+in the scoring window.  The pick held za as designed.)
+
+## Round ice_r4
+
+### The task changed under us; this round is fft3d_chain
+
+The graded step is now the full rival step, state <- (z+c)/(1+|z+c|) with
+z the RAW (unnormalized) FFT of the state — no driver-side unitary scale
+in map mode — and the driver times an exported `fft3d_chain(plan, x0, c,
+final_out, m)` weak symbol as the whole unit.  Entries without it pay
+fft3d_execute plus a driver-side map pass; MKL (fallback-only by
+construction) measured that pass at +31..35 us/t on the graded cell
+(231 -> 262–266) in this round's windows.  Everything below is about
+owning the chain; no exec variant, kernel, table, tuner stage or bit
+class of the fft3d_execute path changed.
+
+### What was built
+
+1. **Volume-resident chain order** (corpus §10 §3 consensus: "iterate each
+   volume through all m steps while cache-resident; never sweep passes
+   across volumes").  fft3d_chain runs volume b through all m=165 steps
+   before touching volume b+1: state ping-pong (2 x 190 KiB plan buffers,
+   skewed 1.5 KiB apart), the volume's own c (190 KiB) and t1 (199 KiB)
+   all stay L2-resident (~780 KiB against 1.25 MB), where the old
+   batch-per-step order sloshed 8.9 MiB through L3.  Legal because both
+   the FFT and the map act volume-locally, so the reorder changes no
+   values.  Step m's Z pass writes its mapped planes straight into
+   final_out's volume: no epilogue, no copy, x0 never written.
+2. **FFT body per step**: exec_zf's per-volume interior verbatim (za
+   layout, pinned kernel, X-first, no prefetch knobs — every knob has
+   only ever been uop tax on L2-resident lines).
+3. **Map fused at Z-CHUNK granularity, L1-hot**: Z chunk t finalises
+   out-plane rows ky = f0..f0+3 = one contiguous 184-double span (exactly
+   23 zmm), which is mapped in place immediately, so span t's divides
+   issue between chunk t+1's FMA bursts.  The off23 overlap row (ky=19)
+   is stored raw over its mapped copy by the last chunk and re-mapped
+   bit-identically (+4.3% map vectors; keeps every span whole-vector).
+4. **Map arithmetic (mv=0, the shipped default)**: w = z+c; |w|^2
+   duplicated into both lanes (1 vpermilpd + 1 add); clamped to 1e-300
+   (rsqrt14(0)=inf would NaN the Newton ladder; the clamp is exact for
+   the result since sqrt(1e-300) vanishes in 1+|w|); vrsqrt14pd seed + 2
+   Newton on the FMA pipes; d = fma(m2,r,1.0); ONE exact vdivpd w/d.
+   This is corpus §10 §2's 4/7-convergent shape (1000f989's mapF,
+   8dc1a96d): burn the divider once per point, Newton for the rest.
+   **Precision arithmetic for the gate (m=165, tol 1.65e-11)**: seed err
+   6.1e-5 -> 1 Newton 5.6e-9 (FAILS the 1e-13/step budget, do not tier
+   down) -> 2 Newtons 4.7e-17 = full double, ~2-3 ulp/application.
+   Measured chain-165: **3.63e-14, ~450x margin**.  The rivals'
+   float-seed tier is legal at this (L,m) but buys ~nothing once the
+   divider is the marginal resource; not taken.
+5. mv is COMPILE-TIME (-DL23_MV): the variants are different bit classes,
+   so a plan-time wall-clock race could flip bits across processes.
+
+### Operation count
+
+FFT unchanged (943 kflop/vol, za = 138 X + 276 plane chunks).  Map adds
+per volume 3174 zmm map-vectors (529/plane x 23 planes + 4.3% overlap)
+x (~14 vector ops + 1 vdivpd) ~= 44k vector ops on the pipes + 3174
+divides.  Divider occupancy ~= 3174 x ~16 cyc ~= 51k cyc ~= 17.5 us/vol
+at 2.9 GHz — more than a third of the step — which is why WHERE the
+divides sit in program order decided the round (below).
+
+### Measured on the node (tryout.sh = a80n0, leased core, graded chain
+### L=23 B=16 m=165, dev windows; same-window contrasts only)
+
+- **SHIPPED STATE: min 44.81–45.52 us/t across four windows (best-window
+  sd 0.03%), B=1 44.51 us/t (quiet window)**; single-transform rel_l2
+  3.798e-16, map-chain-165 rel_l2 3.631e-14 (tol 1.65e-11), single AND
+  chain outputs bit-identical across processes.  MKL same case/core:
+  262–266 us/t through the fallback (we are 5.9x).
+- Map placement ladder (mv=0): per-plane epilogue after the Z pass
+  46.00/46.15 (A/B/A against mv=1 47.56) -> chunk-granular fusion
+  44.81/45.25: **-1.2 us/t for moving the SAME divides between the FMA
+  bursts instead of a 133-divide block the divider serialises.**
+- Map variant race (chunk-fused, same windows): mv=0 (rsqrt-Newton + one
+  vdivpd) 45.25 vs mv=1 (all-Newton, rcp14 ladder, no divider) 46.61
+  (+3.0%); as plane epilogue 46.0–46.1 vs 47.6–48.0 (+3.3%); mv=2
+  (hardware vsqrtpd + rcp ladder) 53.38 (+18%).  The consensus shape
+  wins here too; rsqrt14/rcp14 are NOT microcoded-slow on this
+  bare-metal tier (1760b1bf's VM claim does not transfer — mv=1 loses
+  on FMA-port pressure, not seed latency).
+- d = fma(m2,r,1.0) merge (saves one add/vector): 45.52 in its own
+  window, kept as a >= 0 change (one op fewer, same error class, chain
+  residual unchanged at 3.631e-14).
+
+### What did NOT work / traps hit, with numbers
+
+- **Hardware vsqrtpd for |w| (mv=2): 53.38 vs 45.25 us/t.**  Two divider
+  ops per point saturate the one divider; the sqrt is the op to Newton
+  away, the divide is the one to keep.
+- **All-Newton (mv=1) loses ~1.4 us/t in both placements** even though
+  it frees the divider entirely: the second (rcp14) ladder spends more
+  FMA-pipe slots than the hidden divide costs.
+- **A per-plane map epilogue costs +1.2 us/t vs chunk-granular fusion**:
+  133 back-to-back divides stall the divider (~2.1k cyc/plane) faster
+  than OoO can reach the next plane's FMA work.  Placement, not count.
+- **Dev-window trap (cost ~40 min): a B=1..4 vs B=8..16 "cliff" (51.5 vs
+  45.2 us/t, sd 0.02%!) that was pure core-lease contention** — MKL in
+  the same windows showed the same +37 us/t at B=1, and a fresh window
+  read B=1 at 44.51.  A tiny sd does NOT certify a window: it can be a
+  STABLY contended neighbor.  Cross-B (= cross-window) comparisons lie;
+  only same-window A/B counts (the r2 lesson, now with a sharper edge).
+- **tryout.sh has two bugs this round** (cannot fix, script is shared):
+  line 36 reads $W before line 38 sets it (set -u aborts) — work around
+  with `W=<ice>/build/tryout/<name> ./tryout.sh ...`; and the remote
+  check.py receives a literally-unexpanded '$W/c.bin' for --cin, so the
+  map-chain check inside tryout always dies with FileNotFoundError —
+  run check.py yourself against build/tryout/<name>/{in,out,c}.bin
+  (shared FS), and do the two-run repeatability cmp manually on a
+  leased core (the && chain skips it after the check.py crash).
+
+### Borrowed this round
+
+- The map shape (rsqrt-Newton magnitude + ONE exact vdivpd) and the
+  divider-hiding doctrine: **corpus §10 §2 [consensus 4/7]** (1000f989's
+  mapF, 8dc1a96d); "the exact final divide protects the gate" is theirs.
+- Volume-resident chain order: **corpus §10 §3 [consensus]**.
+- The zero-clamp before rsqrt14: own derivation (rsqrt14(0)=inf NaNs the
+  ladder; the corpus never mentions it — their graders' data never hit
+  w = 0, ours must not be able to).
+- Skewing the two state buffers apart: corpus §10 §3 4K-aliasing hygiene.
+- Do-the-budget-arithmetic-per-(L,m) before precision tiering:
+  PANEL_BRIEF ice_r4 task section (and it came out "don't tier").
+
+### Next round
+
+- **Map cost is now ~5.2 us/t of the ~45; the FFT body is the rest.**
+  The r2 diagnosis stands: ~35% issue slack against the ~26 us port
+  floor.  Port-5 relief in the Y/Z chunks (48 tile shuffles + 11 MULI
+  p5-only ops per chunk) is worth ~2.9 us/vol of theoretical tax and now
+  ALSO frees pipe slots the map's Newton ladder competes for — the two
+  compound.  Check L17_rader's ymm 4x4 tile transposes at L=17 first
+  (r2 next-item 1 unchanged).
+- Fuse the map into the Z-chunk STORE TAIL (values still in registers):
+  saves the 23-vector store->reload round trip per span, at the price of
+  ~4 map temps against 23 live accumulators (spill risk).  Worth one
+  pinned A/B; expected < 1 us.
+- Race dz (deferred-Z) and flat-vs-za INSIDE the chain body: the chain's
+  L2-resident economics differ from every regime those were tuned in.
+- If the quiet window still shows the divider exposed (score well above
+  ~44), split each 23-vector map span into two half-spans issued around
+  the next Z chunk.
+
+### Late addendum (same round): deferred-Z inside the chain — RACED, LOSES
+
+The "race dz inside the chain" next-item was cheap enough to do now.
+-DL23_CDZ (exec_zfd's schedule: Y(x+1) between Y(x) and Z(x), pb
+double-buffered) A/B/A/B on the graded cell: CDZ 61.60 (contended
+window, discard) / plain 44.86 / CDZ 45.72 / plain 45.34 us/t — dz loses
+~0.4–0.9% in the comparable adjacent windows.  Consistent with the map
+now sitting between the Z chunks: the store->load junction dz was built
+to break is already separated by ~390 map uops per span.  Hook kept
+(-DL23_CDZ) for forced experiments; default stays plain.  The flat-vs-za
+race inside the chain remains untried (windows too noisy today to
+resolve an expected <1% contrast; do it in a quieter round).

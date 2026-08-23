@@ -250,3 +250,136 @@ same-process driver 0.564 — the optimism is gone.
 3. The one unpriced idea left in my file: pass-A x-order rotation combined
    with the δ-aware row (the load side of the boundary channel).  Needs the
    PMU to be worth the risk.
+
+## Round ice_r4 (2026-08-23)
+
+### The task changed: own the chain or pay the unfused map
+
+The graded step is now `state <- (z+c)/(1+|z+c|)`, z = **raw unnormalised**
+FFT(state) (verified in driver.c/check.py: no unitary scale in map mode —
+the map itself keeps the state bounded), timed through the optional weak
+`fft3d_chain` symbol.  No L=8 entry had one when this round started; MKL
+through the driver fallback reads **2.12 µs/xform** at the graded cell
+(B=64, m=2572) — the unfused map pass costs more than the entire FFT.
+This entry now exports fft3d_chain and owns all 2572 steps.
+
+### What shipped
+
+1. **fft3d_chain with the map fused EAGERLY into pass B** (transposing the
+   rivals' lazy-map idea, corpus §10 §2, adopted via L13_rader/L13_direct's
+   ice_r4 records): after the z-axis DFT the registers already ARE split
+   re/im vectors of 8 points, so `w = z+c`, `t = wr²+wi²`, `|w|`, and the
+   scale run with **zero pairing permutes** (L13_direct pays 4 permutes per
+   8 points for exactly this; the split-complex layout gets it free).  The
+   ping-pong buffer always holds the mapped STATE, every step is the same
+   call, and step m writes final_out directly — no standalone map pass, no
+   raw/mapped bookkeeping, and the driver's old per-step scale pass is gone
+   entirely.  c is pre-split once (first chain call, cached by pointer)
+   into the exact (register = kz, lane = kx.SW) shape pass B consumes:
+   1 KiB streamed per iteration, zero shuffles in the hot loop.
+2. **Map ladder = rsqrt14 + 2 Newton on the FMA pipes + ONE exact vdivpd
+   per 8 points** (`-DL8_MAPV=0`), i.e. L13_rader's MAPSTYLE=1 form, NOT
+   L13_direct's hw-sqrt v2 — my A/B inverted theirs, see negatives.  Full
+   double: seed 2^-14 → 5.6e-9 → 4.7e-17 (below rounding), divide exact,
+   ~3 ulp/application.  t clamped ≥1e-300 (rsqrt14(0)=inf ⇒ NaN).  Node
+   drift: **1.66e-11 at B=64/m=2572 vs tol 2.6e-10** (15×); B=1 7.1e-13
+   (360×).  The float-seed tier stays banned at L=8 per the brief.
+3. **The chain owns its buffers**: ping-pong is final_out ↔ an internal
+   page-aligned buffer whose base is slid 0–15 lines at setup to maximise
+   the aa3 boundary score in BOTH directions (owning the buffer turns the
+   ice_r3 "timing lever" into a design variable).  With the natural row
+   winning (below) the slide is currently moot; it ships because it is
+   free and any future AA-row pick uses it.
+4. **A mapped-chain race in create()** replaces the ice_r3 unitary-scale
+   chain tuner (its regime no longer exists in the grading): 6 candidates,
+   all output-bit-identical (row order / prefetch only) — eager {nat/s0,
+   nat/sc, aa2/s0, aa3/s0} and a full **lazy family** {lnat/s0, laa3/s0}
+   (map fused into the next step's pass A, raw z between steps, one
+   in-place sweep at the end; built to price the rivals' original shape
+   honestly).  3% hysteresis toward eager-nat/s0.
+5. fft3d_execute, B=1 fixed path, streaming tuner: untouched.  Non-AVX512
+   builds route fft3d_chain through execute + a scalar map (verified PASS
+   under L8_EMU8, and eager vs lazy chain outputs cmp bit-identical).
+
+### Operation count (per volume per step, on top of the ice_r3 kernel)
+
+Map: 64 evals × (12 FMA-port ops + 1 vdivpd + 2 c-loads) = 768 p05 uops
+(384 cy at 2 ports) + 64 divider ops (~512 cy, overlapped) + 8 KiB c
+stream.  FFT unchanged: 1248 FP + 896 shuffles + 256/256 mem.  Working set
+grows 1.0 → 1.5 MiB (state ×2 + csplit) — past this core's 1.25 MiB L2,
+so every step pays some L2 miss traffic no layout can remove.  Spill
+audit (gcc 11.4, icelake-server): **zero** zmm stack moves in fm_run_*.
+
+### Measured on the NODE (a80n0; MKL = same window through the driver
+fallback, since it cannot export fft3d_chain)
+
+| config | µs/xform | notes |
+|---|---|---|
+| graded B=64 m=2572, SHIPPED (MAPV=0, race → nat/s0) | **min 0.778–0.800**, median 0.845–0.903 (sd 5–7%, co-tenants) | MKL 2.12 ⇒ **2.7×** |
+| B=1 m=2572 | **0.861**, sd 0.03% | MKL 2.27 ⇒ 2.6× |
+| identity-map control (`-DL8_MAPV=9`, timing only) | 0.631 | ladder+div cost = ~0.15–0.17 |
+| ice_r3 FFT-only cell, for scale | 0.544 | c-stream+footprint ≈ +0.09 |
+
+In-plan race (min-of-7, one window): nat/s0 **0.903** < laa3/s0 0.959 <
+lnat/s0 0.967 < aa2/s0 0.996 < nat/sc 1.001 < aa3/s0 1.007.  Correctness:
+single-transform rel_l2 2.267e-16 (B=64) / 2.269e-16 (B=1); whole-chain
+above; chain output bit-identical across processes (cmp of .chain).
+Rivals' full-task L=8 target: 0.115 s ⇒ 0.699 µs/xform — we are ~12%
+behind their point but 2.7× ahead of every library through the fallback.
+
+### What did NOT work, with the number that killed it
+
+1. **Hardware vsqrtpd, in ANY role: MAPV=2 (hw sqrt + rcp14+2N) 0.922,
+   MAPV=1 (hw sqrt + float-rcpps seed) 0.951, MAPV=3 (sqrt+div) 1.048 vs
+   MAPV=0's 0.785–0.800.**  This INVERTS L13_direct's flavor sweep (their
+   v2 won): in my pass B the sqrt's ~20 cy divider occupancy per iteration
+   lands right before the store tail with only ~40 p05 uops after it, so
+   it serializes; their two-phase stage gave it a full unit of distance.
+   Port folklore does not transfer across kernel shapes — race it.
+2. **MAPV=4 hybrid (alternate all-divider / all-FMA per register pair,
+   corpus 0f45aeae's trick): 0.909 vs 0.800.**  Half the sqrt serialization
+   is still serialization.
+3. **AA rows in the mapped pass B: aa3/s0 1.007 vs nat/s0 0.903 (+12%).**
+   Two mechanisms, both new this round: the permuted ky order breaks the
+   csplit stream's sequentiality, and the rows' collision schedule was
+   solved for a store tail that no longer exists (~100 map uops + a divide
+   now sit between the scratch loads and the out stores).  Three rounds of
+   AA lineage are simply not load-bearing under the map — the race keeps
+   them priced in case a future shape revives them.
+4. **The lazy family (rivals' own shape): laa3/s0 0.959 in-race (~2% of
+   which is race bias from the 1/8-amortised sweep), forced driver run
+   0.845 vs eager 0.800.**  Eager wins here because the split-complex
+   pass-B map is free of pairing shuffles and saves the extra final sweep;
+   the lazy code stays compiled as a race lane.
+5. **c-stream prefetch (PF_SC): nat/sc 1.001 vs nat/s0 0.903 (+11%).**
+   L13_direct's +7.4% finding, reproduced independently — the panel rule
+   ("dedicated prefetch loses where real work already covers the latency")
+   now has a fifth confirmation.
+6. **tryout.sh is still broken for chain cases** (the `$W`-before-def bug
+   L13 documented): worked around with `W=<path> ./tryout.sh ...` and by
+   running check.py + the repeat-cmp manually.  All numbers above went
+   through the manual gate.
+
+### Borrowed this round (attribution)
+
+* **Rival pipelines via corpus §10 §2**: the fused-map chain concept, the
+  one-divider-op-per-point budget, and the eager/lazy design space.
+* **L13_rader ice_r4**: the MAPSTYLE=1 ladder that won here, the
+  bit-identity argument that makes the chain race adoption-legal, and the
+  tryout $W workaround.  **L13_direct ice_r4**: the flavor-sweep method
+  (v2 itself lost here), the sweep-bias warning, and the c-prefetch
+  negative.  **0f45aeae (corpus)**: the hybrid idea (lost).
+* Their float-seed fast tier was NOT copied (fails our gate by design).
+
+### For next round
+
+1. The remaining ~0.1 µs to the rivals' 0.699 is map-latency exposure:
+   the two-phase software pipeline (L13_direct's +4% mechanism — consume
+   iteration k's divides during iteration k+1's DFT, staging w/v in L1)
+   is the one unpriced structural idea.  Their negative #1 (do NOT inline
+   into the accumulate DAG without a stage) marks the trap.
+2. The B=64 graded cell timing has sd 5–7% in dev windows from co-tenants;
+   the scored drained window should land near the min.  If the scored
+   number sits ≥0.85, believe the median instead and re-examine.
+3. L8_fusedaxes/L8_radix8 will port this next round (cumulative mandate).
+   The differentiator left is chain plumbing and the pipeline in item 1.

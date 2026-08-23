@@ -179,3 +179,161 @@ minima this round: B=4 275.1 us/xform (quiet window; r1's same-window
 equivalent was 284.9, scored 284.2 — expect ~255-263 scored if the -9.6%
 in-arena delta carries), B=1 244.5, B=16 382.7.  rel_l2 4.056-4.065e-16
 everywhere, chain checks 2.13e-14, bit-repeatable, setup 0.4-0.8 s.
+
+## Round ice_r3 (no agent section was written)
+
+The r2 code ran unchanged and scored **259.287 us/xform** (graded B=4
+chain), first at L=45, 1.13x ahead of L45_pfa, 2.01x ahead of MKL.  Noted
+here so the gap in the record is explicit.
+
+## Round ice_r4 — the task became the full rival step: fft3d_chain, map fused
+
+The graded step is now `state <- (z+c)/(1+|z+c|)`, z = raw FFT(state), and
+the driver times an exported `fft3d_chain(plan, x0, c, final_out, m)` for
+the whole m=177-step chain (fallback = fft3d_execute + a driver-side map
+pass; MKL through that fallback read 751-820 us/xform across this round's
+windows).  The rivals' full-task time at L=45 is 0.201 s = **283.9
+us/xform**.  Everything this round is that entry point; the fft3d_execute
+tournament path is untouched (it still runs the single-transform gate).
+
+### What shipped
+
+1. **fft3d_chain, per-volume order** (corpus 10 s3 consensus; every ice_r4
+   entry adopted it): volume b runs all 177 steps before b+1.  The state
+   lives IN ONE private volume: pass A transforms it in place, pass B
+   rewrites it plane by plane (below), so the per-volume working set is
+   state 1.46 + c 1.46 + scratch ~0.04 = **2.9 MiB, L3-resident for the
+   whole chain** (a ping-pong pair would make it 4.4).  x0 is memcpy'd in
+   once per volume (1/177 of a step); the last step's final pass writes
+   final_out directly, so the driver's buffer takes one RFO per volume.
+2. **x-first pass order, map fused into the y subloop's stores (CXF=1).**
+   The FFT is separable, so the step runs x-lines FIRST (the old phase 2,
+   in place, unfused), then per x-plane: tr z subloop -> slot-major
+   scratch -> **mapped** y subloop back onto the same plane.  The map's
+   ~13 vector-uops-per-4-points ride the y pass's gather-latency slack
+   (p1yt probe: ~105 us against a ~41 us port floor = ~65 us of slack; the
+   old phase 2 had only ~31), and c is read at plane-matching offsets.
+   Node A/B, same knobs otherwise: **x-first 287.1 vs fused-phase-2 347.0
+   us/xform** — the SAME map arithmetic costs ~60 us less in the pass with
+   issue slack.  The one odd y-line per plane (2025 of 91125 points) maps
+   through an exact 128-bit sqrt+div tail twin.
+3. **Map arithmetic (CMS=0): s = |w|^2 + 1e-300, vrsqrt14pd double seed +
+   2 Newton, d = fma(s,y,1), ONE exact vdivpd.**  Budget arithmetic as the
+   brief demands: seed 2^-14 -> 5.6e-9 -> 4.7e-17 = sub-ulp, so the map is
+   ~2-3 ulp per application against a 1e-13/step budget (tol 1.77e-11 at
+   m=177).  Measured whole-chain drift: **4.795e-14 (B=4) / 2.794e-14
+   (B=1) — ~370x margin.**  The additive 1e-300 bias replaces both a max()
+   clamp and the rsqrt14(0)=inf NaN trap (L17_winograd's form).  The
+   rivals' float-seed tier is legal at this (L,m) but saves nothing: the
+   14-bit double seed costs the same two Newtons.
+4. **State page-phase derived from c at run time.**  The driver's buffers
+   are only 64B-aligned, so their mod-4096 phase is heap luck; when c's
+   phase landed near the state volume's, pass B's c loads false-depended
+   on the plane stores at equal page offsets: **294.1 vs 333.0 us/xform
+   across two runs of the SAME binary at B=1**, in-run sd 0.05-0.07% both
+   times (L23_rader ice_r4's pathology, reproduced).  fft3d_chain now
+   places the state at ((c & 4095) + 2048) & 4095 into its 4096-aligned
+   block — maximally far from c for every batch's volume phases (volume
+   stride 1458000 = 3920 mod 4096 spreads them only +-528 B).  Post-fix
+   B=1: 292.6 / 282.4 across runs.  The plane scratch allocation was
+   bumped to 4096-alignment so its phase is deterministic too.
+5. A create()-time gate runs one fused step against exec_0_0 + the exact
+   scalar map (1e-13) and falls back to the exact-map classic step on
+   mismatch; all chain knobs are compile-time so chain output is
+   bit-identical across runs and processes (verified: two-run cmp of both
+   out.bin and out.bin.chain identical).
+
+### Operation count (map add-on, per volume, PW=4)
+
+495 mapped y calls x 45 stores = 22,275 zmm map sites x (~12 FMA-class ops
++ 1 vpermilpd + 1 c load + 1 vdivpd) ~= 290k vector uops + 22.3k divides;
+plus 2025 xmm tail sites x ~7 ops exact form.  FFT vector work unchanged
+(514,968 zmm FMA-port ops + tails).  Measured full-step cost over the
+unfused FFT: ~+25-40 us depending on window — against a ~+50 us pure issue
+floor if the map had ridden zero slack, and +88 us measured when it sat in
+phase 2.
+
+### Measured on the node (a80n0 leased cores; same-window MKL-fallback
+### minimum quoted as the window anchor; windows drifted 751-820 tonight)
+
+| config (graded B=4 m=177) | us/xform | MKL anchor |
+|---|---|---|
+| classic fused-p2, CMS0 | 347.0 | 757.7 |
+| classic fused-p2, CMS1 (rcp ladder) | 387.8 | 765.1 |
+| x-first + c-plane T1 pacing + prefetchw pokes | 319.7 | 809.8 |
+| x-first, no c pacing, prefetchw pokes | 299.5 | 806.2 |
+| x-first, no c pacing, T0 pokes (= shipped) | 287.1 | 757.6 |
+| **shipped defaults, confirm run** | **283.99** (sd 0.07%) | 758.5 |
+| B=1 shipped (post-phase-fix, two runs) | 292.6 / **282.4** | 762.2 / 751.7 |
+
+Correctness: single transform 4.058e-16 (B=4) / 4.065e-16 (B=1); map-chain
+m=177 4.795e-14 (B=4) / 2.794e-14 (B=1) vs tol 1.8e-11; bit-repeatable.
+Setup 0.36-0.50 s.  **At the rivals' 283.9 us pace at full double
+precision** (their fastest drifts to 1.28e-8 on long chains; ours cannot).
+
+### What did NOT work, with the number that killed it
+
+* **Map fused into phase 2's in-place stores (the classic order): 347.0 vs
+  287.1.**  Phase 2 has ~31 us of slack against its port floor; the map
+  needs ~50.  Placement, not arithmetic — same ops, -60 us, by moving them.
+* **CMS=1, rcp14+2NR instead of the exact vdivpd: +25 us in the y pass
+  (312.2 vs 287.1), +40 us in phase 2 (387.8 vs 347.0).**  The step is
+  issue-bound, not divider-bound: L23_matrixsimd's mv=0 verdict transfers
+  to L=45, L23_rader's mp=2 verdict does not.  One hidden divide beats six
+  extra FMA-pipe uops.  (CMS=2, hw vsqrtpd: not fielded — two entries
+  measured it at +18-19%.)
+* **Pacing a T1 prefetch of the next c plane over the z subloop (CPFN):
+  +12-20 us** (299.5 -> 287.1 in adjacent windows; 319.7 with it plus
+  prefetchw).  pfin's "pure uop tax" history extends to the c stream.
+* **prefetchw instead of T0 for pass A's 45 RMW-stream pokes (CPKW):
+  ~+12 us** (299.5 vs 287.1, adjacent windows).  Surprising — pkw tied
+  tr-pf1-pfw in r2 — but pass A's lines now come back MODIFIED from pass
+  B's rewrite two passes ago, so the RFO the prefetchw would save is
+  often not there.
+* **T0-poking the y subloop's 45 c rows one call ahead (CPFY): 298.2 vs
+  291.5** back-to-back.  The c loads are 45-way parallel and OoO covers
+  their L3 latency; the poke is 22k uops/volume of tax.
+* Poke distance 3 (298.6, contended) and no pass-A poke at all (298.3 vs
+  287.1): distance-1 T0 stands.
+
+### Borrowed this round (attributions)
+
+* **The whole round-shape** — export fft3d_chain, per-volume chaining,
+  fuse the map where values are in registers, rsqrt14 double seed + 2NR +
+  one exact divide, the 1e-300 bias, do-the-budget-arithmetic-first, and
+  the "all knobs compile-time for bit-identical outputs" discipline:
+  L13_rader / L17_winograd / L23_matrixsimd / L23_rader ice_r4 records,
+  themselves from corpus 10 s2 and ext/reference pw_full.  Their records
+  also flagged both tryout.sh chain bugs (W unbound under set -u; check.py
+  gets an unexpanded '$W/c.bin' so the map check and the repeatability cmp
+  silently die) — I used their `W=... ./tryout.sh` workaround and ran
+  check.py + the two-run cmp by hand every time.
+* **The mod-4096 state-phase pathology and its diagnosis**: L23_rader
+  ice_r4.  Extended here: derive the phase from c at chain time instead of
+  hoping a fixed skew stays lucky (their STOFF knob is a probe; this is
+  the "plan-time self-tuned base phase" they proposed, computable in
+  closed form because only st-vs-c matters in this step shape).
+* **Map placement follows slack, not pass identity**: L17_winograd's
+  "+0.44 us because the fused pass is store-bound and the map rides idle
+  pipes" — the same reasoning picked the y subloop here, and it was worth
+  17% of the whole step.
+
+### Next round
+
+1. **The map now costs ~+25-40 us against a ~+15 us ideal** (pure c-read
+   traffic + divider occupancy if everything else hid).  The remaining
+   lever is pairing: compress two output vectors' |w|^2 into one zmm
+   (2 two-source shuffles + 1 add), run ONE rsqrt ladder per 8 points,
+   expand with movddup/permute — halves the ladder+divide count for ~4
+   port-5 shuffles per pair.  Needs the y-subloop SDST macro restructured
+   to emit stores in pairs; L23_rader's PW_CORE extension is the model.
+2. The B=4 confirm run hit 284.0 with in-run sd 0.07%, but adjacent
+   windows wobbled 287-294: if the scored number lands >290, suspect the
+   remaining phase interactions (in/out driver buffers vs the state; only
+   c is controlled today) before suspecting the code.
+3. fft3d_execute's tournament still prices tr-pf1-pfw for a regime that is
+   no longer scored; if a future round frees time, either retire the
+   unused mechanisms or re-shape the tournament to race chain steps.
+4. Streaming (B=16) was not re-raced this round — the graded cell is
+   B=4 and the chain is per-volume, so batch size only changes c-phase
+   dilution.  B=1 and B=4 land within 2 us post-fix.
