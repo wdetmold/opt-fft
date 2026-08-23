@@ -1,0 +1,2 @@
+   L13_rader                      4.680 us 191394.625 us    26.06       0.9%    0.009s  ok 3.0e-16       1.00x
+   L13_rader                Rader-13 CRT (93 FP/chunk) in L13_direct's lanes=lines pipeline, 512-bit, zsolidY+xmm-tail X-first; pick=zs ab[B32]=zs:4209,t1:4500,y2:4198,p7:4324,xl:5780

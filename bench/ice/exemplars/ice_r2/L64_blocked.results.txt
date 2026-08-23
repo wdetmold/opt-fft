@@ -1,0 +1,2 @@
+   L64_blocked                  891.973 us 239048.683 us    26.45       4.0%    0.726s  ok 4.5e-16       1.00x
+   L64_blocked              L64 8x8 two-stage, hugepage odd-line-padded scratch, CHAIN-tuned; pick: pw=4 mode=cached pf=1 st=3(split-sc) pro=0 sb=0 (B=2, nv=2)

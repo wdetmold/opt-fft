@@ -1,0 +1,2 @@
+   L8_fusedaxes                   0.544 us 89575.645 us    42.34       0.5%    0.183s  ok 2.3e-16       1.00x
+   L8_fusedaxes             8^3 fused/AA/AA2 c52; B=64 pick=fusedAA2+pfs (chain-tuned) chain-arena{fused=0.425,fused+pfs=0.423,fusedAA2=0.418,fusedAA2+pfs=0.411} pmc=na

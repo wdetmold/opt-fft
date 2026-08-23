@@ -1,0 +1,2 @@
+   L17_matrixsimd                13.562 us 42531.929 us    22.21       1.9%    1.321s  ok 3.3e-16       1.00x
+   L17_matrixsimd           nested cyclic/negacyclic 17-pt/axis, merged-phase, 512-bit+ymm tail, pinned, X-first, deferred-Z, addr-safe t1, pf=0, pw=0, pt=0, b1dec[yz/kyz/x/kx]=7.72/7.12/3.56/3.39, clk512/256=3.30/3.37 GHz, d256=3.50

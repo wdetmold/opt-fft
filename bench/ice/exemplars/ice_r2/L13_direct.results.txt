@@ -1,0 +1,3 @@
+   L13_direct                     4.662 us 190657.651 us    26.16       1.0%    0.128s  ok 2.9e-16       1.00x
+   L13_direct               conj-folded dense 13x13 per axis, lanes=lines, pinned sines; 512b all-pinned zsolidY+xmm-tail X-first+ov; chain-ab[B32]=zs3801,ov3735,os3764,pf4153 ns/vol pick=ov(inc)
+   L13_rader                Rader-13 CRT (93 FP/chunk) in L13_direct's lanes=lines pipeline, 512-bit, zsolidY+xmm-tail X-first; pick=zs ab[B32]=zs:4209,t1:4500,y2:4198,p7:4324,xl:5780

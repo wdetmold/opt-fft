@@ -1,0 +1,2 @@
+   L45_mixedradix               263.344 us 186447.903 us    28.51       0.2%    0.339s  ok 4.0e-16       1.00x
+   L45_mixedradix           PFA 9x5 2-sweep; pick=v1-tr-pf1-pfw (B=4, arena=4, stream=0, 10 cand); nv1 us fu=215.1 p1=177.5 p1z=84.9 p1y=84.1 p1t=166.0 p1zt=63.9 p1yt=92.4 p2w=58.7; fe=na(open:13)

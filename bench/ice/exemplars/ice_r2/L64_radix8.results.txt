@@ -1,0 +1,2 @@
+   L64_radix8                   935.296 us 250659.329 us    25.23       0.7%    0.603s  ok 4.5e-16       1.05x
+   L64_radix8               radix-8^2/axis split-cplx AVX-512; ice_r2 chain-shaped tuner; pick[B=2]=fused-pfw+slabpf1+pro0+p10+sc0+xb0+fo0

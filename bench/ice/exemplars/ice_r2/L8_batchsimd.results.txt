@@ -1,0 +1,2 @@
+   L8_batchsimd                   0.544 us 89471.444 us    42.39       1.5%    0.034s  ok 2.3e-16       1.00x
+   L8_batchsimd             radix-8 split; pick[B=64]: mode=FUSEDAA2 nt=0 pf=s0 alloc=r8(a64,si512) arena{FUSEDAA2/s0=0.473,FUSEDAA2/none=0.491,FUSEDAA/s0=0.475,FUSED/s0=0.478,FUSED/none=0.491}

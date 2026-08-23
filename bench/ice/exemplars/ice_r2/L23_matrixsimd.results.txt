@@ -1,0 +1,2 @@
+   L23_matrixsimd                39.223 us 103548.328 us    21.05       2.6%    0.683s  ok 3.8e-16       1.00x
+   L23_matrixsimd           dense 23x23/axis conj-folded, 512-bit, pinned, X-first, za, pf=0, pw=0, tune[ch pick=39.54 inc=39.54 us/t nv=16], clk512/256=3.30/3.50 GHz
