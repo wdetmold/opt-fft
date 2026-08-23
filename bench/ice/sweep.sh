@@ -104,6 +104,22 @@ for case in $CASES; do
         >>"$OUT/check.log" 2>&1
       rm -f "$OUT/out_${backend}_L${L}_B${B}.bin" "$OUT/out_${backend}_L${L}_B${B}.bin.chain"   # outputs are large; keep the verdicts
     fi
+    # ONE-STEP map gate (chained cases only): two steps of the graded map must match
+    # numpy to 3e-14 (chaos cannot amplify in 2 steps; fp32-seeded maps land ~5e-12). This carries the precision contract; the chain gate above only
+    # catches gross cheats, because the chain is chaotic (docs/GRADER.md).
+    if [ "$M" -gt 1 ]; then
+      timeout 120 "$BINDIR/$backend" --L "$L" --batch "$B" --chain 2 --map --cin "$CIN" \
+        --in "$IN" --out "$OUT/one_${backend}_L${L}_B${B}.bin" \
+        --json "$OUT/t1_${backend}_L${L}_B${B}.json" \
+        --samples 1 --warmup 1 --min-sample-ms 1 --run-index 1 \
+        >>"$OUT/timing.log" 2>>"$OUT/timing.err"
+      if [ -f "$OUT/one_${backend}_L${L}_B${B}.bin" ]; then
+        python3 check.py --input "$IN" --output "$OUT/one_${backend}_L${L}_B${B}.bin" \
+          --L "$L" --batch "$B" --map-check 2 --cin "$CIN" \
+          --json "$OUT/o_${backend}_L${L}_B${B}.json" >>"$OUT/check.log" 2>&1
+      fi
+      rm -f "$OUT/one_${backend}_L${L}_B${B}.bin" "$OUT/one_${backend}_L${L}_B${B}.bin.chain" "$OUT/t1_${backend}_L${L}_B${B}.json"
+    fi
   done
   rm -f "$IN" "$CIN"
   echo "   done L=$L B=$B"

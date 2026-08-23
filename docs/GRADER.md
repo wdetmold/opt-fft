@@ -59,6 +59,37 @@ into the end state. Measured: a correct implementation lands at ~3e-13 after 4,8
 right on the √m·ε curve. A single-transform check (rel L2 < 1e-12 against numpy) is kept
 alongside as the fast familiar gate.
 
+## Gating a chaotic chain (the graded map workload)
+
+The graded map step `z = FFT3(x)+c; x <- z/(1+|z|)` is weakly chaotic: two correct fp64
+implementations differing only in rounding order diverge roughly exponentially with step
+count. Measured at L=6, m=4856, the honest drift of MKL/FFTW/ducc0 against the numpy
+reference ranged 2e-10 to 1.1e-8 across three input seeds. A fixed chain-end tolerance is
+therefore a coin flip: our original max(1e-12, 1e-13·m) gate failed all six libraries on
+two of three seeds and falsely rejected panel entries that sat closer to the reference
+than MKL did. (The original calibration propagated a single 1-ulp perturbation — that
+measures a transient, not the divergence under continuous per-step rounding injection.)
+
+The corrected gate is two-part, so no single number has to both forgive chaos and catch
+cheats:
+
+1. **Two-step precision gate** — the fused chain path is run for m=2 and must match the
+   numpy reference within 3e-14 (1.5e-14 per step). Chaos cannot amplify anything in two
+   steps; careful fp64 lands ~1e-15, an fp32-seeded map lands ~5e-12, and in-chain
+   shortcuts are exposed even when the single-call path is exact (observed: entries with
+   4e-16 single-call error and 1.4e-13 two-step error from an approximate in-chain map).
+   The check exercises the chain path itself, not the single-call path, because that is
+   where shortcuts live.
+2. **Chain-end gate** — rel L2 within 300x the honest divergence measured on the SAME
+   chain (the worst library drift and a numpy two-path anchor), floored at 1e-10 and
+   rounded up onto a {1,3}x10^n grid. The 300x is 30x for a solver legally at the
+   per-step ceiling (1.5e-14 against the references' ~3e-16 per-step difference,
+   amplified linearly-in-seed) times a decade of run-to-run slop. This still sits 4+
+   orders below an fp32-interior chain and O(1) bugs; its only job is gross cheats and
+   memoization, and it can no longer punish honest rounding.
+
+The single-transform check (rel L2 < 1e-12 vs numpy) remains alongside as before.
+
 ## Timing
 
 Per the standing methodology: compilation and plan setup excluded, warmup discarded, the

@@ -1,0 +1,268 @@
+{
+ "anchors": {
+  "6": 1.505083404843347e-09,
+  "8": 0.0,
+  "13": 1.0164329900425478e-13,
+  "17": 1.3401379546145953e-14,
+  "23": 1.6646545253242252e-14,
+  "36": 1.132475799850247e-14,
+  "45": 2.5570918605161782e-14,
+  "64": 0.0
+ },
+ "rows": [
+  {
+   "attempt": "warm_00291a90_score0.97",
+   "sizes": {},
+   "total_best_s": null,
+   "total_med_s": null,
+   "error": "Traceback (most recent call last):\n  File \"/home/lqcd/wdetmold/.claude/jobs/3b7e9f3b/tmp/warmbench.py\", line 44, in <module>\n    try: spec.loader.exec_module(mod)\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap_external>\", line 999, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\nsubprocess.CalledProcessError: Command '['gcc', '-O3', '-march=native', '-funroll-loops', '-fschedule-insns', '-fsched-pressure', '-shared', '-fPIC', '/home/lqcd/wdetmold/fft/fft_warm_solutions/warm_00291a90_score0.97/implementation.c', '-o', '/home/lqcd/wdetmold/fft/fft_warm_solutions/warm_00291a90_score0.97/implementation.so', '-lm']' returned non-zero exit status 1.\n"
+  },
+  {
+   "attempt": "warm_361a3485_score0.93",
+   "sizes": {},
+   "total_best_s": null,
+   "total_med_s": null,
+   "error": "Traceback (most recent call last):\n  File \"/home/lqcd/wdetmold/.claude/jobs/3b7e9f3b/tmp/warmbench.py\", line 44, in <module>\n    try: spec.loader.exec_module(mod)\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap_external>\", line 999, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\nsubprocess.CalledProcessError: Command '['gcc', '-O3', '-march=native', '-funroll-loops', '-fno-math-errno', '-fno-trapping-math', '-shared', '-fPIC', '/home/lqcd/wdetmold/fft/fft_warm_solutions/warm_361a3485_score0.93/implementation.c', '-o', '/home/lqcd/wdetmold/fft/fft_warm_solutions/warm_361a3485_score0.93/implementation.so', '-lm']' returned non-zero exit status 1.\n"
+  },
+  {
+   "attempt": "warm_53ebdad6_score0.89",
+   "sizes": {
+    "6": {
+     "best_s": 0.08041252405382693,
+     "med_s": 0.0804682441521436,
+     "spread": 0.1396607816990354,
+     "one_rel": 2.974115980161512e-16,
+     "chain_rel": 3.5936391818013252e-09,
+     "gate_old": false,
+     "gate_new": true
+    },
+    "8": {
+     "best_s": 0.09212575410492718,
+     "med_s": 0.09214387298561633,
+     "spread": 0.001859925677124341,
+     "one_rel": 2.2896712135550667e-16,
+     "chain_rel": 3.740699787711145e-12,
+     "gate_old": true,
+     "gate_new": false
+    },
+    "13": {
+     "best_s": 0.17870342102833092,
+     "med_s": 0.1787405761424452,
+     "spread": 0.0018028694450324956,
+     "one_rel": 1.1208174744044453e-15,
+     "chain_rel": 3.687351877830006e-13,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "17": {
+     "best_s": 0.042564162984490395,
+     "med_s": 0.04275931278243661,
+     "spread": 0.021678449793647747,
+     "one_rel": 1.3319944773884288e-15,
+     "chain_rel": 3.958717022658416e-14,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "23": {
+     "best_s": 0.11896996619179845,
+     "med_s": 0.11908192001283169,
+     "spread": 0.0040047743192497265,
+     "one_rel": 1.1521702879898932e-15,
+     "chain_rel": 4.508372605456387e-14,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "36": {
+     "best_s": 0.06690528406761587,
+     "med_s": 0.06722553493455052,
+     "spread": 0.01623669902957703,
+     "one_rel": 7.608843892899136e-16,
+     "chain_rel": 1.5782337948251033e-14,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "45": {
+     "best_s": 0.17964119790121913,
+     "med_s": 0.18012635502964258,
+     "spread": 0.005642180906622496,
+     "one_rel": 1.0697394739351841e-15,
+     "chain_rel": 4.2175548846012007e-14,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "64": {
+     "best_s": 0.1918961990159005,
+     "med_s": 0.19197144801728427,
+     "spread": 0.01192680699622839,
+     "one_rel": 8.94891182571412e-16,
+     "chain_rel": 4.0427228272543275e-14,
+     "gate_old": true,
+     "gate_new": false
+    }
+   },
+   "total_best_s": 0.9512185093481094,
+   "total_med_s": 0.9525172640569508,
+   "error": null
+  },
+  {
+   "attempt": "warm_57053476_score0.9",
+   "sizes": {
+    "6": {
+     "best_s": 0.06617865501902997,
+     "med_s": 0.06619459087960422,
+     "spread": 0.0007226058898646137,
+     "one_rel": 3.7249985292651546e-16,
+     "chain_rel": 2.1954286878723073e-09,
+     "gate_old": false,
+     "gate_new": true
+    },
+    "8": {
+     "best_s": 0.08425445901229978,
+     "med_s": 0.08436155179515481,
+     "spread": 0.004296853490644237,
+     "one_rel": 3.7165174832340253e-16,
+     "chain_rel": 3.65259401943094e-12,
+     "gate_old": true,
+     "gate_new": false
+    },
+    "13": {
+     "best_s": 0.1463749590329826,
+     "med_s": 0.14640847616828978,
+     "spread": 0.001951112591344506,
+     "one_rel": 5.89580789713912e-16,
+     "chain_rel": 1.8617505152927065e-13,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "17": {
+     "best_s": 0.03807052783668041,
+     "med_s": 0.038152351044118404,
+     "spread": 0.006867228414128235,
+     "one_rel": 7.081780110461347e-16,
+     "chain_rel": 2.191015178283391e-14,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "23": {
+     "best_s": 0.12203330802731216,
+     "med_s": 0.12239195592701435,
+     "spread": 0.0037818852736897224,
+     "one_rel": 8.547532140934384e-16,
+     "chain_rel": 3.224490220381012e-14,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "36": {
+     "best_s": 0.0677435731049627,
+     "med_s": 0.06787025392986834,
+     "spread": 0.01135316373192663,
+     "one_rel": 7.93302304382325e-16,
+     "chain_rel": 1.6686269583561564e-14,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "45": {
+     "best_s": 0.30660607386380434,
+     "med_s": 0.30696913693100214,
+     "spread": 0.005858452738434217,
+     "one_rel": 9.700347988692222e-16,
+     "chain_rel": 4.192187154177862e-14,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "64": {
+     "best_s": 6.367918103933334e-06,
+     "med_s": 6.617046892642975e-06,
+     "spread": 4.168409506398538,
+     "one_rel": 1.0,
+     "chain_rel": 1.0,
+     "gate_old": false,
+     "gate_new": false
+    }
+   },
+   "total_best_s": 0.8312679238151759,
+   "total_med_s": 0.8323549337219447,
+   "error": null
+  },
+  {
+   "attempt": "warm_d43251c2_score0.99",
+   "sizes": {
+    "6": {
+     "best_s": 0.06510333088226616,
+     "med_s": 0.06516799214296043,
+     "spread": 0.0017801119923901432,
+     "one_rel": 3.581756810039943e-16,
+     "chain_rel": 1.7187328587374391e-09,
+     "gate_old": false,
+     "gate_new": true
+    },
+    "8": {
+     "best_s": 0.09401249885559082,
+     "med_s": 0.09409241005778313,
+     "spread": 0.003539741561833454,
+     "one_rel": 3.6907862021772825e-16,
+     "chain_rel": 4.1301602546320474e-12,
+     "gate_old": true,
+     "gate_new": false
+    },
+    "13": {
+     "best_s": 0.15520449704490602,
+     "med_s": 0.15540374699048698,
+     "spread": 0.00288596621990167,
+     "one_rel": 5.582708955573728e-16,
+     "chain_rel": 1.6079634176938854e-13,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "17": {
+     "best_s": 0.030540857929736376,
+     "med_s": 0.030622432939708233,
+     "spread": 0.005643750792947433,
+     "one_rel": 6.827516810379641e-16,
+     "chain_rel": 2.064261693974902e-14,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "23": {
+     "best_s": 0.09191614901646972,
+     "med_s": 0.09202242619358003,
+     "spread": 0.0034465318475840334,
+     "one_rel": 8.449207898740736e-16,
+     "chain_rel": 3.1067742029309164e-14,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "36": {
+     "best_s": 0.0530309418682009,
+     "med_s": 0.053127767983824015,
+     "spread": 0.013731512996787876,
+     "one_rel": 9.624438234208458e-16,
+     "chain_rel": 2.3961130182829156e-14,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "45": {
+     "best_s": 0.1866471169050783,
+     "med_s": 0.1871481870766729,
+     "spread": 0.0070361447046802805,
+     "one_rel": 9.09747507458572e-16,
+     "chain_rel": 3.096598972350931e-14,
+     "gate_old": true,
+     "gate_new": true
+    },
+    "64": {
+     "best_s": 0.17481922800652683,
+     "med_s": 0.1749409472104162,
+     "spread": 0.0045499733035354595,
+     "one_rel": 6.96261949765825e-16,
+     "chain_rel": 2.4263701387597253e-14,
+     "gate_old": true,
+     "gate_new": false
+    }
+   },
+   "total_best_s": 0.8512746205087751,
+   "total_med_s": 0.8525259105954319,
+   "error": null
+  }
+ ]
+}
