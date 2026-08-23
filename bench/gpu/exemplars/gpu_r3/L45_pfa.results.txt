@@ -1,0 +1,4 @@
+   L45_pfa                       12.626 us    12.626 us   594.54       0.4%    0.000s  ok 8.2e-16       1.00x
+   L45_pfa                        3.266 us    35.922 us  2298.68       1.9%    0.000s  ok 8.2e-16       1.00x
+   L45_pfa                        2.867 us  2110.272 us  2618.11       0.3%    0.000s  ok 8.2e-16       1.00x
+   L45_pfa                  two-pass PFA 9x5: persistent producer/consumer ticket kernel at HBM B (45 planes + 64 x-tiles/vol, lead-10 runway, direct-out bodies, evict-first hints); slice-per-stream + direct stores at L2-resident B; B=1 graph

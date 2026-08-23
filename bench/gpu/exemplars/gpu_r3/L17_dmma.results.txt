@@ -1,0 +1,4 @@
+   L17_dmma                       1.743 us     1.743 us   172.86      38.5%    0.000s  ok 3.2e-16       1.00x
+   L17_dmma                       0.093 us    19.738 us  3250.58       0.1%    0.000s  ok 3.2e-16       1.00x
+   L17_dmma                       0.114 us  1551.872 us  2651.47       0.8%    0.000s  ok 3.2e-16       1.00x
+   L17_dmma                 one volume/block in shared, fused 3-axis cyclic/negacyclic 17-pt lines, 1 global read + 1 write; async execute round-robined over 8 streams so back-to-back calls pipeline (driver syncs per sample)

@@ -1,0 +1,4 @@
+   L36_sharedtiled                9.062 us     9.062 us   399.28       0.5%    0.456s  ok 4.8e-16       1.00x
+   L36_sharedtiled                1.306 us    28.738 us  2769.84       3.3%    0.911s  ok 4.8e-16       1.00x
+   L36_sharedtiled                1.343 us  1931.520 us  2693.66       0.4%    0.672s  ok 4.8e-16       1.00x
+   L36_sharedtiled          6x6 CT lines padded shared; persistent ticket lead=14 chunk=0 ns=1 pol=2 launch=plain

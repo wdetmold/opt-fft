@@ -1,0 +1,4 @@
+   L6_batchcoalesced              2.832 us     2.832 us     2.96       7.5%    0.000s  ok 2.6e-16       1.00x
+   L6_batchcoalesced              0.003 us    14.599 us  2784.76       0.8%    0.000s  ok 2.5e-16       1.00x
+   L6_batchcoalesced              0.005 us  1540.395 us  1688.81       0.1%    0.000s  ok 2.5e-16       1.00x
+   L6_batchcoalesced        L6: 8 volumes/block batch-major swizzled shared, DIT 2x3 codelet, fused single kernel, last axis direct to global, __stcs when in fits L2; fused-z 36-thread single-volume kernel at B=1

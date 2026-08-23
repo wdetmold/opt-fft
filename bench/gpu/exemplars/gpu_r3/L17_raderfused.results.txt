@@ -1,0 +1,4 @@
+   L17_raderfused                 7.781 us     7.781 us    38.71       2.5%    0.000s  ok 3.1e-16       4.47x
+   L17_raderfused                 0.146 us    31.185 us  2057.45       0.4%    0.000s  ok 3.2e-16       1.58x
+   L17_raderfused                 0.116 us  1577.899 us  2607.73       0.1%    0.000s  ok 3.2e-16       1.02x
+   L17_raderfused           17^3 volume per block in shared, 3 axes fused, 1 global read + 1 write; conj-folded cyclic/negacyclic 17-pt lines; batch-picked staging (warp reg vs cp.async); soft-barrier single-launch zy-plane + folded-x split below B=13

@@ -1,0 +1,4 @@
+   L8_warpradix8                  3.055 us     3.055 us     7.54       7.7%    0.009s  ok 2.3e-16       1.00x
+   L8_warpradix8                  0.006 us    13.176 us  3581.12       0.5%    0.148s  ok 2.3e-16       1.00x
+   L8_warpradix8                  0.012 us  1538.645 us  1962.70       0.0%    1.215s  ok 2.3e-16       1.00x
+   L8_warpradix8            volume per warp/pair/quad in registers, cross-lane DIF radix-8, measured autotune, graph-replayed launch
