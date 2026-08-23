@@ -260,16 +260,17 @@ family-wide (three independent attempts land 0.0651-0.0662). Cohort bests now:
 All gates two-part (one-step 1.5e-14/step exact + chain-end 300x measured honest
 divergence); every winner below passes both; chain drift sits in the library band.
 
-| L | winner | chain s | vs warm committee best |
-|---|---|---|---|
-| 6 | L6_unrolled | 0.0643 | 0.0592 (00291a90-final) — LOST |
-| 8 | L8_radix8 | 0.0823 | 0.0835 — won |
-| 13 | L13_direct | 0.1406 | 0.1451 — won |
-| 17 | L17_matrixsimd | 0.0277 | 0.0305 — won |
-| 23 | L23_matrixsimd | 0.0892 | 0.0845 (00291a90) — LOST |
-| 36 | L36_mixedradix | 0.0513 | 0.0530 — won |
-| 45 | L45_pfa | 0.1536 | 0.1681 — won |
-| 64 | L64_blocked | 0.1701 | 0.1748 — won |
+| L (B x m) | ours (winner) | rival best | MKL 2022 | MKL 2026 | FFTW3 best | ducc0 | ours vs best lib |
+|---|---|---|---|---|---|---|---|
+| 6 (64x4856) | **0.0643** (L6_unrolled) | 0.0592 | 0.292 | 0.296 | 0.308 | 0.765 | **4.5x** |
+| 8 (64x2572) | **0.0823** (L8_radix8) | 0.0835 | 0.346 | 0.349 | 0.395 | 0.683 | **4.2x** |
+| 13 (32x1278) | **0.1406** (L13_direct) | 0.1451 | 0.491 | 0.484 | 0.551 | 1.420 | **3.4x** |
+| 17 (32x98) | **0.0277** (L17_matrixsimd) | 0.0305 | 0.279 | 0.278 | 0.283 | 0.270 | **9.7x** |
+| 23 (16x165) | **0.0892** (L23_matrixsimd) | 0.0845 | 0.692 | 0.748 | 0.711 | 0.654 | **7.3x** |
+| 36 (8x64) | **0.0513** (L36_mixedradix) | 0.0530 | 0.145 | 0.147 | 0.191 | 0.226 | **2.8x** |
+| 45 (4x177) | **0.1536** (L45_pfa) | 0.1681 | 0.536 | 0.550 | 0.660 | 0.640 | **3.5x** |
+| 64 (2x134) | **0.1701** (L64_blocked) | 0.1748 | 0.461 | 0.495 | 0.547 | 0.684 | **2.7x** |
+| **total** | **0.7791 s** | 0.7987 | 3.242 | 3.347 | 3.645 | 5.343 | **4.09x** |
 
 **Total 0.7791 s vs the 23-attempt + 5-warm rival committee's 0.7987 s (1.025x): the
 panel beats every rival attempt individually AND their combined per-cell best, under a
