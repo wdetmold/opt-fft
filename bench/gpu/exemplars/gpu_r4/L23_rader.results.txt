@@ -1,0 +1,4 @@
+   L23_rader                      9.104 us     9.104 us    90.68       0.3%    0.967s  ok 3.5e-16       1.00x
+   L23_rader                      0.461 us    39.623 us  1791.87       3.2%    5.130s  ok 3.5e-16       1.00x
+   L23_rader                      0.361 us  1989.581 us  2288.44       0.1%   15.904s  ok 3.5e-16       1.00x
+   L23_rader                L23_rader: folded-dense 23pt, 2-pass z+y|x; tuner A(P=4,T=96) u0 B0 TB=32 ns1 chunk=32/4 g0 (0.47 us/xform in-plan, nv=86)

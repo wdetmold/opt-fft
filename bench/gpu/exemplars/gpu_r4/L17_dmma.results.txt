@@ -1,0 +1,5 @@
+   L17_dmma                       2.297 us     2.297 us   131.15       7.9%    0.000s  ok 3.2e-16       1.00x
+   L17_dmma                       0.074 us    15.716 us  4082.42       0.4%    0.000s  ok 3.2e-16       1.00x
+   L17_dmma                       0.114 us  1551.957 us  2651.32       0.8%    0.000s  ok 3.2e-16       1.00x
+   L17_dmma                 one volume/block in shared, fused 3-axis cyclic/negacyclic 17-pt lines, 1 global read + 1 write; async execute round-robined over 8 streams so back-to-back calls pipeline; evict-first stores when L2-resident; graph-replayed launch at small batch
+   L45_pfa                  two-pass PFA 9x5: persistent producer/consumer ticket kernel (45 planes + 64 x-tiles/vol) through a scratch intermediate, async-ring executed over per-slot counter sets (L17_dmma's ring); slice-per-stream + direct stores at L2-resident B; B=1 = ringed single-launch soft-barrier

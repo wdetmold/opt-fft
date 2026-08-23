@@ -1,0 +1,196 @@
+```
+=== round gpu_r4 ===
+# round gpu_r4
+host: a80n1.lqcd.mit   date: 2026-08-22T22:28:49-04:00   slurm_job: 438580
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+visible devices: 0  (pinned to one A100 on purpose)
+all gpus on node: 0, NVIDIA A100-SXM4-40GB
+all gpus on node: 1, NVIDIA A100-SXM4-40GB
+all gpus on node: 2, NVIDIA A100-SXM4-40GB
+all gpus on node: 3, NVIDIA A100-SXM4-40GB
+all gpus on node: 4, NVIDIA A100-SXM4-40GB
+all gpus on node: 5, NVIDIA A100-SXM4-40GB
+all gpus on node: 6, NVIDIA A100-SXM4-40GB
+all gpus on node: 7, NVIDIA A100-SXM4-40GB
+nvcc: Build cuda_12.2.r12.2/compiler.33053471_0
+driver: 525.125.06
+clocks after sweep: 210 MHz, 1410 MHz, 29, 56.20 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 24, 55.28 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 25, 58.82 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 27, 56.03 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 27, 54.68 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 24, 55.17 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 24, 54.68 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 26, 51.85 W, 0x0000000000000001
+
+-- L=6 (non-batched), volume 216, working set 0.01 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L6_warpvolume                  1.723 us     1.723 us     4.86      32.4%    0.000s  ok 2.7e-16       1.00x
+   L6_batchcoalesced              2.634 us     2.634 us     3.18       8.4%    0.000s  ok 2.7e-16       1.53x
+   cufft                         10.423 us    10.423 us     0.80       1.3%    0.011s  ok 2.6e-16       6.05x
+   baseline_gpu                  14.978 us    14.978 us     0.56       1.5%    0.000s  ok 6.0e-16       8.69x
+
+-- L=6 (batched B=4854), volume 216, working set 32.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L6_warpvolume                  0.002 us    10.311 us  3942.88       0.1%    0.000s  ok 2.5e-16       1.00x
+   L6_batchcoalesced              0.003 us    14.236 us  2855.59       0.2%    0.000s  ok 2.5e-16       1.38x
+   cufft                          0.011 us    51.433 us   790.42       0.6%    0.017s  ok 2.5e-16       4.99x
+   baseline_gpu                   0.034 us   163.072 us   249.30       0.3%    0.000s  ok 6.0e-16       15.82x
+
+-- L=6 (batched B=310608), volume 216, working set 2047.46 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L6_warpvolume                  0.005 us  1535.351 us  1694.35       0.3%    0.000s  ok 2.5e-16       1.00x
+   L6_batchcoalesced              0.005 us  1539.243 us  1690.07       0.3%    0.000s  ok 2.5e-16       1.00x
+   cufft                          0.011 us  3513.344 us   740.44       0.4%    0.010s  ok 2.5e-16       2.29x
+
+-- L=8 (non-batched), volume 512, working set 0.02 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L8_warpradix8                  2.192 us     2.192 us    10.51       4.0%    0.014s  ok 2.2e-16       1.00x
+   L8_blockfused                  3.016 us     3.016 us     7.64       5.4%    0.069s  ok 1.6e-16       1.38x
+   cufft                          9.170 us     9.170 us     2.51       5.2%    0.016s  ok 2.4e-16       4.18x
+   baseline_gpu                  17.515 us    17.515 us     1.32       3.1%    0.000s  ok 3.9e-16       7.99x
+
+-- L=8 (batched B=2048), volume 512, working set 32.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L8_warpradix8                  0.004 us     8.929 us  5284.75       4.6%    0.110s  ok 2.3e-16       1.00x
+   L8_blockfused                  0.006 us    12.513 us  3771.09       0.4%    0.114s  ok 1.6e-16       1.40x
+   cufft                          0.027 us    54.539 us   865.18       0.0%    0.017s  ok 2.4e-16       6.11x
+   baseline_gpu                   0.085 us   174.649 us   270.18       0.2%    0.000s  ok 3.9e-16       19.56x
+
+-- L=8 (batched B=131072), volume 512, working set 2048.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L8_warpradix8                  0.012 us  1534.379 us  1968.16       0.0%    1.276s  ok 2.3e-16       1.00x
+   L8_blockfused                  0.012 us  1536.640 us  1965.26       0.0%    0.615s  ok 1.6e-16       1.00x
+   cufft                          0.028 us  3692.851 us   817.77       0.2%    0.010s  ok 2.4e-16       2.41x
+
+-- L=13 (non-batched), volume 2197, working set 0.07 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L13_dmma                       1.601 us     1.601 us    76.16      62.7%    0.000s  ok 3.2e-16       1.00x
+   cufft                         12.335 us    12.335 us     9.89       1.4%    0.009s  ok 2.8e-16       7.70x
+   baseline_gpu                  22.704 us    22.704 us     5.37       0.9%    0.000s  ok 7.8e-16       14.18x
+
+-- L=13 (batched B=477), volume 2197, working set 31.98 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L13_dmma                       0.030 us    14.084 us  4130.20       0.6%    0.000s  ok 3.2e-16       1.00x
+   cufft                          0.132 us    62.893 us   924.89       0.4%    0.017s  ok 2.9e-16       4.47x
+   baseline_gpu                   0.536 us   255.744 us   227.45       0.4%    0.000s  ok 7.9e-16       18.16x
+
+-- L=13 (batched B=30549), volume 2197, working set 2048.22 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L13_dmma                       0.051 us  1554.708 us  2396.20       0.0%    0.000s  ok 3.2e-16       1.00x
+   cufft                          0.155 us  4741.120 us   785.76       0.1%    0.015s  ok 2.9e-16       3.05x
+
+-- L=17 (non-batched), volume 4913, working set 0.15 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L17_dmma                       2.297 us     2.297 us   131.15       7.9%    0.000s  ok 3.2e-16       1.00x
+   L17_raderfused                 2.336 us     2.336 us   128.93      11.3%    0.000s  ok 3.2e-16       1.02x
+   cufft                         13.535 us    13.535 us    22.26       3.0%    0.019s  ok 3.3e-16       5.89x
+   baseline_gpu                  26.846 us    26.846 us    11.22       1.8%    0.000s  ok 8.4e-16       11.69x
+
+-- L=17 (batched B=213), volume 4913, working set 31.94 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L17_dmma                       0.074 us    15.716 us  4082.42       0.4%    0.000s  ok 3.2e-16       1.00x
+   L17_raderfused                 0.092 us    19.491 us  3291.91       0.2%    0.000s  ok 3.2e-16       1.24x
+   cufft                          0.316 us    67.268 us   953.81       0.8%    0.016s  ok 3.2e-16       4.28x
+   baseline_gpu                   1.452 us   309.364 us   207.40       0.3%    0.000s  ok 8.4e-16       19.68x
+
+-- L=17 (batched B=13660), volume 4913, working set 2048.08 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L17_raderfused                 0.114 us  1550.763 us  2653.37       0.9%    0.000s  ok 3.2e-16       1.00x
+   L17_dmma                       0.114 us  1551.957 us  2651.32       0.8%    0.000s  ok 3.2e-16       1.00x
+   cufft                          0.348 us  4759.168 us   864.59       0.0%    0.010s  ok 3.2e-16       3.07x
+
+-- L=23 (non-batched), volume 12167, working set 0.37 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L23_rader                      9.104 us     9.104 us    90.68       0.3%    0.967s  ok 3.5e-16       1.00x
+   cufft                         14.856 us    14.856 us    55.57       0.3%    0.018s  ok 3.8e-16       1.63x
+   baseline_gpu                  32.368 us    32.368 us    25.51       1.2%    0.000s  ok 7.4e-16       3.56x
+
+-- L=23 (batched B=86), volume 12167, working set 31.93 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L23_rader                      0.461 us    39.623 us  1791.87       3.2%    5.130s  ok 3.5e-16       1.00x
+   cufft                          0.884 us    76.065 us   933.40       0.1%    0.009s  ok 3.8e-16       1.92x
+   baseline_gpu                   4.544 us   390.750 us   181.70       0.3%    0.000s  ok 7.4e-16       9.86x
+
+-- L=23 (batched B=5515), volume 12167, working set 2047.76 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L23_rader                      0.361 us  1989.581 us  2288.44       0.1%   15.904s  ok 3.5e-16       1.00x
+   cufft                          0.918 us  5061.291 us   899.58       0.1%    0.009s  ok 3.8e-16       2.54x
+
+-- L=36 (non-batched), volume 46656, working set 1.42 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L36_sharedtiled                7.967 us     7.967 us   454.13       1.9%    0.410s  ok 4.8e-16       1.00x
+   L36_globalpass                 8.111 us     8.111 us   446.05       0.9%    0.424s  ok 4.8e-16       1.02x
+   cufft                         12.944 us    12.944 us   279.52       3.7%    0.009s  ok 4.3e-16       1.62x
+   baseline_gpu                  45.955 us    45.955 us    78.73       0.5%    0.000s  ok 8.0e-16       5.77x
+
+-- L=36 (batched B=22), volume 46656, working set 31.32 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L36_globalpass                 1.185 us    26.061 us  3054.29      10.4%    0.833s  ok 4.8e-16       1.00x
+   L36_sharedtiled                1.278 us    28.113 us  2831.42       2.8%    0.827s  ok 4.8e-16       1.08x
+   cufft                          2.317 us    50.966 us  1561.79       0.6%    0.015s  ok 4.3e-16       1.96x
+   baseline_gpu                  23.474 us   516.428 us   154.13       0.1%    0.000s  ok 8.0e-16       19.82x
+
+-- L=36 (batched B=1438), volume 46656, working set 2047.46 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L36_sharedtiled                1.219 us  1752.343 us  2969.09       0.0%    0.630s  ok 4.8e-16       1.00x
+   L36_globalpass                 1.226 us  1762.583 us  2951.84       0.0%    0.576s  ok 4.8e-16       1.01x
+   cufft                          2.352 us  3382.272 us  1538.27       0.6%    0.016s  ok 4.3e-16       1.93x
+
+-- L=45 (non-batched), volume 91125, working set 2.78 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L45_pfa                        3.723 us     3.723 us  2016.55       1.2%    0.000s  ok 8.2e-16       1.00x
+   cufft                         17.968 us    17.968 us   417.79       1.3%    0.009s  ok 4.4e-16       4.83x
+   baseline_gpu                  72.110 us    72.110 us   104.10       1.5%    0.000s  ok 8.0e-16       19.37x
+
+-- L=45 (batched B=11), volume 91125, working set 30.59 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L45_pfa                        2.603 us    28.629 us  2884.23       8.1%    0.000s  ok 8.2e-16       1.00x
+   cufft                          5.867 us    64.535 us  1279.52       0.4%    0.018s  ok 4.4e-16       2.25x
+   baseline_gpu                  55.967 us   615.639 us   134.13       0.2%    0.000s  ok 8.0e-16       21.50x
+
+-- L=45 (batched B=736), volume 91125, working set 2046.75 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L45_pfa                        2.868 us  2111.104 us  2617.07       0.2%    0.000s  ok 8.2e-16       1.00x
+   cufft                          6.449 us  4746.496 us  1164.00       0.0%    0.015s  ok 4.4e-16       2.25x
+
+-- L=64 (non-batched), volume 262144, working set 8.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L64_radix8                    18.182 us    18.182 us  1297.63       0.4%    0.000s  ok 4.2e-16       1.00x
+   cufft                         23.609 us    23.609 us   999.32       1.7%    0.010s  ok 4.0e-16       1.30x
+   baseline_gpu                 207.405 us   207.405 us   113.75       0.7%    0.000s  ok 7.8e-16       11.41x
+
+-- L=64 (batched B=4), volume 262144, working set 32.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L64_radix8                    10.265 us    41.061 us  2298.35       0.8%    0.000s  ok 4.2e-16       1.00x
+   cufft                         14.521 us    58.085 us  1624.73       0.5%    0.012s  ok 4.0e-16       1.41x
+   baseline_gpu                 205.184 us   820.736 us   114.98       0.6%    0.000s  ok 7.8e-16       19.99x
+
+-- L=64 (batched B=256), volume 262144, working set 2048.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L64_radix8                    10.007 us  2561.792 us  2357.65       0.1%    0.000s  ok 4.2e-16       1.00x
+   cufft                         14.597 us  3736.704 us  1616.34       0.3%    0.012s  ok 4.0e-16       1.46x
+
+backends:
+   L13_dmma                 fused block-per-volume in shared, conj-folded dense-13 lines; __stcs store when L2-resident; async execute round-robined over 8 streams so back-to-back calls pipeline (driver syncs per sample)
+   L17_dmma                 one volume/block in shared, fused 3-axis cyclic/negacyclic 17-pt lines, 1 global read + 1 write; async execute round-robined over 8 streams so back-to-back calls pipeline; evict-first stores when L2-resident; graph-replayed launch at small batch
+   L17_raderfused           17^3 volume per block in shared, 3 axes fused, 1 global read + 1 write; conj-folded cyclic/negacyclic 17-pt lines; batch-picked staging; async execute over an 8-stream ring of per-stream CUDA-graph replays so back-to-back calls pipeline (driver syncs per sample)
+   L23_rader                L23_rader: folded-dense 23pt, 2-pass z+y|x; tuner A(P=4,T=96) u0 B0 TB=32 ns1 chunk=32/4 g0 (0.47 us/xform in-plan, nv=86)
+   L36_globalpass           two-pass radix-6^2 shared s37; split/chunked rr streams hints=1 chunk=3 ns=8 lead=0 graph=0 pf=1
+   L36_sharedtiled          6x6 CT lines padded shared; split/chunk lead=0 chunk=6 ns=4 pol=1 launch=plain
+   L45_pfa                  two-pass PFA 9x5: persistent producer/consumer ticket kernel (45 planes + 64 x-tiles/vol) through a scratch intermediate, async-ring executed over per-slot counter sets (L17_dmma's ring); slice-per-stream + direct stores at L2-resident B; B=1 = ringed single-launch soft-barrier
+   L64_radix8               two-pass plane-per-block, register radix-8^2 lines, shuffle transpose
+   L6_batchcoalesced        L6: 8 volumes/block batch-major swizzled shared, DIT 2x3 codelet, last axis direct to global, __stcs when in fits L2; fused-z 36-thread single-volume kernel at B=1; graph-replayed launch
+   L6_warpvolume            L6: 8 volumes/block batch-major swizzled shared, DIT 2x3 lines, x-pass stores direct, stcs while input L2-resident; async execute over a 4-stream ring; B=1 fused-z 36-thread kernel graph-replayed per stream
+   L8_blockfused            fused block of V volumes in shared (row pad 8->9), min-op radix-8 per thread-line, autotuned; graph-replayed single launch; parity-split B=1 kernel
+   L8_warpradix8            volume per warp/pair/quad in registers, cross-lane DIF radix-8, measured autotune; async execute over an 8-stream ring with per-slot graph execs
+   baseline_gpu             row-column dense O(L) per output, no factorization
+   cufft                    cuFFT 11.0 cufftPlanMany Z2Z, batched
+```

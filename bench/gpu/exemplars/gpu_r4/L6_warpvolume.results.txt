@@ -1,0 +1,4 @@
+   L6_warpvolume                  1.723 us     1.723 us     4.86      32.4%    0.000s  ok 2.7e-16       1.00x
+   L6_warpvolume                  0.002 us    10.311 us  3942.88       0.1%    0.000s  ok 2.5e-16       1.00x
+   L6_warpvolume                  0.005 us  1535.351 us  1694.35       0.3%    0.000s  ok 2.5e-16       1.00x
+   L6_warpvolume            L6: 8 volumes/block batch-major swizzled shared, DIT 2x3 lines, x-pass stores direct, stcs while input L2-resident; async execute over a 4-stream ring; B=1 fused-z 36-thread kernel graph-replayed per stream

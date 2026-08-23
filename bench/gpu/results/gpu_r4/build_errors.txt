@@ -1,0 +1,7 @@
+impl/L45_pfa.cu(383): warning #128-D: loop is not reachable
+          for (int k = 0; k < 2025 / 128; ++k)
+          ^
+          detected during instantiation of "void k1_zy<DIRECT>(const double2 *, double2 *) [with DIRECT=0]" at line 690
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+

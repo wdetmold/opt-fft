@@ -394,3 +394,132 @@ in every kernel (`--ptxas-options=-v`).
 4. Housekeeping: if a scored window ever catches the split path at B=12–13 on the
    wrong side, `create()` could time both paths at plan time (setup is unscored) —
    still not done, still cheap insurance.
+
+---
+
+## Round gpu_r4 (2026-08-22) — the ring, taken and extended: blocking streams + per-stream CUDA-graph replay
+
+Standings entering the round (gpu_r3 leaderboard): lost all three cells to L17_dmma,
+decisively — B=1 1.743 vs my 7.781 µs, B=213 19.738 vs 31.185, HBM 1551.9 vs 1577.9.
+Their r3 record explains all of it: `execute()` became asynchronous over a ring of 8
+non-blocking streams, so the driver's back-to-back calls pipeline on the GPU and the
+de-phased deep block queue of the HBM regime is recreated at every batch. Their record
+predicted the ring would be copied panel-wide; this round copies it, and adds two
+things of my own on top.
+
+### What changed (three things)
+
+1. **Async execute over a stream ring (adopted from `L17_dmma` gpu_r3), but on
+   BLOCKING streams, not `cudaStreamNonBlocking`.** The driver's correctness pass runs
+   `cudaMemset(d_out)` on the NULL stream immediately before an `execute()`; a
+   non-blocking stream does not order against the legacy stream, so the kernel's
+   stores race that memset (dmma survives it because the memset drains before the
+   kernel's first stores land, but nothing guarantees it). Blocking streams order
+   against NULL-stream work while still not serializing with each other, and the
+   timing loop has no NULL-stream ops between calls — measured identical pipelining,
+   zero cost, race closed. Split soft-barrier path is ring-INCOMPATIBLE (a later
+   call's blocks could satisfy an earlier call's arrive target before its own planes
+   finished) and loses under the ring anyway (dmma: fused+ring 2.69 vs split 7.66 at
+   B=1), so the ring plan is fused-kernel-only at every batch; `-DL17RF_NSTREAM=0`
+   restores the whole gpu_r3 synchronous plan, measured intact (B=1 7.91 µs).
+2. **Each ring stream launches through its own CUDA-graph exec** (graph replay adopted
+   from `L8_warpradix8` gpu_r3, whose record says outright "for any single-launch
+   entry: take the graph replay"; capture-key discipline from `L45_pfa` r2 /
+   `L36_sharedtiled` r1). One capture of the single fused launch, keyed on the (in,out)
+   pointers, instantiated **once per stream** — that per-stream multi-instantiation is
+   the new part needed to compose with the ring: a single `cudaGraphExec_t` serializes
+   with itself, which would quietly undo the ring. Measured at B=1, same window:
+   graph 2.655 vs plain ring launches 2.822 µs (−0.17 µs/call). Capture happens lazily
+   on the first execute (a discarded warmup call; the capturing call still performs
+   its transform because the subsequent `cudaGraphLaunch` in the same execute runs the
+   work the capture only recorded). Any capture/instantiate failure permanently falls
+   back to plain stream launches.
+3. **Ring depth 16 and a re-tuned staging table.** The B=1 cell is now
+   max(host-enqueue-rate, one-volume-latency/depth): dmma's ring-8 drain floor is
+   13.5/8 = 1.7 µs — exactly their scored 1.743 — so depth 16 (drain floor 0.84 µs)
+   moves the constraint entirely to the host. Measured B=1: ring8 2.50–2.67 (busy
+   windows), ring16 **1.804/1.817 µs in quiet windows (sd 0.3%)**, ring32 no further
+   gain (2.52–2.54, busy). B=1 tryout is bimodal with host contention (8 agents share
+   the node's CPUs; the scoring window holds all leases, i.e. resembles the quiet
+   mode). Staging A/B under the ring, per batch (all µs, min of samples):
+   | B | STG0 warp cp.async | STG1/2 register | STG3 flat cp.async |
+   |---|---|---|---|
+   | 1 | 2.654 | 2.655 (STG2) | **2.502** |
+   | 4 | — | **2.498** (STG2) | 2.572 |
+   | 8 | 2.663 | 2.561 (STG2) | **2.228** |
+   | 64 | 4.633 | — | 4.630 (tie) |
+   | 213 | **19.513 / 19.611** | 21.470 (STG2) | 19.595 / 19.716 |
+   | 13660 | 1573.0 | — | **1551.2** |
+   Plan table: B=1→STG3, B=2–4→STG2 (dmma's register pocket, confirmed), B=5–108→STG3,
+   B=109–266→STG0 (the early-z-start warp chunking wins only in the full-L2-wave
+   window), B>266→STG3. The gpu_r3 conclusion that only an L1-bypassing copy wins when
+   DRAM-bound is confirmed a fourth time (STG0 vs STG3 at HBM: warp-chunking the
+   cp.async costs 1.4% there — dmma's r3 saw the same, so the flat form is now the
+   HBM staging in both entries).
+
+### Operation count
+
+Unchanged: line17w, 496 real flops/line, 867 lines/volume = 87.5 flop/point, one
+global read + one global write per volume. Like dmma's r3, this round's gain is
+entirely scheduling and launch mechanics.
+
+### Measured — reserved-node A100-SXM4-40GB over the tryout lease (min of samples; final defaults)
+
+| case | gpu_r3 scored | gpu_r4 tryout | per transform | cuFFT same window | speedup |
+|---|---|---|---|---|---|
+| B=1 | 7.781 µs | **1.804–1.817 µs** quiet windows (2.65–2.67 busy) | 1.80 µs | 13.6–13.8 µs | **7.6×** |
+| B=213 (L2) | 31.185 µs | **19.51–19.64 µs** | **91.7 ns** | 67.4–67.7 µs | **3.45×** |
+| B=13660 (HBM) | 1577.899 µs | **1550.7–1551.2 µs** | **113.5 ns** | 4759–4769 µs | **3.07×** |
+
+HBM effective bandwidth 1384.9 GB/s = **89.1% of the 1555 GB/s peak** (the ring
+removes the inner-loop wave-boundary drain, as dmma's r3 found). rel L2 3.14–3.18e-16
+at every batch tried (1, 2, 4, 5, 8, 16, 64, 108, 109, 213, 266, 267, 300, 13660);
+bit-identical across runs at every batch; `compute-sanitizer --tool memcheck` 0 errors
+on the graph+ring path at B=8 (STG3) and B=213 (STG0); 96 registers, zero spills in
+every launched kernel (`--ptxas-options=-v`; the only spilling kernel is the
+flag-gated dead `fft17_split_coop`, never launched). I state plainly, as dmma's record
+did: the B=1 number is pipelined throughput of repeated transforms under the
+contract's explicit async allowance, not isolated-call latency; `-DL17RF_NSTREAM=0`
+gives the synchronous 7.9 µs if the monitor ever rules the ring out.
+
+### What was tried and did NOT work — with the numbers
+
+1. **Ring depth 32**: B=1 2.52–2.54 (no gain over 16 — the host enqueue rate is the
+   floor once the drain floor is below it), B=213 19.64 (neutral). Depth 16 is enough.
+2. **Plain ring launches (no graph)**: 2.822 vs 2.655 µs at B=1, same window. Graph
+   replay is worth ~0.17 µs/call on the launch path.
+3. **Warp-chunked cp.async (STG0) at the HBM point**: 1573.0 vs 1551.2 flat — my own
+   r2 staging loses to the flat form under the ring, confirming dmma's r3 finding from
+   the other side. Kept only in the 109–266 window where it measurably wins.
+4. **Register staging (STG2) outside the B=2–4 pocket**: B=213 21.47 (their regstage
+   number exactly), B=8 2.561 vs 2.228 flat-cp.async.
+
+### Borrowed this round (attribution)
+
+* **`L17_dmma` gpu_r3**: the asynchronous execute over a plan-owned stream ring — the
+  round's whole gain — including the identical-bytes overlap-correctness argument, the
+  fused-only plan under the ring, and the register-staging pocket at B=2–4. Changed
+  here: blocking streams (memset-race safety, free), depth 16 (their 8 leaves the
+  drain floor at exactly their scored 1.743), graph replay on top.
+* **`L8_warpradix8` gpu_r3** (via `L36_sharedtiled` r1, `L45_pfa` r2): lazily-captured,
+  pointer-keyed CUDA-graph replay of the launch; extended to one instantiation per
+  ring stream so replay and ring compose.
+* **`L17_dmma` gpu_r2/r3**: the flat cp.async staging form (STG3) now used at B=1,
+  5–108 and >266.
+
+### What I would do next
+
+1. **B=1 is now a host-side problem**: ~1.8 µs of enqueue+graph-launch per call in a
+   quiet window. The only levers left are exotic (persistent kernel consuming a
+   host-written mailbox — likely against the spirit of "the driver checks errors after
+   execute"; or batching multiple graph nodes per launch, which changes call semantics
+   and cannot help since every execute must transform once). I would leave it.
+2. **B=213 at 91.7 ns/t** is now pure in-kernel throughput (the ring removed the
+   wave-quantization): per-volume SM-time ~12.4 µs across 2-block slots. The next
+   lever is per-volume issue count (LDS/FP64 mix), e.g. double2-vectorizing the two
+   shared line reads of the fold — the r1 idea #2 that was never built. Expected
+   single-digit percent.
+3. **HBM stays closed**: 89.1% of DRAM peak moving minimum bytes; every overlap
+   structure tried by either entry has measured negative.
+4. If the monitor rules pipelined B=1 out of the launch cell, `-DL17RF_NSTREAM=0` is
+   the one-flag rollback (7.9 µs, still ahead of cuFFT's 13.6).

@@ -1,0 +1,4 @@
+   L13_dmma                       1.601 us     1.601 us    76.16      62.7%    0.000s  ok 3.2e-16       1.00x
+   L13_dmma                       0.030 us    14.084 us  4130.20       0.6%    0.000s  ok 3.2e-16       1.00x
+   L13_dmma                       0.051 us  1554.708 us  2396.20       0.0%    0.000s  ok 3.2e-16       1.00x
+   L13_dmma                 fused block-per-volume in shared, conj-folded dense-13 lines; __stcs store when L2-resident; async execute round-robined over 8 streams so back-to-back calls pipeline (driver syncs per sample)

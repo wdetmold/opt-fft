@@ -271,3 +271,95 @@ of the stcs boundary), 310608 — all PASS, all bit-identical across runs;
 * **B_HBM: closed since r1** — 89–90% of the part's 1555 GB/s sustained peak at
   exact-minimum bytes, every entry lands there, and both of this round's experiments
   confirmed the sign of any perturbation is negative. Do not spend another round.
+
+---
+
+## Round gpu_r4 (2026-08-22) — CUDA-graph replay of the single launch, taken whole from L8_warpradix8
+
+### Standing entering the round
+
+r3 leaderboard: won B=1 (2.832 vs rival L6_warpvolume's 3.064) and B_L2 (14.599 vs
+14.876); B_HBM effectively tied (1540.4 vs their 1538.5, 0.12% — noise-level, both at
+the DRAM wall). My r3 record had declared all three cells closed under the per-call
+execute contract. **L8_warpradix8's r3 record proved that wrong for the launch path**
+and said so explicitly: "For any single-launch entry (L6 pair, L13, L17): take the
+graph replay. It is ~30 lines, bit-identical, and worth 0.2–0.6 µs/call at the latency
+points." The rival L6_warpvolume had considered graphs in r3 and declined *without
+measuring* ("nothing to collapse" — true of node count, but the win is launch-path CPU
+cost, not node collapsing). This round is that borrow, measured.
+
+### The change (one idea, borrowed whole)
+
+**Every execute now replays its single kernel launch through a lazily-captured CUDA
+graph**, keyed on the (in, out) pointers and recaptured if they change — the exact
+pattern (capture on a throwaway non-blocking stream, instantiate once, `cudaGraphLaunch`
+onto stream 0, destroy in `destroy()`) from **L8_warpradix8 round gpu_r3**, which took
+it from **L36_sharedtiled r1 / L45_pfa r2**. Same kernel, same arguments → bit-identical
+output; the one-time capture cost lands in the driver's warmup. `L6BC_GRAPH=0/1` forces.
+
+Rotated same-lease A/B (graph alternating with plain, 3–4 process pairs per point,
+after the r3 lesson that fixed-order A/B carries a first-process clock penalty):
+
+| point | plain launch | graph replay | delta |
+|---|---|---|---|
+| B = 1 | 2.822–2.986 µs | **2.618–2.632 µs** (one 2.893 outlier pair) | −0.34 µs, −11% |
+| B = 4854 (L2) | 14.775–14.889 µs | **14.350–14.465 µs** | −0.42 µs, −2.9% |
+| B = 310608 (HBM) | 1540.52 / 1540.69 / 1543.85 µs | **1540.35 / 1540.05 / 1543.77 µs** | wash, graph ahead in every pair |
+
+**Unlike L8's finding (neutral-to-+0.6 µs at their HBM point), graph replay never
+measured a loss here, so it is on at every batch** — not gated on `stream_st`. It also
+collapses the B=1 launch-noise spread (sd ~10% → 0.02–0.4%), which makes the scored
+minimum far more repeatable.
+
+### Tried and rejected this round, with the number that killed it
+
+* **`fft6_single216`, a 216-thread one-point-per-thread B=1 kernel** (idea from
+  L8_warpradix8 r3's quad-at-B=1 win: use all four SM schedulers, shorten the
+  per-thread chain): ping-pong shared (no RAW hazard), each pass a direct 6-point DFT
+  for one output via a `__constant__` W6 table with incremental (j·k) mod 6 indexing,
+  three barriers. Correct (2.5e-16) and clean, but **3.24–3.39 vs 2.63–2.87 µs in every
+  rotated pair — 0.65 µs worse**. The serial 6-cmul accumulation chain per output plus
+  the third barrier cost more than 5 extra warps of scheduler coverage buy; L8's quad
+  win does not transfer to a 216-point volume where the 36-thread kernel's dft6 tree is
+  already short. Kept env-gated (`L6BC_B1=1`), default off. Do not rediscover.
+
+### Measured (reserved-node SXM4 lease via tryout.sh, final binary)
+
+| case | r3 scored | r4 tryout | note |
+|---|---|---|---|
+| B = 1 | 2.832 µs | **2.618–2.632 µs min** (sd 0.01–0.4%) | graph replay |
+| B = 4854 (L2) | 14.599 µs | **14.350–14.465 µs min** | graph replay |
+| B = 310608 (HBM) | 1540.4 µs | **1539.6–1540.7 µs min** | graph on, wash-to-marginal gain |
+
+rel L2 error 2.4–2.5e-16 at B = 1, 4854, 10925 (tail block of 5 + stcs boundary,
+58.4 µs), 310608 — all PASS (the 1 GiB case checked with check.py on the reserved
+node); bit-identical across runs at every point; `compute-sanitizer memcheck` 0 errors
+on the graph-launch paths at B = 1 and B = 4854. Kernels themselves are untouched
+since r2 (batched) and r3 (B=1) — every claim about their behaviour in earlier rounds
+still holds.
+
+### Borrowed, with attribution
+
+* **The whole round is one borrow: single-kernel CUDA-graph replay, lazily captured and
+  keyed on the pointers, from L8_warpradix8 gpu_r3** (originally L36_sharedtiled r1 /
+  L45_pfa r2). Their record's closing advice named this entry; it was right.
+* The rotated same-lease A/B protocol: **L6_warpvolume gpu_r3**'s fixed-order artefact
+  lesson, followed throughout.
+* The failed wide-B=1 experiment's motivation: **L8_warpradix8 gpu_r3**'s
+  quad-at-B=1 result (measured not to transfer here — recorded above so nobody
+  re-imports it).
+
+### Where this leaves L=6, and what I would do next
+
+* All three cells lead or tie on tryout numbers: **2.62 / 14.4 / 1540-class** vs the
+  rival's r3-scored 3.06 / 14.88 / 1538.5. cuFFT is 3.9× / 3.6× / 2.29× behind.
+* **B=1 (2.62 µs)**: now graph-launch floor + ~0.3 µs of kernel. The 216-thread
+  widening is measured dead; the 36-thread kernel's two-barrier chain is short enough
+  that only the launch interval itself remains. If the rival adopts the same graph
+  (they should), expect them near ~2.7 (their kernel is 64-thread and slightly longer).
+* **B_L2 (14.4 µs)**: the graph shaved the launch contribution; what remains is the
+  same read→3-pass→write latency at 1.12 waves that r2/r3 closed from every structural
+  direction. No remaining lever known.
+* **B_HBM (1540 µs)**: unchanged hardware answer, 89–90% of the 1555 GB/s part peak at
+  exact-minimum bytes. The 0.1% gap to the rival on the r3 board is lease noise; do not
+  chase it.

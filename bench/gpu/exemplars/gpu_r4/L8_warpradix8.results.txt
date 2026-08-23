@@ -1,0 +1,4 @@
+   L8_warpradix8                  2.192 us     2.192 us    10.51       4.0%    0.014s  ok 2.2e-16       1.00x
+   L8_warpradix8                  0.004 us     8.929 us  5284.75       4.6%    0.110s  ok 2.3e-16       1.00x
+   L8_warpradix8                  0.012 us  1534.379 us  1968.16       0.0%    1.276s  ok 2.3e-16       1.00x
+   L8_warpradix8            volume per warp/pair/quad in registers, cross-lane DIF radix-8, measured autotune; async execute over an 8-stream ring with per-slot graph execs

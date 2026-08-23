@@ -1,0 +1,4 @@
+   L36_sharedtiled                7.967 us     7.967 us   454.13       1.9%    0.410s  ok 4.8e-16       1.00x
+   L36_sharedtiled                1.278 us    28.113 us  2831.42       2.8%    0.827s  ok 4.8e-16       1.08x
+   L36_sharedtiled                1.219 us  1752.343 us  2969.09       0.0%    0.630s  ok 4.8e-16       1.00x
+   L36_sharedtiled          6x6 CT lines padded shared; split/chunk lead=0 chunk=6 ns=4 pol=1 launch=plain

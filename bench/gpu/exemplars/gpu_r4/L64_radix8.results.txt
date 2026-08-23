@@ -1,0 +1,4 @@
+   L64_radix8                    18.182 us    18.182 us  1297.63       0.4%    0.000s  ok 4.2e-16       1.00x
+   L64_radix8                    10.265 us    41.061 us  2298.35       0.8%    0.000s  ok 4.2e-16       1.00x
+   L64_radix8                    10.007 us  2561.792 us  2357.65       0.1%    0.000s  ok 4.2e-16       1.00x
+   L64_radix8               two-pass plane-per-block, register radix-8^2 lines, shuffle transpose

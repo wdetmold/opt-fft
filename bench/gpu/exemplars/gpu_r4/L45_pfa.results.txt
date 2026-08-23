@@ -1,0 +1,4 @@
+   L45_pfa                        3.723 us     3.723 us  2016.55       1.2%    0.000s  ok 8.2e-16       1.00x
+   L45_pfa                        2.603 us    28.629 us  2884.23       8.1%    0.000s  ok 8.2e-16       1.00x
+   L45_pfa                        2.868 us  2111.104 us  2617.07       0.2%    0.000s  ok 8.2e-16       1.00x
+   L45_pfa                  two-pass PFA 9x5: persistent producer/consumer ticket kernel (45 planes + 64 x-tiles/vol) through a scratch intermediate, async-ring executed over per-slot counter sets (L17_dmma's ring); slice-per-stream + direct stores at L2-resident B; B=1 = ringed single-launch soft-barrier

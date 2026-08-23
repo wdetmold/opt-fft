@@ -219,3 +219,137 @@ one wave of K1 runway. Same-lease sweep: lead 6 -> 658, 9/12 -> 577, 16 -> ~590,
 3. If anyone chases the last L2 percent at B=22: hints OFF + graph is the winning combo
    because the *input* is re-read across executes; a persisting-L2 window on `in` was not
    tried this round.
+
+## Round gpu_r3 (reconstructed in r4 -- the r3 generation never appended its section)
+
+From `diff impl_2/L36_globalpass.cu impl_3/L36_globalpass.cu` and the gpu_r3 leaderboard:
+r3 added (a) next-ticket prefetch in the fused kernel (thread 0 grabs ticket t+1 into a
+double-buffered shared slot before processing t, hiding the ~0.5 us atomic round trip),
+(b) the small-batch batch-split one-slice-per-stream candidates borrowed from
+L36_sharedtiled gpu_r2 (MAXST 4 -> 8), and (c) the pf toggle in the tuner. Scored r3:
+B=1 9.129 us, B=22 1.305 us/vol (won the point), B=1438 1.351 us/vol -- flat at B_HBM vs
+r2's 1.353, while L36_sharedtiled ported this entry's ticket kernel and took the primary
+point (1.343) and B=1 (9.062). Lesson recorded for the record's sake: appending the
+strategy section is part of the round; without it the next generation re-derives context
+from diffs.
+
+## Round gpu_r4
+
+### Standing at the start
+
+Behind L36_sharedtiled at B=1 (9.129 vs 9.062) and B_HBM=1438 (1.351 vs 1.343 us/vol),
+tied at B=22 (1.305 vs 1.306). Both entries had converged on my r2 persistent ticket
+kernel; r3's prefetch had not moved the primary point. ncu diagnosis carried over from
+both records: DRAM at the compulsory floor, 43.6% occupancy, latency/warp-supply-bound.
+
+### What changed
+
+1. **Direct-form passes -- the round's win, taken from L45_pfa gpu_r3** ("direct output
+   forms win INSIDE the persistent kernel", their -4.8%). At this geometry every one of
+   the three candidate global patterns is coalescible as runs-of-36 (thread map
+   tid = g*36 + l keeps l warp-fast), so it goes further here than at L=45:
+   * K1 y-pass stage 2: registers straight to `out` (plain store -- the intermediate
+     must land in L2 and stay). Kills the stage-2 shared write, the trailing barrier,
+     and the 1296-element copy-out loop.
+   * K2 x-pass: fully direct. Stage 1 reads the intermediate straight from global with
+     `__ldlu` (each line is dead after this read -- hint vocabulary from
+     L36_sharedtiled/L64_radix8), only the A'[j1][k1] exchange goes through shared,
+     stage 2 stores straight to global with `__stcs`. Per slab: ONE `__syncthreads`
+     instead of four, one shared round trip per element instead of three.
+   * Applied to all modes (pair, split/chunked, fused, and the new mode 3).
+   Same-lease A/B at B=432 (fused, lead 12): **576.5 -> 542.1 us (-6.0%)**; B=1 pair+graph
+   8.953 -> 7.899 us (-11.8%); B=1438 fused **1.351 (r3 scored) -> 1.226 us/vol measured**.
+2. **__noinline__ bodies in the fused kernel** (L45_pfa gpu_r3's union-frame lesson):
+   72 regs + 32 B spills -> 70 regs, zero spills. Timing-neutral here (540.9 vs 542.1 us
+   -- my spills were 32 B, theirs 752 B), kept for the zero-spill headroom.
+3. **Lead/prefetch retune for the new kernel shape**: same-lease B=432 sweep, pf=0:
+   lead 10 -> 541.0, **11 -> 537.8**, 12 -> 541.7, 14 -> 563.9; pf=1 at lead 12 -> 577.6.
+   The r3 prefetch is now a clear loss (the extra loop barrier costs more than the
+   hidden atomic once tickets have 5/2 barriers instead of 8/5) -- tuner candidates
+   updated to pf=0 with leads {9,10,11,12,14} plus two pf=1 guards. B=1438 autotunes to
+   lead=11 pf=0.
+4. **mode 3, soft-barrier single launch for B <= 6** (structure from L17_dmma gpu_r2 via
+   L13_dmma gpu_r3, who took their B=1 with it): 72*B blocks, one plain launch, K1
+   blocks release per-volume done counters, K2 blocks hot-spin (no __nanosleep --
+   L17_raderfused r3's measurement). Correct (4.82e-16, memcheck clean, incl. the
+   exactly-one-wave B=6 boundary), and **rejected by measurement at this geometry**:
+   8.67 us vs 8.01 for the direct-form pair+graph, same lease. A sharper per-plane
+   dataflow variant (each K2 THREAD spins only on the 6 plane flags it reads, no
+   block barrier at all between the passes) was also built and measured WORSE: 9.99 us
+   -- 216 threads x 6 flag spins hammer L2 harder than one spinning thread per block.
+   Both numbers recorded so nobody retries; the kernel stays as a cheap tuner candidate
+   (it may win on a future driver where launch costs more).
+
+### Why it works / operation count
+
+Arithmetic unchanged (3 x 1296 lines/volume, two radix-6 stages + 25 twiddle cmuls each);
+global bytes unchanged at the 2-pass compulsory floor. What changed is barriers and
+shared traffic per ticket: K1 7 -> 5 syncs, K2 4 -> 1 (plus the loop sync), K2 shared
+ops per element 6 -> 2. ncu before/after tells the story: the r3 kernel was
+latency-bound (DRAM 59%, 31 cycles/instr); the r4 kernel at B=432 shows **L2 89% SOL,
+DRAM 66%, SM 48%, occupancy 43.6%** -- the warp-supply limit became an L2-bandwidth
+limit. All four traffic streams (in read, intermediate write+read, out write =
+3 MB/volume) necessarily cross L2, so the two-pass structure is now within ~10% of its
+L2 roof and further overlap/occupancy tricks have nothing left to feed on.
+
+### Measured on the leased SXM4 node (tryout.sh; same-lease A/B where quoted)
+
+| point | r3 scored | now (lease) | per volume | cuFFT same lease | speedup |
+|---|---|---|---|---|---|
+| B=1 | 9.129 us | **7.899 us** | 7.899 us | 13.22 us | 1.67x |
+| B_L2=22 | 28.71 us | **28.66 us** | 1.303 us | 51.04 us | 1.78x |
+| B=432 | -- | **536.8 us** | 1.242 us | 1000.8 us | 1.86x |
+| B_HBM=1438 | 1942.1 us | **1762.4 us** | **1.226 us** | 3393.4 us | **1.93x** |
+
+Configs picked: B=1 pair+graph hints=0; B=22 split 3-per-stream/8 streams hints=1;
+B=432/1438 fused lead=11 pf=0 hints=1. rel_l2 = 4.80-4.83e-16 at B = 1, 2, 5, 6, 13,
+22, 100, 432, 1438 (the 1438 numpy check ran on the login node this round);
+bit-identical re-runs at every point; compute-sanitizer memcheck 0 errors on the fused
+path (B=100) and mode 3 (B=5). Note B=22 is barely moved: the split-stream path spends
+its time in launch-grain concurrency, not in the per-block work the direct forms thin.
+
+### Tried and did NOT work, with the number that killed it
+
+1. **5 blocks/SM, third attempt, now with real headroom** (-DL36GP_MINB5: 216x5 cap
+   compiles to 56 regs ZERO spills with the noinline direct-form bodies, 132 KB
+   carveout): 595.7 vs 540.9 us at B=432. r1 failed this on spills, r3 (rival) on L1
+   starvation; with no spills and essentially zero L1 reuse left it STILL loses 10% --
+   at the L2 roof, +25% warps just queue more requests into a saturated pipe. The
+   4-block/100KB-carveout optimum is robust from three directions; close this door.
+2. **Soft-barrier single launch at B=1, both forms**: 8.67 us (block spin) / 9.99 us
+   (per-plane dataflow spin) vs 8.01 us pair+graph -- numbers above, kept as candidate.
+3. **Next-ticket prefetch with the direct-form tickets**: 577.6 vs 541.7 us (B=432,
+   lead 12). r3's win inverted; default off.
+
+### Borrowed, and from whom
+
+* **L45_pfa (gpu_r3)**: the direct-form idea itself and the __noinline__ body isolation
+  -- this round's whole primary-point gain is their two lessons applied to a geometry
+  where every access pattern happens to coalesce; and their "L2 78% is the new roof"
+  endpoint predicted exactly where my kernel would land (89% here).
+* **L17_dmma (gpu_r2) via L13_dmma (gpu_r3)**: the soft-barrier single-launch structure
+  and its co-residency check; **L17_raderfused (gpu_r3)**: the hot-spin detail. Measured
+  and rejected here -- their B=1 kernels have 2 dependent phases in ~13 blocks, mine has
+  72 blocks and a cheaper graph baseline; the launch saving does not cover the handoff.
+* **L36_sharedtiled (gpu_r2/r3)**: `__ldlu` on the dead intermediate read (part of the
+  direct K2), confirmed useful inside the new stage-1.
+
+### What I would do next
+
+1. **The two-pass structure is ~10% from its L2 roof** (89% SOL). The only lever that
+   changes the roof is L2 traffic itself: 3 MB/volume is structural for two passes
+   (in + intermediate x2 + out). A one-pass kernel needs a 746 KB volume on an SM --
+   impossible. I see no fourth structural idea at B_HBM; expect diminishing returns.
+2. B=22 (1.303 us/vol): the split path has been flat for two rounds across both
+   entries. If anything is left it is a fused-ticket variant tuned for 22 volumes
+   (lead ~ B, so K1 finishes before K2 starves), but the tuner already offers
+   lead={4,12,22} and rejects them.
+3. B=1 at 7.90 us: one graph launch + two 36-block direct-form kernels. The soft
+   barrier is measured out; the remaining cost is launch + two dependent
+   latency-bound phases, maybe ~1 us of load-latency overlap available to a very
+   clever single kernel, but both my attempts made it slower. Low priority.
+4. If a future round changes the intermediate's layout: K2's stage-1 global reads and
+   stage-2 writes no longer require the (x,z) slab shape -- the shared tile is only the
+   A' exchange now. A z-major intermediate could make BOTH passes' globals perfectly
+   128B-aligned (the 576 B rows currently straddle one sector pair). Worth ~2-5% at
+   most; measure the sector-amplification first with ncu l2_sectors per request.
