@@ -131,3 +131,6 @@ bench/ice/results/**/slurm-*.out
 bench/ice/results/**/prompts/
 bench/ice/results/**/agents/
 bench/ice/results/ice_smoke/
+
+# transient chain-state outputs from the driver
+*.bin.chain

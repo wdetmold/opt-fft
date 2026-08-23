@@ -94,8 +94,19 @@ The budget is calibrated by measurement, not taste: a 1-ulp input perturbation p
 through the longest chain (m=4856) ends at 4.8e-12 — the map is a contraction, not a chaos
 amplifier — and exact implementations differ only by reassociation (~3e-11 observed worst).
 So a full-double-precision entry passes with ~8× margin. The rivals' fastest code drifts to
-**1.2e-8** over that chain (float-seeded Newton in the map, ~2500× the conditioning bound);
-their grader only ever checked a single call, so it never saw this. Ours checks the chain.
-**A fast entry that drifts is a rejected entry.** Beat their times with a map that stays
-double-precision to the end — rsqrt14 seeds with enough Newton steps, or one exact divide
-per point (§10 §2 shows both) — and we win on speed and correctness at once.
+**1.28e-8** over that chain — and the mechanism is now verified in their source: their map
+has an exact variant (`pw_full`, 3 Newton steps) used at just 7 boundary call sites, while
+the bulk of every step runs `pw_full_fast` — a **single-precision `rcp` seed + 2 Newtons**,
+~1e-12 residual per application. Step 1 of their chain is exact to 2.8e-16, so any
+single-call check sees a perfect answer *by construction*; the drift lives only in the
+chain (2.3e-14 at m=32 → 1.8e-11 at m=2048 → 1.28e-8 at m=4856). Their grader never looked
+past one call. Ours checks the chain. **A fast entry that drifts past the budget is a
+rejected entry.**
+
+The nuance that makes this a tool rather than only a trap: precision-tiered maps are LEGAL
+here wherever they stay inside the 1e-13/step budget. Their cheap 2-Newton map measured
+against the exact chain passes our gate at the short-chain sizes (5.7e-14 at L=17's m=98)
+and fails it at the long ones (L=6's m=4856 by ~26×). So tier by (L, m): the float-seed +
+2-Newton map is a legitimate speed lever at L=17/23/36/45/64, and the third Newton step (or
+one exact divide per point) is mandatory at L=6/8/13. Do the arithmetic for your point and
+write it in your strategy record.

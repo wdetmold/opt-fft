@@ -146,6 +146,14 @@ instantiations: rsqrt-Newton for the magnitude + one exact `vdivpd` (1000f989's 
 1e-14 gate. Montgomery batch inversion (one divide per 4 slots) is correct but a wash once
 the divider is hidden — measured and rejected.
 
+**[addendum, verified in our tree 2026-08-22]** The reconstructed 1760b1bf source shows its
+map precision is *tiered by call site*: `pw_full` (3 Newton steps, exact double) at 7
+boundary slots, `pw_full_fast` (single-precision `rcp` seed + 2 Newtons, ~1e-12 residual)
+for the bulk of every chain step. Step 1 is exact to 2.8e-16 — clean wherever a
+single-call grader looks — while the chain end drifts to 1.28e-8 at m=4856 (measured:
+2.3e-14 at m=32, 1.8e-11 at m=2048). Our chain-end gate (1e-13/step) admits this trick at
+short chains and rejects it at long ones.
+
 **[contested]** **`vrsqrt14pd`/`vrcp14pd` throughput is genuinely disputed**: dd9fa88c
 measured ~1.3 cyc/op (4-chain throughput test) and used them happily; 1760b1bf isolated
 them at **~10 cyc each, "likely microcoded on this core"** (its all-FMA Newton map came out
