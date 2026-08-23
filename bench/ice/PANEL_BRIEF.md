@@ -148,3 +148,33 @@ chain gate 10^4-10^6x stricter than any rival campaign's (v6's own per-size gate
 L=6 against our 4.9e-10).** From 2.24 s in three rounds. Remaining gaps: L=13 (1.32) and
 L=17 (1.05) — the sixteen v5/v6 solutions in `fft_v5v6_solutions/` (chain-gated, pure fp64)
 include Hartley-split prime kernels worth mining for both.
+
+---
+
+# ROUNDS 7-8: mine the competition, close the last three cells
+
+The rival campaigns' full reconstructed sources are now in the repo root — read them:
+
+* `fft_v5v6_solutions/` — **16 chain-gated, pure-fp64 attempts** (v5 flat gates, v6 per-size
+  gates). The top one, `v6_f40c5e25_score0.91/`, is a generator (`dev_generators/gen.py`)
+  shipped with config `HSTYLE=bcastv H13=reg6 H17=s44 H23=s65`: PFA 6/36/45, CT 8×8 for 64,
+  and **direct symmetric "Hartley-split" DFTs for the primes (~2h² FMAs per pencil,
+  h=(N−1)/2)** — its own README calls the primes "the decisive win over MKL". SoA
+  8-volumes-per-zmm below L=36 with within-volume fallbacks at small batch remainders.
+* `fft_v4_solutions/` — the 7 earlier attempts (looser tier; the 1.500 s record and the
+  1,045-line 1.00-scorer live here).
+* `results/rivals_icelake/` — the rivals' codes **re-benchmarked on THIS node** (may still
+  be filling in when you start; use whatever rows exist). These are the honest targets:
+  same silicon you are scored on, not their tier's walls.
+
+Mission, in priority order:
+
+1. **L=13 (we trail 1.32×)** — the one real gap. The v6 Hartley-split 13-point pencil
+   (`H13=reg6` in the generator) is the thing to understand and beat, not just match.
+2. **L=17 (we trail 1.05×)** — 5% to find; compare `H17=s44` against our `L17_winograd`.
+3. **L=6: regain a passing fast entry.** Both r6 entries were REJECTED at ~1e-8 chain
+   drift — the exact cheap-map shortcut the gate exists to catch. At m=4856 the third
+   Newton step (or one exact divide per point) is not optional. r5's `L6_pfa` (0.0944 s)
+   is the floor to beat *legitimately*.
+4. Protect the five winning sizes; the score anchor is now the roofline itself
+   (problem v7: full marks at r ≤ 0.137), so every size still has headroom worth taking.
