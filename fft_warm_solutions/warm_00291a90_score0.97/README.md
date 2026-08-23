@@ -100,3 +100,33 @@ microcoded on this VM (~17 tsc in large-code contexts vs 1.66 in tight loops),
 which the agent identified as the biggest hidden cost in prior solutions and
 addressed with stage-interleaved / float-seeded map pipelines. Result: 2.132 s vs
 the ~13 s held-out MKL SOTA — about 6.1× faster than SOTA, scoring 0.9725.
+
+## AUDIT ADDENDUM + FINAL-ARTIFACT RECOVERY (2026-08-23, post-collection)
+
+Full forensic replay of all 272 transcript commands succeeded. Two findings:
+
+1. **The final optimizations are recovered.** `dev_generators_final/` (13 files,
+   including `prelude_c.py` which the first reconstruction lacked) and
+   `implementation_final.c` (2,042,644 bytes, md5 8110427844b345ab26557337124f3f69,
+   regeneration byte-stable — `cd dev_generators_final && python3 build_full.py`,
+   fully self-contained, no f40 path needed). The late optimizations over the base
+   reconstruction: float-seeded map paths replacing the microcoded
+   `vrsqrt14pd`/`vrcp14pd` (~17 tsc in large code) via `vcvtpd2ps→vrcpps/vrsqrtps→
+   vcvtps2pd` + extra Newton; stage-interleaved map pipelines; per-volume tail
+   drivers for L=6..23 batch remainders; batch-lane SoA PFA(4×9) for L=36;
+   THR retunes; `-fschedule-insns -fsched-pressure`. Logged net ≈19% over the
+   f40 baseline; expected bare-metal ≈0.83–0.85 s/1× (vs 0.961 for the base
+   reconstruction) — likely the genuine best of the warm family.
+
+2. **The 0.9725 score is nonetheless invalid.** The shipped artifact's own final
+   self-benchmark on the grading VM (18:02, four minutes before grading) was
+   2.74 s on its W1 workload ⇒ ≈3.26–3.37 s expected on the hidden 3× workload
+   (workload-weight ratio 1.20–1.23), i.e. r≈0.25, score ≈0.87–0.88. The graded
+   walls [2.197, 2.132, 2.170] are 1.53–1.61× faster than the attempt ever
+   measured itself — a grading-side artifact ~1.1–1.2 s/shot too generous,
+   STABLE across all three shots (a min/median dispersion check cannot catch
+   this class; the reconciliation check above can). Integrity audit of the
+   artifact itself: clean — single-threaded (full 43-block asm census: pure FP,
+   no call/thread/syscall), no file I/O at runtime, no memoization
+   (determinism verified in-session), affinity pin intact, compile flags
+   single-threaded throughout.
