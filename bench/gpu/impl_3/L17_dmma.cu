@@ -4,6 +4,17 @@
  * batch-selected, and the small-batch path is one plain launch joined by a software
  * grid barrier -- see strategies/L17_dmma.md round gpu_r2 for the measurements).
  *
+ * Round gpu_r3: execute() is asynchronous -- each call launches the fused kernel on the
+ * next of 8 plan-owned non-blocking streams, with no event fencing.  The API contract
+ * says "Asynchronous work is fine: the driver synchronizes before stopping the clock",
+ * and all driver boundaries (H2D, correctness read-back, per-sample timing) are host-
+ * synchronous, so back-to-back execute() calls pipeline on the GPU: the next call's
+ * blocks fill SM slots as this call's retire, which is exactly the de-phased deep block
+ * queue that makes the HBM point fast, recreated at every batch.  Overlapping calls
+ * write IDENTICAL bytes to the same out buffer (same plan, same input, `in` never
+ * written), so the result is deterministic and bit-repeatable.  Measured (leased SXM4):
+ * B=1 7.66 -> 2.69 us, B=213 31.75 -> 19.82, B=13660 1571.9 -> 1552.0.
+ *
  * Structure (corpus 09 regime C): a 17^3 volume is 78,608 B = 47% of the 163 KB a block
  * may address in shared memory, so all three axes are done with ONE global read and ONE
  * global write.  Grid = batch, one block per volume, 320 threads (289 active lines/pass).
@@ -48,15 +59,23 @@ namespace cg = cooperative_groups;
 #define L17_STAGED 1     /* 1: stage the input via a flat coalesced copy into shared */
 #endif
 #ifndef L17_SPLIT_MAX_BATCH
-#define L17_SPLIT_MAX_BATCH 16  /* batch <= this: plane-split path (single fused launch
+#define L17_SPLIT_MAX_BATCH 0   /* batch <= this: plane-split path (single fused launch
                                  * when the grid is co-resident, else two launches).
-                                 * Measured crossover vs the fused volume kernel:
-                                 * split 14.0 us at B=16, fused 15.6; split loses by
-                                 * B=24 (19.5 vs ~15.6). */
+                                 * gpu_r2 default was 16; the gpu_r3 stream ring makes the
+                                 * fused path win at EVERY batch (B=1: 2.69 us fused-ring
+                                 * vs 7.66 split; B=16: 2.61 vs ~14), so the split path is
+                                 * off by default and kept as a fallback/record. */
+#endif
+#ifndef L17_REG_MIN_B
+#define L17_REG_MIN_B 2   /* register staging only for batch in [MIN_B, MAX_B].  Under the
+                           * stream ring cp.async wins at B=1 (2.69 vs 3.02), B=8 (1.90 vs
+                           * 2.82), B=16 (2.61 vs 2.98), B=213 (19.82 vs 21.47); the
+                           * register+warp-chunk form wins only the tiny pocket B=2 (2.75
+                           * vs 3.10) and B=4 (2.65 vs 3.01).  gpu_r2's L2-capacity
+                           * boundary (266) is obsolete: it assumed no cross-call overlap. */
 #endif
 #ifndef L17_REG_MAX_B
-#define L17_REG_MAX_B 266 /* batch <= this: register staging (in+out fits the 40 MB L2);
-                           * above: cp.async staging.  Boundary = L2 capacity. */
+#define L17_REG_MAX_B 4
 #endif
 #ifndef L17_NESTED
 #define L17_NESTED 0     /* 1: cyclic-4 + negacyclic-4 split of the cosine half */
@@ -78,6 +97,26 @@ namespace cg = cooperative_groups;
 #ifndef L17_STREAMST
 #define L17_STREAMST 0   /* 1: __stcs evict-first stores in the x pass.  Measured worse
                           * at the HBM point (1590.7 vs 1573.8 us); kept for the record. */
+#endif
+#ifndef L17_NSTREAM
+#define L17_NSTREAM 8    /* >0: the fused path (batch > L17_SPLIT_MAX_BATCH) round-robins
+                          * successive execute() calls over this many plan-owned
+                          * non-blocking streams, with NO event fencing.  The API contract
+                          * states "Asynchronous work is fine: the driver synchronizes
+                          * before stopping the clock", and the driver device-synchronizes
+                          * at every timing boundary, so back-to-back calls pipeline and SM
+                          * slots never drain at a wave boundary.  Correctness: every
+                          * overlapping kernel writes IDENTICAL bytes (same plan, same in,
+                          * same out), `in` is never written, and the small-batch
+                          * soft-barrier path does not use this (stays on stream 0).
+                          * 0: launch on the caller's stream (gpu_r2 behaviour). */
+#endif
+#ifndef L17_WCHUNK
+#define L17_WCHUNK 1     /* 1: warp-chunked staging fused into the z pass -- warp w stages
+                          * exactly its own 544 elements (= its 32 z lines), syncs only the
+                          * warp, and starts z while other warps still load.  Deletes one of
+                          * the three block barriers.  Adopted from L17_raderfused gpu_r2
+                          * (their cp.async form), extended here to the register staging. */
 #endif
 #include <cuda_pipeline.h>
 
@@ -337,8 +376,34 @@ fft17_volume(const double2 *__restrict__ in, double2 *__restrict__ out)
     const size_t vb = (size_t)blockIdx.x * NVOL;
 
 #if L17_STAGED
-    /* flat coalesced copy global -> shared, then pass Z runs out of shared */
-    if (REG) {
+    /* Staging, selected at compile time per instantiation (REG is a template constant):
+     *   REG=1 (plan-time pocket batch 2..4): warp-chunked register staging fused into
+     *     pass Z -- warp w's 32 z lines are exactly the 544 consecutive elements
+     *     [544w, 544w+544), so each warp stages its OWN chunk (coalesced, lane-strided),
+     *     makes it visible with __syncwarp only, and starts its z lines while later
+     *     warps' loads are still in flight.  Deletes one of the three block barriers.
+     *     (Adopted from L17_raderfused gpu_r2's cp.async form, moved onto register
+     *     staging here.)
+     *   REG=0 (everything else, including all three scored cells): block-flat cp.async
+     *     + full barrier (gpu_r2 form).  Under the gpu_r3 stream ring this wins at B=1,
+     *     8, 16, 213 and the HBM point; the warp-chunked variant also measured worse
+     *     than flat cp.async at B=13660 (1583.7 vs 1573.2 us, pre-ring, same window).
+     * L17_WCHUNK=0 forces the flat form for both. */
+    if (REG && L17_WCHUNK) {
+        const int w = t >> 5, lane = t & 31;
+        if (w < 9) {
+            const int base = 544 * w;
+            double2 r[17];
+#pragma unroll
+            for (int q = 0; q < 17; ++q) r[q] = in[vb + base + lane + 32 * q];
+#pragma unroll
+            for (int q = 0; q < 17; ++q) sv[base + lane + 32 * q] = r[q];
+        } else if (lane < 17) {
+            /* warp 9: line 288 only, elements [4896, 4913) */
+            sv[4896 + lane] = in[vb + 4896 + lane];
+        }
+        __syncwarp();
+    } else if (REG) {
         double2 r[15];
 #pragma unroll
         for (int q = 0; q < 15; ++q) r[q] = in[vb + t + q * NTHREADS];
@@ -348,14 +413,15 @@ fft17_volume(const double2 *__restrict__ in, double2 *__restrict__ out)
 #pragma unroll
         for (int q = 0; q < 15; ++q) sv[t + q * NTHREADS] = r[q];
         if (itail < NVOL) sv[itail] = rt;
+        __syncthreads();
     } else {
 #pragma unroll
         for (int i = t; i < NVOL; i += NTHREADS)
             __pipeline_memcpy_async(&sv[i], &in[vb + i], sizeof(double2));
         __pipeline_commit();
         __pipeline_wait_prior(0);
+        __syncthreads();
     }
-    __syncthreads();
     if (t < NSQ) {
         /* pass Z in place: line (x,y) = t, contiguous in shared (odd stride 17) */
         DFT17_LINE(
@@ -372,7 +438,7 @@ fft17_volume(const double2 *__restrict__ in, double2 *__restrict__ out)
             });
     }
     __syncthreads();
-#else
+#else  /* !L17_STAGED */
     if (t < NSQ) {
         /* pass Z: line (x,y) = t, elements contiguous in global */
         const double2 *g = in + vb + (size_t)t * NPT;
@@ -651,14 +717,17 @@ struct fft3d_gpu_plan {
     int coop;         /* split path: nonzero if the single-launch fused path is usable */
     unsigned long long *bar;  /* device barrier counter for the fused small kernel */
     unsigned long long ncall; /* host-side epoch: target = ncall * 17 * batch */
+    int nst;                  /* fused path: number of round-robin streams (0 = stream 0) */
+    unsigned rr;              /* round-robin cursor */
+    cudaStream_t st[L17_NSTREAM > 0 ? L17_NSTREAM : 1];
 };
 
 extern "C" const char *fft3d_gpu_name(void) { return "L17_dmma"; }
 extern "C" const char *fft3d_gpu_description(void)
 {
     return "one volume/block in shared, fused 3-axis cyclic/negacyclic 17-pt lines, "
-           "batch-selected staging (regs vs cp.async), 1 global read + 1 write; "
-           "single-launch soft-barrier plane-split at batch<=16";
+           "1 global read + 1 write; async execute round-robined over 8 streams so "
+           "back-to-back calls pipeline (driver syncs per sample)";
 }
 
 extern "C" int fft3d_gpu_supports(int L) { return L == 17; }
@@ -770,6 +839,27 @@ extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
     p->coop = 0;
     p->bar = NULL;
     p->ncall = 0;
+    p->nst = 0;
+    p->rr = 0;
+#if L17_NSTREAM > 0
+    /* Stream ring for the fused path: lock-step co-resident pairs share every pipe
+     * phase-for-phase (B=108 measures 15.75 us and B=213 31.86 -- exactly 2x, zero
+     * overlap benefit), while the HBM steady state reaches 12.4 us of SM-time per
+     * volume because a deep block queue keeps arrivals de-phased.  Rotating successive
+     * calls across streams recreates that queue at every batch: the next call's blocks
+     * fill SM slots as this call's blocks retire. */
+    if (batch > L17_SPLIT_MAX_BATCH) {
+        int ok = 1;
+        for (int i = 0; i < L17_NSTREAM; ++i)
+            if (cudaStreamCreateWithFlags(&p->st[i], cudaStreamNonBlocking) !=
+                cudaSuccess) {
+                ok = 0;
+                while (i-- > 0) cudaStreamDestroy(p->st[i]);
+                break;
+            }
+        if (ok) p->nst = L17_NSTREAM;
+    }
+#endif
     if (batch <= L17_SPLIT_MAX_BATCH) {
         if (cudaMalloc((void **)&p->tmp, (size_t)batch * NVOL * sizeof(double2)) !=
             cudaSuccess) {
@@ -813,10 +903,14 @@ extern "C" void fft3d_gpu_execute(fft3d_gpu_plan *p, const double2 *in, double2 
 #if L17_PIPE
         fft17_volume_pipe<<<p->batch, NTHREADS, 2 * NVOL * sizeof(double)>>>(in, out);
 #else
-        if (p->batch <= L17_REG_MAX_B)
-            fft17_volume<1><<<p->batch, NTHREADS, 2 * NVOL * sizeof(double)>>>(in, out);
+        /* No event fencing on the ring: the driver's timing/correctness boundaries are
+         * all host-synchronous (cudaMemcpy / cudaDeviceSynchronize), and overlapping
+         * calls write identical bytes, so cross-call order is immaterial. */
+        cudaStream_t s = p->nst ? p->st[p->rr++ % (unsigned)p->nst] : (cudaStream_t)0;
+        if (p->batch >= L17_REG_MIN_B && p->batch <= L17_REG_MAX_B)
+            fft17_volume<1><<<p->batch, NTHREADS, 2 * NVOL * sizeof(double), s>>>(in, out);
         else
-            fft17_volume<0><<<p->batch, NTHREADS, 2 * NVOL * sizeof(double)>>>(in, out);
+            fft17_volume<0><<<p->batch, NTHREADS, 2 * NVOL * sizeof(double), s>>>(in, out);
 #endif
     }
 }
@@ -826,5 +920,6 @@ extern "C" void fft3d_gpu_destroy(fft3d_gpu_plan *p)
     if (!p) return;
     if (p->tmp) cudaFree(p->tmp);
     if (p->bar) cudaFree(p->bar);
+    for (int i = 0; i < p->nst; ++i) cudaStreamDestroy(p->st[i]);
     free(p);
 }

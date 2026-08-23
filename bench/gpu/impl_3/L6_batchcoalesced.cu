@@ -29,6 +29,19 @@
  * confirmed by L8_warpradix8 gpu_r1: the sign flips between the L2 and HBM points,
  * so it is selected in create(), never hardcoded). B=4854: 24.0 -> 14.8 us.
  *
+ * Round gpu_r3: two additions.
+ *   - B = 1 dedicated kernel fft6_single: one 36-thread block, z-pass fused into the
+ *     global load (each thread reads its own contiguous 96 B z-line -- fine at B=1
+ *     where latency, not sector economy, rules), padded shared, TWO barriers, x-pass
+ *     stores direct. Shape borrowed from L6_warpvolume gpu_r2's fft6_single and
+ *     L8_blockfused gpu_r1's staging-free B=1 kernel (which measured the fused-z
+ *     load the winner at B=1 even though it loses batched). 3.69 -> ~2.9 us.
+ *   - z->y named-barrier demotion (bar.sync id,96 over 3 warps; the dependence
+ *     closes within aligned 48-tid groups) was built and MEASURED A LOSS both at
+ *     B_L2 (14.97 vs 14.76 us interleaved same-lease) and B_HBM (1543.7 vs 1541.0):
+ *     the barrier-unit named path costs more than waking 6 fewer warps saves.
+ *     Kept behind -DNAMED_BAR=1, default off. Do not rediscover.
+ *
  * Block = 288 threads (8 volumes x 36 lines), static shared 216*8*16 = 27,648 B.
  */
 #include <cuda_runtime.h>
@@ -39,6 +52,11 @@
 #define NP     216   /* 6^3 points per volume  */
 #define NLINES 36    /* 6^2 lines per axis     */
 #define VPB    8     /* volumes per block (power of 2: swizzle uses & (VPB-1)) */
+
+#ifndef NAMED_BAR    /* -DNAMED_BAR=1 re-enables the z->y named-barrier demotion;
+                        measured a loss at every scored point (see header) */
+#define NAMED_BAR 0
+#endif
 
 /* forward DFT-3: X = F3 * (a,b,c), F3 built from w3 = exp(-2*pi*i/3) */
 static __device__ __forceinline__ void dft3(double2 a, double2 b, double2 c,
@@ -82,7 +100,12 @@ static __device__ __forceinline__ int slot(int i, int v)
 }
 
 template <bool STREAM_ST>
-__global__ void __launch_bounds__(VPB * NLINES)
+__global__ void
+#if defined(MINB) && MINB > 0   /* A/B: force MINB blocks/SM (costs spills) */
+__launch_bounds__(VPB * NLINES, MINB)
+#else
+__launch_bounds__(VPB * NLINES)
+#endif
 fft6_batch(const double2 *__restrict__ in, double2 *__restrict__ out, int nvol)
 {
     __shared__ double2 s[NP * VPB];
@@ -126,7 +149,15 @@ fft6_batch(const double2 *__restrict__ in, double2 *__restrict__ out, int nvol)
             for (int j = 0; j < 6; ++j) s[slot(base + j, v)] = r[j];
         }
     }
+    /* z->y: the dependence closes within aligned 48-tid groups (a y-pass thread
+       reads only its own volume's points, written by z-pass threads 48x..48x+47),
+       so a 96-thread named barrier over 3 warps is CORRECT here -- but it measured
+       slower than __syncthreads at both batched points (header). Off by default. */
+#if NAMED_BAR
+    asm volatile("bar.sync %0, 96;" :: "r"(tid / 96 + 1) : "memory");
+#else
     __syncthreads();
+#endif
 
     /* ---- y axis (stride 6), batch-fast lanes ---- */
     {
@@ -166,13 +197,53 @@ fft6_batch(const double2 *__restrict__ in, double2 *__restrict__ out, int nvol)
     }
 }
 
+/* B = 1 latency kernel: one 36-thread block (2 warps), z-pass fused into the global
+ * load -- thread l = (x,y) reads its contiguous 96 B z-line straight from global,
+ * transforms in registers, writes shared once. Two barriers total instead of three,
+ * and one shared round trip fewer than the staged shape. Padded slot i + i/6 keeps
+ * the y/x passes bank-clean enough; at one block none of it is on the critical path.
+ * Borrowed: fft6_single shape from L6_warpvolume gpu_r2, fused-z-at-B=1 from
+ * L8_blockfused gpu_r1's staging-free single kernel. */
+#define PSLOT(i) ((i) + (i) / 6)
+__global__ void __launch_bounds__(NLINES)
+fft6_single(const double2 *__restrict__ in, double2 *__restrict__ out)
+{
+    __shared__ double2 s[NP + NP / 6];
+    const int l = (int)threadIdx.x;              /* 36 threads, no guards */
+    double2 r[6];
+    /* z-pass fused with load: line (x,y) = l, points l*6 .. l*6+5 contiguous */
+#pragma unroll
+    for (int z = 0; z < 6; ++z) r[z] = in[l * 6 + z];
+    dft6(r);
+#pragma unroll
+    for (int z = 0; z < 6; ++z) s[PSLOT(l * 6 + z)] = r[z];
+    __syncthreads();
+    {   /* y-pass: line (x,z), stride 6 */
+        const int i0 = (l / 6) * 36 + (l % 6);
+#pragma unroll
+        for (int y = 0; y < 6; ++y) r[y] = s[PSLOT(i0 + 6 * y)];
+        dft6(r);
+#pragma unroll
+        for (int y = 0; y < 6; ++y) s[PSLOT(i0 + 6 * y)] = r[y];
+    }
+    __syncthreads();
+    {   /* x-pass: line (y,z) = l, stride 36, straight to global */
+#pragma unroll
+        for (int x = 0; x < 6; ++x) r[x] = s[PSLOT(l + 36 * x)];
+        dft6(r);
+#pragma unroll
+        for (int x = 0; x < 6; ++x) out[l + 36 * x] = r[x];
+    }
+}
+
 struct fft3d_gpu_plan { int L; int batch; int grid; int stream_st; };
 
 extern "C" const char *fft3d_gpu_name(void) { return "L6_batchcoalesced"; }
 extern "C" const char *fft3d_gpu_description(void)
 {
     return "L6: 8 volumes/block batch-major swizzled shared, DIT 2x3 codelet, "
-           "fused single kernel, last axis direct to global, __stcs when in fits L2";
+           "fused single kernel, last axis direct to global, __stcs when in fits "
+           "L2; fused-z 36-thread single-volume kernel at B=1";
 }
 
 extern "C" int fft3d_gpu_supports(int L) { return L == 6; }
@@ -199,6 +270,7 @@ extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
 
 extern "C" void fft3d_gpu_execute(fft3d_gpu_plan *p, const double2 *in, double2 *out)
 {
+    if (p->batch == 1)  { fft6_single<<<1, NLINES>>>(in, out); return; }
     if (p->stream_st) fft6_batch<true ><<<p->grid, VPB * NLINES>>>(in, out, p->batch);
     else              fft6_batch<false><<<p->grid, VPB * NLINES>>>(in, out, p->batch);
 }

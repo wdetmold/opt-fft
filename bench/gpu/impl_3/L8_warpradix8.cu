@@ -29,6 +29,18 @@
  * everywhere (occupancy loss beats latency self-hiding); still in the tune space
  * since it is bit-identical to var 2.
  *
+ * Round gpu_r3 adds vars 7/8 (fft8_quad): ONE VOLUME PER FOUR WARPS, 4 complex
+ * doubles per lane (~40 data registers). The min-op dft8 splits on x parity --
+ * the flat load lands even x's on warps 0-1 and odd x's on warps 2-3, and only
+ * the codelet's final cadd/csub stage crosses that bit, through one shared
+ * bounce. var 7 then recomputes its y2-partner's x-final value redundantly from
+ * the same bounce slots (ONE barrier total); var 8 does a classic second bounce
+ * (three barriers). Both bit-identical to var 2, so they join the tune. The quad
+ * loses the two big batched points to var 4 (occupancy was NOT the L2-point
+ * limiter) but wins small batches and B = 1. gpu_r3 also replays every plan's
+ * single kernel launch as a lazily-captured CUDA graph (idea from
+ * L36_sharedtiled r1 / L45_pfa r2): -0.2..-0.6 us of launch path per call.
+ *
  * B = 1 uses a dedicated 64-thread two-warp kernel (fft8_b1): x-line per lane,
  * cross-lane y stages, and only the z2 bit crosses warps through one padded
  * shared bounce with a single barrier (staging idea from L8_blockfused's B=1
@@ -362,6 +374,159 @@ static __device__ __forceinline__ void pair_bar(int id)
     asm volatile("bar.sync %0, 64;" ::"r"(id) : "memory");
 }
 
+/* Quad-local barrier: four warps (128 threads), same named-barrier idea. */
+static __device__ __forceinline__ void quad_bar(int id)
+{
+    asm volatile("bar.sync %0, 128;" ::"r"(id) : "memory");
+}
+
+/* vars 7/8, round gpu_r3: ONE VOLUME PER FOUR WARPS ("quad"), 4 complex doubles
+ * per lane -- the next halving of the r2 occupancy ladder (16/lane at 106 regs ->
+ * 8/lane at 66 -> 4/lane here). Thread u = t&127 takes the flat coalesced load
+ * v[r] = in[vol*512 + r*128 + u], which lands x = 2r + u6 (u6 = warp-pair bit):
+ * the EVEN x's on warps 0-1 of the quad, the ODD x's on warps 2-3. The min-op
+ * dft8 splits on exactly that parity: stage 1 (a_x +/- a_{x+4}) and stage 2
+ * (the t/s/u algebra) touch only same-parity elements, so each side computes its
+ * half of the codelet locally -- verbatim expressions, warp-uniform branch --
+ * and only the codelet's FINAL cadd/csub stage crosses the parity bit, through
+ * one padded shared bounce. The y2 bit is the other warp bit (u5); y1,y0,z2..z0
+ * are lane bits with the SAME meaning as vars 2/4, so l8_setup/xstage are reused
+ * verbatim and every arithmetic slot mirrors var 2 exactly: output BIT-IDENTICAL
+ * to vars 2/4, tune-safe.
+ *
+ * var 7 (RB=true): after the single bounce+barrier each thread also reads its
+ * y2-partner's TWO bounce slots and recomputes the partner's x-final value
+ * redundantly (same expressions, same operand order => bit-identical), so the
+ * y2 stage needs NO second bounce and the kernel has ONE barrier total.
+ * var 8 (RB=false): classic second bounce through the same slots, three
+ * quad-local barriers (write1/read1 race, then write2/read2).
+ * Stores are the var 4 address algebra plus the split-codelet's kx permutation
+ * {0,2,1,3}+4*u6 folded into per-register constant offsets; a warp's 32 store
+ * addresses still cover 4 dense 128B runs. */
+template <int WPB, bool STCS, bool RB>
+__global__ void __launch_bounds__(WPB * 32)
+fft8_quad(const double2 *__restrict__ in, double2 *__restrict__ out, int B)
+{
+    __shared__ double2 s[WPB * 32 * 5]; /* stride 5: odd => conflict-free 16B phases */
+    const int  t    = threadIdx.x;
+    const int  tq   = t & 127;
+    const int  q    = t >> 7;  /* quad = volume slot in block, barrier id */
+    const int  lane = t & 31;
+    const int  jx   = (tq >> 6) & 1; /* warp-pair bit = x parity */
+    const int  jq   = (tq >> 5) & 1; /* warp bit = y2 */
+    const long vol  = (long)blockIdx.x * (WPB / 4) + q;
+    if (vol >= (long)B) return;
+
+    l8c c;
+    l8_setup(lane, c);
+    const double2 ONE = make_double2(1.0, 0.0);
+    const double  R2  = 0.70710678118654752440;
+
+    double2 v[4];
+    const double2 *gi = in + vol * 512 + tq;
+#pragma unroll
+    for (int r = 0; r < 4; ++r) v[r] = gi[r * 128];
+    /* v[r] = (x = 2r + jx, y = (tq>>3)&7, z = tq&7); 2048B dense per instruction */
+
+    /* Half of dft8, split by x parity (warp-uniform): the even side owns
+     * t0,t2,s0,u2 -> e0,f0,g0,h0; the odd side t1,t3,s1,s3,u1,u3 -> e1,f1,g1,h1.
+     * Every expression is the codelet's, verbatim. */
+    double2 w[4];
+    if (jx == 0) {
+        const double2 t0 = cadd(v[0], v[2]), t2 = cadd(v[1], v[3]);
+        const double2 s0 = csub(v[0], v[2]), s2 = csub(v[1], v[3]);
+        const double2 u2 = make_double2(s2.y, -s2.x);
+        w[0] = cadd(t0, t2);
+        w[1] = csub(t0, t2);
+        w[2] = cadd(s0, u2);
+        w[3] = csub(s0, u2);
+    } else {
+        const double2 t1 = cadd(v[0], v[2]), t3 = cadd(v[1], v[3]);
+        const double2 s1 = csub(v[0], v[2]), s3 = csub(v[1], v[3]);
+        const double2 u1 = make_double2((s1.x + s1.y) * R2, (s1.y - s1.x) * R2);
+        const double2 u3 = make_double2((s3.y - s3.x) * R2, -(s3.x + s3.y) * R2);
+        const double2 f1t = csub(t1, t3);
+        const double2 h1t = csub(u1, u3);
+        w[0] = cadd(t1, t3);
+        w[1] = make_double2(f1t.y, -f1t.x);
+        w[2] = cadd(u1, u3);
+        w[3] = make_double2(h1t.y, -h1t.x);
+    }
+
+    /* dft8 final stage (across the parity bit u6): one bounce, one barrier.
+     * Even side computes cadd(e0,e1) etc = outputs kx {0,2,1,3}; odd side
+     * csub(e0,e1) etc = kx {4,6,5,7} -- the codelet's own slots. */
+    double2 *sw = s + t * 5;
+#pragma unroll
+    for (int r = 0; r < 4; ++r) sw[r] = w[r];
+    quad_bar(q);
+    const double2 *s64 = s + (t ^ 64) * 5;
+    if (jx == 0) {
+#pragma unroll
+        for (int r = 0; r < 4; ++r) v[r] = cadd(w[r], s64[r]);
+    } else {
+#pragma unroll
+        for (int r = 0; r < 4; ++r) v[r] = csub(s64[r], w[r]);
+    }
+    /* v[r] = (kx = 4*jx + {0,2,1,3}[r], y, z) */
+
+    /* y stage 1 (bit y2 = warp bit jq): var 2's local y slots exactly. */
+    if (RB) {
+        /* No second bounce: recompute the y2-partner's x-final value from the
+         * bounce-1 slots it used (t^32 own half, t^96 its partner), with the
+         * partner's exact expressions -> bit-identical to reading it. */
+        const double2 *s32 = s + (t ^ 32) * 5;
+        const double2 *s96 = s + (t ^ 96) * 5;
+        double2 vp[4];
+        if (jx == 0) {
+#pragma unroll
+            for (int r = 0; r < 4; ++r) vp[r] = cadd(s32[r], s96[r]);
+        } else {
+#pragma unroll
+            for (int r = 0; r < 4; ++r) vp[r] = csub(s96[r], s32[r]);
+        }
+        if (jq == 0) {
+#pragma unroll
+            for (int r = 0; r < 4; ++r) v[r] = cadd(v[r], vp[r]);
+        } else {
+#pragma unroll
+            for (int r = 0; r < 4; ++r) v[r] = cmul(csub(vp[r], v[r]), c.W8j);
+        }
+    } else {
+        quad_bar(q); /* partner done reading bounce 1; slots reusable */
+#pragma unroll
+        for (int r = 0; r < 4; ++r) sw[r] = v[r];
+        quad_bar(q);
+        const double2 *s32 = s + (t ^ 32) * 5;
+        if (jq == 0) {
+#pragma unroll
+            for (int r = 0; r < 4; ++r) v[r] = cadd(v[r], s32[r]);
+        } else {
+#pragma unroll
+            for (int r = 0; r < 4; ++r) v[r] = cmul(csub(s32[r], v[r]), c.W8j);
+        }
+    }
+
+    /* y stages 2-3 and the whole z pass: identical code and twiddle constants
+     * as vars 2/4 (same lane-bit meanings), on 4 registers. */
+    xstage<16, true>(v, c.sY2, c.tY2);
+    xstage<8, false>(v, c.sY3, ONE);
+    xstage<4, true>(v, c.sZ1, c.tZ1);
+    xstage<2, true>(v, c.sZ2, c.tZ2);
+    xstage<1, false>(v, c.sZ3, ONE);
+
+    /* ky = 4*l3 + 2*l4 + jq (var 4's algebra with jq for the warp bit),
+     * kz = c.Wp; kx offset per register = 64*{0,2,1,3}[r] + 256*jx.
+     * A warp's 32 addresses cover 4 dense 128B runs, as in vars 2/4. */
+    double2 *gs = out + vol * 512 + 256 * jx + 8 * jq + c.H + c.Wp;
+    const int M[4] = {0, 128, 64, 192};
+#pragma unroll
+    for (int r = 0; r < 4; ++r) {
+        if (STCS) __stcs(gs + M[r], v[r]);
+        else      gs[M[r]] = v[r];
+    }
+}
+
 /* var 4, round gpu_r2: ONE VOLUME PER TWO WARPS, 8 complex doubles per lane.
  * Halves the data registers of var 2 (32 vs 64) to raise occupancy -- the round-1
  * ncu verdict on both scored batch points was latency/occupancy, not traffic
@@ -624,11 +789,18 @@ fft8_b1(const double2 *__restrict__ in, double2 *__restrict__ out)
 
 struct fft3d_gpu_plan {
     int L, batch;
+    int use_graph;              /* B=1: replay the single launch via cudaGraph */
+    cudaGraphExec_t gexec;      /* lazily captured, keyed on (gin, gout) */
+    const double2 *gin;
+    double2 *gout;
     int wpb;    /* warps per block: 1,2,4,8,16 */
     int var;    /* 0 = butterfly-transpose, line stores; 1 = + transpose-back, flat
                    stores; 2 = cross-lane DIF stages, no transposes; 3 = cross-lane
                    double-buffered pair; 4 = two warps per volume (fft8_pair);
-                   -1 = dedicated B=1 two-warp kernel; -2 = fft8_pair<2> at B=1 */
+                   7 = four warps per volume, 1-barrier redundant-recompute quad;
+                   8 = four warps per volume, 3-barrier two-bounce quad;
+                   -1 = dedicated B=1 two-warp kernel; -2 = fft8_pair<2> at B=1;
+                   -3 = fft8_quad<4> at B=1 */
     int stcs;   /* 1 = evict-first streaming stores */
     int grid;
 };
@@ -712,8 +884,28 @@ static kfun_t kern5_for(int wpb, int stcs)
     return 0;
 }
 
+static kfun_t kern7_for(int wpb, int rb, int stcs)
+{
+    switch (wpb * 4 + rb * 2 + stcs) {
+    case 4 * 4 + 2 + 0: return fft8_quad<4, false, true>;
+    case 4 * 4 + 2 + 1: return fft8_quad<4, true, true>;
+    case 4 * 4 + 0 + 0: return fft8_quad<4, false, false>;
+    case 4 * 4 + 0 + 1: return fft8_quad<4, true, false>;
+    case 8 * 4 + 2 + 0: return fft8_quad<8, false, true>;
+    case 8 * 4 + 2 + 1: return fft8_quad<8, true, true>;
+    case 8 * 4 + 0 + 0: return fft8_quad<8, false, false>;
+    case 8 * 4 + 0 + 1: return fft8_quad<8, true, false>;
+    case 16 * 4 + 2 + 0: return fft8_quad<16, false, true>;
+    case 16 * 4 + 2 + 1: return fft8_quad<16, true, true>;
+    case 16 * 4 + 0 + 0: return fft8_quad<16, false, false>;
+    case 16 * 4 + 0 + 1: return fft8_quad<16, true, false>;
+    }
+    return 0;
+}
+
 static kfun_t pick(int wpb, int var, int stcs)
 {
+    if (var == 7 || var == 8) return kern7_for(wpb, var == 7, stcs);
     if (var == 6) return stcs ? fft8_pair_t<true> : fft8_pair_t<false>;
     if (var == 5) return kern5_for(wpb, stcs);
     if (var == 4) return kern4_for(wpb, stcs);
@@ -725,6 +917,7 @@ static int vols_per_block(int wpb, int var)
 {
     if (var == 3) return wpb * 2;
     if (var == 4 || var == 5 || var == 6) return wpb / 2;
+    if (var == 7 || var == 8) return wpb / 4;
     return wpb;
 }
 
@@ -747,7 +940,7 @@ static int grid_for(int wpb, int var, int stcs, int batch)
 
 extern "C" const char *fft3d_gpu_name(void) { return "L8_warpradix8"; }
 extern "C" const char *fft3d_gpu_description(void)
-{ return "one volume per warp in registers, radix-8 x3, butterfly shuffle transposes, no shared/barriers"; }
+{ return "volume per warp/pair/quad in registers, cross-lane DIF radix-8, measured autotune, graph-replayed launch"; }
 extern "C" int fft3d_gpu_supports(int L) { return L == 8; }
 
 /* Measured candidate selection on scratch buffers -- pattern adopted from
@@ -781,6 +974,12 @@ extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
     p->wpb = 4;
     p->var = 2;
     p->stcs = 0;
+    p->use_graph = 1; /* single-kernel graph replay: -0.2..0.6 us of launch path
+                         at every point, bit-identical, and it collapses the
+                         B=1/B_L2 launch-noise spread. L8WR_GRAPH=0 disables. */
+    p->gexec = 0;
+    p->gin = 0;
+    p->gout = 0;
 
     /* fft8_pair blocks want the full shared carveout so residency is register-
      * limited, not carveout-limited (hint pattern from L13_dmma/L8_blockfused). */
@@ -802,20 +1001,55 @@ extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
     cudaFuncSetAttribute(fft8_pair_loop<8, true>,  cudaFuncAttributePreferredSharedMemoryCarveout, 100);
     cudaFuncSetAttribute(fft8_pair_t<false>, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
     cudaFuncSetAttribute(fft8_pair_t<true>,  cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+    cudaFuncSetAttribute(fft8_quad<4, false, true>,   cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+    cudaFuncSetAttribute(fft8_quad<4, true, true>,    cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+    cudaFuncSetAttribute(fft8_quad<4, false, false>,  cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+    cudaFuncSetAttribute(fft8_quad<4, true, false>,   cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+    cudaFuncSetAttribute(fft8_quad<8, false, true>,   cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+    cudaFuncSetAttribute(fft8_quad<8, true, true>,    cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+    cudaFuncSetAttribute(fft8_quad<8, false, false>,  cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+    cudaFuncSetAttribute(fft8_quad<8, true, false>,   cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+    cudaFuncSetAttribute(fft8_quad<16, false, true>,  cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+    cudaFuncSetAttribute(fft8_quad<16, true, true>,   cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+    cudaFuncSetAttribute(fft8_quad<16, false, false>, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+    cudaFuncSetAttribute(fft8_quad<16, true, false>,  cudaFuncAttributePreferredSharedMemoryCarveout, 100);
 
     const char *fw = getenv("L8WR_WPB");
     const char *ff = getenv("L8WR_VAR");
     const char *fs = getenv("L8WR_STCS");
+    const char *fg = getenv("L8WR_GRAPH");
+    if (fg) p->use_graph = atoi(fg);
     if (fw || ff || fs) {
         if (fw) p->wpb = atoi(fw);
         if (ff) p->var = atoi(ff);
         if (fs) p->stcs = atoi(fs);
         if (batch == 1 && !fw) p->wpb = 1;
     } else if (batch == 1) {
+        /* Two candidate single-block kernels, both bit-identical to var 2:
+         * fft8_pair<2> (64 threads, 1 barrier, r2 pick) and fft8_quad<4>
+         * (128 threads = all 4 schedulers of the SM, half the per-thread
+         * chain, 1 barrier + redundant partner recompute). Measured pick on
+         * scratch, same discipline as the batched tune. */
         p->wpb = 1;
-        p->var = -2; /* fft8_pair<2> single volume: 3.56 vs fft8_b1's 3.82 us
-                        (flat dense loads beat b1's half-dense per-lane map) */
+        p->var = -2;
         p->stcs = 0;
+        double2 *a = 0, *b = 0;
+        if (cudaMalloc(&a, 512 * sizeof(double2)) == cudaSuccess &&
+            cudaMalloc(&b, 512 * sizeof(double2)) == cudaSuccess) {
+            cudaMemset(a, 0, 512 * sizeof(double2));
+            float t2 = 1e30f, t4 = 1e30f;
+            for (int cyc = 0; cyc < 3; ++cyc) {
+                float ms;
+                ms = time_candidate(fft8_pair<2, false>, 1, 64, a, b, 1, 400);
+                if (ms < t2) t2 = ms;
+                ms = time_candidate(fft8_quad<4, false, true>, 1, 128, a, b, 1, 400);
+                if (ms < t4) t4 = ms;
+            }
+            if (t4 < t2) p->var = -3;
+        }
+        if (a) cudaFree(a);
+        if (b) cudaFree(b);
+        cudaGetLastError();
     } else {
         double2 *a = 0, *b = 0;
         size_t bytes = (size_t)batch * 512 * sizeof(double2);
@@ -835,6 +1069,9 @@ extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
                 {16, 2, 0}, {16, 2, 1}, {16, 3, 0}, {16, 3, 1},
                 {2, 4, 0},  {2, 4, 1},  {4, 4, 0},  {4, 4, 1},
                 {8, 4, 0},  {8, 4, 1},
+                {4, 7, 0},  {4, 7, 1},  {8, 7, 0},  {8, 7, 1},
+                {16, 7, 0}, {16, 7, 1},
+                {4, 8, 0},  {4, 8, 1},  {8, 8, 0},  {8, 8, 1},
                 /* var 5 (grid-stride) measured worse everywhere it was tried
                  * (15.5 vs 14.4 at B=2048, 1642 vs 1537 at B=131072: the two
                  * pair barriers per iteration serialize inter-volume MLP);
@@ -843,6 +1080,9 @@ extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
             const int NC = (int)(sizeof(CANDS) / sizeof(CANDS[0]));
             int reps = (int)(60000000L / ((long)batch * 512) + 3);
             if (reps > 400) reps = 400;
+            if (reps < 6) reps = 6; /* >=6 even at the HBM batch: the top var-4
+                                       candidates sit ~0.1% apart and 3-rep
+                                       samples flip the pick under noise */
             float best[NC];
             for (int i = 0; i < NC; ++i) best[i] = 1e30f;
             for (int cyc = 0; cyc < 3; ++cyc)
@@ -866,20 +1106,55 @@ extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
     }
 
     p->grid = grid_for(p->wpb, p->var, p->stcs, batch);
+    if (getenv("L8WR_DEBUG"))
+        fprintf(stderr, "L8WR plan: var=%d wpb=%d stcs=%d graph=%d grid=%d\n",
+                p->var, p->wpb, p->stcs, p->use_graph, p->grid);
     return p;
+}
+
+/* Launch the B=1 kernel for variant v (all bit-identical to var 2). */
+static void launch_b1(int v, const double2 *in, double2 *out)
+{
+    if (v == -1)      fft8_b1<<<1, 64>>>(in, out);
+    else if (v == -3) fft8_quad<4, false, true><<<1, 128>>>(in, out, 1);
+    else              fft8_pair<2, false><<<1, 64>>>(in, out, 1);
 }
 
 extern "C" void fft3d_gpu_execute(fft3d_gpu_plan *p, const double2 *in, double2 *out)
 {
-    if (p->var == -1) {
-        fft8_b1<<<1, 64>>>(in, out);
+    if (p->use_graph) {
+        /* Every plan is a single kernel launch; replay it as a CUDA graph,
+         * lazily captured and keyed on the pointers (idea from L36_sharedtiled
+         * r1 / L45_pfa r2). Same kernel, same arguments -> bit-identical. */
+        if (!p->gexec || in != p->gin || out != p->gout) {
+            if (p->gexec) { cudaGraphExecDestroy(p->gexec); p->gexec = 0; }
+            cudaStream_t cs;
+            cudaGraph_t g;
+            cudaStreamCreate(&cs);
+            cudaStreamBeginCapture(cs, cudaStreamCaptureModeThreadLocal);
+            if (p->var == -1)      fft8_b1<<<1, 64, 0, cs>>>(in, out);
+            else if (p->var == -3) fft8_quad<4, false, true><<<1, 128, 0, cs>>>(in, out, 1);
+            else if (p->var == -2) fft8_pair<2, false><<<1, 64, 0, cs>>>(in, out, 1);
+            else pick(p->wpb, p->var, p->stcs)<<<p->grid, p->wpb * 32, 0, cs>>>(in, out, p->batch);
+            cudaStreamEndCapture(cs, &g);
+            cudaGraphInstantiate(&p->gexec, g, 0, 0, 0);
+            cudaGraphDestroy(g);
+            cudaStreamDestroy(cs);
+            p->gin = in;
+            p->gout = out;
+        }
+        cudaGraphLaunch(p->gexec, 0);
         return;
     }
-    if (p->var == -2) {
-        fft8_pair<2, false><<<1, 64>>>(in, out, 1);
+    if (p->var < 0) {
+        launch_b1(p->var, in, out);
         return;
     }
     pick(p->wpb, p->var, p->stcs)<<<p->grid, p->wpb * 32>>>(in, out, p->batch);
 }
 
-extern "C" void fft3d_gpu_destroy(fft3d_gpu_plan *p) { free(p); }
+extern "C" void fft3d_gpu_destroy(fft3d_gpu_plan *p)
+{
+    if (p && p->gexec) cudaGraphExecDestroy(p->gexec);
+    free(p);
+}

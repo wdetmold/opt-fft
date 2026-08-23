@@ -272,3 +272,121 @@ was the occupancy residual, as diagnosed.
    pair-local named barrier, everything else in registers) is exactly the shape
    for a 64-point line at 2 lanes/point-set; the bar.sync trick keeps their
    plane blocks decoupled too.
+
+---
+
+## Round gpu_r3 (2026-08-22) — quad kernel closes B=1 and small batches; graph replay closes the launch path
+
+### Standing entering the round, and the plan
+
+r2 leaderboard: B=1 3.595 vs blockfused 3.191, B_L2 13.990 vs 13.058, B_HBM a
+tie at the wall (1539.5 vs 1537.2). Two levers this round: (1) the next halving
+of the r2 occupancy ladder — one volume per FOUR warps, 4 complex doubles/lane —
+as the honest test of whether the B_L2 residual is occupancy after all; (2)
+CUDA-graph replay of the single kernel launch, taken from other entries'
+records.
+
+### What changed (production)
+
+1. **vars 7/8, `fft8_quad`: one volume per four warps, 4 complex/lane.** The
+   flat coalesced load `v[r] = in[vol*512 + r*128 + u]` lands x = 2r + u6, i.e.
+   the EVEN x's on warps 0-1 of the quad and the ODD x's on warps 2-3 — and the
+   min-op dft8 codelet splits on exactly that parity: t0/t2/s0/s2/u2/e0/f0/g0/h0
+   live entirely on the even side, t1/t3/s1/s3/u1/u3/e1/f1/g1/h1 on the odd side
+   (verbatim expressions, warp-uniform branch), and **only the codelet's final
+   cadd/csub stage crosses the parity bit**, through one stride-5 padded shared
+   bounce. The y2 bit is the other warp bit; y1,y0,z2..z0 are lane bits with the
+   SAME meanings as vars 2/4, so `l8_setup`/`xstage` are reused verbatim.
+   **var 7** avoids a second bounce for the y2 stage by re-reading the bounce-1
+   slots of the y2-partner (t^32) and its partner (t^96) and recomputing the
+   partner's x-final value redundantly — same expressions, same operand order,
+   so it is bit-identical to reading it, and the kernel has **ONE quad-local
+   barrier total** (`bar.sync q, 128`). **var 8** is the classic second bounce,
+   three barriers. Both verified BIT-IDENTICAL to var 2 by `cmp` at B=64 and
+   B=63 tails (wpb 4/8/16), so both join the measured autotune; memcheck clean.
+2. **Every plan now launches through a lazily-captured CUDA graph** (keyed on
+   the (in,out) pointers, recaptured if the driver moves them — **borrowed from
+   L36_sharedtiled r1 and L45_pfa r2**). Every plan here is a single kernel
+   launch, so the graph is one node; the replay is bit-identical (cmp-verified
+   at 1, 2048, 131072) and saves 0.2–0.6 µs of launch path per call at B=1 and
+   B_L2, neutral-to-+0.6 µs at B_HBM. It also collapses the B=1 launch-noise
+   spread (sd 13% → 0.02% in like windows). `L8WR_GRAPH=0` disables.
+3. **B=1 is a measured create()-time pick** between `fft8_pair<2>` (64 threads)
+   and `fft8_quad<4>` (128 threads = all four schedulers of the SM, half the
+   per-thread chain, one barrier) — both bit-identical to var 2. The quad wins
+   every window measured (3.10–3.35 vs 3.35–3.67 µs).
+4. Autotune reps floor raised to 6 at the HBM batch (3-rep samples flipped the
+   pick among the top candidates, which sit ~0.1% apart).
+
+### Operation count
+
+var 7 per lane per volume (four lanes share what one r1 lane did): 4 ld + 4 st
+global, half-dft8 (~28 FP), 4 shared st + 12 shared ld (bounce + partner
+recompute), ~10 butterfly FP, 5 xstage stages (20 shfl + 20 FMA + 3×16 cmul-FP)
+≈ ~135 FP + 20 shuffle + 16 shared accesses; per point the same ~33 flop/point
+arithmetic as vars 2/4 (bit-identical by construction), with 4 shared
+accesses/point against var 4's 2 — the price of the shorter per-thread chain.
+
+### Measured (leased SXM4 via tryout.sh; forced A/B in the same windows)
+
+| case | r2 shipped | r3 best | config | blockfused r2 score |
+|---|---|---|---|---|
+| B = 1 | 3.55–3.74 µs | **3.06–3.35 µs** (3.061 final tryout, median 3.062) | fft8_quad<4> + graph | 3.191 |
+| B = 2048 (L2) | 14.15–14.37 µs | **13.19–13.31 µs** (13.189 final tryout) | autotune (var 4 family) + graph | 13.058 |
+| B = 131072 (HBM) | 1537.1–1542.4 µs | **1536.5–1539.2 µs** | autotune picks var 7 or 4 (all within 0.15%) + graph | 1537.2 |
+
+rel L2 2.29e-16 at every point (B = 1, 63, 64, 2048, 131072 all PASS);
+bit-identical across runs at every point; compute-sanitizer memcheck 0 errors on
+the new paths (quad tails wpb 8, var 8, B=1 graph). The B=1 and B_L2 gains are
+real and window-stable; the HBM point remains the shared 89–90%-of-DRAM wall.
+
+### What was tried and did NOT work, with the numbers
+
+* **The quad kernel at the two big batched points — the round's designed
+  experiment, and it settles the r2 question with the opposite sign.** At
+  B=2048: var 7 wpb4+stcs **16.55 vs var 4's 14.24** (wpb 8: 16.01, wpb 16:
+  17.34; var 8: 16.81). At B_HBM: **1542.7–1546.5 vs 1540.7** like-for-like.
+  40+ warps/SM (vs var 4's 28) made the L2 point WORSE: the doubled per-point
+  shared traffic and the extra warp-bit stage cost more than the occupancy
+  buys. Together with blockfused r2's WPV result (barriers are not it either),
+  the B_L2 residual is now bracketed from both sides: it is the per-thread
+  instruction stream itself, not occupancy, barriers, or store semantics. The
+  autotune keeps the quad because it wins small batches outright (B=64 forced:
+  4.76 vs var 2 wpb4's 7.39; full tryout at B=64 now 3.49 vs r2-era 3.75).
+* **var 8 (3-barrier two-bounce quad) vs var 7 (1-barrier redundant recompute)**:
+  4.96 vs 4.76 at B=64, 16.81 vs 16.55 at B=2048 — the r1 lesson inverts when
+  the redundant reads are SHARED instead of global: 8 extra shared loads beat
+  two extra barriers. Kept in the tune anyway (bit-identical, and the margin is
+  small).
+
+### Borrowed this round, with attribution
+
+* **CUDA graph replay, lazily captured and keyed on the pointers: L36_sharedtiled
+  r1 (B=1 graph) and L45_pfa r2 (capture/recapture discipline).** Extended here
+  from their multi-kernel B=1 cases to EVERY batch point — with a single-kernel
+  execute the graph is one node and the win is pure launch path. This is the
+  single cheapest microsecond available to any entry whose execute is one
+  launch; blockfused does not currently do it.
+* The occupancy-ladder framing that motivated the quad: my own r1/r2 records
+  plus **L8_blockfused r1's** 40-register point (the quad lands at the same
+  register class).
+* Carveout hints, env-knob A/B discipline, "env vars inside the on_gpu.sh
+  command string": **L13_dmma r1/r2**.
+
+### What I would do next
+
+1. **B_L2 (13.19 vs their 13.06, floor ≈ 11.6)**: the instruction-stream verdict
+   says the only remaining moves are arithmetic ones — fewer executed
+   instructions per point, not better scheduling of the same ones. A radix-8
+   y/z pass done as 3 genuinely fused cross-lane stages (one cmul per axis
+   instead of two) would break bit-identity with var 2 and need its own tune
+   family; expected ≤ 0.5 µs. Marginal.
+2. **B=1 at 3.06 µs**: now graph-replay launch + a 128-thread kernel. What is
+   left is the kernel's global-load latency head and the launch interval
+   itself; nothing under the per-call execute contract looks worth more than
+   ~0.1 µs.
+3. **B_HBM**: unchanged verdict — at the wall, tied, every lever measured ≤ ±0.3%.
+   Do not spend a round there.
+4. **For any single-launch entry (L6 pair, L13, L17): take the graph replay.**
+   It is ~30 lines, bit-identical, and worth 0.2–0.6 µs/call at the latency
+   points.

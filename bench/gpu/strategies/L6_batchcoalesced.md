@@ -172,3 +172,102 @@ mandatory DRAM writes ≈ 11 µs, plus L2 read time) is ~12% and latency-shaped.
 * B_HBM is at 89–90% of the part's sustained DRAM peak with exact-minimum bytes;
   every entry that measured it (this one, L6_warpvolume, L8_*, L13_dmma) lands at the
   same ceiling. Treat 1540 µs as the hardware answer at this geometry.
+
+---
+
+## Round gpu_r3 (2026-08-22) — B=1 kernel borrowed back; two batched ideas measured dead
+
+### Standing after r2, and what this round targeted
+
+r2 leaderboard: won B_L2 (14.63 vs rival L6_warpvolume's 14.96) and tied B_HBM (1540.2
+vs 1540.6, both at the ceiling), but **lost B=1 by 1.24×** (3.69 vs their 2.97 µs) —
+the rival added a dedicated 64-thread single-volume kernel while my execute still
+launched the 288-thread batched kernel for one volume. B=1 was the round's target; at
+the batched points the plan was cheap measured experiments only, since L8_blockfused's
+r2 record had already closed most of the latency hypotheses at the same working set.
+
+### The change (one addition that stuck)
+
+**`fft6_single`, a dedicated B=1 kernel selected in `execute()` when `batch == 1`:**
+one 36-thread block (2 warps), the **z-pass fused into the global load** — thread
+l = (x,y) reads its own contiguous 96 B z-line from global, transforms in registers,
+writes shared once — then y-pass and x-pass over padded shared (`slot = i + i/6`),
+x-pass storing straight to global. **Two barriers total** and one shared round trip
+fewer than the staged shape. Borrowed twice over, with attribution: the single-volume
+line-thread shape from **L6_warpvolume round gpu_r2** (`fft6_single`, 3.09 µs), the
+fused-z-load-at-B=1 refinement from **L8_blockfused round gpu_r1** (their staging-free
+B=1 kernel measured fused-z the winner at B=1 even though the same fusion loses 2.5%
+batched — my own r1 record killed it batched at 1582 vs 1540 µs, and both records
+agree the sign flips when latency, not sector economy, is what is being paid).
+Arithmetic identical to the batched kernel (same `dft6`), deterministic, so
+repeatability is structural.
+
+### Measured (reserved-node SXM4 lease via tryout.sh / on_gpu.sh, final binary)
+
+| case | r2 | r3 | note |
+|---|---|---|---|
+| B = 1 | 3.69 µs | **2.87 µs min, 2.88 median** (sd ~11%, launch-bound) | 1.29× on the lost cell; rival scored 2.97 |
+| B = 4854 (L2) | 14.63 µs | **14.72–14.88 µs min** across windows | unchanged — batched kernel is bit-for-bit r2's |
+| B = 310608 (HBM) | 1540.2 µs | **1540.2–1544.6 µs min** across windows | unchanged (cross-lease clock drift ~0.3%) |
+
+rel L2 error 2.4–2.5e-16 at B = 1, 3, 4854, 10925 (tail block of 5, plain-store side
+of the stcs boundary), 310608 — all PASS, all bit-identical across runs;
+`compute-sanitizer memcheck` 0 errors on the new B=1 path and the tail path.
+
+### Tried and rejected this round, with the numbers that killed them
+
+* **z→y barrier demoted to a 96-thread named barrier** (`bar.sync id, 96`, ids 1–3;
+  provably correct: a y-pass thread reads only its own volume's points, written by
+  z-pass threads of the same aligned 48-tid group, and 96 is the warp-aligned cover —
+  analogue of L8_blockfused r2's `__syncwarp` demotion). First A/B looked +0.8% at
+  B_L2, but interleaved same-lease runs reversed it: **B_L2 14.97/14.99 vs 14.76/14.78
+  µs plain (−1.4%), B_HBM 1543.3–1544.5 vs 1540.2–1541.1 (−0.2%), consistently**. The
+  named-barrier path costs more than waking 6 fewer warps saves. Kept in the file
+  behind `-DNAMED_BAR=1`, default off. Lesson restated: a one-window A/B at sd > 1%
+  is not a measurement; interleave in one lease before believing a sign.
+* **Single-wave residency at B_L2 via `__launch_bounds__(288, 6)`** (607 blocks ≤
+  648 = 6/SM capacity, so the 1.12-wave tail becomes exactly one wave): **23.16 µs vs
+  14.88** — catastrophic. ptxas cuts 40 → 32 registers with spills, and the spill
+  traffic lands in L2 exactly where `__stcs` is protecting the input's residency.
+  Extends r1's B_HBM-only measurement (+17%) to the L2 point (+56%); the knob stays
+  in the file as `-DMINB=n`. Occupancy bought with spills is a loss everywhere here.
+* **ncu at B=4854 (final kernel)** closed r1's leftover worry: shared bank conflicts
+  are 37.6 K ld + 18.9 K st per launch against millions of shared ops — the load
+  phase's "4-way conflict, paid once" is **not measurable**, so the register-staged
+  two-step transpose idea from r1's "next" list is dead without being built.
+  dram__bytes = 16.80 MB = exactly the write stream (reads fully L2-resident);
+  achieved 30 warps/SM of 45 theoretical, nothing above L2's 67%. The residual
+  ~1.25× over the 11.6 µs write floor is the read+compute+write latency chain at
+  1.12 waves — same verdict L8_blockfused r2 reached from five structural
+  experiments at the identical working set.
+
+### Borrowed, with attribution
+
+* B=1 single-volume kernel shape: **L6_warpvolume gpu_r2** (`fft6_single`), itself
+  descended from **L8_blockfused gpu_r1**'s `fft8_single`.
+* Fused-z global load at B=1 (two barriers): **L8_blockfused gpu_r1**.
+* "Generate inputs and run check.py on the reserved node — the login node's strict
+  overcommit kills ≥512 MiB numpy allocations under agent contention": **L8_blockfused
+  gpu_r1**'s warning, hit verbatim this round (login node failed even small OpenBLAS
+  allocations mid-session).
+* Not re-tested on the strength of others' records: warp-per-volume / zero-barrier
+  variants (L8_blockfused r2: +7% B_L2), persistent grid-stride (+5%), `__stwt`
+  (+79%), cross-execute L2 persistence windows (L6_warpvolume r2: all ≥ +0.7%).
+
+### Where this leaves L=6, and what I would do next
+
+* **All three cells now lead or tie on tryout numbers**: 2.87 / 14.7 / 1540-class,
+  vs rival's scored 2.97 / 14.96 / 1540.6. cuFFT is 3.5× / 3.5× / 2.29× behind.
+* **B=1 (2.87 µs) is the launch floor**: the kernel is ~0.1 µs of work on a ~2.8 µs
+  launch path; the remaining levers (graphs, persistent kernels) are outside the
+  per-call execute contract, and single-kernel graph replay has no second launch to
+  amortize. Done.
+* **B_L2 (14.7 µs = 1.27× of the 11.6 µs write floor)**: now measured NOT to be bank
+  conflicts (ncu), NOT barriers (named-barrier loss here; L8's WPV loss), NOT wave
+  quantisation (MINB=6 loss; L8's grid-stride loss), NOT store semantics, NOT staging
+  shape. What remains is pure memory latency at 30 achieved warps/SM. I see no
+  remaining structural lever that does not sacrifice occupancy or bytes; treat ~14.7
+  as this design's answer unless someone finds a fundamentally different schedule.
+* **B_HBM: closed since r1** — 89–90% of the part's 1555 GB/s sustained peak at
+  exact-minimum bytes, every entry lands there, and both of this round's experiments
+  confirmed the sign of any perturbation is negative. Do not spend another round.

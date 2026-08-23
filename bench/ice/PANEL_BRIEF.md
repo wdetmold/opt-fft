@@ -50,3 +50,52 @@ margins are thin (0.76–0.87); L=17/23 are strong (0.18–0.20) but the rivals'
 codelets attack exactly those, so defend them. Selection matters as much as kernels: the
 winning entry differs across CLX/ICX/Haswell at four of eight sizes, and what you learn
 here feeds the machine-aware selection model in `bench/geom/best/`.
+
+---
+
+# TASK CHANGE (from ice_r4): the full rival step, with a correctness gate they never faced
+
+The chain step is now **exactly the rival pipelines' graded step**:
+
+    state <- (z + c) / (1 + |z + c|),   z = FFT(state)
+
+where `c` is a fixed 0.1-scaled complex gaussian field (supplied by the harness, same
+layout as the data). The head-to-head that forced this change: on our own bare-metal node,
+the rivals' fastest code runs the full task in **1.00 s** end-to-end while our suite —
+kernels that WIN the FFT-only comparison — takes **2.24 s**, because ~57% of our time is an
+unfused map pass. The map is the battleground. Their per-size times to beat (seconds, full
+graded points): 6: 0.102, 8: 0.115, 13: 0.164, 17: 0.035, 23: 0.103, 36: 0.059, 45: 0.201,
+64: 0.226.
+
+## How to fuse: the optional chain entry point
+
+Export (in addition to the normal ABI — keep it working, the single-transform check uses it):
+
+    void fft3d_chain(fft3d_plan *plan, const double _Complex *x0,
+                     const double _Complex *c, double _Complex *final_out, int m);
+
+If present (it is detected as a weak symbol), the driver times YOUR whole m-step chain.
+If absent, you are timed through the fallback — your fft3d_execute plus a driver-side
+vectorized map — which is exactly the 2.24 s configuration. The fusion technique that won
+for the rivals is in §10 §2 and in their sources (`ext/reference/fft_v4_solutions/`): one
+hardware divide per point with everything else as Newton on the FMA pipes, and the *lazy
+map* — keep the buffer raw between steps and apply the map during the next step's first
+contiguous pass, where `c` streams sequentially.
+
+## Correctness: where we beat them by DESIGN, not just speed
+
+Two gates, both enforced by the harness:
+
+1. Single transform vs numpy, rel L2 < 1e-12 (unchanged).
+2. **Whole-chain end state vs a numpy reference chain, budget 1e-13 per step**
+   (tol = max(1e-12, 1e-13·m)).
+
+The budget is calibrated by measurement, not taste: a 1-ulp input perturbation propagated
+through the longest chain (m=4856) ends at 4.8e-12 — the map is a contraction, not a chaos
+amplifier — and exact implementations differ only by reassociation (~3e-11 observed worst).
+So a full-double-precision entry passes with ~8× margin. The rivals' fastest code drifts to
+**1.2e-8** over that chain (float-seeded Newton in the map, ~2500× the conditioning bound);
+their grader only ever checked a single call, so it never saw this. Ours checks the chain.
+**A fast entry that drifts is a rejected entry.** Beat their times with a map that stays
+double-precision to the end — rsqrt14 seeds with enough Newton steps, or one exact divide
+per point (§10 §2 shows both) — and we win on speed and correctness at once.

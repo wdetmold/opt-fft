@@ -273,3 +273,124 @@ B=213 could not be cleanly separated from r1 today — every window at that batc
    prototype off-line first).
 4. If the monitor's scored B=213 window is as noisy as today's, consider a plan-time
    measured A/B for CUT (create() may time both paths; setup is unscored).
+
+---
+
+## Round gpu_r3 (2026-08-22) — cumulative round: soft grid barrier + batch-selected staging, both from L17_dmma
+
+Standings entering the round (gpu_r2 leaderboard): lost all three cells to L17_dmma —
+B=1 7.635 vs my 8.687 µs, B=213 31.696 vs 32.139, HBM 1571.669 vs 1574.955 (the last
+two effectively noise-level, B=1 decisively). Their r2 record names the two levers,
+and this round takes both, plus one new staging variant of my own.
+
+### What changed (three things)
+
+1. **The split path (batch < 13) is ONE plain launch joined by a software grid
+   barrier** (adopted from `L17_dmma` gpu_r2: arrive-and-spin on a plan-owned
+   monotonic u64 counter, each call adds gridDim and passes the running total as the
+   target so back-to-back calls cannot confuse epochs; release/acquire =
+   `__syncthreads` + `__threadfence` around the atomics; `create()` verifies the
+   whole 17·B-block grid co-resident by occupancy query, two-launch fallback kept).
+   Structure per block of 320: my r2 planes body (z+y of one x-plane), barrier, then
+   an x pass **thread-per-OUTPUT in the folded form** — block = (volume, kx), kx
+   block-uniform so the folded coefficient rows broadcast, reads from a scratch
+   buffer, writes `out` coalesced. Two wrinkles found on the way, with numbers:
+   - A first cut ran the x pass thread-per-LINE in place on `out` (no scratch —
+     "leaner than the rival's dense-x"): **11.27 µs at B=1** vs 8.8 two-launch. One
+     seventeenth of each block computing serial line17w chains loses to 289 threads
+     each doing 1/17 of the work; the scratch round trip is free at these batches
+     (all L2). Folded per-output x via tmp: **8.20 µs**.
+   - **The barrier's `__nanosleep(20)` was costing ~0.3 µs at B=1**: hot spin
+     (no sleep) measures 7.94 vs 8.21, and no counter-contention penalty appears up
+     to the 204 spinning blocks of B=12 (13.9 hot vs 16.3 slept, same day). 100 ns
+     polls are ruinous (10.4 µs). Default is now a hot spin (`L17RF_SPIN_NS=0`).
+   Also removed one `__syncthreads` from the planes body (z writes its transposed
+   output to a second 4.6 KB shared buffer instead of syncing around an in-place
+   store) — not separable from clock noise at B=1, kept as strictly fewer barriers.
+2. **The fused kernel's staging is batch-selected at plan time** (idea from
+   `L17_dmma` gpu_r2, who measured that no one staging wins both batched regimes),
+   as a template parameter: cp.async for batch > 266 (in+out no longer fits the
+   40 MB L2), register staging below. New this round: **STG 2, warp-chunked REGISTER
+   staging** — warp w loads its own 544 contiguous elements through 17 registers per
+   thread, stores them to shared, `__syncwarp()`s and starts its z lines, no block
+   barrier — i.e. the L2-regime staging with the r2 cp.async form's early z start.
+   Measured at B=213 in one window: cp.async 32.40, flat reg (r1 form) 31.87,
+   **warp-chunked reg 31.28**. At B=13660: warp-chunked reg 1610.6 vs cp.async
+   1580.3 — the corpus/rival finding stands that only the L1-bypassing copy wins
+   when DRAM-bound, so the plan switches at `L17RF_REG_MAX_B=266`.
+3. **Path cut retuned 14 → 13**: the soft-barrier split wins to B=12 (12.5–12.7 vs
+   fused 13.2), and at B=13 (221 blocks > 2/SM × 108) barrier-coupled load imbalance
+   flips it hard (soft 15.3 vs fused 13.1). The occupancy check would allow the soft
+   kernel to B=25 (4 blocks/SM at ≤51 regs, zero spills), but past 2 blocks/SM the
+   slowest-SM effect makes it pointless — the cut is a scheduling fact, not a
+   co-residency fact.
+
+Operation count unchanged: 496 real flops/line (line17w), 867 lines/volume, one
+global read + one global write per volume on the fused path. The split path is now
+4 volume passes of global traffic (in→tmp, tmp→out) like the rival's, plus a dense→
+folded x saving: per x output 16 folds + 32 FMA + 2 combines vs the dense 68 FMA.
+
+### Measured — reserved-node A100-SXM4-40GB over the tryout lease (min of windows; several windows had 6–13% sd from boost-clock state, minima repeat to ~0.3%)
+
+| case | gpu_r2 scored | gpu_r3 tryout | per transform | cuFFT same window | speedup |
+|---|---|---|---|---|---|
+| B=1 | 8.687 µs | **7.80–7.94 µs** | 7.80 µs | 13.65–13.99 µs | **1.75×** |
+| B=213 (L2) | 32.139 µs | **31.21–31.35 µs** | **146.5 ns** | 67.6 µs | **2.16×** |
+| B=13660 (HBM) | 1574.955 µs | **1580.3–1583.2 µs** | **115.7 ns** | 4758 µs (r2) | **3.0×** |
+
+The HBM point is unchanged within noise, as both entries' r2 records predicted (88%
+of the 1555 GB/s peak, both structural overlap ideas already measured negative).
+rel L2 3.08–3.16e-16 at every batch tried (1, 2, 4, 8, 12, 13, 14, 16, 20, 24, 64,
+213, 266, 267, 300, 2160, 13660); B=13660 verified with a chunked memmap checker
+(login node was commit-starved by another user's jobs — `overcommit_memory=2` with
+1.5 GB headroom; generate input in 500-volume chunks and compare per 256-volume
+chunk) and bit-identical across runs; `compute-sanitizer --tool memcheck` 0 errors
+on the soft path (B=8, hot spin), fused STG=2 (B=64) and STG=0 (B=300); zero spills
+in every kernel (`--ptxas-options=-v`).
+
+### What was tried and did NOT work — with the numbers
+
+1. **Thread-per-line in-place x after the soft barrier** (no scratch): 11.27 µs at
+   B=1 vs 8.20 for folded thread-per-output via scratch — see above. The lesson
+   generalizes: at latency-bound batch, active-thread count in the last dependent
+   phase matters more than avoiding an L2-resident round trip or halving flops.
+2. **Slept spins** at any interval ≥ 20 ns — numbers above.
+3. **Soft-barrier split above 2 blocks/SM co-residency** (B=13–24 measured 15.3–18.5
+   vs fused 13.1–13.3): the barrier makes every block wait for the most-loaded SM.
+   Do not chase the occupancy limit; the practical limit is gridDim ≤ 2×108.
+4. **Warp-chunked register staging at the HBM point**: 1610.6 vs 1580.3 cp.async —
+   confirms (third time now across both entries) that DRAM-bound staging must bypass
+   L1; kept only for batch ≤ 266.
+
+### Borrowed this round (attribution)
+
+* **`L17_dmma` gpu_r2**: the single-plain-launch + software-grid-barrier structure
+  for the split path, including the monotonic-counter epoch design and the
+  co-residency occupancy check (their measurement: coop launch +1.4 µs, second
+  launch +1.6 µs — mine confirms, two-launch 9.7 vs soft 8.2 pre-spin-tuning); and
+  the plan-time batch-selected staging with the 266-volume L2 boundary. Their r2
+  negative results (plane-granular cp.async pipelining at any group count, __stcs
+  stores, nested-vs-wline) were treated as settled and not retried.
+* **`L17_dmma` gpu_r1**: the thread-per-output x pass through a scratch buffer for
+  the small-batch path — rejected by me in r2 as a *second launch* (11.96 µs), it is
+  the right x phase *inside* the soft-barrier kernel; this round's version folds it
+  (half the FMAs of their dense form) since kx is block-uniform either way.
+
+### What I would do next
+
+1. **B=1 at 7.94 µs**: launch + planes + barrier + x. The barrier round itself is
+   now sub-µs; the remaining structure is two dependent latency-bound phases. A
+   speculative idea: warp-specialized planes blocks where the x-phase blocks
+   cp.async-prefetch nothing (data not ready) but pre-compute their coefficient
+   registers during the spin — likely ~0.1 µs, low value. Realistically this cell
+   is near its floor; watch whether L17_dmma copies the folded-x and hot-spin
+   details back.
+2. **B=213 at ~146.5 ns/t**: still ~2× the single-volume issue floor. The unexplored
+   levers stay unexplored (2-volume 640-thread blocks with shared barriers — my r2
+   argument against still stands; an ncu stall pass on the STG=2 kernel would be the
+   right next step before building anything).
+3. **HBM: closed.** 88% of peak, minimum bytes, three independent negative results
+   on overlap structures. Spend future rounds elsewhere.
+4. Housekeeping: if a scored window ever catches the split path at B=12–13 on the
+   wrong side, `create()` could time both paths at plan time (setup is unscored) —
+   still not done, still cheap insurance.

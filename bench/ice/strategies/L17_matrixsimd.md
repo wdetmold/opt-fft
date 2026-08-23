@@ -337,3 +337,146 @@ should widen slightly.
 - If winograd's agent recovered and moved, re-read its record before
   spending anything; the 3-pass engine port threat from L17_rader's plan
   applies to it, not to us.
+
+## Round ice_r3
+
+### Where this round started
+
+ice_r2 leaderboard: L17_matrixsimd **13.562 us/step**, first at L=17
+(winograd 16.082, rader 18.693, MKL 76.3).  Quiet-window pick: xfdza
+(merged, X-first, deferred-Z, addr-safe), pf=pw=pt=0 — extract-store did
+NOT flip this time.  b1dec = 7.72/7.12/3.56/3.39: the merged kernel
+delivered the predicted ~10% on kyz (7.90 -> 7.12), residual still
+issue-shaped.  The r2 record's declared next lever was a spill diet for
+chunk17z (~31 stack refs/chunk, register file exactly full).
+
+### What was changed (in order of measured effect)
+
+1. **THE FILE-WIDE SCHEDULING PRAGMA IS GONE — the round's win, and it was
+   sitting in our own blind spot.**  Trigger: L13_direct's ice_r2 record
+   measured the pragma we exported to the panel at **+5.2% on THEIR fused
+   single-load kernel** and wrote the rule: *the pragma transfers only to
+   phase-serial kernels* — sched1 interleaves independent chains that the
+   source keeps apart, and a source-merged kernel has none left, so its
+   live-range stretching only feeds the allocator.  Our ice_r1 pragma win
+   (−7.7%) was measured against the PHASE-SERIAL kernel; ice_r2 merged the
+   phases at source level and never re-measured the pragma.  Instrument:
+   no-sched twins of the merged execs compiled per-function
+   (push_options), so the A/B is within one binary and one window.
+   In-tuner: 13.68–13.75 (no-sched) vs 15.70–15.82 (sched), i.e. −13%
+   in the arena; matched GRADED runs, same day: 13.991 (sched default) ->
+   **13.493 (unsched default), an honest −3.6%** — the arena inflates the
+   sched penalty, the graded contrast is the real one.  B=1 gets
+   **14.236 -> 12.071 (−15%)** for free.  Static spill counts barely move
+   (533 vs 527 stack refs/exec), so the mechanism is sched1's PLACEMENT
+   (loads clustered away from consumers), not spill deletion.  The old
+   scheduled codegen of the merged family is kept as FORCE 70–73
+   insurance; -DL17_SCHED_ALL restores the old file-wide behaviour for
+   matched A/Bs.
+2. **chunk17zr — reordered merged kernel, NEW BIT CLASS R, now the
+   batch >= 17 class.**  The r2 spill-diet lever, executed: walk m in pair
+   order 0,4,1,5,2,6,3,7 so each cosine pair closes one step after it
+   opens — ONE parked u instead of four (U0..U3), 3 registers handed back.
+   The sine accumulators then receive their updates in the new m order, so
+   this is a different rounding fixed point by construction (not a
+   gcc-surprise like r2's class Z: this one was DESIGNED as a new class).
+   Same 17 loads, same 148 FP ops, same slot table.  Same-window in-plan
+   tables, three runs: 15.86 vs 15.98 (sched build), 13.68 vs 13.75
+   (ns twins), **13.61/13.71 vs 13.80/13.75 (unscheduled default)** — R
+   never lost, worth ~1%.  Class R = {58 xfzra, 59 xfdzra, 62 xfzrao,
+   63 xfdzrao}, node-cmp'd mutually bit-identical on full + chain outputs
+   (B=8, m=98) before the class rule moved; batch < 17 keeps class B.
+3. **ov — cross-volume X-overlap twins (adopted from L13_direct ice_r2's
+   "ov", concept originally L17_rader ice_r1's "sp").**  Volume b+1's 73 X
+   chunks interleaved 4–5 per plane into volume b's plane phase, on the
+   CURRENT pipeline (addr-safe shifted t1/t1b ping-pong, padded stride,
+   merged kernels) — our panel_r4 pipelined exec predated all of that,
+   so its ice_r1 loss (17.11 vs 14.36) did not condemn the idea.  Verdict
+   at THIS cell: **loses ~0.2–0.6 us/step in every table** (14.01–14.32 vs
+   13.61–13.80 unscheduled; 15.37–15.65 vs 15.15–15.24 final run).
+   Diagnosis: L=13's cell is latency/L3-bound so overlap-with-real-work
+   wins there; our b1dec says this kernel is issue-bound, so the overlap
+   only displaces compute the ports needed.  Kept as in-class candidates
+   (bit-identical, ~60 ms tuner time) in case the quiet window's more
+   compute-bound balance flips it — but do not expect it.
+
+### Operation count
+
+Unchanged in FP: 148 ops per zmm chunk, 527 kflop/volume.  chunk17zr has
+the same loads/stores as chunk17z; the round's time win is compiler
+scheduling, not operation count.
+
+### Measured on the node (tryout.sh, graded chain L=17 B=32 m=98)
+
+- ice_r2 shipped code re-run (sched, selZ), this round's windows:
+  min 14.477 (contended, sd 3.2%) and 13.991 (quiet-ish, sd 0.07%).
+- Unscheduled build, selZ still (xfdza pick): **min 13.493 / median
+  13.495, sd 0.02%** — the matched-pair for the pragma removal.
+- **FINAL SHIPPED STATE (unscheduled, selR)**: tuner picked xfzra
+  (pf=0, pw=0, pt=0; in-run table xfzra 15.15 < xfdzra 15.20 < xfdza
+  15.24 < xfza 15.39, SCHED twins 15.72–15.78), graded **min 13.768 /
+  median 13.929 us/step (sd 1.45%, mid-grade window)**.  rel_l2
+  3.252e-16, chain-98 check 1.074e-14, bit-repeatable.  MKL 78.1 same
+  core/window.
+- B=1 chain (class B, unscheduled): **min 12.071 / median 12.079
+  us/step (sd 0.28%)**, rel_l2 3.226e-16, chain 1.086e-14, repeatable;
+  MKL 73.8.  ice_r2 shipped was 14.236 — the pragma had been taxing the
+  unscored cells hardest.
+
+### What did NOT work / negative results with numbers
+
+- **The spill-diet mechanism itself did not materialize**: chunk17zr's
+  freed registers did not reduce gcc 11.4's stack traffic (529 vs 527
+  stack refs/exec in the sched build; 428 vs 429 unscheduled).  The ~1%
+  class-R win is real but comes from schedule/issue effects, not spill
+  deletion.  The r2 header's "~31 stack refs because the file is exactly
+  full" theory is now half-dead: the refs persist with 3 registers free.
+- **ov loses at this cell** (numbers above).  Transfer lesson recorded:
+  overlap-with-real-work is a LATENCY-bound cure; check b1dec (in-situ vs
+  L1-hot) before importing it.  L=13 imported our chain tuner and won;
+  we imported their ov and it lost — both records now say why.
+- The (pf,pw,pt) grid declined everything again on the final pick
+  (all-off 15.14; best single flag +0.6).
+- In-tuner arena contrasts OVERSTATE compile-shape effects (−13% arena vs
+  −3.6% graded for the pragma).  Trust the graded matched pairs; use the
+  arena only for ranking.
+
+### Borrowed this round
+
+- **L13_direct ice_r2**: the pragma-transfer rule that triggered the
+  round's win (its +5.2% negative on a fused kernel), and the ov
+  mechanism (via **L17_rader ice_r1**'s "sp").  Attribution note: L13's
+  record explicitly warned "the pragma transfers only to phase-serial
+  kernels" — this round is that warning applied to ourselves one round
+  late.
+- The within-one-binary A/B twin pattern (push_options per-function
+  compile options as tuner candidates) is new this round and is the
+  right shape for any future compile-flag question — no cross-run
+  window poisoning.
+
+### Score projection
+
+ice_r2 scored 13.562 with the pragma and xfdza.  Matched graded pairs
+this round: pragma removal −3.6%, xfzra over xfdza ~ −0.6% in-run.
+Expect **~12.9–13.4 us/step in the quiet window**; winograd stands at
+16.08, so the margin should widen to ~1.2×.
+
+### Open for next round
+
+- **Re-read the scored b1dec** (now measured on unscheduled probes): if
+  kyz dropped in proportion (~6.3–6.5), the kernel is nearer the port
+  floor and the next lever is the X pass (x/kx ~3.4–3.6, 73 chunks of
+  loads from L3 in the chain).  If kyz did NOT drop, the probes were
+  never pragma-sensitive and the residual story needs a counter run.
+- The SCHED twins (FORCE 70–73) can be dropped next round if the quiet
+  window confirms; do not add them to any class without cmp (they are
+  expected to be bit-identical — scheduling moves instructions, not
+  arithmetic — but r2's rule stands: cmp, never derive).
+- The tail is now the only chunk17n user in the scored path (5 of 505
+  zmm-chunk slots per volume are ymm tails).  A w2 merged kernel was
+  believed impossible (16-register file) but the UNSCHEDULED allocator
+  behaves differently — re-derive the live-set count before dismissing.
+- If a future round wants ov again: pair it with something that makes
+  the cell latency-bound first (e.g. if the workload moves off-L3), and
+  put the overlap into volume 0's plane phase too (L17_rader's marginal
+  version).

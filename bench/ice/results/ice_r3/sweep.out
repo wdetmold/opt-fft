@@ -1,0 +1,77 @@
+# round ice_r3
+host: a80n0.lqcd.mit   date: 2026-08-22T21:28:26-04:00   slurm_job: 438572
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512bw avx512cd avx512dq avx512f avx512ifma avx512_vbmi avx512vbmi avx512vl avx512_vnni avx512_vpopcntdq fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+== building on a80n0.lqcd.mit ==
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -c -o build/a80n0/driver.o driver.c
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/baseline_matrix impl/baseline_matrix.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L13_direct impl/L13_direct.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L13_rader impl/L13_rader.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L17_matrixsimd impl/L17_matrixsimd.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L17_rader impl/L17_rader.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L17_winograd impl/L17_winograd.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L23_matrixsimd impl/L23_matrixsimd.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L23_rader impl/L23_rader.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L36_mixedradix impl/L36_mixedradix.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L36_pencilfused impl/L36_pencilfused.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L36_pfa impl/L36_pfa.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L45_mixedradix impl/L45_mixedradix.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L45_pfa impl/L45_pfa.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L64_blocked impl/L64_blocked.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L64_radix8 impl/L64_radix8.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L6_pfa impl/L6_pfa.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L6_unrolled impl/L6_unrolled.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L8_batchsimd impl/L8_batchsimd.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L8_fusedaxes impl/L8_fusedaxes.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/L8_radix8 impl/L8_radix8.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_ESTIMATE -DPLAN_NAME='"fftw3_estimate"' \
+  -o build/a80n0/bin/fftw3_estimate sota/fftw3.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_MEASURE -DPLAN_NAME='"fftw3_measure"' \
+  -o build/a80n0/bin/fftw3_measure sota/fftw3.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_PATIENT -DPLAN_NAME='"fftw3_patient"' \
+  -o build/a80n0/bin/fftw3_patient sota/fftw3.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/opt/software/intel/oneapi/mkl/2022.0.2/include -o build/a80n0/bin/mkl_dfti sota/mkl_dfti.c build/a80n0/driver.o \
+  -L/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -Wl,-rpath,/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 \
+  -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/venv/include -DMKL_BACKEND_NAME='"mkl2026_dfti"' \
+  -DMKL_BACKEND_DESC='"oneMKL 2026.1 (pip wheel) DFTI, sequential, batched"' \
+  -o build/a80n0/bin/mkl2026_dfti sota/mkl_dfti.c build/a80n0/driver.o -Wl,-rpath,/home/lqcd/wdetmold/fft/venv/lib \
+  /home/lqcd/wdetmold/fft/venv/lib/libmkl_intel_lp64.so.3 /home/lqcd/wdetmold/fft/venv/lib/libmkl_sequential.so.3 \
+  /home/lqcd/wdetmold/fft/venv/lib/libmkl_core.so.3 -lm
+g++ -O3 -march=native -mtune=native -std=c++17 -fno-math-errno -I. -I/home/lqcd/wdetmold/fft/ext/src/ducc/src -o build/a80n0/bin/ducc0_c2c sota/ducc0_c2c.cc /home/lqcd/wdetmold/fft/ext/src/ducc/src/ducc0/fft/fft_inst2.cc \
+  /home/lqcd/wdetmold/fft/ext/src/ducc/src/ducc0/infra/mav.cc /home/lqcd/wdetmold/fft/ext/src/ducc/src/ducc0/infra/string_utils.cc \
+  /home/lqcd/wdetmold/fft/ext/src/ducc/src/ducc0/infra/threading.cc /home/lqcd/wdetmold/fft/ext/src/ducc/src/ducc0/infra/system.cc \
+  build/a80n0/driver.o -lpthread -lm
+host:            a80n0  (binaries in build/a80n0/bin)
+implementations: baseline_matrix L13_direct L13_rader L17_matrixsimd L17_rader L17_winograd L23_matrixsimd L23_rader L36_mixedradix L36_pencilfused L36_pfa L45_mixedradix L45_pfa L64_blocked L64_radix8 L6_pfa L6_unrolled L8_batchsimd L8_fusedaxes L8_radix8
+sota:            fftw3_estimate fftw3_measure fftw3_patient mkl_dfti mkl2026_dfti ducc0_c2c
+== backends: baseline_matrix
+ducc0_c2c
+fftw3_estimate
+fftw3_measure
+fftw3_patient
+L13_direct
+L13_rader
+L17_matrixsimd
+L17_rader
+L17_winograd
+L23_matrixsimd
+L23_rader
+L36_mixedradix
+L36_pencilfused
+L36_pfa
+L45_mixedradix
+L45_pfa
+L64_blocked
+L64_radix8
+L6_pfa
+L6_unrolled
+L8_batchsimd
+L8_fusedaxes
+L8_radix8
+mkl2026_dfti
+mkl_dfti ==
+   done L=6 B=64
+   done L=8 B=64

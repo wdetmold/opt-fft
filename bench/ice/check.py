@@ -12,6 +12,11 @@ p.add_argument("--L", type=int, required=True)
 p.add_argument("--batch", type=int, required=True)
 p.add_argument("--tol", type=float, default=1e-12)
 p.add_argument("--json", default=None)
+p.add_argument("--map-check", type=int, default=0, metavar="M",
+               help="verify the end state of an m-step MAP chain "
+                    "(state <- (FFT(state)+c)/(1+|FFT(state)+c|)) against a numpy "
+                    "reference chain; needs --cin")
+p.add_argument("--cin", default=None, help="the map's c field file")
 p.add_argument("--chain-check", type=int, default=0, metavar="M",
                help="also verify the end state of a unitary-normalized chain of M steps "
                     "(driver --chain M --unitary) against its closed form")
@@ -40,6 +45,32 @@ if a.json:
         json.dump(result, f)
 print(f"{'PASS' if ok else 'FAIL'} rel_l2={rel_l2:.3e} rel_max={rel_max:.3e} "
       f"(tol {a.tol:g}) L={a.L} B={a.batch}")
+if a.map_check > 0:
+    # Reference chain computed with numpy, step by step. CORRECTNESS IS THE GATE HERE, and
+    # deliberately stricter than the rival pipelines': the budget is 1e-13 of relative
+    # drift PER STEP (conditioning measured: a 1-ulp input perturbation ends at 4.8e-12 over the longest chain, so exact implementations pass with ~8x margin). Two exact implementations differ only by reassociation (~1e-11 over
+    # the longest chains -- passes with margin); the rivals' fastest code accumulates
+    # 1.2e-8 from a float-seeded Newton map (fails by two orders). Fast-but-drifting is a
+    # rejected entry, not a winner.
+    m = a.map_check
+    cf = np.fromfile(a.cin, dtype=np.complex128).reshape(shape)
+    got_chain = np.fromfile(a.output + ".chain", dtype=np.complex128).reshape(shape)
+    state = x.copy()
+    for _ in range(m):
+        z = np.fft.fftn(state, axes=(-3, -2, -1)) + cf
+        state = z / (1.0 + np.abs(z))
+    denom = np.linalg.norm(state.reshape(-1))
+    rel_chain = float(np.linalg.norm((got_chain - state).reshape(-1)) / (denom if denom else 1.0))
+    eff_tol = max(1e-12, 1e-13 * m)
+    chain_ok = bool(np.isfinite(rel_chain) and rel_chain < eff_tol)
+    print(f"{'PASS' if chain_ok else 'FAIL'} map-chain m={m}: rel_l2={rel_chain:.3e} (tol {eff_tol:.1e})")
+    ok = ok and chain_ok
+    if a.json:
+        result["chain_ok"] = chain_ok
+        result["chain_rel_l2"] = rel_chain
+        with open(a.json, "w") as f:
+            json.dump(result, f)
+
 if a.chain_check > 0:
     # Closed form of the unitary-normalized chain: each step is FFT then 1/sqrt(V), and
     # FFT^2 = V * index-reversal, so after m steps:

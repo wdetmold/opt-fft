@@ -361,11 +361,14 @@ __device__ double g_sin17[17][8];
 static __device__ __forceinline__ void fft17_planes_body(const double2 *__restrict__ in,
                                                          double2 *__restrict__ out)
 {
-    __shared__ double2 s[289];
+    /* two 4.6 KB buffers: z reads s, writes its transposed output to s2, so the
+     * z->store->y chain needs ONE barrier instead of two (gpu_r3; the single-buffer
+     * form needed a sync on each side of the in-place transposed store) */
+    __shared__ double2 s[289], s2[289];
     const int tid = threadIdx.x;
     const size_t pbase = (size_t)blockIdx.x * 289; /* plane (v,x) = contiguous 289 */
 
-    if (tid < 289) s[tid] = in[pbase + tid];
+    if (tid < 289) s[tid] = __ldg(&in[pbase + tid]);
     __syncthreads();
 
     /* k = tid/17 so the coefficient row is warp-uniform (a warp spans at most 2 k
@@ -390,18 +393,17 @@ static __device__ __forceinline__ void fft17_planes_body(const double2 *__restri
             ri = fma(__ldg(&g_sin17[k][j - 1]), a.y - b.y, ri);
         }
         r0 = make_double2(pr + ri, pi - rr); /* X_k = P - i*R */
+        s2[ln * 17 + k] = r0;
     }
     __syncthreads();
-    if (tid < 289) s[ln * 17 + k] = r0;
-    __syncthreads();
 
-    /* y pass: line z = ln, elements s[j*17 + ln] */
+    /* y pass: line z = ln, elements s2[j*17 + ln] */
     if (tid < 289) {
-        double pr = s[ln].x, pi = s[ln].y, rr = 0.0, ri = 0.0;
+        double pr = s2[ln].x, pi = s2[ln].y, rr = 0.0, ri = 0.0;
 #pragma unroll
         for (int j = 1; j <= 8; ++j) {
-            const double2 a = s[j * 17 + ln];
-            const double2 b = s[(17 - j) * 17 + ln];
+            const double2 a = s2[j * 17 + ln];
+            const double2 b = s2[(17 - j) * 17 + ln];
             pr = fma(__ldg(&g_cos17[k][j - 1]), a.x + b.x, pr);
             pi = fma(__ldg(&g_cos17[k][j - 1]), a.y + b.y, pi);
             rr = fma(__ldg(&g_sin17[k][j - 1]), a.x - b.x, rr);
@@ -449,24 +451,49 @@ extern "C" __global__ void __launch_bounds__(XLINE_T, 4)
  * pattern, minus the cooperative-launch tax). LEGAL ONLY when the whole grid is
  * co-resident: create() verifies with an occupancy query and otherwise falls back to
  * the two-launch path. */
-__global__ void __launch_bounds__(320, 2)
-    fft17_split_soft(const double2 *__restrict__ in, double2 *__restrict__ out,
-                     unsigned long long *bar, unsigned long long target)
+__global__ void __launch_bounds__(320, 4)
+    fft17_split_soft(const double2 *__restrict__ in, double2 *__restrict__ tmp,
+                     double2 *__restrict__ out, unsigned long long *bar,
+                     unsigned long long target)
 {
-    fft17_planes_body(in, out);
+    fft17_planes_body(in, tmp);
     __syncthreads();
     if (threadIdx.x == 0) {
         __threadfence();
         atomicAdd(bar, 1ULL);
-        while (atomicAdd(bar, 0ULL) < target) __nanosleep(20);
+#if L17RF_SPIN_NS > 0
+        while (atomicAdd(bar, 0ULL) < target) __nanosleep(L17RF_SPIN_NS);
+#else
+        while (atomicAdd(bar, 0ULL) < target) {}
+#endif
         __threadfence();
     }
     __syncthreads();
-    if (threadIdx.x < L17) {
-        const int q = blockIdx.x * L17 + threadIdx.x; /* 17*B blocks * 17 = 289*B lines */
-        const int v = q / 289, pl = q % 289;
-        double2 *vol = out + (size_t)v * NPT;
-        line17sel(vol, pl, 289, vol, pl, 289); /* in place; lines disjoint per thread */
+    /* x pass, thread-per-OUTPUT with the folded form: block = (volume, kx), thread
+     * t = (y,z). A first cut ran x thread-per-line in place (17 active threads/block,
+     * no tmp): 11.27 us at B=1 -- one seventeenth of the block computing a serial
+     * line17w loses to 289 threads each doing 1/17th of the work. kx is block-uniform,
+     * so the folded coefficient rows broadcast (__ldg, one address per warp); tmp
+     * reads and out writes are 32-consecutive per warp. */
+    if (threadIdx.x < 289) {
+        const int t = threadIdx.x;
+        const int kx = blockIdx.x % L17;
+        const size_t vb = (size_t)(blockIdx.x / L17) * NPT;
+        const double2 *g = tmp + vb + t;
+        const double2 x0 = __ldg(&g[0]);
+        double pr = x0.x, pi = x0.y, rr = 0.0, ri = 0.0;
+#pragma unroll
+        for (int j = 1; j <= 8; ++j) {
+            const double2 a = __ldg(&g[289 * j]);
+            const double2 b = __ldg(&g[289 * (17 - j)]);
+            const double c = __ldg(&g_cos17[kx][j - 1]);
+            const double sn = __ldg(&g_sin17[kx][j - 1]);
+            pr = fma(c, a.x + b.x, pr);
+            pi = fma(c, a.y + b.y, pi);
+            rr = fma(sn, a.x - b.x, rr);
+            ri = fma(sn, a.y - b.y, ri);
+        }
+        out[vb + (size_t)kx * 289 + t] = make_double2(pr + ri, pi - rr);
     }
 }
 
@@ -528,7 +555,7 @@ extern "C" const char *fft3d_gpu_description(void)
 {
     return "17^3 volume per block in shared, 3 axes fused, 1 global read + 1 write; "
            "conj-folded cyclic/negacyclic 17-pt lines; batch-picked staging (warp reg vs "
-           "cp.async); soft-barrier single-launch plane+line split below B=14";
+           "cp.async); soft-barrier single-launch zy-plane + folded-x split below B=13";
 }
 
 extern "C" int fft3d_gpu_supports(int L) { return L == L17; }
@@ -537,8 +564,10 @@ extern "C" int fft3d_gpu_supports(int L) { return L == L17; }
  * the machine with fewer than ~216 blocks, while everything is still L2-resident so the
  * split path's doubled traffic is cheap. Set from measurement; override with -DL17RF_CUT,
  * and -DL17RF_FORCE=1 (always fused) / =2 (always split) for A/B runs. */
-#ifndef L17RF_CUT /* retuned in gpu_r2: split 11.2 vs fused 13.4 us at B=12, tie at 14 */
-#define L17RF_CUT 14
+#ifndef L17RF_CUT /* retuned in gpu_r3: soft split 12.7 at B=12 vs fused 13.2; at B=13
+                   * (221 blocks > 2/SM * 108) barrier-coupled imbalance flips it:
+                   * soft 15.3 vs fused 13.1 -> fused from B=13 */
+#define L17RF_CUT 13
 #endif
 
 /* Fused-path staging by batch: at in+out <= the 40 MB L2 (batch <= 266) register
@@ -550,6 +579,11 @@ extern "C" int fft3d_gpu_supports(int L) { return L == L17; }
 #endif
 #ifndef L17RF_STG_L2
 #define L17RF_STG_L2 2
+#endif
+#ifndef L17RF_SPIN_NS /* soft-barrier poll interval; 0 (default) = hot spin. Measured
+                       * at B=1: hot 7.94 us, 20 ns 8.21, 100 ns 10.4; no contention
+                       * penalty seen up to the 204 spinning blocks of B=12. */
+#define L17RF_SPIN_NS 0
 #endif
 
 extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
@@ -660,9 +694,11 @@ extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
                                                           0) == cudaSuccess &&
             (long)nblk * nsm >= (long)L17 * batch &&
             cudaMalloc((void **)&p->bar, sizeof(unsigned long long)) == cudaSuccess) {
-            if (cudaMemset(p->bar, 0, sizeof(unsigned long long)) == cudaSuccess)
+            if (cudaMemset(p->bar, 0, sizeof(unsigned long long)) == cudaSuccess &&
+                cudaMalloc((void **)&p->tmp,
+                           (size_t)batch * NPT * sizeof(double2)) == cudaSuccess) {
                 p->soft = 1;
-            else {
+            } else {
                 cudaFree(p->bar);
                 p->bar = NULL;
             }
@@ -707,7 +743,7 @@ extern "C" void fft3d_gpu_execute(fft3d_gpu_plan *p, const double2 *in, double2 
         if (p->soft) {
             const int nblk = p->batch * L17;
             p->ncall += (unsigned long long)nblk;
-            fft17_split_soft<<<nblk, 320>>>(in, out, p->bar, p->ncall);
+            fft17_split_soft<<<nblk, 320>>>(in, p->tmp, out, p->bar, p->ncall);
         } else if (p->coop) {
             void *args[] = {(void *)&in, (void *)&out, (void *)&nlines};
             cudaLaunchCooperativeKernel((void *)fft17_split_coop, dim3(p->batch * L17),

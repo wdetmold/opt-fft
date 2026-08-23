@@ -148,3 +148,130 @@ experiment.
    FUSED pick in all three r1 runs under a too-large hysteresis — the same
    trap I just removed; expect it to converge onto AA2-style pinning and plan
   for the tie-breaker to be the boundary-alias fix above.
+
+## Round ice_r3
+
+### Where I stood
+
+ice_r2 scored: 0.544 µs/xform at the graded cell, a 0.12% statistical tie for
+first with L8_batchsimd (0.544), radix8 0.565, MKL 0.628 → 1.15×, still the
+thinnest margin on the board.  Run spread fixed (16.6% → 0.5%), prediction
+error −1.6% (conservative).  The VERDICT's single L=8 order for this round:
+the PMU is EACCES-blocked in both dev and scored contexts, so **answer the
+§4.5 alias question by timing, not counters** — "if the time does not move,
+the hypothesis is dead and L=8 can stop spending rounds on it."
+
+### What I changed
+
+**Built the boundary-deferral experiment ("fusedAA2b", variants 17/18) and
+ran it to a clean null.**  This was my own r2 "next round" item 1 (the x=0
+pencil-order rotation); L8_radix8's r2 record names the same channel as "the
+one alias channel nobody handles."
+
+Mechanism: at each volume boundary the next volume's phase-A in-loads issue
+while the previous volume's last ~3 phase-B out-store iterations (48 of the
+56 store-buffer entries) are still in flight; the volume stride is 8192 B =
+2 pages so one residue d = (out−in)/64 mod 16 governs every boundary; my r7
+proof says the collision *count* is permutation-invariant, but a load is only
+falsely blocked while the matching store is still buffered, so loading the
+colliding pencils of x=0 *last* (~30–40 cy later) should let the stores
+drain.  Collision rule (from r7): pencil p collides with store iteration y
+iff 2p+h′ ≡ 2y+h+d (mod 16); the in-flight iterations are the active
+aa_perm2 row's [5],[6],[7], and c = d mod 8 by construction, so d alone keys
+the order.  16 offline-solved load orders (table in the source), x=1..7 and
+all arithmetic untouched — output bit-identical (rel_l2 2.267e-16 unchanged
+to the digit, repeatable).
+
+**Result — NULL, by the round's trustworthy instrument** (in-process
+chain-arena, round-robin min-of-9; cross-invocation tryout numbers drifted
+up to 7% on identical binaries this session, see below):
+
+| window | fused+pfs | fusedAA2 | fusedAA2+pfs | fusedAA2b | fusedAA2b+pfs |
+|---|---|---|---|---|---|
+| quiet | 0.418 | 0.418 | **0.411** | 0.420 | 0.414 |
+| contended | 0.491 | 0.492 | **0.481** | 0.495 | 0.485 |
+
+The deferral gains nothing; the +0.7% on AA2b is the out-of-line dispatch
+call (isolated with -DL8_AX0_NATURAL=1: natural-order body behind the same
+call reads the same).  The quiet-window incumbent price 0.411 matches the r2
+scored arena to the digit.  **Conclusion: the ~195-cycle residual over the
+1072-cycle port floor is NOT volume-boundary 4K aliasing.**  Combined with
+the r7 permutation-invariance proof, §4.5 at L=8 is now closed from both
+ends by timing: the collisions cannot be scheduled away, and deferring them
+buys nothing measurable, so their cost is under ~0.5% and L=8 should stop
+spending rounds on aliasing.  Anchor and pick stay fusedAA2+pfs; v17/18 stay
+raced in the graded band for ONE scored round so the drained-window arena
+publishes this A/B with authority, then should be dropped from the sets.
+
+**Candidate-set surgery** (less pick-flip exposure): bare `fused` (v0) leaves
+the graded-band race — it lost the r2 in-chain A/B by 12% (0.645 vs 0.568;
+chain src is L2/L3-resident, spread-t0 is not optional there).  Depth-1
+fusedAA (v10) leaves the tiny race — dominated by AA2 in every arena reading
+since panel_r11.  Graded band now {fused+pfs, AA2, AA2+pfs, AA2b, AA2b+pfs},
+tiny {fused, AA2, AA2b}.
+
+### Three codegen traps, measured on the node (gcc 11.4, -march=native) —
+### recorded so nobody pays for them again
+
+1. **Function-pointer dispatch of a 110-instruction body costs 1–3%** on the
+   graded chain (forced v17-natural 0.565–0.574 vs inline v15 0.553, same
+   session).
+2. **A 16-arm always-inline switch spills catastrophically**: merging sixteen
+   r[8]/q[8] bodies into one frame defeated the register allocator —
+   1.149–1.165 µs/xform, 2× the incumbent.  This also stands as evidence
+   against the cross-volume software-pipelining idea (my r2 item 2, radix8's
+   item 2): gcc 11.4 cannot hold ~40 live zmm without spilling.
+3. **gcc's memcpy idiom recognition eats contiguous ST loops in small
+   standalone functions**: the `for (y) ST(...)` store loop became two
+   memcpy PLT calls with r/q forced onto the stack — arena 0.679 vs 0.482
+   (+40% kernel price) with dft8s also left out of line.  Cure: dft8s is now
+   `always_inline` (a no-op everywhere it was already inlined) and the AX0
+   store sequence is hand-unrolled.  Worth checking in ANY new small kernel
+   function: objdump for `memcpy@plt` and rsp traffic, not just spills.
+
+### Also established this session
+
+- **Cross-invocation tryout numbers are worthless below ~7% even with sd
+  0.1% within each run**: forced v16 read 0.571/0.574 in one pair of windows
+  and 0.611/0.615 in another, identical binary, MKL steady (0.63–0.66).  The
+  in-plan arena (one process, round-robin, min-of-9) is the only dev
+  instrument that resolved 1% reliably.  This sharpens the VERDICT §4 rule.
+- Default build, quiet windows: **B=64 min 0.543 µs/xform (sd 0.06%), MKL
+  0.649 same window → 0.837×**; B=1 0.554 (sd 0.03%) vs MKL 0.545; B=2048
+  streaming 1.249 vs MKL 1.770 (untouched paths); AVX2-only build PASS
+  (1.804, correctness net).  Correctness everywhere: rel_l2 2.267e-16,
+  chain 1.390e-13 (tol 5.1e-11), repeatable bit-identical.
+
+### Operation count
+
+Shipping variants unchanged: 1248 vector FP + 896 shuffles + 256/256
+loads/stores per volume, zero spills (re-verified by objdump after the
+always_inline change; ax0_d* bodies are 110 instructions, 0 rsp refs).
+AA2b adds one predicted indirect call per volume, no new vector work.
+
+### Borrowed, plainly
+
+- The experiment's mandate (timing-not-counters) is the ice_r2 VERDICT §6
+  L=8 order.  The channel definition matches L8_radix8's r2 "what I would do
+  next" item 1 — executed here so radix8 need not.
+- Nothing else transferred this round: L17's schedule-pragma win predicts a
+  LOSS on my source shape (fully unrolled straight-line with independent
+  chains — L23_matrixsimd measured +1.7%, L13_direct +5.2% for exactly that
+  shape), so it was not attempted, per §4.6's own rule.
+
+### What I would do next
+
+1. Read the scored chain-arena strings: if AA2b confirms +0.5–1% behind AA2
+   in the drained window, drop v17/18 from the candidate sets (keep compiled/
+   forceable) — the aliasing chapter at L=8 is then fully closed.
+2. The remaining ~18% over the port floor is now most plausibly front-end +
+   dependency latency, not memory hazards.  The one untried structural lever
+   compatible with gcc's register limits: split each phase-B iteration's
+   two dft8s calls across ADJACENT y-iterations (a 2-stage software pipeline
+   at codelet granularity, ~24 live zmm, not ~40) to cover the trans8 →
+   dft8s → untrans latency chain.  Cheap to prototype; the arena will price
+   it in one run.
+3. If the harness ever unblocks perf_event_open, the dormant PMC probe
+   (-DL8_PMC=1 already re-armed) prices DSB vs MITE delivery in one run —
+   the front-end hypothesis above is exactly what idq.dsb_uops/mite_uops
+   settles.

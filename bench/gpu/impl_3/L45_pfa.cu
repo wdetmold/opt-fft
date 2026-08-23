@@ -215,6 +215,7 @@ static __device__ __forceinline__ void pass45(double2 *sh)
  * from one launch. Hints as on the chunked path: __ldcs input read, PLAIN
  * intermediate write (must land in L2 for the consumer), __ldlu intermediate
  * read (dead after the load), __stcs final store. */
+template<int DOUT>   /* DOUT=1: y stage 2 streams straight to global (no gather) */
 static __device__ __forceinline__ void
 k1_plane_staged(const double2 *__restrict__ src, double2 *__restrict__ dst,
                 double2 *sh)
@@ -235,6 +236,43 @@ k1_plane_staged(const double2 *__restrict__ src, double2 *__restrict__ dst,
     __syncthreads();
     pass45<T1, 1, NL>(sh);                 /* z: lines are rows      */
     __syncthreads();                       /* z->y is a transpose    */
+    if (DOUT) {
+        /* y stage 1 in place, then stage 2 streamed to global: unit (kz,c)
+           works on column sig45(kz) and holds the 9 outputs X[ky][kz],
+           ky = (10*k1+36*c)%45 — fixed (k1,c), consecutive kz -> coalesced.
+           Skips the 2025-element unscramble gather and one barrier. */
+#pragma unroll
+        for (int k = 0; k < (45 * 9 + T1 - 1) / T1; ++k) {
+            int i = threadIdx.x + k * T1;
+            if ((45 * 9) % T1 == 0 || i < 45 * 9) {
+                int col = i % 45, g = i / 45;
+                dft5_unit(sh + col, NL, g);
+            }
+        }
+        __syncthreads();
+#pragma unroll
+        for (int k = 0; k < (45 * 5 + T1 - 1) / T1; ++k) {
+            int i = threadIdx.x + k * T1;
+            if ((45 * 5) % T1 == 0 || i < 45 * 5) {
+                int kz = i % 45, c = i / 45;
+                double2 *p = sh + sig45(kz);
+                double2 a[9];
+#pragma unroll
+                for (int g = 0; g < 9; ++g) {
+                    int idx = 5 * g + 9 * c; if (idx >= 45) idx -= 45;
+                    a[g] = p[idx * NL];
+                }
+                dft9(a);
+                int r36 = c ? 45 - 9 * c : 0;      /* (36*c) % 45 */
+#pragma unroll
+                for (int k1 = 0; k1 < 9; ++k1) {
+                    int ky = (10 * k1) % 45 + r36; if (ky >= 45) ky -= 45;
+                    dst[ky * NL + kz] = a[k1];
+                }
+            }
+        }
+        return;
+    }
     pass45<T1, NL, 1>(sh);                 /* y: lines are columns   */
     __syncthreads();
 #pragma unroll
@@ -247,52 +285,53 @@ k1_plane_staged(const double2 *__restrict__ src, double2 *__restrict__ dst,
     }
 }
 
+template<int W, int P>   /* tile width (flat yz columns), shared pitch (odd) */
 static __device__ __forceinline__ void
 k2_tile_staged(double2 *__restrict__ vol, int tf, double2 *sh)
 {
-    const int f0 = tf * K2W;
-    const int w  = (NPLANE - f0 < K2W) ? NPLANE - f0 : K2W;   /* 32, or 9 at the tail */
+    const int f0 = tf * W;
+    const int w  = (NPLANE - f0 < W) ? NPLANE - f0 : W;       /* W, or the tail */
     double2 *base = vol + f0;
 
-    if (w == K2W) {
+    if (w == W) {
 #pragma unroll
-        for (int k = 0; k < (K2ELE + T2 - 1) / T2; ++k) {
+        for (int k = 0; k < (NL * W + T2 - 1) / T2; ++k) {
             int e = threadIdx.x + k * T2;
-            if (K2ELE % T2 == 0 || e < K2ELE) {
-                int x = e / K2W, f = e - x * K2W;
-                sh[x * K2P + f] = LDLU(&base[(long)x * NPLANE + f]);
+            if ((NL * W) % T2 == 0 || e < NL * W) {
+                int x = e / W, f = e - x * W;
+                sh[x * P + f] = LDLU(&base[(long)x * NPLANE + f]);
             }
         }
     } else {
         for (int e = threadIdx.x; e < NL * w; e += T2) {
             int x = e / w, f = e - x * w;
-            sh[x * K2P + f] = LDLU(&base[(long)x * NPLANE + f]);
+            sh[x * P + f] = LDLU(&base[(long)x * NPLANE + f]);
         }
     }
     __syncthreads();
     for (int i = threadIdx.x; i < w * 9; i += T2) {
         int f = i % w, g = i / w;
-        dft5_unit(sh + f, K2P, g);
+        dft5_unit(sh + f, P, g);
     }
     __syncthreads();
     for (int i = threadIdx.x; i < w * 5; i += T2) {
         int f = i % w, c = i / w;
-        dft9_unit(sh + f, K2P, c);
+        dft9_unit(sh + f, P, c);
     }
     __syncthreads();
-    if (w == K2W) {
+    if (w == W) {
 #pragma unroll
-        for (int k = 0; k < (K2ELE + T2 - 1) / T2; ++k) {
+        for (int k = 0; k < (NL * W + T2 - 1) / T2; ++k) {
             int e = threadIdx.x + k * T2;
-            if (K2ELE % T2 == 0 || e < K2ELE) {
-                int k0 = e / K2W, f = e - k0 * K2W;
-                STCS(&base[(long)k0 * NPLANE + f], sh[sig45(k0) * K2P + f]);
+            if ((NL * W) % T2 == 0 || e < NL * W) {
+                int k0 = e / W, f = e - k0 * W;
+                STCS(&base[(long)k0 * NPLANE + f], sh[sig45(k0) * P + f]);
             }
         }
     } else {
         for (int e = threadIdx.x; e < NL * w; e += T2) {
             int k0 = e / w, f = e - k0 * w;
-            STCS(&base[(long)k0 * NPLANE + f], sh[sig45(k0) * K2P + f]);
+            STCS(&base[(long)k0 * NPLANE + f], sh[sig45(k0) * P + f]);
         }
     }
 }
@@ -309,7 +348,7 @@ k1_zy(const double2 *__restrict__ in, double2 *__restrict__ out)
     const double2 *src = in  + (long)blockIdx.x * NPLANE;
     double2       *dst = out + (long)blockIdx.x * NPLANE;
 
-    if (!DIRECT) { k1_plane_staged(src, dst, sh); return; }
+    if (!DIRECT) { k1_plane_staged<0>(src, dst, sh); return; }
 
     /* stage in: DIRECT (L2-resident batches): __ldg — the same input is
        re-read every execute and fits L2, don't evict it. */
@@ -381,7 +420,7 @@ k2_x(double2 *__restrict__ io)
     const int b  = blockIdx.x / K2NT;
     const int tf = blockIdx.x - b * K2NT;
 
-    if (!DIRECT) { k2_tile_staged(io + (long)b * NVOL, tf, sh); return; }
+    if (!DIRECT) { k2_tile_staged<K2W, K2P>(io + (long)b * NVOL, tf, sh); return; }
 
     const int f0 = tf * K2W;
     const int w  = (NPLANE - f0 < K2W) ? NPLANE - f0 : K2W;   /* 32, or 9 at the tail */
@@ -407,32 +446,8 @@ k2_x(double2 *__restrict__ io)
             }
         }
         __syncthreads();
-    } else {
-        /* chunked/HBM regime: stage the tile (measured faster there than the
-           direct-load form, which in turn wins in the L2-resident regime) */
-        if (w == K2W) {
-#pragma unroll
-            for (int k = 0; k < (K2ELE + T2 - 1) / T2; ++k) {
-                int e = threadIdx.x + k * T2;
-                if (K2ELE % T2 == 0 || e < K2ELE) {
-                    int x = e / K2W, f = e - x * K2W;
-                    sh[x * K2P + f] = LDLU(&base[(long)x * NPLANE + f]);
-                }
-            }
-        } else {
-            for (int e = threadIdx.x; e < NL * w; e += T2) {
-                int x = e / w, f = e - x * w;
-                sh[x * K2P + f] = LDLU(&base[(long)x * NPLANE + f]);
-            }
-        }
-        __syncthreads();
-        for (int i = threadIdx.x; i < w * 9; i += T2) {
-            int f = i % w, g = i / w;
-            dft5_unit(sh + f, K2P, g);
-        }
-        __syncthreads();
     }
-    if (DIRECT) {
+    {
         /* final stage streams straight to global: unit (f,c) holds the 9
            outputs X[(10*k1+36*c)%45]; fixed (k1,c) -> consecutive f -> coalesced */
         for (int i = threadIdx.x; i < w * 5; i += T2) {
@@ -451,26 +466,151 @@ k2_x(double2 *__restrict__ io)
                 base[(long)k0 * NPLANE + f] = a[k1];
             }
         }
-    } else {
-        for (int i = threadIdx.x; i < w * 5; i += T2) {
-            int f = i % w, c = i / w;
-            dft9_unit(sh + f, K2P, c);
-        }
-        __syncthreads();
-        if (w == K2W) {
+    }
+}
+
+/* ------------------------------------------------------------------------
+ * gpu_r3: persistent producer/consumer kernel for the HBM batch, ported from
+ * L36_globalpass gpu_r2 (their ticket/lead/epoch machinery, re-derived for a
+ * 45-plane/64-tile ticket mix). One launch per execute; grid = exactly one
+ * resident wave (occupancy-probed in create()). Each block loops pulling
+ * tickets from a global atomic. Ticket order gives K1 a LEAD-volume runway,
+ * then interleaves K1(v+LEAD) with K2(v) (Bresenham 45:64 mix), so each
+ * volume's intermediate is consumed moments after it is produced — the live
+ * intermediate is ~LEAD volumes (~LEAD*1.39 MiB), never a whole chunk pair,
+ * and there is no kernel-boundary drain at all.
+ *
+ * Dependency: done[v] counts finished K1 planes of volume v. K1 blocks
+ * release with __threadfence + atomicAdd; K2 blocks poll (+ __nanosleep
+ * backoff) then __threadfence (the cumulative-fence flag pattern, same as
+ * L36_globalpass, memcheck-clean there and here). Deadlock-free because the
+ * grid is one resident wave and every K1 ticket of volume v is dispatched
+ * before v's first K2 ticket, so a grabbed-but-unfinished K1 ticket is always
+ * held by a running block, and K1 never waits.
+ *
+ * No counter resets: every execute advances next[0] by exactly total+gridDim
+ * (each block ends on one failed grab) and done[v] by exactly 45, so the
+ * host-side bases advance in unsigned mod-2^32 arithmetic and stay exact. */
+/* The persistent K2 tile stays 32 wide, same as the standalone k2_x: a 45x45
+ * tile (using the whole 32.4 KB shared the block owns anyway) measured WORSE —
+ * 2349 vs 2263 µs at B=736 — coarser tickets lose more to load imbalance than
+ * the amortized staging saves. */
+#define PW    K2W               /* persistent K2 tile width */
+#define PP    K2P               /* persistent K2 shared pitch */
+#define PK2NT K2NT              /* persistent K2 tiles per volume */
+#define PTPV  (NL + PK2NT)      /* tickets per volume: 45 + 64 = 109 */
+
+/* Persistent-regime direct K2 tile: stage 1 reads global directly (fixed slot,
+ * consecutive f -> coalesced; __ldlu, the line is dead) and writes only the
+ * inter-stage intermediate to shared; the final DFT9 stage streams straight to
+ * global (__stcs, never re-read). Same arithmetic as k2_x<1>, streaming hints
+ * instead of __ldg/plain. */
+static __device__ __forceinline__ void
+k2_tile_direct(double2 *__restrict__ vol, int tf, double2 *sh)
+{
+    const int f0 = tf * PW;
+    const int w  = (NPLANE - f0 < PW) ? NPLANE - f0 : PW;
+    double2 *base = vol + f0;
+
+    for (int i = threadIdx.x; i < w * 9; i += T2) {
+        int f = i % w, g = i / w;
+        double2 a[5];
 #pragma unroll
-            for (int k = 0; k < (K2ELE + T2 - 1) / T2; ++k) {
-                int e = threadIdx.x + k * T2;
-                if (K2ELE % T2 == 0 || e < K2ELE) {
-                    int k0 = e / K2W, f = e - k0 * K2W;
-                    STCS(&base[(long)k0 * NPLANE + f], sh[sig45(k0) * K2P + f]);
-                }
-            }
+        for (int j = 0; j < 5; ++j) {
+            int idx = 5 * g + 9 * j; if (idx >= 45) idx -= 45;
+            a[j] = LDLU(&base[(long)idx * NPLANE + f]);
+        }
+        dft5(a);
+#pragma unroll
+        for (int j = 0; j < 5; ++j) {
+            int idx = 5 * g + 9 * j; if (idx >= 45) idx -= 45;
+            sh[idx * PP + f] = a[j];
+        }
+    }
+    __syncthreads();
+    for (int i = threadIdx.x; i < w * 5; i += T2) {
+        int f = i % w, c = i / w;
+        double2 a[9];
+#pragma unroll
+        for (int g = 0; g < 9; ++g) {
+            int idx = 5 * g + 9 * c; if (idx >= 45) idx -= 45;
+            a[g] = sh[idx * PP + f];
+        }
+        dft9(a);
+        int r36 = c ? 45 - 9 * c : 0;      /* (36*c) % 45 */
+#pragma unroll
+        for (int k1 = 0; k1 < 9; ++k1) {
+            int k0 = (10 * k1) % 45 + r36; if (k0 >= 45) k0 -= 45;
+            STCS(&base[(long)k0 * NPLANE + f], a[k1]);
+        }
+    }
+}
+
+/* noinline wrappers: inlining BOTH bodies into the ticket loop made ptxas
+ * allocate one union frame under the 102-reg cap -> 752 B of spills and
+ * 416 µs at B=64 (vs 232 for the rr path). As calls, each body register-
+ * allocates alone (96/70 regs, no spills) and the caller keeps ~5 live values. */
+template<int DOUT>
+static __device__ __noinline__ void
+k1_plane_call(const double2 *__restrict__ src, double2 *__restrict__ dst, double2 *sh)
+{ k1_plane_staged<DOUT>(src, dst, sh); }
+template<int DK2>
+static __device__ __noinline__ void
+k2_tile_call(double2 *__restrict__ vol, int tf, double2 *sh)
+{
+    if (DK2) k2_tile_direct(vol, tf, sh);
+    else     k2_tile_staged<PW, PP>(vol, tf, sh);
+}
+
+template<int DOUT, int DK2>
+static __global__ void __launch_bounds__(T1, K1MB)
+k_persist(const double2 *__restrict__ in, double2 *__restrict__ out,
+          int B, int lead, unsigned *__restrict__ next,
+          unsigned *__restrict__ done, unsigned base, unsigned total,
+          unsigned dtarget)
+{
+    __shared__ double2 sh[NPLANE];
+    __shared__ unsigned st;
+    for (;;) {
+        __syncthreads();       /* previous iteration is done with sh and st */
+        if (threadIdx.x == 0) st = atomicAdd(next, 1u) - base;
+        __syncthreads();
+        unsigned t = st;
+        if (t >= total) return;
+
+        int isK1, v, u2;                       /* u2 = plane or tile index */
+        unsigned runway = (unsigned)NL * lead;
+        if (t < runway) {                      /* K1 runway: volumes 0..lead-1 */
+            isK1 = 1; v = t / NL; u2 = t % NL;
         } else {
-            for (int e = threadIdx.x; e < NL * w; e += T2) {
-                int k0 = e / w, f = e - k0 * w;
-                STCS(&base[(long)k0 * NPLANE + f], sh[sig45(k0) * K2P + f]);
+            unsigned u = t - runway;
+            unsigned nfull = (unsigned)(B - lead);
+            if (u < nfull * PTPV) {            /* group g: K1(g+lead) : K2(g) = 45:64,
+                                                  Bresenham-interleaved */
+                unsigned g = u / PTPV, r = u % PTPV;
+                unsigned a = (r * (unsigned)NL) / PTPV;
+                unsigned b = ((r + 1u) * (unsigned)NL) / PTPV;
+                if (b > a) { isK1 = 1; v = g + lead; u2 = a; }
+                else       { isK1 = 0; v = g;        u2 = r - a; }
+            } else {                           /* tail: K2 of the last lead volumes */
+                unsigned w = u - nfull * PTPV;
+                isK1 = 0; v = nfull + w / PK2NT; u2 = w % PK2NT;
             }
+        }
+
+        if (isK1) {
+            long pl = (long)v * NL + u2;
+            k1_plane_call<DOUT>(in + pl * NPLANE, out + pl * NPLANE, sh);
+            __syncthreads();
+            if (threadIdx.x == 0) { __threadfence(); atomicAdd(&done[v], 1u); }
+        } else {
+            if (threadIdx.x == 0) {
+                while ((int)(*(volatile unsigned *)&done[v] - dtarget) < 0)
+                    __nanosleep(200);
+                __threadfence();
+            }
+            __syncthreads();
+            k2_tile_call<DK2>(out + (long)v * NVOL, u2, sh);
         }
     }
 }
@@ -487,6 +627,16 @@ struct fft3d_gpu_plan {
     int rr;      /* >0: chunked path becomes chunk->stream round-robin over rr
                     streams, each chunk's k1;k2 on one stream (L64_radix8's shape) */
     int graph;   /* B=1: replay a captured k1;k2 graph (lazy, keyed on pointers) */
+    int pers;    /* HBM batches: persistent producer/consumer kernel (gpu_r3,
+                    from L36_globalpass r2), one launch per execute */
+    int pd1;     /* persistent K1 body: 1 = direct-out y stage 2 */
+    int pd2;     /* persistent K2 body: 1 = direct (global-read stage 1 +
+                    streamed final stage) */
+    int lead;    /* K1 runway in volumes for the persistent schedule */
+    int pgrid;   /* persistent grid = one resident wave (occupancy-probed) */
+    unsigned *ctr;      /* device: [0] ticket counter, [1..B] per-volume done */
+    unsigned pbase;     /* ticket base for the next execute (no device resets) */
+    unsigned pdtarget;  /* done[v] target for the next execute */
     cudaStream_t s[MAXNS];   /* [0]=K1 pipeline, [1]=K2 pipeline in the chunked
                                 path; per-slice streams in the small-batch path */
     cudaEvent_t *evA;        /* K1_n done: K2_n waits on it */
@@ -508,7 +658,7 @@ static void launch_k2(int d, int nblk, cudaStream_t s, double2 *io)
 
 extern "C" const char *fft3d_gpu_name(void) { return "L45_pfa"; }
 extern "C" const char *fft3d_gpu_description(void)
-{ return "two-pass PFA 9x5: unit-parallel zy-plane + x-tile kernels; evict-first-hinted L2 chunks (9) round-robined on 2 streams; slice-per-stream + direct stores at L2-resident B; B=1 graph"; }
+{ return "two-pass PFA 9x5: persistent producer/consumer ticket kernel at HBM B (45 planes + 64 x-tiles/vol, lead-10 runway, direct-out bodies, evict-first hints); slice-per-stream + direct stores at L2-resident B; B=1 graph"; }
 extern "C" int fft3d_gpu_supports(int L) { return L == 45; }
 
 extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
@@ -579,6 +729,43 @@ extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
     p->graph = (batch == 1 && p->ns == 1);
     if ((ed = getenv("FFT45_GRAPH"))) p->graph = atoi(ed);
 
+    /* persistent producer/consumer kernel at HBM batches (gpu_r3, ported from
+       L36_globalpass r2). Grid must be EXACTLY one resident wave or the K2
+       spin-waits can deadlock, so probe occupancy for this kernel and fall
+       back to the rr path if the probe fails. */
+    p->pers = (batch > 14); p->pd1 = 1; p->pd2 = 1; p->lead = 10;
+    p->pgrid = 0; p->ctr = NULL;
+    p->pbase = 0; p->pdtarget = (unsigned)NL;
+    if ((ed = getenv("FFT45_PERS"))) p->pers = atoi(ed);
+    if ((ed = getenv("FFT45_PD1"))) p->pd1 = atoi(ed);
+    if ((ed = getenv("FFT45_PD2"))) p->pd2 = atoi(ed);
+    if ((ed = getenv("FFT45_LEAD"))) p->lead = atoi(ed);
+    if (p->lead < 1) p->lead = 1;
+    if (p->lead > batch) p->lead = batch;
+    if (p->pers) {
+        cudaFuncSetAttribute(k_persist<0,0>, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+        cudaFuncSetAttribute(k_persist<0,1>, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+        cudaFuncSetAttribute(k_persist<1,0>, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+        cudaFuncSetAttribute(k_persist<1,1>, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
+        int dev = 0, nsm = 0, occ = 0;
+        cudaGetDevice(&dev);
+        cudaDeviceGetAttribute(&nsm, cudaDevAttrMultiProcessorCount, dev);
+        if (p->pd1) {
+            if (p->pd2) cudaOccupancyMaxActiveBlocksPerMultiprocessor(&occ, k_persist<1,1>, T1, 0);
+            else        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&occ, k_persist<1,0>, T1, 0);
+        } else {
+            if (p->pd2) cudaOccupancyMaxActiveBlocksPerMultiprocessor(&occ, k_persist<0,1>, T1, 0);
+            else        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&occ, k_persist<0,0>, T1, 0);
+        }
+        if (occ < 1 || nsm < 1 ||
+            cudaMalloc(&p->ctr, (1 + (size_t)batch) * sizeof(unsigned)) != cudaSuccess) {
+            p->pers = 0;
+        } else {
+            cudaMemset(p->ctr, 0, (1 + (size_t)batch) * sizeof(unsigned));
+            p->pgrid = occ * nsm;
+        }
+    }
+
     /* K1s run on s[0], K2s on s[1]: K1 of chunk n+1 overlaps K2 of chunk n, so
        the load-compute-store phases of the two kernels interleave on the SMs
        instead of the whole one-wave grid bursting and idling in lockstep. */
@@ -629,6 +816,20 @@ extern "C" void fft3d_gpu_execute(fft3d_gpu_plan *p, const double2 *in, double2 
     }
     if (p->ns > 0) { execute_sliced(p, in, out); return; }
 
+    if (p->pers) {
+        unsigned total = (unsigned)p->B * PTPV;
+        void (*k)(const double2 *, double2 *, int, int, unsigned *, unsigned *,
+                  unsigned, unsigned, unsigned) =
+            p->pd1 ? (p->pd2 ? k_persist<1,1> : k_persist<1,0>)
+                   : (p->pd2 ? k_persist<0,1> : k_persist<0,0>);
+        k<<<p->pgrid, T1, 0, p->s[0]>>>(in, out, p->B, p->lead,
+                                        p->ctr, p->ctr + 1,
+                                        p->pbase, total, p->pdtarget);
+        p->pbase += total + (unsigned)p->pgrid;   /* each block ends on one failed grab */
+        p->pdtarget += (unsigned)NL;
+        return;
+    }
+
     if (p->rr > 0) {
         /* chunk->stream round-robin (L64_radix8's shape): chunk n runs k1;k2 on
            stream n%rr — same map every execute, so ordering per region is
@@ -658,6 +859,7 @@ extern "C" void fft3d_gpu_destroy(fft3d_gpu_plan *p)
 {
     if (!p) return;
     if (p->gexec) cudaGraphExecDestroy(p->gexec);
+    if (p->ctr) cudaFree(p->ctr);
     for (int i = 0; i < 2 * p->nchunk; ++i) cudaEventDestroy(p->evA[i]);
     free(p->evA);
     for (int i = 0; i < MAXNS; ++i)

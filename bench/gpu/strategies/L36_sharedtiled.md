@@ -197,3 +197,118 @@ compute-sanitizer memcheck clean on the new split path (B=22, incl. the non-divi
    the launch mechanism, not the sync, would have to change.
 3. If the monitor ever scores intermediate batches (64–512), the current autotuner
    already handles them (B=64: 1.48 µs/vol, 1.70× cuFFT).
+
+## Round gpu_r3
+
+### Standing at the start
+
+Held B_L2=22 (1.383 vs globalpass 1.673 µs/vol) but lost B=1 (10.00 vs 9.03) and — the
+primary point — B_HBM=1438 (1.446 vs 1.353) to L36_globalpass, whose r2 built the
+persistent producer/consumer kernel that my own r2 postmortem had named as the only
+remaining lever. This round is explicitly cumulative: I took their kernel.
+
+### What changed
+
+1. **Persistent ticket producer/consumer kernel — ported from L36_globalpass (gpu_r2),
+   stated plainly.** One launch per execute, grid = one resident wave (432 blocks at
+   4/SM); blocks pull tickets (one ticket = one (b,x) K1 plane or (b,y) K2 slab) off a
+   global atomic; K1 runs `lead` volumes ahead; K2 tickets spin on per-volume done
+   counters (release: __threadfence + atomicAdd, acquire: poll + __nanosleep + fence);
+   epoch bases (tbase/dbase in mod-2^32 arithmetic) make the counters valid across
+   executes with no reset. Their deadlock argument (every K1(v) ticket precedes every
+   K2(v) ticket in grab order, grid ≤ one wave) re-verified before porting. I kept my
+   POL template vocabulary: CHUNKED = __ldcs input / plain intermediate store / __ldlu
+   intermediate read / __stcs final store. Never graph-captured (args mutate per call).
+2. **Shared-memory carveout 100 → 50 — the hidden 7.4%.** Same-structure A/B at B=432:
+   carveout 100 gave 634.6 µs and the tuner "preferred" no cache hints; carveout 50
+   gave 587.5 µs with hints correctly winning. My r1/r2 carveout=100 starved L1 to
+   ~28 KB, which the all-streaming-hints kernels never noticed, but the ticket kernel's
+   L2-hit intermediate reads do. Spotted only because globalpass's create() sets 50
+   with a comment; this is why reading rivals' code beats reading their conclusions.
+3. **Autotuner samples now exceed the 20 ms boost cliff** (lesson taken verbatim from
+   globalpass's r2 record item 3): my r2 big-B tuner sampled 3 executes ≈ 6 ms, inside
+   the clock-ramp artefact zone. Now reps = 22 ms / est_per_execute at every batch.
+4. **Line-engine micro-passes** (mostly from globalpass's code): fma-form cmul, skip
+   the identity twiddle W36^0 (stage-2 b=0), exact-6-trip unrolled copy loops instead
+   of guarded strided loops, and the element stride of the line pass made a template
+   constant (1 or 37). Worth ~0.9 µs at B=1 (10.0 → 9.13) where kernel latency is the
+   whole story; also part of the B=22 improvement.
+5. **cp.async staging as a tuner option** (16 B cp.async.cg global→shared, no register
+   round-trip): measured NEUTRAL at B=432 within lease noise (581.973 vs 589.464 µs at
+   lead 12, but 597.184 vs 578.349 at lead 13 — contradictory, i.e. noise). Kept as an
+   autotune candidate since it costs nothing and occasionally measures best; not relied
+   on. The L2 evict-first hint is lost under cp.async (plain .cg policy), which may be
+   why it does not separate.
+6. **Small-B candidate list extended** with ticket configs (leads min(4,B)/12/B, both
+   hint policies) and the launch-mode probe (plain/coop/graph) restructured to run on
+   the best non-ticket shape, then compare against the best ticket. At B=22 the split
+   3-per-stream/8-stream shape still wins (ticket loses to it); at B=1 pair+graph wins.
+
+### Operation count
+
+Arithmetic essentially unchanged (3·36² lines/volume; one identity cmul per thread per
+stage-2 removed, ~3.4 Mflop/volume) and still irrelevant: ncu on the ticket kernel at
+B=432 shows DRAM bytes ≈ 652 MB against a 644 MB compulsory floor (2 passes), DRAM
+throughput 59% of peak, occupancy 43.5% (4 blocks/SM, register+shared limited), 31
+warp cycles/issued instruction — the kernel is latency/warp-supply-bound with its
+traffic already minimal, exactly globalpass's r2 diagnosis.
+
+### Measured on the leased SXM4 node (tryout.sh; lease-to-lease spread ~3%)
+
+| point | gpu_r2 | gpu_r3 | per volume | cuFFT same lease | speedup |
+|---|---|---|---|---|---|
+| B=1 | 9.99 µs | **9.125 µs** | 9.125 µs | 13.19 µs | 1.45× |
+| B=4 | 13.3 µs | **12.26 µs** | 3.06 µs | — | — |
+| B_L2=22 | 29.2 µs | **27.59 µs** | 1.254 µs | 50.6 µs | 1.83× |
+| B=432 | — | **573.6 µs** | 1.328 µs | 998 µs | 1.74× |
+| B_HBM=1438 | 2111.5 µs | **1932.1 µs** | 1.344 µs | ~3400 µs (r2 lb) | ~1.76× |
+
+Configs picked: B=1 pair+graph PLAIN; B=4 split 2/2 PLAIN; B=22 split 3/8 STREAM;
+B=432/1438 ticket lead=12 CHUNKED (lead 12–14 is a plateau; 9 → 673 µs, 16 → 865 µs
+at B=432, so the tuner's {9,12,14} brackets the cliff).
+
+rel_l2 = 4.83–4.85e-16 at B = 1, 4, 13, 22, 64, 100, 432; bit-identical re-runs at
+every point; compute-sanitizer memcheck clean on the ticket path (B=13 PLAIN+cp.async,
+B=100 CHUNKED with and without cp.async — exercises decode prologue/alternation/tail).
+B=1438 timed on a tiled input (login-node numpy could not allocate 1 GiB this round —
+also: prefix everything with OPENBLAS_NUM_THREADS=1 on the login node or numpy dies of
+per-thread buffer allocation; correctness at 1438 rides on B=432/100 passing the same
+ticket code path).
+
+### Tried and did NOT work, with the number that killed it
+
+1. **Carveout 100 with the ticket kernel**: 634.6 vs 587.5 µs at B=432 (see above).
+   The r1/r2 setting was wrong all along for anything that reads through L1.
+2. **MINB=3 (launch_bounds 216,3: 80 regs, fewer spills, 3 blocks/SM)**: 607.9 vs
+   585.2 µs same-lease at B=432. Occupancy beats spill removal; the 72-reg cap with
+   32 B of spills is the right trade. Corroborates globalpass's r1 5-blocks failure
+   from the other side: 4 blocks/SM is a local optimum from both directions.
+3. **cp.async as a guaranteed win**: neutral within noise (numbers in item 5 above).
+   Kept only as a measured candidate.
+4. **Ticket kernel at the small points**: loses to split-streams at B=22 and to
+   pair+graph at B=1 in every tuner run (globalpass's record said the same of their
+   fused path at B=1; not rediscovered — just confirmed by the tuner's own numbers).
+
+### Borrowed, and from whom
+
+* **L36_globalpass (gpu_r2)**: the persistent ticket kernel wholesale (decode, epoch
+  counters, lead concept, deadlock argument), lead=12 as the starting sweep center,
+  the carveout=50 setting read out of their create(), the ≥20 ms tuner-sample rule
+  from their record, and the fma cmul. This round's B_HBM gain is their design plus
+  my hint template; the honest statement is that we converged on their structure.
+* **L45_pfa / L64_radix8 (r1/r2 records, re-read)**: confirmed the regime-split and
+  hint-pairing vocabulary already in this entry; nothing new taken this round.
+
+### What I would do next
+
+1. **B_HBM has ~0.4 µs/vol of latency headroom left** (1.344 vs ~0.96 floor at the
+   measured 43.5% occupancy). The untried structural idea remains globalpass's "two
+   specialized persistent kernels" (K1-only and K2-only co-resident on two streams,
+   each compiling leaner than the 72-reg union, grids ratio-balanced ~1.5:1 for the
+   work asymmetry) — neither entry has built it; it is the only idea on the table
+   that could reach 5 blocks/SM without spills.
+2. B=1 at 9.13 µs is one graph launch + two 36-block kernels; the remaining cost is
+   dominated by launch/dispatch latency and one HBM round trip. A single-volume
+   specialized kernel was tried by globalpass and lost; I see nothing cheap left.
+3. If the monitor adds intermediate batch points, the tuner now covers them
+   (B=64: 96.7 µs = 1.51 µs/vol, ticket lead=14; B=100: 143.9 µs = 1.44 µs/vol).

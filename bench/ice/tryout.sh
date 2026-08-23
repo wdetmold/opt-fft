@@ -33,7 +33,7 @@ CORE=$((SLOT + 2))
 
 # the graded chain length for this L, so dev timings measure what the score measures
 M=$(awk -F: -v l="$L" '$1==l {print $3}' cases.txt 2>/dev/null); M=${M:-1}
-CH=""; [ "${M:-1}" -gt 1 ] && CH="--chain $M --unitary"
+CH=""; [ "${M:-1}" -gt 1 ] && CH="--chain $M --map --cin '$W/c.bin'"
 
 W=$ICE/build/tryout/$NAME
 mkdir -p "$W"
@@ -43,9 +43,10 @@ ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$RES_NODE" "
   gcc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops \
       -I. -o '$W/bin' '$SRC' driver.c -lm $* 2>'$W/build.err' || { head -25 '$W/build.err'; exit 1; }
   python3 gen_input.py --L $L --batch $B --seed 42 --out '$W/in.bin' >/dev/null &&
+  python3 gen_input.py --L $L --batch $B --seed 900042 --scale 0.1 --out '$W/c.bin' >/dev/null &&
   echo '== L=$L B=$B m=$M on core $CORE ==' &&
   taskset -c $CORE '$W/bin' --L $L --batch $B $CH --in '$W/in.bin' --out '$W/out.bin' --samples 8 &&
-  python3 check.py --input '$W/in.bin' --output '$W/out.bin' --L $L --batch $B ${M:+$([ $M -gt 1 ] && echo --chain-check $M)} &&
+  python3 check.py --input '$W/in.bin' --output '$W/out.bin' --L $L --batch $B ${M:+$([ $M -gt 1 ] && echo --map-check $M --cin '$W/c.bin')} &&
   taskset -c $CORE '$W/bin' --L $L --batch $B $CH --in '$W/in.bin' --out '$W/out2.bin' --samples 2 >/dev/null 2>&1 &&
   { cmp -s '$W/out.bin' '$W/out2.bin' && echo 'repeatable: identical output across runs' || echo '!! NOT REPEATABLE'; }
   BINDIR='$ICE/build/'\$(hostname -s)'/bin'

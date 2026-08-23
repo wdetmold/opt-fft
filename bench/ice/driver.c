@@ -29,6 +29,17 @@
 
 #include "fft3d_api.h"
 
+/* OPTIONAL fused-chain entry point (the ice panel's full graded step):
+ *     state <- (FFT(state) + c) / (1 + |FFT(state) + c|)
+ * An implementation may export fft3d_chain to own the WHOLE m-step chain -- fusing the map
+ * into its passes, as the rival pipelines' winning codes do. Entries that do not export it
+ * (libraries, unmodified kernels) are timed through the fallback below: fft3d_execute plus
+ * a driver-side vectorized map, identical for all of them. Weak symbols keep every existing
+ * entry linking unchanged. */
+extern void fft3d_chain(fft3d_plan *plan, const double _Complex *x0,
+                        const double _Complex *c, double _Complex *final_out, int m)
+    __attribute__((weak));
+
 static double now_seconds(void)
 {
     struct timespec ts;
@@ -77,6 +88,8 @@ static void usage(const char *argv0)
 int main(int argc, char **argv)
 {
     int L = 0, batch = 0, samples = 30, warmup = 5, run_index = 0, chain = 1, unitary = 0;
+    int map_mode = 0;
+    const char *c_path = NULL;
     double min_sample_ms = 20.0;
     const char *in_path = NULL, *out_path = NULL, *json_path = NULL;
 
@@ -92,9 +105,15 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--run-index") && i + 1 < argc) run_index = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--chain") && i + 1 < argc) chain = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--unitary")) unitary = 1;
+        else if (!strcmp(argv[i], "--map")) map_mode = 1;
+        else if (!strcmp(argv[i], "--cin") && i + 1 < argc) c_path = argv[++i];
         else usage(argv[0]);
     }
     if (L <= 0 || batch <= 0 || !in_path) usage(argv[0]);
+    if (map_mode && (!c_path || chain < 1)) {
+        fprintf(stderr, "--map needs --cin FILE and --chain M\n");
+        return 2;
+    }
 
     if (!fft3d_supports(L)) {
         /* Not an error: implementations are allowed to specialize for one size. */
@@ -131,6 +150,20 @@ int main(int argc, char **argv)
     }
     fclose(f);
 
+    /* ---- the map's constant field c, in the same layout as the input ---- */
+    double _Complex *cfield = NULL;
+    if (map_mode) {
+        cfield = aligned_or_die(bytes);
+        FILE *cf = fopen(c_path, "rb");
+        if (!cf) { perror(c_path); return 2; }
+        if (fread(cfield, sizeof(double _Complex), count, cf) != count) {
+            fprintf(stderr, "driver: %s too short\n", c_path);
+            fclose(cf);
+            return 2;
+        }
+        fclose(cf);
+    }
+
     /* ---- setup, timed but reported separately ---- */
     double t0 = now_seconds();
     fft3d_plan *plan = fft3d_create(L, batch);
@@ -144,9 +177,36 @@ int main(int argc, char **argv)
     /* One timed unit: a chain of `chain` transforms. With chain == 1 this is exactly the
        previous behaviour (one transform of `in`). */
     const double inv_sqrt_v = 1.0 / sqrt((double)volume);
+
+    /* Map-mode fallback step: z (= FFT output) and c in, new state out. Written so gcc
+       auto-vectorizes it: plain sqrt on squares, never libm's scalar hypot. */
+    #define MAP_STEP(zbuf, dstbuf)                                                        \
+        do {                                                                              \
+            const double *zr_ = (const double *)(zbuf);                                   \
+            const double *cr_ = (const double *)cfield;                                   \
+            double *o_ = (double *)(dstbuf);                                              \
+            for (size_t i_ = 0; i_ < count; ++i_) {                                       \
+                double re_ = zr_[2*i_] + cr_[2*i_];                                       \
+                double im_ = zr_[2*i_+1] + cr_[2*i_+1];                                   \
+                double sc_ = 1.0 / (1.0 + sqrt(re_*re_ + im_*im_));                       \
+                o_[2*i_] = re_ * sc_;                                                     \
+                o_[2*i_+1] = im_ * sc_;                                                   \
+            }                                                                             \
+        } while (0)
+
     #define RUN_UNIT()                                                                    \
         do {                                                                              \
-            if (chain <= 1) {                                                             \
+            if (map_mode) {                                                               \
+                if (fft3d_chain) {                                                        \
+                    fft3d_chain(plan, in, cfield, pong, chain);                           \
+                } else {                                                                  \
+                    memcpy(pong, in, bytes);                                              \
+                    for (int _s = 0; _s < chain; ++_s) {                                   \
+                        fft3d_execute(plan, pong, out);                                   \
+                        MAP_STEP(out, pong);                                              \
+                    }                                                                     \
+                }                                                                         \
+            } else if (chain <= 1) {                                                      \
                 fft3d_execute(plan, in, out);                                             \
             } else {                                                                      \
                 const double _Complex *src = in;                                          \
@@ -191,7 +251,8 @@ int main(int argc, char **argv)
     /* ---- end-of-chain state, for the closed-form chain check ---- */
     if (chain > 1 && out_path) {
         RUN_UNIT();
-        const double _Complex *final_buf = (chain % 2 == 1) ? out : pong;
+        const double _Complex *final_buf =
+            map_mode ? pong : ((chain % 2 == 1) ? out : pong);
         char chain_path[4096];
         snprintf(chain_path, sizeof chain_path, "%s.chain", out_path);
         FILE *g = fopen(chain_path, "wb");

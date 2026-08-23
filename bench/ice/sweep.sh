@@ -69,7 +69,9 @@ for case in $CASES; do
   # optional third field: chain length m (the graded call); absent means 1
   M=1; case "$rest" in *:*) M=${rest##*:} ;; esac
   IN=$OUT/in_L${L}_B${B}.bin
+  CIN=$OUT/c_L${L}_B${B}.bin
   python3 gen_input.py --L "$L" --batch "$B" --seed $((SEED + L * 1000 + B)) --out "$IN" >/dev/null
+  python3 gen_input.py --L "$L" --batch "$B" --seed $((SEED + 900000 + L * 1000 + B)) --scale 0.1 --out "$CIN" >/dev/null
   for backend in $BACKENDS; do
     # The dense-matrix floor is O(L^4) per volume per axis, so on a big case it costs more
     # wall clock than every real backend combined (2.8 s per call at 36^3 x 256). It is a
@@ -82,7 +84,7 @@ for case in $CASES; do
     for run in $(seq 1 "$RUNS"); do
       # A panel entry that hangs or crashes must not take the round down with it.
       CHAINARGS=""
-      [ "$M" -gt 1 ] && CHAINARGS="--chain $M --unitary"
+      [ "$M" -gt 1 ] && CHAINARGS="--chain $M --map --cin $CIN"
       timeout 600 "$BINDIR/$backend" --L "$L" --batch "$B" $CHAINARGS --in "$IN" \
         --out "$OUT/out_${backend}_L${L}_B${B}.bin" \
         --json "$OUT/t_${backend}_L${L}_B${B}_r${run}.json" \
@@ -96,14 +98,14 @@ for case in $CASES; do
     # correctness on the output of the last run, against numpy
     if [ -f "$OUT/out_${backend}_L${L}_B${B}.bin" ]; then
       CHKARGS=""
-      [ "$M" -gt 1 ] && CHKARGS="--chain-check $M"
+      [ "$M" -gt 1 ] && CHKARGS="--map-check $M --cin $CIN"
       python3 check.py --input "$IN" --output "$OUT/out_${backend}_L${L}_B${B}.bin" \
         --L "$L" --batch "$B" $CHKARGS --json "$OUT/c_${backend}_L${L}_B${B}.json" \
         >>"$OUT/check.log" 2>&1
       rm -f "$OUT/out_${backend}_L${L}_B${B}.bin" "$OUT/out_${backend}_L${L}_B${B}.bin.chain"   # outputs are large; keep the verdicts
     fi
   done
-  rm -f "$IN"
+  rm -f "$IN" "$CIN"
   echo "   done L=$L B=$B"
 done
 

@@ -36,6 +36,11 @@
 struct fft3d_gpu_plan {
     int L, batch;
     int chunk;         /* volumes per chunk for L2 blocking (0 = monolithic) */
+    int mode;          /* large-batch path: 1 = fused persistent kernel, 0 = chunked */
+    int grid;          /* fused kernel: one resident wave (occupancy-probed) */
+    int lead;          /* fused kernel: yz runway in volumes */
+    unsigned *d_ctr;   /* device: [0] ticket counter, [1..batch] per-volume done */
+    unsigned next_base, done_base; /* host epoch bases; counters never reset */
     double2 *w64;      /* device: W64[j] = exp(-2 pi i j / 64), 64 entries */
     cudaStream_t str[4];
     cudaGraphExec_t gexec; /* B=1: captured two-kernel graph, keyed on (in,out) */
@@ -110,12 +115,50 @@ __device__ __forceinline__ void fft64_reg(double2 r[8], int t, const double2 tw[
     dft8(r); /* over j2: r[k2] = X[t + 8*k2] */
 }
 
+/* Lean variant for the register-starved fused kernel: twiddles W64^{t*k1}
+ * chained from w1 = W64^t by log-depth multiplies (w2=w1^2, w4=w2^2, ...)
+ * instead of a 7-entry register table. Costs ~6 cmuls per line FFT (compute
+ * sits at ~25% SOL, free) and ~2 ulp of twiddle error (gate is 1e-12, we sit
+ * at 4e-16); saves 24 registers of live range, which is what eliminates the
+ * fused kernel's spills. */
+__device__ __forceinline__ void fft64_reg_lean(double2 r[8], int t, double2 w1)
+{
+    dft8(r);
+    const double2 w2 = cmul(w1, w1);
+    const double2 w3 = cmul(w2, w1);
+    const double2 w4 = cmul(w2, w2);
+    r[1] = cmul(r[1], w1);
+    r[2] = cmul(r[2], w2);
+    r[3] = cmul(r[3], w3);
+    r[4] = cmul(r[4], w4);
+    r[5] = cmul(r[5], cmul(w4, w1));
+    r[6] = cmul(r[6], cmul(w4, w2));
+    r[7] = cmul(r[7], cmul(w4, w3));
+    transpose8(r, t);
+    dft8(r);
+}
+
 /* per-lane twiddles, loaded once per kernel (L1-resident table) */
 __device__ __forceinline__ void load_tw(double2 tw[7], int t, const double2 *__restrict__ w64)
 {
 #pragma unroll
     for (int k1 = 1; k1 < 8; ++k1) tw[k1 - 1] = __ldg(&w64[t * k1]);
 }
+
+/* Line-FFT selection for the launch kernels: table twiddles (7 regs of table,
+ * gpu_r1/r2 form) vs chained twiddles (1 reg + ~6 cmuls, frees 24 registers).
+ * A/B via -DL64_LEANTW. */
+#ifdef L64_LEANTW
+__device__ __forceinline__ void load_tw_main(double2 tw[7], int t, const double2 *__restrict__ w64)
+{ tw[0] = __ldg(&w64[t]); }
+__device__ __forceinline__ void fft64_main(double2 r[8], int t, const double2 tw[7])
+{ fft64_reg_lean(r, t, tw[0]); }
+#else
+__device__ __forceinline__ void load_tw_main(double2 tw[7], int t, const double2 *__restrict__ w64)
+{ load_tw(tw, t, w64); }
+__device__ __forceinline__ void fft64_main(double2 r[8], int t, const double2 tw[7])
+{ fft64_reg(r, t, tw); }
+#endif
 
 /* Pass 1: one block per (b,x) plane; z-axis then y-axis. tmp gets standard layout.
  * STREAM=1 marks input loads evict-first so they cannot push the L2-resident
@@ -131,13 +174,13 @@ __global__ void __launch_bounds__(512, 2) kernel_yz(const double2 *__restrict__ 
     const int t = threadIdx.x & 7;
     const int g = threadIdx.x >> 3; /* 0..63 */
     double2 r[8], tw[7];
-    load_tw(tw, t, w64);
+    load_tw_main(tw, t, w64);
 
     /* z lines: g = y. Warp reads 4 rows x 8 consecutive = 128B segments. */
     const double2 *p = in + base + (size_t)g * 64 + t;
 #pragma unroll
     for (int j = 0; j < 8; ++j) r[j] = STREAM ? __ldcs(p + 8 * j) : __ldg(p + 8 * j);
-    fft64_reg(r, t, tw);
+    fft64_main(r, t, tw);
     /* lane t holds Xz[t+8j] for line y=g: store transposed so y-lines become rows */
 #pragma unroll
     for (int j = 0; j < 8; ++j) sh[(size_t)(8 * j + t) * SH_STRIDE + g] = r[j];
@@ -146,7 +189,7 @@ __global__ void __launch_bounds__(512, 2) kernel_yz(const double2 *__restrict__ 
     /* y lines: g = k_z, row of sh is contiguous */
 #pragma unroll
     for (int j = 0; j < 8; ++j) r[j] = sh[(size_t)g * SH_STRIDE + 8 * j + t];
-    fft64_reg(r, t, tw);
+    fft64_main(r, t, tw);
     /* lane t holds Y[t+8j] for k_z=g. Round-trip through shared so the global
      * store is fully coalesced 128B segments (the direct r1 store was 64B
      * segments = 2x the L1 wavefronts and 2.4/4 sectors per L2 store line). */
@@ -186,7 +229,7 @@ __global__ void __launch_bounds__(HALF ? 256 : 512, 2) kernel_x(double2 *data,
     const size_t base = (size_t)b * 262144 + (size_t)y * 64 + zoff;
     const int tid = threadIdx.x;
     double2 r[8], tw[7];
-    load_tw(tw, tid & 7, w64);
+    load_tw_main(tw, tid & 7, w64);
 
     /* coalesced load: ZT consecutive z per x-row, 128B segments */
 #pragma unroll
@@ -201,7 +244,7 @@ __global__ void __launch_bounds__(HALF ? 256 : 512, 2) kernel_x(double2 *data,
     const int g = tid >> 3; /* local z: 0..ZT-1 */
 #pragma unroll
     for (int j = 0; j < 8; ++j) r[j] = sh[(size_t)(8 * j + t) * STRIDE + g];
-    fft64_reg(r, t, tw);
+    fft64_main(r, t, tw);
 #pragma unroll
     for (int j = 0; j < 8; ++j) sh[(size_t)(8 * j + t) * STRIDE + g] = r[j];
     __syncthreads();
@@ -212,6 +255,116 @@ __global__ void __launch_bounds__(HALF ? 256 : 512, 2) kernel_x(double2 *data,
         const int m = tid + NT * j;
         const int x = m / ZT, z = m % ZT;
         __stcs(&data[base + (size_t)x * 4096 + z], sh[(size_t)x * STRIDE + z]);
+    }
+}
+
+/* Fused persistent producer/consumer kernel (structure borrowed from
+ * L36_globalpass gpu_r2): ONE launch per execute, grid = one resident wave.
+ * Each block loops pulling tickets from a global atomic counter; a ticket is
+ * one yz (b,x) plane or one x (b,y) plane. Ticket order gives the yz pass a
+ * LEAD-volume runway, then alternates yz(v+LEAD) / x(v), so the x pass
+ * consumes each volume's intermediate moments after it was produced: the live
+ * intermediate is ~LEAD volumes (~LEAD*4.2 MB in L2) and it never crosses a
+ * kernel-launch boundary — no chunk-grain fill/drain, no tail chunk.
+ * Dependency: per-volume done counters. yz blocks release with
+ * store -> __threadfence -> __syncthreads -> thread0 atomicAdd (the classic
+ * threadFenceReduction idiom); x blocks poll with __nanosleep backoff.
+ * Deadlock-free because the grid is exactly one resident wave and every yz
+ * ticket of volume v precedes every x ticket of volume v in dispatch order,
+ * so a grabbed ticket is always running or done and yz never waits.
+ * Counters are never reset (no memset launch): host epoch bases advance in
+ * unsigned mod-2^32 arithmetic — next by total+grid (each block ends on one
+ * failed grab), done[v] by exactly 64 per execute. */
+__global__ void __launch_bounds__(512, 2) kernel_fused(
+    const double2 *__restrict__ in, double2 *out, const double2 *__restrict__ w64,
+    int nvol, int lead, unsigned total,
+    unsigned *next, unsigned next_base, unsigned *done, unsigned done_base)
+{
+    extern __shared__ double2 sh[];
+    __shared__ unsigned s_tick;
+    const int tid = threadIdx.x;
+    const int t = tid & 7;
+    const int g = tid >> 3;
+    double2 r[8];
+    const double2 w1 = __ldg(&w64[t]); /* W64^t; the rest are chained per line */
+
+    /* NOTE gpu_r3: prefetching ticket i+1 during ticket i's work (publish at an
+     * existing barrier) was tried and is WORSE: 713 -> 768/799 us at B=64 even
+     * with the prefetch moved after the consumer spin. Plain top-of-loop grab. */
+    for (;;) {
+        if (tid == 0) s_tick = atomicAdd(next, 1u) - next_base;
+        __syncthreads();
+        const unsigned tk = s_tick;
+        if (tk >= total) return;
+        /* decode ticket -> (pass, volume, plane): schedule is yz(0..lead-1),
+         * then pairs [yz(p+lead), x(p)] for p = 0..nvol-lead-1, then the x
+         * tail x(nvol-lead..nvol-1). 64 planes per schedule group. */
+        const unsigned q = tk >> 6;
+        const int pl = (int)(tk & 63u);
+        int isYZ, v;
+        if (q < (unsigned)lead) { isYZ = 1; v = (int)q; }
+        else {
+            const unsigned s = q - (unsigned)lead;
+            const unsigned steady = 2u * (unsigned)(nvol - lead);
+            if (s < steady) { isYZ = !(s & 1u); v = (int)(s >> 1) + (isYZ ? lead : 0); }
+            else { isYZ = 0; v = (int)(s - steady) + (nvol - lead); }
+        }
+        if (isYZ) {
+            /* == kernel_yz<1> body: one (b,x) plane, z lines then y lines == */
+            const size_t base = ((size_t)v * 64 + pl) * 4096;
+            const double2 *p = in + base + (size_t)g * 64 + t;
+#pragma unroll
+            for (int j = 0; j < 8; ++j) r[j] = __ldcs(p + 8 * j);
+            fft64_reg_lean(r, t, w1);
+#pragma unroll
+            for (int j = 0; j < 8; ++j) sh[(size_t)(8 * j + t) * SH_STRIDE + g] = r[j];
+            __syncthreads();
+#pragma unroll
+            for (int j = 0; j < 8; ++j) r[j] = sh[(size_t)g * SH_STRIDE + 8 * j + t];
+            fft64_reg_lean(r, t, w1);
+            __syncthreads();
+#pragma unroll
+            for (int j = 0; j < 8; ++j) sh[(size_t)(8 * j + t) * SH_STRIDE + g] = r[j];
+            __syncthreads();
+            double2 *qo = out + base; /* plain store: must land in L2 for the x pass */
+#pragma unroll
+            for (int j = 0; j < 8; ++j) {
+                const int m = tid + 512 * j;
+                qo[m] = sh[(size_t)(m >> 6) * SH_STRIDE + (m & 63)];
+            }
+            __threadfence();
+            __syncthreads(); /* also orders the s_tick read below vs next write */
+            if (tid == 0) atomicAdd(&done[v], 1u);
+        } else {
+            /* == kernel_x<0> body: one (b,y) plane, in place on out == */
+            if (tid == 0) {
+                volatile unsigned *dv = done + v;
+                while ((unsigned)(*dv - done_base) < 64u) __nanosleep(200);
+            }
+            __syncthreads();
+            __threadfence();
+            const size_t base = (size_t)v * 262144 + (size_t)pl * 64;
+#pragma unroll
+            for (int j = 0; j < 8; ++j) {
+                const int m = tid + 512 * j;
+                sh[(size_t)(m >> 6) * SH_STRIDE + (m & 63)] =
+                    __ldlu(&out[base + (size_t)(m >> 6) * 4096 + (m & 63)]);
+            }
+            __syncthreads();
+#pragma unroll
+            for (int j = 0; j < 8; ++j) r[j] = sh[(size_t)(8 * j + t) * SH_STRIDE + g];
+            fft64_reg_lean(r, t, w1);
+#pragma unroll
+            for (int j = 0; j < 8; ++j) sh[(size_t)(8 * j + t) * SH_STRIDE + g] = r[j];
+            __syncthreads();
+#pragma unroll
+            for (int j = 0; j < 8; ++j) {
+                const int m = tid + 512 * j;
+                __stcs(&out[base + (size_t)(m >> 6) * 4096 + (m & 63)],
+                       sh[(size_t)(m >> 6) * SH_STRIDE + (m & 63)]);
+            }
+            __syncthreads(); /* protect sh reuse across tickets */
+        }
     }
 }
 
@@ -245,6 +398,9 @@ extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
                          64 * 65 * (int)sizeof(double2));
     cudaFuncSetAttribute(kernel_x<1>, cudaFuncAttributeMaxDynamicSharedMemorySize,
                          64 * 33 * (int)sizeof(double2));
+    cudaFuncSetAttribute(kernel_fused, cudaFuncAttributeMaxDynamicSharedMemorySize,
+                         64 * SH_STRIDE * (int)sizeof(double2));
+    cudaFuncSetAttribute(kernel_fused, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
 
     p->chunk = 3; /* B=256 scan (gpu_r2, staged kernels): C=2 2900, C=3 2622-2642,
                      C=4 2749-2768, C=6 3144 us. Two chunks in flight x 3 volumes
@@ -254,9 +410,40 @@ extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
     p->gexec = NULL;
     p->gin = NULL;
     p->gout = NULL;
+
+    /* fused persistent path: grid = exactly one resident wave (deadlock-freedom
+     * depends on this), probed rather than assumed. */
+    {
+        int nsm = 0, bpm = 0, dev = 0;
+        cudaGetDevice(&dev);
+        cudaDeviceGetAttribute(&nsm, cudaDevAttrMultiProcessorCount, dev);
+        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&bpm, kernel_fused, 512,
+                                                      64 * SH_STRIDE * sizeof(double2));
+        p->grid = nsm * (bpm > 0 ? bpm : 1);
+        /* gpu_r3: fused persistent kernel measured SLOWER than the chunked
+         * launch pipeline at every batch tried (B=64: 713 vs 662; B=256:
+         * 2765 vs 2627 us min) -- see the strategy record. Kept behind
+         * L64_MODE=1 for future rounds; default is the chunked path. */
+        p->mode = 0;
+        p->lead = 2; /* best of the fused lead sweep (2: 713, 3: 726, 4: 801) */
+        p->d_ctr = NULL;
+        p->next_base = 0;
+        p->done_base = 0;
+        if (bpm > 0 && batch > 8) {
+            if (cudaMalloc((void **)&p->d_ctr, (size_t)(batch + 1) * sizeof(unsigned))
+                    != cudaSuccess) { p->mode = 0; p->d_ctr = NULL; }
+            else cudaMemset(p->d_ctr, 0, (size_t)(batch + 1) * sizeof(unsigned));
+        }
+    }
     {
         const char *e = getenv("L64_CHUNK");
         if (e) p->chunk = atoi(e);
+        e = getenv("L64_MODE");
+        if (e) p->mode = atoi(e);
+        e = getenv("L64_LEAD");
+        if (e) p->lead = atoi(e);
+        e = getenv("L64_GRID");
+        if (e) p->grid = atoi(e);
     }
     return p;
 }
@@ -301,16 +488,34 @@ extern "C" void fft3d_gpu_execute(fft3d_gpu_plan *p, const double2 *in, double2 
         }
         return;
     }
+    if (p->mode && p->d_ctr) {
+        /* Fused persistent producer/consumer: one launch for the whole batch. */
+        int lead = p->lead;
+        if (lead > p->batch) lead = p->batch;
+        if (lead < 1) lead = 1;
+        const unsigned total = (unsigned)p->batch * 128u;
+        kernel_fused<<<p->grid, 512, shbytes, p->str[0]>>>(
+            in, out, p->w64, p->batch, lead, total,
+            p->d_ctr, p->next_base, p->d_ctr + 1, p->done_base);
+        p->next_base += total + (unsigned)p->grid;
+        p->done_base += 64u;
+        return;
+    }
     /* L2 blocking: per chunk, pass 2 rereads and rewrites pass 1's output while
      * it is still L2-resident, so only the input read and the final writeback
      * touch HBM. Two streams overlap chunk c+1's pass 1 with chunk c's pass 2.
      * Chunk->stream mapping is fixed, so back-to-back executes stay ordered. */
-    for (int c0 = 0, c = 0; c0 < p->batch; c0 += C, ++c) {
-        const int nb = (p->batch - c0 < C ? p->batch - c0 : C) * 64;
+    for (int c0 = 0, c = 0; c0 < p->batch; ++c) {
+        int nv = p->batch - c0 < C ? p->batch - c0 : C;
+        /* never end on a 1-volume chunk (64-block grids at the very tail):
+         * balance (C,1) into (C-1,2), e.g. 256 = 84*3 + 2 + 2 at C=3 */
+        if (C >= 3 && p->batch - c0 == C + 1) nv = C - 1;
+        const int nb = nv * 64;
         const size_t off = (size_t)c0 * 262144;
         cudaStream_t s = p->str[c & 1];
         kernel_yz<1><<<nb, 512, shbytes, s>>>(in + off, out + off, p->w64);
         kernel_x<0><<<nb, 512, 64 * 65 * sizeof(double2), s>>>(out + off, p->w64);
+        c0 += nv;
     }
 }
 
@@ -319,6 +524,7 @@ extern "C" void fft3d_gpu_destroy(fft3d_gpu_plan *p)
     if (!p) return;
     if (p->gexec) cudaGraphExecDestroy(p->gexec);
     for (int i = 0; i < 4; ++i) cudaStreamDestroy(p->str[i]);
+    if (p->d_ctr) cudaFree(p->d_ctr);
     cudaFree(p->w64);
     free(p);
 }

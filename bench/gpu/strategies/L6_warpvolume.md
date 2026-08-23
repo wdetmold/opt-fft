@@ -201,3 +201,107 @@ rel L2 error 2.4–2.5e-16 at B = 1, 3, 13, 100, 4854, 10925 (tail + stcs bounda
    shuffles, twiddles folded receiver-side into per-lane constants) is sound and
    verified — it is the wrong tool at L=6 where arithmetic must stay minimal, but a
    prime-size entry distributing a Rader convolution across lanes could reuse it.
+
+---
+
+## Round gpu_r3 (2026-08-22) — barrier-narrowing round: six variants measured, all lost, shipped config unchanged; the "win" that inverted under rotated-order A/B
+
+### Standing entering the round
+
+r2 leaderboard: won B=1 (2.969 vs rival L6_batchcoalesced's 3.693 µs), lost B_L2 by 2.3%
+(14.960 vs 14.629), dead tie at B_HBM (1540.6 vs 1540.2). Both entries now ship the same
+structure (they wrote it, I adopted it in r2), so the only levers left were structural.
+The round's one target was B_L2, where 14.9 sits ~1.3× above the ≈11.6 µs DRAM
+write-stream floor and L8_blockfused reaches 13.2 µs at the identical byte count.
+
+### What was built and measured
+
+The r2 kernel's remaining structure is the 3× 288-thread `__syncthreads` chain. I proved
+the load→z and z→y dependences close inside a 96-thread x-slab group (group g owns
+planes x = 2g, 2g+1 of all 8 volumes: the z-pass line l=(x,y) and y-pass line l=(x,z)
+share the l/6 = x grouping, and a group-local load — 8 contiguous 1152-byte runs per
+group instead of one flat 27.6 KB block copy — makes staging group-local too). Those two
+barriers become named `bar.sync id,96` over 3 warps; only y→x (x-pass lines cross all
+six slabs) needs the full block. All variants are bit-identical in output (same dft6 on
+same data) and live behind an `L6_MODE` env knob (dev only, unset in scored runs):
+flat/group/fused-z load × narrow/full z→y × stcs/plain stores.
+
+**First A/B session said the narrow+group variant won: 14.89–14.97 vs baseline
+15.14–15.26 at B=4854, consistent over 3 reps each. It was an artefact.** That session
+ran modes in a fixed order (baseline always first) inside one lease; the SXM4's boost
+clock ramps across the first processes of a lease, so the first-run mode measures
+~0.25 µs slow — exactly the "cliff" PANEL_BRIEF warns about, showing up at process
+granularity inside a lease. Re-measured with the order **rotated** across reps and
+across 4 separate leases (10+ independent processes per mode, all on the same physical
+GPU): baseline **14.92–14.96 µs**, narrow+group **15.14–15.42**, in every rotation
+position. The barrier chain is NOT the B_L2 residual — the same conclusion
+L8_blockfused r2 reached by deleting barriers (their warp-per-volume test), now
+confirmed at L=6 from the named-barrier side.
+
+### Measured (tryout.sh leased SXM4; shipped config = r2 config)
+
+| case | r2 scored | r3 tryout (min over final-lease reps) | note |
+|---|---|---|---|
+| B = 1 | 2.969 µs | **3.09–3.13 µs** (launch path, sd ~8%) | unchanged kernel |
+| B = 4854 (L2) | 14.960 µs | **14.92–15.11 µs** | unchanged kernel |
+| B = 310608 (HBM) | 1540.6 µs | **1540.4 µs** (1393.7 GB/s) | unchanged kernel |
+
+rel L2 error 2.4–2.5e-16 at B = 1, 13, 100, 4854, 10925 (stcs boundary + tail), 310608
+(numpy check run on the reserved node — the login node cannot allocate 1 GiB);
+bit-identical across runs at every point; compute-sanitizer memcheck 0 errors on the
+batched-tail and B=1 paths.
+
+### Tried and rejected, with the numbers that killed them
+
+* **96-thread named barriers + group-local load at B_L2** (mode 2): 15.14–15.42 vs
+  14.92–14.96 rotated-order baseline. Each half alone is also worse: narrow z→y only
+  15.33–15.37; group load with full z→y 15.52–15.68.
+* **Fused-z at B_L2** (z-pass thread reads its own 96-byte contiguous global line, no
+  staging phase, one barrier fewer, 1/3 less shared traffic): **18.47–18.60 vs 14.93 µs,
+  −24%**. Rival measured the same structure −2.5% at B_HBM in r1; from L2 it is far
+  worse, not better — a flat block-wide coalesced load beats per-thread 96-byte runs
+  even when every sector is fully consumed and the data comes from L2. The read
+  *pattern*, not read *bytes*, is what matters at both batch points.
+* **Anything at B_HBM**: narrow z→y 1542.4–1543.2, group-local load 1550.3–1550.5, vs
+  flat/full-barrier **1539.8–1540.6**. Third round in a row confirming: do not perturb
+  a kernel at 90% of DRAM peak.
+* **Register effects worth recording**: the `bar.sync` asm (volatile + memory clobber)
+  bloats the kernel 40 → 50–53 registers, silently cutting 5 blocks/SM to 4 (45 → 36
+  warps); the 53-reg and reg-capped-40 versions measure the same at B_L2, so the
+  occupancy loss is not why the variants lose. Forcing `__launch_bounds__(288,5)` on
+  everything puts a 4-byte spill into the *flat* kernels that were naturally at 40 —
+  fixed by giving capped and uncapped launch shells to one shared `__forceinline__`
+  body. Rewriting the group-load indexing from per-k division to an incremental
+  (v,off) carry cut 53 → 40 regs but measured ~0.15 µs *slower* (the carried index
+  serializes the 6 load-address computations; the divisions are independent and ILP
+  wins over registers here).
+
+### Borrowed, with attribution
+
+* Env knob inside the on_gpu.sh ssh'd command string (`L6_MODE=n` in `$*`, not exported
+  locally): **L13_dmma r2 / L8_blockfused r2** records.
+* Keeping dead-end variants compiled behind a dev knob with numbers in the record:
+  **L13_dmma r2** practice.
+* The rotated-order/same-lease protocol is the GPU version of lit 10's "interleaved
+  best-of-N is the only trustworthy timing protocol"; adopted after the fixed-order
+  artefact above.
+* CUDA-graph launch for B=1 was considered and consciously NOT adopted: L36/L45 use
+  graphs to collapse *many* launches into one; my B=1 is already a single launch, so
+  there is nothing to collapse.
+
+### Where this leaves L=6, and what I would do next
+
+1. **B_L2 is now negatively closed from every direction anyone has measured**: not
+   barriers (this round, both narrowing and — via L8 — deletion), not wave quantization
+   (rival's V=4, L8's grid-stride), not store semantics (r2), not staging shape (this
+   round + L8 r2), not L2 persistence windows (r2), not occupancy (53-reg vs 40-reg
+   tie). What remains is the intrinsic latency of read→3-pass→write at this block
+   granularity. The only untried shape is a fundamentally smaller block (V=1–2
+   volume-major, 36–72 threads, PSLOT padding — L8's winning shape scaled down), which
+   costs the batch-major bank-conflict-freedom; I did not build it this round and rate
+   it the only remaining candidate.
+2. **B=1 (3.0–3.1 µs) and B_HBM (1540 µs = 89–90% of the 1555 GB/s part peak, minimum
+   bytes)** are launch-floor and hardware-floor respectively. Leave them alone.
+3. Methodology note for whoever measures next: within-lease fixed-order A/B on this
+   cluster carries a ~0.25 µs first-process penalty at B_L2 scale. Rotate the order or
+   discard the first process per lease.

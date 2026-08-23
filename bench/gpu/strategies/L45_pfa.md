@@ -273,3 +273,134 @@ identical code path + bit-identical re-runs.
 4. If anyone scores intermediate batches: the ns=min(B,4) rule is only swept at
    B=11; B=15–100 would want the rr path with small ns (B=64 measured 232 µs =
    3.63 µs/vol under rr=2 without any tuning).
+
+---
+
+## Round gpu_r3 (2026-08-22) — persistent producer/consumer kernel
+
+The r2 postmortem named one untried structural lever: stop crossing a kernel
+boundary between K1 and K2. L36_globalpass built exactly that in their r2 (their
+fused ticket kernel, −13% at their HBM point), so this round is largely a port of
+their machinery onto my PFA 9×5 two-pass — plus one twist of my own (the direct
+per-kernel output forms, which flipped sign in the new regime).
+
+### What changed
+
+1. **Persistent producer/consumer kernel for B > 14** (from L36_globalpass r2,
+   taken nearly wholesale): ONE launch per execute, grid = exactly one resident
+   wave (occupancy-probed in create(): 5 blocks/SM × 108 SM = 540). Each block
+   loops pulling tickets from a global atomic; a ticket is one K1 (y,z)-plane
+   (45/volume) or one K2 x-tile (64/volume). Dispatch order: 45·LEAD K1 tickets
+   of the first LEAD volumes as runway, then per group v the tickets K1(v+LEAD)
+   and K2(v) interleaved 45:64 by a Bresenham mix, then a K2-only tail. K2
+   tickets poll a per-volume done counter (K1 blocks release with
+   __threadfence + atomicAdd after their plane; consumers poll + __nanosleep,
+   then fence — the same cumulative-fence flag pattern as L36, memcheck-clean
+   here too). Deadlock-free for their reasons: one resident wave, and every K1
+   ticket of v dispatches before v's first K2 ticket, so a grabbed-unfinished K1
+   ticket is always held by a running block, and K1 never waits. Epochs exactly
+   as in their record: no device-side resets; next advances by total+grid per
+   execute (each block exits on one failed grab), done[v] by exactly 45, host
+   tracks the bases in mod-2^32 unsigned arithmetic.
+2. **noinline bodies — the port's one non-obvious lesson.** Inlining both kernel
+   bodies into the ticket loop made ptxas allocate one union frame under the
+   __launch_bounds__(128,5) 102-reg cap: 752 B of spills, and the first working
+   persistent build ran **416 µs at B=64 vs 232 for the rr path**. Wrapping each
+   body in a `__device__ __noinline__` call fixed it outright (96 regs, zero
+   spills, 223 µs). If you port the L36 pattern to a two-body kernel, check
+   `-Xptxas -v` before concluding the structure lost.
+3. **Direct output forms win INSIDE the persistent kernel** — the r1/r2 result
+   (staged/staged at the chunked HBM batch, direct/direct only when L2-resident)
+   inverts in the persistent regime: K1's y-stage-2 streaming straight to global
+   (skipping the 2025-element sig-gather and one barrier) is **2261 → 2153 µs
+   (−4.8%)**, and the direct K2 tile (global stage-1 reads via __ldlu + __stcs
+   final stream, no tile staging) adds a small edge (2117 → 2112 µs, sd 0.12%).
+   Both defaults now on (FFT45_PD1/PD2 to toggle). Presumably the launch-grain
+   drain that punished direct stores in r2 is gone, and fewer shared round trips
+   win at fixed 20-warp occupancy.
+4. **lead = 10** (FFT45_LEAD): swept 4→2560, 6→2396, 8–11→2110–2150 (flat,
+   lease-to-lease ~2%), 12→2136, 14→2341, 16→2864, 24→3447 µs. Unlike L36's
+   one-wave-of-K1-runway story (which here would be 540/45 = 12), my optimum
+   sits at the r2 chunk-9-ish L2 footprint; 14+ falls off the same cliff their
+   lead=24 did.
+5. Hints inside the persistent kernel are the chunked-regime set from r2
+   (__ldcs input, plain intermediate store — it must land in L2 — __ldlu
+   intermediate read, __stcs final store). Small-batch paths (ns-sliced direct
+   kernels at B≤14, B=1 graph) untouched; the standalone chunk/rr path is kept
+   as FFT45_PERS=0 fallback and for any device where the occupancy probe fails.
+
+### Operation count
+
+Arithmetic unchanged (~96 flop/point 3D, PFA 9×5 in-place scrambled-slot).
+Compulsory global traffic unchanged; what changed is that the live intermediate
+is now ~LEAD volumes (~14 MiB) by construction of the ticket schedule, with no
+kernel-boundary drain and one kernel launch per execute instead of 164.
+
+### Measured (tryout.sh → leased A100-SXM4; rel L2 vs numpy; bit-identical re-runs)
+
+| case | gpu_r1 | gpu_r2 | gpu_r3 | per volume | vs cuFFT same case | correctness |
+|---|---|---|---|---|---|---|
+| B=1 | 14.4 µs | 12.7 µs | **14.6 µs** (unchanged path, today's clocks) | — | 18.5 → 1.26× | 8.24e-16 |
+| B=11 (L2) | 43.4 µs | 35.7 µs | **35.5–36.0 µs** (unchanged path) | 3.23 µs | 64.5 → 1.79× | 8.21e-16 |
+| B=736 (HBM, primary) | 3360.9 µs | 2448.4 µs | **2112–2117 µs** (min, ×3 leases) | **2.87 µs** | 4748.9 → **2.25×** | see below |
+
+B=736 progression this round: 2451 (r2 baseline re-measured) → 2318 (persistent,
+lead 12) → 2263 (lead 10) → 2153 (K1 direct-out) → **2112 (K2 direct too)**.
+Correctness: PASS 8.207e-16 at B=64 (persistent path, same code as 736), B=15
+(smallest persistent batch: lead clamp + K2-only tail decode), B=23, B=11, B=1;
+B=736 numpy still dies of host RAM (known); bit-identical re-runs everywhere;
+compute-sanitizer memcheck clean on the persistent path (B=23, whole ticket
+schedule incl. tail). ncu on the final form (B=64, one launch = 217.6 µs, vs
+252.6 pre-direct): DRAM 60.8%, **L2 78.0%**, SM 41.5%, occupancy 30.7%
+(5 blocks/SM, dual-capped: 32.4 KB shared AND 96 regs), No-Eligible still 74% —
+latency-bound, but the L2 pipe is now the nearest roof.
+
+### What did NOT work, with the numbers that killed it
+
+* **Inlined bodies in the persistent kernel**: 752 B spills under the 102-reg
+  cap → 416 µs at B=64. See item 2; fixed, not abandoned.
+* **45×45 K2 tile inside the persistent kernel** (use the whole 32.4 KB the
+  block owns anyway; no tail, 1:1 ticket alternation): 2349 vs 2263 µs at
+  B=736 — coarser tickets lose more to imbalance than amortized staging saves.
+* **lead outside 8–12**: cliff on both sides (sweep in item 4).
+* **K1 staged + K2 direct** (pd1=0, pd2=1): 2178 vs 2112 — the K1 gather is
+  the expensive half; K2's direct form only pays on top of K1's.
+* Not attempted on purpose: 3-pass persistent with occupancy-sized tiles
+  (z / y / x separate) — my r1 idea 1(a). The final profile shows L2 at 78%;
+  +2 L2 accesses/point (+50%) would saturate it before the extra warps help.
+  Also skipped grid.sync cooperative forms (L36_sharedtiled r1 measured graph >
+  cooperative; L36_globalpass and the corpus PERKS note agree).
+
+### Borrowed, and from whom
+
+* **L36_globalpass r2**: the entire persistent ticket/lead/epoch design — ticket
+  atomics, runway + interleaved dispatch, per-volume done counters with the
+  fence pattern, the no-reset epoch bookkeeping, the one-resident-wave deadlock
+  argument, and the warning that create()-time probes need >20 ms samples (I
+  kept fixed defaults + env overrides instead of autotuning). Their r2 result
+  (−13% at B_HBM) predicted mine almost exactly (−13.7%).
+* **L64_radix8 r2 / my r2**: the rr chunk→stream path stays as the fallback and
+  the A/B reference (FFT45_PERS=0).
+* The noinline-per-body register isolation and the direct-form regime flip are
+  new here this round, as far as I can tell from the records.
+
+### What I would do next
+
+1. **B=736 is at 2.87 µs/vol vs the ~1.9 µs/vol two-pass HBM floor**, with L2 at
+   78% and occupancy pinned at 20 warps/SM by the 32.4 KB plane. The remaining
+   structural idea: two specialized co-resident persistent kernels (K1-only at
+   31.6 KB × 3 blocks/SM + K2-only at 23.2 KB × 2–3 blocks/SM on two streams,
+   sharing the ticket queue) to recover K2's lost occupancy — unproven, and the
+   static partition can't load-balance; measure, don't assume. L36_globalpass
+   listed the same idea and didn't get to it either.
+2. The 2-way shared conflicts on the sig-stride-14 phases (K1 direct y-stage-2
+   loads) are the biggest remaining ncu line item (~18% of shared wavefronts
+   pre-direct; still flagged after). I see no reordering that keeps the global
+   side coalesced; a 2025→2070 padded layout breaks the in-place PFA slot maps.
+   If someone finds a conflict-free gather for sig45, it's worth a few percent.
+3. B=1 (14.6 µs today, 12.7 on r2's warm clocks, path unchanged): only a fused
+   single-volume kernel is left and the cooperative form lost at L=36 — low
+   priority, the wobble is mostly clock state.
+4. If the monitor's pinned-clock B=736 number disagrees with ~2115 µs by more
+   than ~3%, suspect lease clock variance first (my reps: 2112, 2117, 2112 min
+   across three leases, sd within a run 0.1–6% by boost state).

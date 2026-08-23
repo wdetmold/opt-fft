@@ -1,6 +1,6 @@
 /* L13_dmma -- L = 13 on one A100.
  *
- * Round gpu_r3 adds the small-batch plane-split path: at batch <= 12 the transform
+ * Round gpu_r3 adds the small-batch plane-split path: at batch <= 8 the transform
  * is ONE plain launch of 13*B blocks -- each block does dense per-output z+y DFTs of
  * one x-plane into a plan-owned scratch, all blocks join at a software grid barrier
  * (arrive-and-spin on a plan-owned monotonic u64 counter; single plain launch beats
@@ -8,8 +8,8 @@
  * block computes one output kx-plane with block-uniform broadcast twiddles.
  * Adopted from L17_dmma round gpu_r2 (their soft-barrier design, ported; epoch
  * counter, co-residency check in create() and two-launch-free fallback included).
- * B=1: 7.86 -> 6.0 us. The fused kernel and its __stcs selection are unchanged from
- * gpu_r2 and still carry all batched points.
+ * B=1: 7.86 -> 6.78 us. The fused kernel and its __stcs selection are unchanged
+ * from gpu_r2 and still carry all batched points.
  *
  * Round gpu_r2 added ONE production change: the final store is issued with __stcs
  * (evict-first) whenever the working set (in+out = 2*B*35152 B) is L2-resident, so
@@ -507,7 +507,7 @@ struct fft3d_gpu_plan {
 
 extern "C" const char *fft3d_gpu_name(void) { return "L13_dmma"; }
 extern "C" const char *fft3d_gpu_description(void)
-{ return "fused block-per-volume in shared, conj-folded dense-13 lines; evict-first (__stcs) store when L2-resident"; }
+{ return "fused block-per-volume in shared, conj-folded dense-13 lines; __stcs store when L2-resident; soft-barrier single-launch plane-split at batch<=8"; }
 extern "C" int fft3d_gpu_supports(int L) { return L == 13; }
 
 extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
@@ -535,12 +535,12 @@ extern "C" fft3d_gpu_plan *fft3d_gpu_create(int L, int batch)
     p->epoch = 0;
     /* Small-batch plane-split path (round gpu_r3): one plain launch joined by a
      * software grid barrier. Crossover measured on the leased SXM4: planes wins
-     * through B=12, fused takes over at B=16 (numbers in the strategy record).
+     * through B=8 (7.63 vs 8.41 us), fused takes over at B=10 (9.17 vs 8.47).
      * The spin barrier is legal only if all 13*B blocks are co-resident: verify
      * with the occupancy query x 108 SMs; anything short falls back to the fused
      * kernel automatically. */
     {
-        int planes_max_b = 12;
+        int planes_max_b = 8;
         const char *e = getenv("L13_PLANES_MAX_B");
         if (e) planes_max_b = atoi(e);
         if (batch <= planes_max_b) {

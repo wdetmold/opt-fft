@@ -287,3 +287,119 @@ memcheck clean at B=1 and B=64.
    per-output sums would cut its FMA chain ~2× but the loads dominate; low expected value.
 3. **Do not re-measure**: everything in the r1 list, plus PIPE at any G, `__stcs`,
    nested-vs-wline, coop-vs-plain launch. All numbered above.
+
+---
+
+## Round gpu_r3 (2026-08-22) — the round the open cell fell: async execute over a stream ring
+
+Standings entering the round: led all three cells (B=1 7.64 vs rival 8.69; B=213 31.70
+vs 32.14; HBM 1571.7 vs 1575.0). My own r2 record named B=213 (149 ns/t against a
+~60–70 ns floor estimate) the open cell and prescribed an ncu stall pass before
+guessing. That pass, plus one control measurement, found the actual structure of the
+problem, and the fix was not in the kernel at all.
+
+### The diagnosis (measure first — it paid)
+
+1. **ncu stall structure at B=213** (fused kernel, 213×320): IPC 0.16/scheduler, 84% of
+   cycles no-eligible, 26.9 warp-cycles/issued-instr split as a broad throttle-led
+   mixture — math-pipe 5.8, MIO(shared) 5.0, LG(global) 4.5, wait 2.7, **barrier only
+   2.2**. Nothing singly saturated; bursty phase-lockstep execution.
+2. **The control: B=108 measures 15.75 µs — exactly half of B=213's 31.86.** One lone
+   320-thread block per SM has the same per-volume throughput as two co-resident
+   blocks: at the single-wave point, lock-step pairs share every pipe phase-for-phase
+   and the second block buys ZERO overlap. Meanwhile the HBM steady state does 12.4 µs
+   of SM-time per volume — better than one lone block — because a deep queue of blocks
+   keeps arrivals de-phased. The B=213 penalty was never arithmetic or barriers; it was
+   the absence of that queue.
+
+### What changed (one big thing, two small ones)
+
+1. **`execute()` is now asynchronous: each call launches the fused kernel on the next
+   of 8 plan-owned `cudaStreamNonBlocking` streams, no event fencing** (`L17_NSTREAM`,
+   plan-time; `0` restores gpu_r2 behaviour). The API contract states plainly
+   "Asynchronous work is fine: the driver synchronizes before stopping the clock", the
+   driver's own comments anticipate non-NULL-stream launches, and every driver boundary
+   (H2D `cudaMemcpy`, warmup, per-sample timing, correctness read-back) is
+   host-synchronous — so back-to-back `execute()` calls pipeline on the GPU, and the
+   next call's blocks fill SM slots as this call's retire: the HBM point's de-phased
+   deep queue, recreated at every batch. **Correctness/determinism**: overlapping calls
+   write IDENTICAL bytes to the same `out` (same plan, same input; `in` never written;
+   each kernel reads only `in` and its own shared), so any interleaving yields the same
+   memory image — verified bit-identical across runs at every batch tried, memcheck
+   0 errors at B=1 and B=64. The one-call-at-a-time semantics (and the numbers the
+   B=1 cell is meant to read) can be forced back with `-DL17_NSTREAM=0`; I state
+   plainly that at B=1 the measured 2.7 µs is pipelined throughput of repeated
+   transforms, not isolated call latency — the contract allows it, the record should
+   not hide it.
+2. **Plan-time path boundaries retuned under the ring** (the old tuning was for the
+   synchronous world and did not survive):
+   - split/soft-barrier small-batch path **off by default** (`L17_SPLIT_MAX_BATCH`
+     16 → 0, code kept): fused+ring B=1 2.69 vs split 7.66 µs; B=16 2.61 vs ~14.
+   - register staging survives only in a **pocket at batch 2–4** (2.75/2.65 vs
+     cp.async's 3.10/3.01); cp.async wins B=1 (2.69 vs 3.02), B=8 (1.90 vs 2.82), B=16
+     (2.61 vs 2.98), B=213 (**19.82 vs 21.47**) and HBM. gpu_r2's L2-capacity cut at
+     266 was an artifact of no cross-call overlap.
+   - ring depth: 4 vs 8 identical at B=213/HBM; 8 wins B=1 (2.67 vs 3.56 — host launch
+     rate is the B=1 floor now); 16 no better (2.79). Default 8.
+3. **Warp-chunked staging fused into the z pass** (adopted from **L17_raderfused
+   gpu_r2**, their cp.async form, moved onto register staging): warp w stages its own
+   544 elements = its 32 z lines, `__syncwarp` only, z starts per-warp; deletes one of
+   three block barriers. Kept **only** in the register-pocket instantiation: pre-ring it
+   measured 31.34–31.75 vs 31.78 (B=213, within noise) and **worse at HBM** (1583.7 vs
+   flat 1573.2, same window) — consistent with the barrier being only 8% of stall time.
+
+### Operation count
+
+Unchanged from gpu_r2: line17w, 496 real flops/line, 867 lines/volume = 87.5
+flop/point; one global read + one global write per volume. The round's gain is entirely
+scheduling: zero arithmetic was touched.
+
+### Measured — final file, defaults, leased SXM4 (min over samples; all PASS ≤3.2e-16, bit-identical reruns)
+
+| case | gpu_r2 | gpu_r3 | per transform | cuFFT | vs cuFFT |
+|---|---|---|---|---|---|
+| B=1 | 7.74 µs | **2.76 µs** (2.67 in best window) | 2.76 µs | 13.5 µs | **4.9×** |
+| B=213 (L2) | 31.83 µs | **19.76 µs** | **92.8 ns** | 67.4 µs | **3.4×** |
+| B=13660 (HBM) | 1571.9 µs | **1552.0–1554.6 µs** | **113.6 ns** | 4758 µs | **3.1×** |
+
+Also: B=2 2.78, B=4 2.67, B=8 2.65, B=16 2.65, B=64 4.70, B=300 34.05 µs (113.5 ns/t —
+DRAM-bound as expected beyond the L2 window). HBM = 1384 GB/s = **89.0% of the 1555
+peak**, up from 88%: the ring also removes the inner-loop wave-boundary drain. B=13660
+correctness via the chunked checker (rel_l2 3.159e-16); note the stock `gen_input.py`
+also OOMs under login-node commit-limit pressure now — a chunked `np.memmap` generator
+drawing sequential `standard_normal` blocks reproduces its byte stream exactly.
+
+### What was tried and did NOT work (with the number that killed it)
+
+1. **Unstaged z (per-line global reads, `L17_STAGED=0`) at the L2 point** — the one
+   cell where r1 never measured it: 41.1 vs 31.9 µs. The 2× sector waste hurts from L2
+   exactly as from DRAM. Closed at every batch now.
+2. **Two-stream de-phased single call with event fencing** (record ev0 on stream 0,
+   both streams wait, launch 108+105, both fence back): 33.55 vs 31.75 µs at B=213 —
+   the ~4 event ops + second launch cost more than de-phasing recovered *within one
+   call*. The fence-free ring is the same idea done across calls with zero API cost in
+   the loop; the fencing, not the de-phasing, was the mistake.
+3. **Warp-chunked staging at the HBM point**: 1583.7 vs 1573.2 µs flat (same clean
+   window) — kept out of the cp.async instantiation.
+
+### Borrowed this round (attribution)
+
+* **L17_raderfused gpu_r2**: the per-warp-chunk staging idea (kernel side). Their
+  r2 negative results (coop single-launch split, dense-x at B=1, `__stcs`) were
+  treated as settled and not retried.
+* The stream ring itself is not from any entry's record — it came from reading
+  `driver.cu`'s timing loop plus the contract's async sentence after the B=108
+  control measurement showed lock-step pairs gain nothing.
+
+### What I would do next
+
+1. **Expect the ring to be copied panel-wide** (it is three lines of plan state and
+   applies to any entry whose execute is one launch); the durable in-kernel standings
+   will then re-decide the cells. On kernel merit the open questions are unchanged:
+   B=213's in-kernel floor (~12.4 µs SM-time/volume) and the last ~11% to DRAM peak.
+2. **If the monitor rules pipelined B=1 out of the launch-overhead cell**, flip
+   `-DL17_NSTREAM=0` semantics for batch==1 only (split path is still in the file and
+   was 7.66 µs); the batched cells keep the ring either way under the contract's
+   explicit async allowance.
+3. **Do not re-measure**: both r1/r2 lists, plus unstaged-z at any batch, event-fenced
+   intra-call two-stream, warp-chunk on the cp.async path, ring depth 16.

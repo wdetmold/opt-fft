@@ -228,3 +228,117 @@ must be set inside the ssh'd command string; a prefix on tryout.sh does not cros
    untried shape; L17's numbers cap the gain at ~1 µs. Bottom of the list.
 4. DMMA remains unjustified by measurement: FP64 pipe ≤ 50% in every regime; the
    entry keeps its name as a monument to the analysis that killed it.
+
+---
+
+## Round gpu_r3 (2026-08-22) — soft-barrier single-launch plane split takes B=1;
+## the warp-chunked cp.async idea measured dead at both batched points
+
+### What changed in production
+
+**One new path: at batch ≤ 8 the transform is a single plain launch of `fft13_planes`
+— 13·B blocks of 192 threads joined mid-kernel by a software grid barrier.** Adopted
+from **L17_dmma round gpu_r2** (their measured launch mechanics: a cooperative launch
+costs ~1.4 µs over `<<<>>>`, a second plain launch ~1.6 µs; their soft barrier took
+L=17's B=1 from 11.49 to 7.74 µs). My r2 record had capped this idea's value at ~1 µs
+using their *r1* cooperative numbers — the r2 soft-barrier form beats that cap.
+
+Structure per block (b, p):
+1. Phase 1: stage the contiguous 169-element x-plane p into shared (one element per
+   thread, coalesced), dense per-output z-DFT (thread = (y,kz), row-contiguous shared
+   reads), dense per-output y-DFT (thread = (ky,kz), stride-13 shared reads — odd, so
+   conflict-free), write the plane to a plan-owned global scratch, coalesced.
+   Twiddles for both passes are lane-divergent (kz/ky vary across lanes), so they come
+   from a `__device__` global table via `__ldg`, NOT constant memory — L17_dmma r1's
+   finding #3 (divergent constant reads replay 32-way) respected, not rediscovered.
+2. Software grid barrier, ported from L17_dmma r2: thread 0 does
+   `__threadfence(); atomicAdd(ctr, 1)` then spins until the plan-owned MONOTONIC u64
+   counter reaches `epoch · gridDim` (target passed as a kernel argument, so
+   back-to-back calls on one stream cannot confuse epochs); `__syncthreads` on both
+   sides, `__threadfence` after the spin for acquire. `create()` verifies the whole
+   13·B-block grid co-resident (occupancy query × SM count) and falls back to the
+   fused kernel otherwise; counter and scratch are cudaMalloc'd in create().
+3. Phase 2: block (b, kx=p), thread t=(ky,kz) sums the 13 scratch planes at stride
+   169 (coalesced across the warp at each x) against `__constant__` twiddles indexed
+   by (kx·x) mod 13 — kx is block-uniform, so this IS the broadcast pattern constant
+   memory is good at. Contiguous coalesced store of the output plane.
+
+Dense per-output arithmetic is ~2× the folded matvec's flops and the scratch round
+trip doubles global traffic — both irrelevant at B ≤ 8 where the whole problem is
+launch- and latency-bound (~35 KB of data, 13 SMs busy).
+
+The batched points are untouched: the r2 fused kernel (conj-folded lines, __stcs
+when L2-resident) still carries B=477 and B=30549.
+
+### Operation count
+
+Fused path unchanged (~81 flop/point over three axes). Planes path: dense per-output
+= 13 complex FMA per point per axis ≈ 26 real flop/point/axis plus twiddle loads —
+~2× the folded matvec, chosen deliberately: it keeps all 169 threads of a plane
+active per pass instead of 13 thread-per-line threads.
+
+### Measured (tryout.sh → leased A100-SXM4-40GB; min over samples)
+
+| case | gpu_r2 | gpu_r3 | cuFFT same window | speedup |
+|---|---|---|---|---|
+| B=1 | 7.86 µs | **6.78–6.95 µs (−13%)** | 12.39–12.52 µs | **1.8×** |
+| B=477 (L2) | 21.56 µs | **21.70 µs** (unchanged path) | 62.9 µs | 2.9× |
+| B=30549 (HBM, primary) | 1563.8 µs | **1563.7 µs** (unchanged path) | 4743 µs (r2 board) | 3.03× |
+
+Crossover sweep, same-window A/B (planes vs fused, µs/call): B=2 7.12 vs 8.19,
+B=4 7.25 vs 8.45, B=8 7.63 vs 8.41, B=10 9.17 vs 8.47, B=12 9.14 vs 8.24,
+B=16 10.04 vs 8.27, B=24 12.53 vs 8.36 → cut at **B ≤ 8**. (The planes path's
+per-call cost grows with B because 13·B blocks × 2× traffic; the fused kernel is
+flat ~8.3 µs for one wave.)
+
+rel L2: 3.9–4.0e-16 on the planes path (B=1, 4, 8 — dense per-output accumulates
+slightly differently than the folded matvec's 3.2e-16; both far under the 1e-12
+gate), 3.2e-16 on the fused path (B=477). Bit-identical across runs at every point;
+`compute-sanitizer --tool memcheck` 0 errors on the planes path at B=8.
+
+### What was tried and did NOT work, with the numbers that killed it
+
+* **Warp-chunked cp.async staging fused into the z-pass** (adopted for trial from
+  **L17_raderfused round gpu_r2**, where it bought −2.3% at their HBM point): warp
+  w's 32 z-lines cover exactly the contiguous elements [416w, 416w+416), so each
+  warp cp.asyncs its own chunk, waits its own group, `__syncwarp`s, and starts z
+  while other warps' loads are in flight — deleting the load→z `__syncthreads`.
+  Same-window A/B: B=30549 **1568.7 vs 1563.7 plain** (+0.3%, median +1%),
+  B=477 **22.86 vs 21.70** (+5%). **L8_blockfused r2's warning wins the tug-of-war**
+  ("do not perturb a global access pattern at 90% of DRAM peak" — their warp-local
+  staging lost 1.3% the same way): at L=13's 4-blocks/SM residency the co-resident
+  blocks already de-phase the load streams, and the per-warp-contiguous read order
+  costs more than the deleted barrier saves. L17_raderfused's gain evidently needed
+  their 2-blocks/SM regime, where in-block overlap is the only de-phasing available.
+  Kept behind `L13_FORCE_WCP=1`.
+* Planes path at B ≥ 10 (see crossover table) — the cut is a measured number, not a
+  guess.
+
+### Borrowed this round (attribution)
+
+* **L17_dmma round gpu_r2**: the entire B=1 win — single plain launch + arrive-and-
+  spin software grid barrier with a monotonic epoch counter, the co-residency check
+  in create(), and the release/acquire fence discipline; plus their r1 finding that
+  lane-divergent twiddles must come from global/`__ldg`, not constant memory (used
+  in phase 1), while block-uniform ones belong in `__constant__` (phase 2).
+* **L17_raderfused round gpu_r2**: the warp-chunked cp.async idea (measured, dead
+  here — numbers above so nobody retries it at L=13).
+* **L8_blockfused round gpu_r2**: the read-order warning that correctly predicted
+  the wcp result.
+
+### What I would do next
+
+1. **B=1 residual (~6.8 µs ≈ 3.4 µs launch + ~3.4 µs kernel)**: phase 2's serial
+   13-load global chain and the two dense passes are the kernel time. A folded
+   per-output form would halve phase arithmetic but the loads dominate; expected
+   ≲0.5 µs. Diminishing returns.
+2. **B_L2 (21.7 µs vs ~11.6 µs write floor)**: every structural idea is now measured
+   dead by me or a neighbour — persistent blocks (L8 r2: +5.6%), plane-granular
+   cp.async pipelining (L17_dmma r2: loss at both points), V=2 (mine r2: +27%),
+   warp-chunked overlap (this round: +5%), 2-thread lines (register-file math says
+   no more blocks). I believe this cell is structurally finished at 24 warps/SM.
+3. **B_HBM stays closed**: 88% of DRAM peak at minimum bytes, three entries with the
+   same verdict, every overlap trick measured negative. Do not spend rounds here.
+4. If a future geometry wants the planes path at larger B: the limiter is the 2×
+   traffic through scratch, not the barrier — a fused-phase-2-into-phase-1-of-the-
+   next-call shape does not exist under the per-call contract.

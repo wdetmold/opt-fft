@@ -217,3 +217,140 @@ paths (graph B=1, split B=5, chunked B=10 incl. the C=3 tail chunk of 1).
 4. Producer/consumer fusion of kernel_x(chunk c) with kernel_yz(chunk c+1)
    (L36_sharedtiled r2's suggestion) is the remaining structural idea for the
    HBM point; the launch-grain L2 pipeline is otherwise tuned out.
+
+## Round gpu_r3
+
+### Standing at the start
+
+Led all three L=64 points in gpu_r2 (B=1 1.29×, B=4 1.39×, B=256 1.43× over
+cuFFT, 2617.5 µs on the monitor at B=256). This round executed the one
+structural idea every large-L record pointed at — the fused persistent
+producer/consumer kernel, proven by L36_globalpass r2 at −13% — and it LOST
+here. The numbers below are the honest account; the round's net keep is a
+tail-chunk fix and three negative results that close the fusion door for this
+entry's current kernel shape.
+
+### What was built: fused persistent kernel (kept, but not default)
+
+`kernel_fused`, borrowed structurally from **L36_globalpass gpu_r2**: one
+launch per execute, grid = one resident wave (occupancy-probed: 2 blocks/SM ×
+108 = 216 blocks of 512 threads, 66.5 KB shared). Blocks loop pulling tickets
+from a global atomic; ticket = one yz (b,x) plane or one x (b,y) plane;
+schedule = yz(0..LEAD−1) runway, then alternating yz(v+LEAD)/x(v), then the x
+tail. Per-volume done counters (yz releases with store→threadfence→sync→
+atomicAdd, x polls with __nanosleep); host-side epoch bases in mod-2^32
+arithmetic, no counter resets (also L36_globalpass's machinery). Deadlock-free
+because the grid is one resident wave and every yz(v) ticket precedes every
+x(v) ticket in dispatch order. Correct (4.44e-16), memcheck clean,
+bit-identical re-runs. Runs under `L64_MODE=1`, lead under `L64_LEAD`.
+
+**It measured slower than the r2 chunked launch pipeline at every batch:**
+
+| case | chunked (default) | fused best (lead=2) |
+|---|---|---|
+| B=64 | 662 µs (min, sd 0.1% on-lease) | 713 µs (sd 0.03%) |
+| B=256 | 2626–2631 µs min | 2765 µs min / 2775 median |
+
+Lead sweep at B=64 (lean-twiddle build): **2 → 713**, 3 → 726, 4 → 801,
+6 → 984 µs. Grid must be the full 216-block wave: 108 → 809, 432 → 891.
+The fused kernel's ncu picture at B=64/lead=2: DRAM reads at the compulsory
+floor (276 vs 268 MB) but **writes 493 MB vs a 268 MB floor** — the
+intermediate leaks to HBM about as much as the chunked path's does (r1
+measured ~50% leak there too), so fusion did NOT buy the traffic win here the
+way it did at L=36. Top stalls: barrier 24.7%, long-scoreboard 12.7%, membar
+4.6%. The deficit is the ticket loop itself: 5 syncs + 1 fence + 1 atomic +
+spin per 64 KB plane, on kernels that were already latency-bound at 50%
+occupancy — my planes are ~18× more work-starved per barrier than
+L36_globalpass's 21 KB slabs with 3 syncs, and their fused kernel had
+register headroom (72 regs at 216 threads) where mine is capped at 64.
+
+### Chained on-the-fly twiddles: opposite verdicts in the two settings
+
+`fft64_reg_lean`: w1 = W64^t from the table, W64^{t·k1} chained by log-depth
+cmuls (w2=w1², w4=w2², ...) — ~6 extra cmuls per line FFT, 1 register pair of
+live twiddle instead of 7 (my r2 "next" item 2, finally measured):
+
+* **In kernel_fused it is a clear win**: 786 → 713 µs at B=64. The 64-reg
+  union of both phase bodies spilled 168 B/thread with the table (the spill
+  writebacks show up as DRAM write pressure); lean cut spills to ~132 B and
+  bought 9%. Kept in the fused kernel.
+* **In the launch kernels it is a clear LOSS**: B=64 chunked 743 vs 662 µs,
+  B=256 2976 vs 2627 µs (B=1 neutral: 18.45 vs 18.56). The solo kernels only
+  spill ~40 B; what lean adds there is a serial dependent-multiply chain on
+  the critical path of latency-bound warps. Table twiddles stay the default
+  (`-DL64_LEANTW` re-enables lean for A/B).
+* Accuracy with lean: rel_l2 4.44e-16 vs 4.17e-16 — ~2 ulp on chained
+  twiddles, three orders inside the gate, not a factor.
+
+### Tried and rejected, with the number that killed it
+
+* **Ticket prefetch** (grab ticket i+1 during ticket i, publish at an
+  existing phase barrier, removing the dedicated top-of-loop sync): B=64
+  lead=2 713 → 799, B=256 2765 → 3138. Moving the prefetch after the consumer
+  spin (so a producer ticket is never queued behind a stalled consumer) was
+  still worse; prefetch before the spin was catastrophic (962 µs / 3807 µs)
+  for exactly that queuing reason. The dedicated grab barrier is cheaper than
+  any schedule distortion. Do not revisit.
+* **Fused with table twiddles** (the natural first form): 786 µs at B=64 —
+  the 64-reg two-phase union spills 168 B/thread. Registers, not traffic,
+  are why a fused kernel that worked at L=36 does not transplant to L=64.
+* **1-block/SM fused grid** (better L1, half the warps): 809 vs 786/713.
+* **Lean twiddles in the launch kernels**: see above, −12% at the HBM point.
+
+### What actually shipped this round
+
+1. **Tail-chunk balance in the chunked path**: B=256 at C=3 used to end
+   85×3+1 — a 64-block, single-stream 1-volume tail. Now (C,1) tails split
+   (C−1,2): 84×3+2+2. Measured 2617.5 µs min / 2623 median, sd 0.11% (r2 form:
+   2619–2642 µs); output bit-identical to the unbalanced form, as it must be
+   (chunking never changes per-volume arithmetic).
+2. The fused kernel + counters stay in the file behind `L64_MODE=1` with the
+   occupancy probe and epoch machinery, for whoever attacks the HBM point
+   next round.
+
+### Measured (leased SXM4 A100, tryout.sh / on_gpu.sh, final build)
+
+| case | gpu_r2 | gpu_r3 | per volume | cuFFT (r2 board) | ratio |
+|---|---|---|---|---|---|
+| B=1   | 18.5 µs | **18.56 µs** (min; median boost-noisy) | 18.6 µs | 23.5 µs | 1.27× |
+| B=4   | 42.1 µs | **41.9 µs** (sd 0.25%) | 10.5 µs | 58.0 µs | 1.39× |
+| B=256 | 2619 µs | **2617.5 µs** (sd 0.11%) | 10.22 µs | 3739.9 µs | 1.43× |
+
+rel_l2 = 4.16–4.17e-16 at B=1,4,5,10,64; bit-identical across runs at every
+point; memcheck clean on the chunked (new tail) and fused paths. The B=256
+numpy check cannot run this session — the login node's host commit limit is
+pinned at 99% by other users' jobs (Committed_AS 130.7/131.9 GB), which also
+required `OPENBLAS_NUM_THREADS=1` for every gen_input/check invocation.
+B=256 correctness rests on B=10/64 PASS on the identical code path plus
+bit-identical output across chunk configs.
+
+### Borrowed, and from whom
+
+* **L36_globalpass gpu_r2**: the whole persistent ticket/epoch design —
+  ticket runway, done-counter release/poll idiom, no-reset epoch bases, and
+  the one-resident-wave deadlock argument. Their win did not transplant;
+  the negative result (and why: plane size per barrier, register ceiling,
+  no traffic win to collect) is this round's main contribution to the pool.
+* **L45_pfa r2 / L36_sharedtiled r2**: took "the chunk lever is real but only
+  with the hint pairing" as settled and did not re-sweep hints.
+* The chained-twiddle idea is my own r2 next-list item 2; the split verdict
+  (win in a spilling kernel, loss in a latency-bound one) is new information
+  for every entry with a register-capped codelet.
+
+### What I would do next
+
+1. **Two specialized persistent kernels instead of one fused union**: yz-only
+   and x-only persistent grids of 108 blocks each, co-resident (identical
+   footprints), sharing the done-counter handshake, one event between
+   executes for the in-place hazard. Each compiles at solo register pressure
+   (no union spills), each keeps its own hint policy, and the ticket loop
+   sheds the branch. This was L36_globalpass's r2 next-item 1; my fused data
+   says spills and barrier grain are exactly what it would fix.
+2. **The real ceiling is unchanged since r2**: both launch kernels
+   latency-bound at 50% occupancy (64 regs/thread), everything ≤51% SOL,
+   composite floor ~1.4–1.6 ms at B=256 vs our 2.62. The radix-4³ codelet
+   (16 lanes × 4 complex ≈ 40 regs → 3 blocks/SM if shared allows) is still
+   the only untried occupancy lever. Note the shared plane then caps blocks:
+   it needs the half-plane (33 KB) x-kernel form to get past 2 blocks/SM.
+3. If the monitor's pinned-clock B=256 number moves from 2617, suspect
+   nothing: the tail fix is bit-identical and the chunk config is unchanged.
