@@ -881,3 +881,172 @@ of u[36] spills) — net eager win ~2.3 µs, + ~1.3 µs from the 2:1 ratio.
 4. tryout.sh line 36 still expands $W before defining it; keep the
    `W=$PWD/build/tryout/<name>` prefix and run check.py by hand (which is
    also the only chain-repeatability check that exists in map mode).
+
+## Round ice_r7
+
+### Where the round started
+
+Scored ice_r6: **106.908 µs/step, 3rd** at the graded cell (36:8:64 map
+chain; L36_mixedradix 100.801, L36_pfa 106.249, MKL 284.3).  Two context
+facts framed the round: (1) the new `results/rivals_icelake/` table shows
+the best GATE-PASSING rival at L=36 on our own node is 1760b1bf at 0.0587 s
+= 114.7 µs/step — every rival is behind this entry; the target is
+mixedradix.  (2) Their r6 record decomposes their 100.5 quiet step as
+z=31.7% y=15.9% p2=51.9%, i.e. phase 1 ≈ 47.6 µs vs my pass A 51.65 and
+their y-subloop at its EXACT 144.5-cyc p05 floor.  Round-start re-measure
+of the r6 code: 108.1–108.6 min, sd 0.02–0.06%, MKL 286.8–289.8 — every
+contrast below is same-window, MKL-flat, and the session was unusually
+quiet (sd ≤0.5% on nearly every run).
+
+Bookkeeping note found this round: the r6 leaderboard description string
+still read `lazymap2-rgi` because fft3d_create()'s snprintf was never
+updated when r6 shipped the eager flow — fixed; the string now names the
+actual chain shape, so the monitor can read the pick again.
+
+### The round's bet, and how it died: FUSED-BOUNDARY CUSTODY
+
+ADOPTED from **L64_radix8 ice_r6's ckind=2** (which took the L=64 cell
+after L64_blocked's record declared the fusion impossible): the three axis
+transforms of one FFT commute, so the chain ... M·X·Y·Z · M·X·Y·Z ...
+regroups into alternating SINGLE sweeps, each completing step k and
+beginning step k+1:
+
+    P: [Z_k Y_k · M_k · Z_{k+1} Y_{k+1}]   plane-local (map at subloop-B
+       stores into the 20.25 KB mp, c NATURAL — subloop B's store index IS
+       the row-major c plane offset; then the plain broadcast pass A
+       re-reads mp for Z_{k+1} Y_{k+1})
+    F: [X_k · M_k · X_{k+1}]               strided (map via the r6 rotation
+       into a register array w[36], indices constant-folded; FFT#2 consumes
+       w directly — no memory round trip, honoring the r6 ESTASH lesson)
+
+Schedule: sweep 0 = plain pass A on x0; k=1..m-1 alternate F (odd) / P
+(even); final half sweep = passB_mape (m odd) or a planePhalf_map into
+final_out (m even; the graded m=64 ends P-type).  Same arithmetic (6 axis
+stages + 2 maps per 2 steps), ONE S read+write per step instead of two.
+Both gates PASS (single 3.586e-16; chain m=64 rel_l2 1.291e-14 — bits
+differ from r6 by legal axis reassociation), bit-repeatable.
+
+**REJECTED by the node: 111.5–111.8 vs the r6 flow 108.2–108.5 µs/step,
+2/2 alternations, MKL 286.8 (+3.0%).**  noinline + `#pragma GCC unroll 1`
+fences on the fused bodies (the mode-11 cure) changed nothing (111.9/115.1
+vs 108.6/112.2 in a noisier window).  The SKF/SKP phase splits priced the
+sweeps: F ≈ 79 µs/sweep (707 cyc/call vs a ~440 port floor), P ≈ 146
+µs/sweep, so custody = 225 µs/2-steps vs r6's 215.7.  The accounting
+mistake in the bet, written down so nobody repeats it: **at this
+L2-resident cell the r6 two-sweep flow is already load/store-minimal** —
+per 2 steps r6 does 4 S-reads + 4 S-writes, custody does 3 + 3 (the mp
+round trip replaces one of them 1:1) — so the fusion deletes only ~one
+746 KB L2 round trip per 2 steps (~4 µs) while adding ~18 µs/2-steps of
+fused-body register/ROB pressure (u[36]+w[36] live in F; the slB map
+rotation in P costs more than the same rotation in the carrier, where the
+36 plain strided loads pressure the OOO window less than 144 broadcast
+merges).  L64's custody win lives on an 8 MB/volume L3-scale state where a
+deleted sweep is real bandwidth; it does NOT transfer to a 746 KB
+L2-resident state.  Kept compiled under `-DFFT36PF_CUSTODY` (diagnostics
+`-DFFT36PF_SKF`/`-DFFT36PF_SKP`); the default chain is the r6 flow.
+
+### Also priced and rejected, with the numbers that killed them
+
+1. **Split merge-broadcast builder (`-DFFT36PF_BCOR`)** — r6 next-list
+   item 1: the 4-deep dependent vbroadcastf64x2 merge chain rebuilt as two
+   2-deep maskz halves + one vorpd (+36 p05/call, half the depth).
+   **109.1–109.9 vs 108.1–108.6, 3/3 alternations, MKL 288–290** — the
+   merge depth was NOT the pass-A binder; the vorpd is a pure p05 tax.
+   All six builder sites now share one BCB4 macro (default = 4-deep).
+   CAUTIONARY TALE, free to the panel: the FIRST version of this knob
+   "won" by 1.5 µs — with a mask bug (the first half broadcast r0 into
+   all 8 lanes and only merged r1, so the OR corrupted lanes 4–7).  The
+   tells were a changed setup time (0.50 vs 0.78 s — the exec tuner's
+   admission gate silently rejecting every corrupted bcst candidate) and
+   `cmp` on the chain outputs.  A/B twins that should be bit-identical
+   MUST be cmp'd before their timing is believed.
+2. **Transposed-pp pass-A hybrid (`-DFFT36PF_TPP`)** — grafting
+   mixedradix's y-at-floor mechanism: subloop A stages its 36 outputs
+   (Wv), 4x4-transposes them (72 p5/call) and stores pp[y][kz]; subloop B
+   then feeds PFA36 with 36 PLAIN 64-B loads, zero broadcasts.
+   **112.0–112.3 vs 107.9–108.9, 3/3, MKL 288** — the Wv[36] staging
+   spills (the exact thing the r2 bcst design deleted) cost ~4 µs, more
+   than the 108 deleted broadcast loads/call pay back.  Structural fact
+   derived on the way (write it down, it kills a family of ideas): PFA's
+   index scatter makes the staging UNAVOIDABLE for any transpose-fed
+   PFA36 — OX(k1,k2) mod 4 == k1 and IX(n1,n2) mod 4 == n1, so every
+   consecutive-k transpose block needs one output from each of the four
+   SB_ calls and every consecutive-j block feeds four different SA_
+   calls.  Mixedradix pays this staging inside their ~300-cyc z-calls;
+   grafting only their cheap half is not possible.
+3. Custody map-style variants (all-B in the F sweep on its doubled
+   divider budget) were built as knobs (`-DFFT36PF_MALLB`) but not raced
+   — custody lost by 3.3 µs before style tuning could matter.
+
+### What ships
+
+The ice_r6 eager flow, bit-identical output and fingerprints (single
+3.586e-16, chain m=64 1.191e-14), through the refactored shared BCB4
+builder (4-deep default — instruction-identical to r6).  Plus: the fixed
+description string, and the three knob-gated rejected twins for future
+rounds.  End-state same-window numbers on the node: **B=8 107.9–108.9
+min (MKL 288–290); B=32 108.786 (chain 1.416e-14); B=1 107.8–121.9
+window-dependent, twins bit-identical (chain 1.197e-14)**; B=8 chain
+output identical across runs (explicit cmp).  Setup 0.78 s (B=8).
+
+### Operation count
+
+Default path unchanged from ice_r6 (PFA 4×9 n1_9: 232 FMA-port + 57 p5
+per 36-line over PW lanes; 225,504 FMA-port vector ops + 55,404 swaps per
+volume at PW=4; map 12 style-B + 6 style-D pairs per carrier call).  The
+custody twin moves zero arithmetic (same 6 stages + 2 maps per 2 steps);
+BCOR adds 36 vorpd/call; TPP trades 108 broadcast loads/call for 72 p5
+shuffles + a 36-vd staging array.  All three rejected on measurement, not
+on count — the counts said custody and TPP should win or tie.
+
+### Borrowed this round, named
+
+* Fused-boundary custody (one sweep per step, axis-role alternation):
+  **L64_radix8 ice_r6 (ckind=2)** — mechanism verbatim, translated to
+  4×9 PFA sweeps; rejected here by the L2-residency arithmetic above.
+* The phase-1 decomposition target (y at p05 floor) that motivated TPP:
+  **L36_mixedradix ice_r6's** TSC splits, read from their file as this
+  format intends.
+* The noinline/unroll-fence code-size cure tried on the F sweep:
+  **this file's panel_r9 mode 11** machinery.
+
+### Predictions for the scoring window (so they can be scored)
+
+* Description reads `fchain pw=4 volres inplace EAGER map@passB cperm
+  hyb12B:6D r7[cu111.5 or109.1 tpp112.0 vs 108.1]` — the r7 bracket is
+  this round's rejected-twin scoreboard riding the string for the
+  monitor.  Fingerprints are the r6 ones: single 3.586e-16, chain m=64
+  **1.191e-14**, bit-repeatable — if the scored chain fingerprint reads
+  1.291e-14 instead, a `-DFFT36PF_CUSTODY` flag leaked into the scored
+  build; flag it.
+* **B=8 graded cell: 106–110 µs/step** in a quiet window (this session's
+  quiet band 107.9–108.9 at MKL 288–290; r6 scored 106.908 from the same
+  code in a 284-MKL window).  Any move ≥4 µs either way is window, not
+  code — the shipped bits are r6's.
+* mixedradix ships from ~100.5; expect 2nd again, gap ~6 µs.  The honest
+  read after this round: their remaining edge is phase-1 shape (their z
+  absorbs the transpose staging better than my broadcasts absorb their
+  rebuild), and closing it needs their w-file kernel form, not a knob.
+
+### Next
+
+1. **The three cheap structural doors at this cell are now all measured
+   shut** (custody +3.0%, BCOR +1%, TPP +3.7%, on top of r6's stash/
+   PAIRB/prefetch/ratio dead ends).  What remains is hand-shaping the
+   two hot bodies below gcc's allocator: (a) the carrier's ~170 cyc/call
+   over floor (u[36] spill placement in the store phase), (b) pass A's
+   ~86 cyc/call over floor.  Both are asm-level or
+   scheduling-pragma-level work; nothing else on the idea list survives
+   a count.
+2. If a future round has PMU time (perf_event_open works on this node),
+   read UOPS_DISPATCHED.PORT_5 and DSB coverage on the carrier FIRST —
+   the r6/r7 overhead attribution (ROB/retire vs ports) is still
+   inference, and two rounds of ideas died on it.
+3. The custody machinery is correct, gate-passing, and knob-live; if the
+   graded cell ever moves to an L3-scale state (bigger L, bigger B, or a
+   cache-hostile c), re-race `-DFFT36PF_CUSTODY` before anything else —
+   the arithmetic that kills it here is exactly what reverses there.
+4. Do NOT retry: everything on the r3–r6 lists, plus one-sweep custody
+   at L2-resident cells, broadcast-depth splitting, and transpose-fed
+   PFA36 without accepting the staging array (the mod-4 scatter proof
+   above).

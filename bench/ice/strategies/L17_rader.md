@@ -677,3 +677,156 @@ algorithmic kernel levers remain for them, so expect them at ~12.4-12.7.
    (deliberately untouched -- unscored insurance paths only).  If any of
    them is ever promoted back to a scored path, realign those buffers
    first.
+
+## Round ice_r7
+
+### Where this round started
+
+ice_r6 leaderboard: L17_winograd 11.649, L17_matrixsimd 11.935, me **12.284
+us/step** (scored desc: `ch=msr 12.28 nm=16.82 msr=12.28 msnm=9.03 msok=1`).
+The r7 brief made the mining explicit: the rivals' sources re-benchmarked on
+THIS node put the honest L=17 target at 1760b1bf's 33.5 ms = **10.68
+us/step**, and my own r6 "next round" entry said it plainly: if matrixsimd's
+r6 ships an engine-level win, port it -- the engines are structurally
+identical, so their deltas apply almost mechanically.  matrixsimd's r6 DID
+ship one: "chain v6", the padded in-place strided engine (structure from
+rival 1760b1bf), worth ~-0.85 us matched on their side.  This round is that
+port, done the same way as my r5 msr port: verbatim structure, a numerical
+self-check gate, and same-lease matched-pair A/Bs for every claim.
+
+### What was built: the "ms6" chain engine (port of L17_matrixsimd chain v6)
+
+ADOPTED WHOLESALE from impl/L17_matrixsimd.c ice_r6 (their l17_chain_v6 /
+chunk17zri / L17_V6_A2G / l17_map_vec1; structure originally rival
+1760b1bf's run17_A pass shape):
+
+1. **Padded private arenas** (p->msv6a state, p->msv6c c field): rows 17 ->
+   20 complex (320 B), slab stride 808 doubles = 6464 B = 101 lines (odd,
+   L1-set spread), ~110 KB each, both L2-resident.  Unpack x0+c once per
+   volume-chain, pack the mapped end state once -- amortized by m=98.  Pad
+   lanes zeroed at create and provably stay zero (linear passes map 0 -> 0,
+   map(0+0) = 0 with the 1e-300 bias).
+2. **ms_chunk17zri**: in-place twin of the shared kernel -- one non-restrict
+   pointer, all 17 loads before all 17 stores, plain stores only.  Passes b
+   (axis j0, at the slab stride) and a1 (axis j1, stride 40) transform IN
+   PLACE along the stride: zero shuffles, no t1, no plane buffers, no
+   addr-safe machinery.  Deletes the 87 KB t1 round trip per step and every
+   line-split access class the r6 alignment fix was about.
+3. **a2 (axis j2)** as 4-row groups through a transposed 20-vector stack
+   array (MS_TP4 4x4-complex tiles, 8 vpermt2pd each way), the SAME kernel
+   on the stack, with the s6 map interleaved at GROUP granularity; row 16
+   rides their cross-slab fringe (4 full zmm groups over 16 slabs' row-16
+   lines + 1 overlap group storing only slab 16's lane, as a shared
+   noinline unit ms_v6_frg here); a1(s0+1) software-pipelined into a2(s0).
+   Their A/B hooks kept: -DL17R_V6_XS=0, -DL17R_V6_P1=0.
+4. **One deviation, bit-identical and free**: the a2 stack tile array io_[]
+   is declared __attribute__((aligned(64))).  Both my v8d and their vd_w4
+   typedefs are aligned(8), so NOTHING guarantees the donor's stack tiles
+   sit on cache lines -- the r6 arena-misalignment lesson applied to the
+   stack.  (matrixsimd: take this back; it costs one attribute.)
+5. **Self-check gate (r5 pattern)**: ms6 enters the race only if a full
+   m=3 chain (FFT + map each step; m=3 exercises the arena re-entry and the
+   pack path) agrees with the already-gated msr chain to 1e-12 rel L2
+   (distinct rounding classes ~1e-15 apart -- msr maps each plane's 289th
+   complex via the exact 128-bit sqrt+div tail, ms6 runs everything through
+   the rsqrt14 ladder; a transcription bug would read ~1e0 and the plan
+   falls back to msr).  ok6 is published in the description.
+6. **Pick band widened to 15%** (was 3% for msr in r5): the create-time
+   race is cold-biased AGAINST ms6 (its arenas are first-touched moments
+   earlier; msr's buffers are hot from the whole earlier tuner) -- in-create
+   ms6 raced 2.9% BEHIND msr while same-lease steady-state pairs put it
+   2.8% AHEAD, 7/7.  The donor ships v6 with no race at all; the band only
+   guards against a machine-side anomaly, msr stays the verified fallback.
+
+### Operation count
+
+Per volume-step: 243 zmm kernel chunks (85 b + 85 a1 + 73 a2) x 148 FP =
+36.0k vector FP ops, all-zmm over 972 lane-transforms (+12% pad/overlap
+waste vs the old engine's 904 at 209 zmm + 34 ymm chunks).  Shuffles: 73
+groups x 80 TRANSP4-uops + 8 MULI/chunk (vs the old tile+MULI ~6.8k).
+DELETED per step vs msr: the 87 KB t1 store+reload, both pb plane buffers,
+the addr-safe shift machinery, and the separate map sweep sites.  Map
+unchanged (s6 exact tier: rsqrt14 + 2 Newton, ONE vdivpd per 8 points),
+714 pair-iters + 17 single-vector fringe calls per volume-step.
+
+### Measured (ICE node; every A/B is same-lease alternating full binaries)
+
+| config | result |
+|---|---|
+| **ms6 (shipped), matched pairs vs msr, B=32 m=98** | **11.890 / 11.911 / 11.922 / 11.935 / 11.947(x2) / 11.957 / 11.969 us/step** vs msr 12.261-12.359 -- ms6 wins 7/7 clean pairs by ~0.35 us (first pair's ms6 13.52 was the documented bimodal co-tenant mode; its msr twin read 12.28) |
+| tryout steady state, other windows | 12.093-12.128 (sd 0.01% within-lease; a 13.57-13.63 co-tenant mode also exists -- same binary, MKL steady 88.9, r6 lesson holds) |
+| **B=1 m=98** | **min 13.548-13.567, sd 0.01%** (r6: 13.888; donor's v6 B=1: 13.610 -- the io_ alignment may be the difference) |
+| MKL same case/core | B=32: 88.88-90.59; B=1: 99.5 |
+| single-transform gate | rel_l2 3.160e-16 (B=32), 3.114e-16 (B=1) |
+| chain gate m=98, manual check.py ($W bug STILL live) | **B=32: 2.055e-14, B=1: 1.163e-14** (tol 9.8e-12) -- B=32 value byte-matches the donor's v6, as identical arithmetic must |
+| repeatability | out.bin AND out.bin.chain cmp-identical across processes; auto-pick binary's chain == forced-ms6 binary's chain |
+| in-create race (cold-core levels, ranks only) | ch=ms6 14.30 msr=14.14 msnm=10.39 **ms6nm=9.84** ok6=1 msok=1 |
+
+### What did NOT work / negatives with numbers
+
+* **Fringe/b overlap (-DL17R_V6_FB=1, default OFF)** -- the donor's own r6
+  "open" item (est. -0.2..-0.3 us), built here: fringe(s-1) interleaved
+  into pass b(s) after rows 2/5/8/11/14, row-16 b chunks last.  Chain
+  outputs cmp-verified BIT-IDENTICAL both ways, and it LOSES: fb1
+  11.943/11.947/11.969 vs fb0 11.919/11.927/11.942, 3/3 pairs (+0.02..
+  +0.05 us).  The fringe is not an exposed serial tail -- the OoO window
+  already overlaps it with the next pass b at the seam, and the interleave
+  only disturbs pass b's stride stream.  matrixsimd: strike this from your
+  open list; the mechanism is built and measured, take the hook if you want
+  the re-A/B.
+* **Environment note**: tryout.sh/reserve.sh need squeue; this session's
+  PATH lacked slurm (export PATH=/opt/software/slurm-19.05.8.1/bin:$PATH
+  fixes it -- the reservation itself was alive the whole time, heartbeat
+  fresh).  The r4 $W bug is STILL live; same workaround (env W= prefix,
+  manual check.py --map-check, manual cmp).  Also: tryout.sh REGENERATES
+  in.bin/c.bin at the requested batch -- after a B=1 tryout, every manual
+  B=32 run against those files dies with "in.bin too short"; regenerate
+  with gen_input.py (seeds 42 / 900042, scale 0.1 for c) before manual
+  B=32 work.
+
+### Borrowed this round, named
+
+* **The entire ms6 chain engine is L17_matrixsimd ice_r6's chain v6**
+  (chunk17zri, padded arenas, in-place strided passes, a2 tile-io groups,
+  cross-slab fringe, a1->a2 pipelining, map-at-group-granularity), itself
+  structurally from **rival 1760b1bf** (ext/reference/fft_v4_solutions/
+  1760b1bf_score0.96/generator.py).  Stated plainly: this round is their
+  work adopted under the cumulative rules, with the io_ 64-B stack
+  alignment as my one (bit-identical) addition and the widened pick band +
+  m=3 cross-check gate as the safety layer.
+* The self-check-gate-before-race pattern is my own r5 invention, reused;
+  the same-lease alternating-binary A/B protocol is **L17_matrixsimd
+  ice_r5**'s, reused throughout.
+
+### Score projection
+
+Dev floor 11.89-11.97 in clean windows (matched against msr 12.26-12.36;
+r6's msr scored 12.284 from the same window class), so expect **~11.9-12.0
+us/step scored**, from 12.284.  That likely stays behind winograd (11.649
+scored, and their r6 record has smaller open items left) and near-parity
+with matrixsimd unless they moved again.  The honest rival mark on this
+node is 10.68 (1760b1bf re-benchmarked); the panel-wide gap at L=17 is now
+kernel-issue-shape, not structure.
+
+### Next round
+
+1. Read the scored description: expect `ch=ms6 ... ok6=1`; ms6nm ~9.8 is
+   the FFT residual on ALIGNED in-place passes.  If ch=msr shipped, the
+   15% band tripped -- investigate the create window before anything else.
+2. The three L=17 entries now share (variants of) one engine at 11.6-12.0
+   and the rivals' 10.68 exists on more FP per line, so the remaining ~1.2
+   us is issue shape inside the a2 group + map interleave and the kernel's
+   dependency graph.  The costed-but-unbuilt cards: (a) the donor's
+   store-side-transpose twin of a2 (within ~1k uops on paper, only worth an
+   A/B behind a probe showing the io staging on the critical path); (b) the
+   v6 rival generator's H17=s44 Hartley-split pencil
+   (fft_v5v6_solutions/v6_f40c5e25/dev_generators/gen.py) -- a DIFFERENT
+   prime kernel family; price its total-uop count against our 148-op chunk
+   before building anything (ROOFLINE.md: count total vector uops, not
+   FMAs).  Read L17_winograd's and L17_matrixsimd's r7 records first; if
+   either shipped a kernel-level win on the shared engine, port it.
+3. My FB hook answers their fringe/b question negatively with numbers; do
+   not rediscover it.  The old xk/xm/mp families and the msr engine remain
+   as raced, gate-verified fallbacks (msr is one L17R_FORCE_V6=0 away).
+4. Housekeeping unchanged: $W bug, W= prefix, manual check.py, manual cmp,
+   and now the PATH/slurm and in.bin-regeneration notes above.

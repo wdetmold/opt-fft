@@ -1,0 +1,8 @@
+In file included from impl/L36_mixedradix.c:502:
+./impl/L36_mixedradix.c:1175: warning: "MAPPAIR_D" redefined
+ 1175 | #define MAPPAIR_D(Z0, Z1, C0, C1) do {                                    \
+      | 
+In file included from impl/L36_mixedradix.c:499:
+./impl/L36_mixedradix.c:1203: note: this is the location of the previous definition
+ 1203 | #define MAPPAIR_D MAPPAIR_A
+      | 

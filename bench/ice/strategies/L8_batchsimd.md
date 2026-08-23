@@ -666,3 +666,148 @@ m ∈ {1..7,9,10,31} × B ∈ {1,5}, plus forced-arm runs for r0d/r0g/natg.
    whether the residue is latency (helps) or ports (hurts).
 3. If the scored number lands ≥0.60, it drew a slow window — the warm
    number is 0.574–0.576, reproduced across three leases at sd 0.02%.
+
+## Round ice_r7 (2026-08-23)
+
+### Where I stood, and the round's mandate
+
+ice_r6 scored: **third at 0.575 µs** (fusedaxes 0.555, radix8 0.569, MKL
+2.112 → 3.7×).  This round is the mine-the-competition round, and the mine
+was already surveyed: fusedaxes won r6 with "hp" — the half-pass split of
+the phase-B group — the exact idea radix8's "sb" measured at **+10%** in the
+same round.  Their two records together isolate WHY the same idea wins in
+one file and loses in another: (a) the cut placement — fusedaxes cut at the
+transpose/rename boundary (~150/~240 uops, transposes in B1); radix8 cut
+before the transposes (~84/~260, unbalanced); and (b) the alias frame —
+fusedaxes pinned scr/scr2/state all ≡ 0 mod 4096 with mod-4 block phasing so
+every pass boundary is alias-free by construction; radix8 used an offset-
+pinned scr2 in a comb-store layout.  My pass B was the same ~380-uop
+ROB-bound group (P-DFT, transpose pair, SW rename, Lc-DFT, map, stores), so
+this round executes hp on my kernel, their way.
+
+### What shipped
+
+1. **The hp split** (adopted from L8_fusedaxes ice_r6, their round win):
+   pass A now stores GRID (my r6 SGSA arm's addressing: group rows
+   contiguous, plane stores comb-wise); **B1** (per group, unroll-8) = 16
+   CONTIGUOUS loads of scr row u + P-axis r8 + transpose pair + 16
+   contiguous stores to a new second scratch scr2 row u (~132 uops); **B2**
+   (per group, unroll-8) = 16 loads of scr2 row u with the SW lane rename
+   COMPOSED INTO THE LOAD ADDRESSES (zero shuffles, compile-time) + Lc-axis
+   r8 + map + 16 state stores (~240 uops).  Same values through the same
+   ops in the same order → output bit-identical to the two-pass arms
+   (node-verified: forced hp vs forced r0 chain outputs BYTE-IDENTICAL at
+   B=64 m=2572, and the chain gate reads 2.599e-11 — the exact r4/r5/r6
+   scored number).  Each pass is its own NOINLINE function with honest
+   restrict everywhere (within a pass all buffers are genuinely disjoint,
+   so the r5 in-place gcc trap cannot arise; fusedaxes' negative — both
+   unrolled loops in one frame = 251 spill moves — dodged the same way
+   they dodged it).  Kernel sizes on the icelake build: B1 1093 instr /
+   B2 1813 / pass A 120, ALL 0 zmm stack moves — within 4 instructions of
+   fusedaxes' reported 1097/1823, which is how I knew the shape had landed.
+2. **The frame**: chain arena grown 6144 → 7168 doubles; state at 0, scr at
+   +8 KiB (+ raced sig), scr2 at scr + 8 KiB — with the anchor sig = 0 all
+   three ≡ 0 mod 4096, and natural row order phases every pass boundary's
+   loads 3 mod-4 page classes away from the in-flight stores.  Clay moved
+   2624 → 3648 doubles (same offset mod 512: every r6 page relation
+   preserved, line class 8), now a -DL8_CLAY_OFF knob.
+3. **Race rebuilt** (all arms bit-identical, anchor hp, 0.5% hysteresis):
+   {hp, hpo (mod-4-clean rotated row 2,3,0,1,6,7,4,5), hpd (pass-A order
+   4..7,0..3 — the B2→A boundary's 4K twins get drain slack while planes
+   4..7 load same-ADDRESS forwarded data), hpr (rolled B1/B2 — fusedaxes'
+   DSB-capacity question made an arm), hpc (classic SCLA pass A control),
+   r0, nat (two-pass incumbents)}.  r0d/oe/r0g/natg leave the set (r6
+   losers/ties).  Stage-1 sig race now runs on the hp kernel.
+4. Execute paths, B=1 plumbing, streaming, boundary steps (chv_first/
+   chv_last), map ladder: untouched.
+
+### Operation count (per volume-step, steady)
+
+p05 pool UNCHANGED: 1248 FFT FP + 384 shuffles + ~900 map FP + 64 rsqrt ≈
+2600 → floor ~1300 cy ≈ 0.45 µs at 2.9 GHz; 64 vdivpd hidden.  L1 traffic
+640 → 896 ld+st/step (the +128/+128 scr2 round trip rides ports 2/3/4 far
+under the p05 floor).  Working set 40 → 48 KiB = exactly L1d (state 8 +
+scr 8 + scr2 8 + clay 24; only ~32 KiB touched per step).  Measured 0.555
+= **1.24× the pool floor** (was 1.28×) — the split recovered about a third
+of the residual, the same fraction it recovered for fusedaxes, confirming
+group-granularity allocation stall as the mechanism at my shape too.
+
+### Measured on the NODE (a80n0; graded m=2572; warm-lease interleaved
+A/Bs after one discarded invocation, forced-arm twin binaries)
+
+| case | this round | ice_r6 | MKL same window |
+|---|---|---|---|
+| B=64 graded chain, forced hp | **0.554–0.556 µs/xform, sd ≤0.02%** (3/3 interleaved rounds) | 0.575 scored | 2.10–2.15 → **3.8×** |
+| B=64, shipped race bin via tryout | **min 0.548** (fresh lease, race picked sig=0 perm=hp) | | 2.107 |
+| B=64, forced r0 (r6 shape) same lease | 0.575–0.577 | — | hp = **−3.5%** |
+| B=1 chain (race bin, warm) | **0.549–0.550** | 0.575 | → 3.9× |
+
+Correctness: single rel_l2 2.267e-16 (B=64) / 2.269e-16 (B=1) — execute
+untouched; **whole-chain 2.599e-11 (B=64) / 9.154e-13 (B=1) vs tol
+2.572e-10** — byte-for-byte the r5/r6 numbers, as bit-identity demands;
+hp vs r0 driver outputs cmp-identical; EMU8 harness vs naive-DFT reference
+chain: all 7 forced arms PASS over m ∈ {1..7,9,10,13,31} × B ∈ {1,5} with
+identical error tables.  In-plan race (one contended window): hp family
+0.690–0.695 < nat 0.698 < r0 0.703, sig flat 0.699–0.706 → pick hp/s0.
+Parity with fusedaxes' r6 scored 0.555 at identical technique.
+
+### What did NOT work / null results, with numbers
+
+1. **hpr, rolled B1/B2 (fusedaxes' open DSB question, made an arm): +1.8%**
+   (0.565 vs 0.555, 3/3 interleaved).  The unrolled hp step is ~5.5k
+   instructions — past the ~2.3k-uop DSB — and rolled loops that fit the
+   DSB still LOSE: front-end delivery is not the binding cost; the folded
+   addressing is worth more.  Their "cheaper timing-only probe" is hereby
+   answered for both of us.
+2. **JOIN_FMA in the chain codelet (radix8's r6 −0.4% "RADIX8J"): +1%**
+   (0.560 vs 0.554–0.556, 3/3, output byte-identical).  Does not transfer
+   into hp — my pass A is rolled and B1's stores are shuffle-fed, so the
+   store-feeding-FMA mechanism has nowhere to act.  Not worth re-probing
+   unless the pass shapes change again.
+3. **Clay line-class skews 24/40 (-DL8_CLAY_OFF=3776/3904): ties**
+   (0.555–0.557 in quiet rounds; output byte-identical).  Class 8 stays.
+4. hpd +0.2%, hpo +0.5% — inside noise; kept as raced arms since a future
+   layout change could revive them.
+5. Infra: tryout.sh's chain plumbing is STILL broken ($W used at line 36
+   before its line-38 definition, so the map-check gets --cin '/c.bin');
+   the W=<path> env-prefix workaround + manual check.py remains the drill.
+   NEW this round: reserve.sh --status silently fails on wallaby when the
+   slurm module is not loaded (sbatch/squeue absent from the default
+   PATH) — the reservation looked dead but was alive; `module load slurm`
+   first, do not re-claim.
+
+### Borrowed, plainly
+
+* **L8_fusedaxes ice_r6**: the entire hp design — the round is an
+  execution of their record: cut placement (transposes in B1, ~132/~240
+  balance), the everything-≡0-mod-4096 frame with mod-4 phasing, the
+  noinline-per-pass spill cure, and their negative 3 (do NOT
+  pair-interleave volume chains at L=8) which I therefore did not build.
+* **L8_radix8 ice_r6**: the sb post-mortem that defines the trap hp must
+  avoid (unbalanced cut, comb B1 loads), and the JOIN_FMA probe (lost
+  here, priced above).  Their lz negative meant I never considered a lazy
+  variant of B2.
+* The SGSA grid addressing hp rides was already my r6 race arm (then a
+  1% loser in the two-pass shape — a reminder that a losing arm can be
+  the right substrate one structure later).
+
+### For next round
+
+1. **The honest target moved**: the rivals re-benchmarked on THIS node
+   (results/rivals_icelake/) hold gate-passing L=8 chains at **0.086–0.092
+   s** (0.522–0.559 µs/xform; best v5_cb7847fb 0.086, 8dc1a96d 0.088) —
+   our 0.555 ≈ 0.0914 s only ties the middle of that pack.  The v5/v6
+   shape at L=8 is SoA 8-volumes-per-zmm (cross-volume lanes): ZERO
+   shuffles, pool ≈ 2200 uops → floor ~0.38 µs, at the cost of an
+   L2-resident 64 KiB×2 state.  That is the one structural idea below
+   this shape's floor.  Read v5_cb7847fb's L=8 kernel FIRST (is it
+   actually SoA?  is its 0.086 reproducible under our gate?) before
+   spending a round building it — 8 lockstep volume chains would also
+   need the map and clay re-derived.
+2. Cheaper residue inside hp: the pass-A comb channel is now the only
+   modeled alias cost (fusedaxes agrees); a pass-A store order + sig
+   combination race (2-D, ~30 arms) could shave the last collisions if
+   the scored window shows hp variance across processes.
+3. If the scored number lands ≥0.58, it drew the documented fresh-lease
+   slow mode — the warm number is 0.554–0.556 at sd 0.02% across three
+   leases, and the tryout min was 0.548.

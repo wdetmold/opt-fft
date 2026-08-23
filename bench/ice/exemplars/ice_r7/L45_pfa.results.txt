@@ -1,0 +1,2 @@
+   L45_pfa                      231.220 us 163703.613 us    32.47       3.1%    1.268s  ok 4.0e-16       1.03x
+   L45_pfa                  GT-PFA 9x5 2-sweep +tr(bcast-gather p1); pick pw4-tr0 221.1 us/vol (tr0=221.1 ip0=250.3 il0=250.5) B=4 nv=4 clk=2.90 | ch=q4 255.5us/step ms0 xf1 (xf-pf=281.8 xf=283.2 q4=255.5 q4-pf=253.5 vt-pf=-1.0 vt=-1.0 vm-zs=-1.0 uf=-1.0 vs=-1.0 vs2=-1.0)

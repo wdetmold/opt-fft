@@ -1,0 +1,2 @@
+   L13_rader                      3.688 us 150833.868 us    33.06       0.1%    0.000s  ok 3.0e-16       1.06x
+   L13_rader                Rader-13; ice_r7 SoA BATCH-LANE chain (8 vols/zmm split re/im, zero-shuffle vertical pencils, 2 sweeps/step: map+z+y per L1 x-plane, then x-pencils; kernel=rader-split186 mf=2 sqr=1; convert 1/m; mined from 1000f989/v5_3907583b/v6_f40c5e25), tails+B<8 = r6 vm classic, 512-bit; exec=ov chain=soa8

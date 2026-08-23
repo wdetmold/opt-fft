@@ -1,0 +1,2 @@
+   L6_unrolled                    0.238 us 73961.842 us    35.19       0.1%    0.348s  ok 2.4e-16       1.00x
+   L6_unrolled              L=6: unrolled PFA 2x3 codelet (48 flop/36 instr, no twiddles), zmm-x/ymm-yz zxf incumbent, fused fft3d_chain (ice_r7: SoA 8-volumes-per-zmm group chain, zero-shuffle split-complex steady state, exact ladder+vdivpd map; pair/ipdiv tail); variant=zxf_pf cmap=g8 tier=exact g8rcp=0 kclk=3.30GHz ab1=y166.8,z154.6ns zwd=-2.7% xod=+3.8%

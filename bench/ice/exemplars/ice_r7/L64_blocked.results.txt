@@ -1,0 +1,2 @@
+   L64_blocked                  608.213 us 163001.140 us    38.79       0.6%    0.051s  ok 4.5e-16       1.00x
+   L64_blocked              L64 zsplit-custody chain (ice_r7: ztail inlined, zvp=0 vol-pair rows, zapf2@T3, zms=0 zs2=0) zs=1 ck=0 xk=1; exec pw=4 mode=cached pf=8 st=3(split-sc) pro=1 sb=0 (B=2)
