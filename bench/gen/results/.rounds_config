@@ -1,0 +1,5 @@
+FFT_ROUND_PREFIX=gen_r
+FFT_FIRST_ROUND=1
+FFT_SRC_EXT=c
+FFT_DEV_CMD=./tryout.sh
+FFT_PREV_HARNESS=/home/lqcd/wdetmold/fft/bench/geom /home/lqcd/wdetmold/fft/bench/mt /home/lqcd/wdetmold/fft/bench/ice

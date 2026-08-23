@@ -1,0 +1,105 @@
+# GENERALIZE: from eight tuned points to an arbitrary-L 3D FFT library
+
+You are one of a panel of implementers. The previous campaigns produced world-class
+kernels for EIGHT fixed cube sizes (6, 8, 13, 17, 23, 36, 45, 64) — beating MKL, FFTW
+and ducc0 by 2.7-9.7x per size and a 28-attempt rival AI committee overall. This
+campaign builds what those campaigns proved possible: a LIBRARY —
+
+    fft3d_plan* fft3d_create(int L, int batch);      // any 2 <= L <= 128, any B >= 1
+    void fft3d_execute(plan, in, out);                // forward c2c double, batched
+    void fft3d_chain(plan, x0, c, out, m);            // optional fused map chain
+
+for any L, on x86-64 AVX-512 (Intel-validated: Cascade Lake / Ice Lake / Sapphire
+Rapids). The deliverable is NOT a pile of per-L C files. It is:
+
+1. a FACTORIZATION PLANNER: L -> candidate per-axis algorithm chains,
+2. CODELET GENERATORS that emit specialized C for any chosen factorization,
+3. a PLAN-TIME RACE that times the candidates on the running machine and persists
+   per-host wisdom (the fft3d_best create()-race, generalized),
+4. exact fp64 arithmetic passing the same two-part gate as always.
+
+This is the method every winning attempt (ours and the rivals') converged on. You are
+industrializing it.
+
+## The algorithm classes and who owns them
+
+Each implementer owns a CLASS, not a size. Your entry binary must `support()` exactly
+the acceptance sizes your class covers (declining the rest), plus — from round 3 — ANY
+size the driver asks for within your class.
+
+| entry | class | acceptance sizes covered | seed material |
+|---|---|---|---|
+| gen_pfa_small   | PFA of coprime pairs, small     | 10, 12, 15, 20 | L6_pfa, L36/45 two-sweep, warm 3907 AoSoA |
+| gen_pfa_large   | PFA of coprime pairs, large     | 40, 50, 100    | L45_pfa 9x5, gt-PFA n1_9 DAG |
+| gen_pow2        | 2^k axes                        | 32 (and 16, 64, 128 unscored) | L8_radix8, L64_blocked |
+| gen_powp        | p^k axes: CT within prime power | 25, 27, 50, 100 | NEW — the twiddle framework (see below) |
+| gen_dense_prime | direct dense prime, p <= 31     | 31 (and helps 10..20 via 5,7-point modules) | L13_direct, L17/L23_matrixsimd, warm 00291a90 gen_a folded composite |
+| gen_rader       | Rader for primes                | 31 (crossover fight vs dense) | L13/17/23_rader, warm 00291a90 gen_asm_prime |
+| gen_bluestein   | Bluestein fallback, any L       | none scored; must run EVERYWHERE | literature 07 section 6.3 (know its 107-1315x warning: use only as existence fallback) |
+| gen_batchlane   | SoA 8-vol/zmm batch-lane engine | 10, 12, 15 at B>=8 | L8_fusedaxes bl8, L13_rader soa8, warm d43251c2 gen.py |
+| gen_planner     | factorization search + candidate enumeration | all (as a library layer others call) | — |
+| gen_race        | plan-time tuner + wisdom cache  | all (library layer) | fft3d_best choose()/trial() |
+| gen_twiddle     | exact-twiddle tables + accuracy audit | all (library layer) | FFTW accuracy notes: "inaccurate twiddles are the most likely reason for FFT inaccuracy" |
+| gen_layout      | allocation/layout lib: stagger, 4K-avoidance, huge pages, pencil SoA | all (library layer) | warm prelude_c.py alloc_huge_st, ice notes |
+
+Library-layer owners (planner, race, twiddle, layout) ship their code as headers/TUs the
+class owners include; they are scored by ADOPTION — the monitor credits them when class
+entries win using their layers. Everyone else links against the newest layer versions
+each round.
+
+## The twiddle problem is the campaign's center of gravity
+
+Every prior winner DODGED general twiddles (PFA needs coprime factors; only L=64 used
+them, in a fixed schedule). Arbitrary L forces general mixed-radix Cooley-Tukey inside
+prime powers (25 = 5x5 with twiddles, 27 = 3x3x3, 100's 4x25 axis). Requirements:
+- twiddle tables computed exact (long-double sincospi or argument-reduced), laid out in
+  CONSUMPTION ORDER (ice lesson: no in-sweep gathers),
+- the whole step must still pass 1.5e-14/step — budget your reassociations,
+- table bytes stay trivial at these L (under 3 KiB per size was the fixed-size result);
+  spend layout effort, not compression effort.
+
+## The graded call and gates (identical machinery to the ice campaign)
+
+Chained map workload per case (see cases.txt): z = FFT3(x) + c; x <- z/(1+|z|).
+Timing: chain seconds, min over runs, spread reported; compile/plan/warmup excluded —
+BUT plan time is now also reported (see budget below).
+Gates, all three required, same as ice rounds 8+:
+1. single call rel L2 < 1e-12 vs numpy;
+2. TWO-STEP precision gate: fused chain path at m=2 within 3e-14 (1.5e-14/step — the
+   precision contract; catches every shortcut, chaos-free);
+3. chain-end within 300x the honest reference divergence measured on the same chain
+   (floor 1e-10, {1,3}x10^n grid) — catches gross cheats only; honest drift forgiven.
+
+## Plan-time budget
+
+create() for a NEVER-SEEN (L, B) on a given host: <= 60 s including candidate
+generation, compilation and racing. With persisted wisdom (results/wisdom_<host>.json):
+<= 50 ms. The race must degrade gracefully: if compilation is unavailable, fall back to
+the best precompiled candidate; Bluestein guarantees existence for any L.
+
+## Scoring and the endgame
+
+Rounds 1-5 score the acceptance suite in cases.txt against MKL 2022/2026, FFTW3
+(three planners, plan_many), and ducc0 on the reserved Ice Lake node — per-size table,
+time-weighted, geomean, worst-case, exactly as always. Development on wallaby via
+./tryout.sh (leased node cores); implementers never submit slurm jobs.
+
+**Round 6 is the surprise round**: the monitor draws THREE sizes never announced in any
+brief or case file (composites and primes in 14..127), and scores the ASSEMBLED LIBRARY
+(fft3d_general trunk = planner + race + all class winners), not your individual entries.
+A size that fails to plan, races past the 60 s budget, or misses a gate scores zero for
+the whole library. That is the test of generality — build for it from round 1.
+
+Cross-architecture guard: every second round the monitor reruns the suite on Cascade
+Lake and Sapphire Rapids (xarch_report.py). Those numbers are advisory (the score is
+Ice Lake), but a kernel that wins only on Ice Lake is flagged, and the race must pick a
+winning variant on all three — that is what the wisdom cache is FOR.
+
+## Standing rules (unchanged from prior campaigns)
+
+Timing after compile+warmup; multiple runs; batched and B=1 both matter; no FFT library
+calls inside our transforms (libraries are baselines only); per-host builds under
+build/$(hostname -s)/; maintain your STRATEGY.md every round; read the previous
+campaigns' strategies, impl_N sources, and the rival corpora (fft_v4_solutions/,
+fft_v5v6_solutions/, fft_warm_solutions/ — especially the generator pipelines, which are
+the closest prior art to this campaign's deliverable).

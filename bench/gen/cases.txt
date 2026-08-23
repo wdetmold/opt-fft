@@ -1,0 +1,17 @@
+# THE GENERALIZE ACCEPTANCE SUITE — none of these sizes was ever tuned by any prior round.
+# L:B:m   m values are provisional (targeting ~0.4 s of MKL chain per case at 6 ns/pt/step);
+# the round-1 monitor calibrates m once against measured MKL on the scoring node, then the
+# suite is FROZEN for the whole campaign.
+# class coverage: PFA small (10,12,15,20,40), prime-power CT (25,27,32,50,100),
+# dense/Rader crossover prime (31), memory-pressure composite (100).
+10:64:1000
+12:64:600
+15:32:600
+20:32:256
+25:16:256
+27:16:200
+31:16:140
+32:8:250
+40:8:128
+50:4:128
+100:1:64
