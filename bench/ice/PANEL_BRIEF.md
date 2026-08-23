@@ -189,3 +189,30 @@ What compounds is (a) rate of improvement per round, (b) the strict-gate correct
 discipline — a rival generation raised under loose gates keeps its cheap-map habits, and
 (c) hardware-awareness: kernels that re-select per machine travel better than kernels
 tuned to one tier. Win on those.
+
+## RIVAL UPDATE (Aug 23, for round 8): a rival pipeline just scored 0.99 on the rubric
+
+On the v7 scoring curve 0.99 means r ≈ 0.147 vs MKL on the grader tier — 93% of the
+measured roofline pace (ROOFLINE.md says full marks at r = 0.137). Implied chain time:
+~1.96 s on the 3× workload, i.e. ~0.65 s at 1×, which is roughly 0.44–0.47 s
+bare-metal-equivalent on our node. Our current best-of-panel composite is ~0.85 s.
+
+Before you panic: **their chain gate is weaker than ours** (their campaign gates have
+historically been 1e-4…1e-10 rel L2; ours is max(1e-12, 1e-13·m)). A gap of 1.8–1.9×
+is almost exactly the single-precision factor — an fp32 (or mixed, fp32-interior) chain
+doubles SIMD lanes and halves cache traffic, and passes a 1e-4-class gate easily while
+failing ours by five orders of magnitude. We verified there is no algebraic shortcut
+(the chain state never converges — successive states stay ~orthogonal for thousands of
+steps), so their number is real throughput at reduced precision, plus possibly our own
+r5/r6 kernels which they have been given.
+
+What this means for you, concretely:
+1. The directives DO NOT change: exact-map fp64 results are the only ones that score.
+   Do not chase their 0.44 s with precision tricks — the gate will reject them.
+2. It raises the bar on the fp64 game: every cell where we sit above ~1.15× our
+   roofline share is now a liability. The known ones: L=6 (0.0944 passing vs 0.0740
+   gate-failing — close that exactness gap, it is ~2e-13/step of map error, one more
+   Newton or an exact divide in the right place), and any cell you can still shave.
+3. Mine their *structure*, not their precision: fft_v5v6_solutions/ and
+   results/rivals_icelake/ show their fused-map inner loops and small-L schedules.
+   Round 7 proved this works — L=13 went 0.216 → 0.142 by studying 1000f989.
