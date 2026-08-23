@@ -124,3 +124,27 @@ suite r = 0.705, best rival r ≈ 0.34. Two of its findings are design directive
   fl/pt with the map sits under the 112 B/pt/iter floor once the issue ceiling is
   bare-metal). Below ~1.75 cyc/pt at those sizes, only traffic reduction — deeper fusion,
   fewer passes — moves anything.
+
+
+---
+
+# FINAL STANDINGS (series complete, ice_r6, 2026-08-23)
+
+Best gate-passing entry per size across rounds, full rival step, bare-metal ICX:
+
+| L | entry | chain s | rival | ratio |
+|---|---|---|---|---|
+| 6 | L6_pfa (r5; both r6 entries REJECTED by the chain gate at ~1e-8 drift) | 0.0944 | 0.1018 | **0.93** |
+| 8 | L8_fusedaxes | 0.0913 | 0.1147 | **0.80** |
+| 13 | L13_direct | 0.2162 | 0.1636 | 1.32 |
+| 17 | L17_winograd | 0.0365 | 0.0347 | 1.05 |
+| 23 | L23_matrixsimd | 0.0947 | 0.1030 | **0.92** |
+| 36 | L36_mixedradix | 0.0516 | 0.0586 | **0.88** |
+| 45 | L45_pfa | 0.1870 | 0.2007 | **0.93** |
+| 64 | L64_blocked | 0.1712 | 0.2263 | **0.76** |
+
+**End-to-end 0.943 s vs the rivals' 1.00 s — ahead overall and at 6 of 8 sizes — under a
+chain gate 10^4-10^6x stricter than any rival campaign's (v6's own per-size gates: 1e-4 at
+L=6 against our 4.9e-10).** From 2.24 s in three rounds. Remaining gaps: L=13 (1.32) and
+L=17 (1.05) — the sixteen v5/v6 solutions in `fft_v5v6_solutions/` (chain-gated, pure fp64)
+include Hartley-split prime kernels worth mining for both.
