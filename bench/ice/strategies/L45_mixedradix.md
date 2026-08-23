@@ -753,3 +753,142 @@ CMS=0; remainder/B<4 = r6 padded path (CPAD=1) unchanged; chain tag
 0.10%, MKL 758.3), B=16 241.0, B=1 304.6 (elevated cell).  Single
 4.058e-16; chain 6.260e-14 vs tol 1.77e-11; bit-repeatable across
 processes and cores; setup 0.37-0.51 s.
+
+## Round ice_r8 — huge-page SoA arena; VGDF and the custody prefetch audit both settled as losses
+
+r7 scored 225.571, first at L=45 by 2.5% over L45_pfa (231.220), already
+ahead of every external mark: the warm cohort's best (warm_d43251c2,
+"the 0.99") measures 0.1866 s = **263.6 us/xform on our node**, and the
+r7 rival floor was 294.  So the round was: protect the cell, execute my
+own r7 leftovers, and mine the panel's r8 findings.  All three r7
+"next round" items are now closed, two of them as measured negatives.
+
+### What shipped
+
+1. **FFT45_VGHP=1 (default): the SoA arena (state + cpP + cpQ, 17.5 MB)
+   moves to a 2 MB-aligned posix_memalign block with MADV_HUGEPAGE,
+   faulted in at create (setup, unscored) so THP lands eagerly.**
+   BORROWED from L13_direct ice_r8 (their `hp` keep, itself the warm
+   rival's `alloc_huge`).  The dTLB arithmetic is far stronger here than
+   at their 567 KB: a Q-sweep pencil call touches 45 DISTINCT 4K pages
+   (stride VGX = 129,600 B), ~91k page-walks per Q sweep against a
+   64-entry L1 dTLB; on 2 MB pages the whole state is 3 pages.  The node
+   runs THP `madvise` mode, so the madvise is required, not decorative.
+   Allocation-only: page-phase offsets (+1024/+3072 mod 4096) preserved,
+   chain digits IDENTICAL to r7 (6.260e-14 at m=177) and bit-repeatable.
+   Falls back to the r7 4K allocation if the aligned alloc fails.
+   **hp won every same-window pairing, 7/7 across two sessions**:
+   fast-state 228.096/228.439 vs nohp 231.597/233.086 (**-1.5%**, sd
+   0.08-0.26% all four); elevated-state 252.4/254.5 vs 266.0/273.2
+   (**-4.3 to -7.6%**) — THP also COMPRESSES the elevated machine state,
+   consistent with part of that state being page-walk pressure.
+2. **final_out NULL guard in fft3d_chain** (driver.c:141 passes
+   pong=NULL at --chain 1 --map, the one-step gate's exact shape).
+   BORROWED from L17_winograd ice_r8.  Verified on the node: the m=1
+   map run now exits 0 where every unguarded entry segfaults.
+3. **FFT45_VGPF knob (default 0)** — the r7 item-2 prefetch audit,
+   kept in the source as the measured negative it produced (below).
+
+### Measured on the node (a80n0 leased cores; within-window
+### rebuilt-incumbent contrasts only, r5 protocol.  Windows toggled
+### fast(~228)/elevated(~252-256) again; THIS round the elevated state
+### moved the MKL anchor too — 758-760 fast vs 789.6 elevated — unlike
+### the r5 trap where MKL stayed flat)
+
+| config (graded B=4 m=177) | us/xform | note |
+|---|---|---|
+| **shipped (hp), first window, core 3** | **218.111** (sd 0.36%, MKL 759.8) | round's fast-state best |
+| shipped (hp), core 2 fast-state | 227.971 / 228.096 / 228.172 / 228.439 | sd 0.08-0.26% |
+| nohp (= r7 alloc), same windows | 231.597 / 233.086 | hp -1.5% |
+| shipped (hp), elevated windows | 252.4 / 254.3 / 254.5 / 255.7 | MKL 789.6 same window |
+| nohp, same elevated windows | 266.0 / 273.2 / 277.9 | hp -4.3..-7.6% |
+| B=16 (4 groups), elevated window | 254.862 | |
+| B=1 (r6 classic path, untouched) | 270.579 min, sd 14% | elevated B=1 cell again (r6/r7 note) |
+
+Correctness (all on the node): single transform 4.058e-16 (B=4) /
+4.065e-16 (B=1); **two-step precision gate (m=2): 2.036e-15 at B=4,
+1.758e-15 at B=1 vs tol 3e-14** — the rsqrt14+2NR+one-exact-vdivpd map
+is ~15x inside the new r8 contract, no tier change needed; whole-chain
+m=177 **6.260e-14 (digits identical to r7 — the hot path is
+bit-identical) vs tol 1e-10** (anchor 4.465e-14, the corrected
+chaos-aware gate); out.bin AND out.bin.chain cmp-identical across two
+processes; m=1 map run no crash.
+
+### What did NOT work, with the number that killed it
+
+* **FFT45_VGDF=1 (rcp14+2NR replacing the pair's exact vdivpd) — r7's
+  open item 1, now SETTLED as a loss: hp won 4/4, 228.1/228.4 vs
+  232.5/232.3 in tight-sd fast windows (+1.9%), 252-255 vs 259-260
+  elevated.**  The custody step is issue-bound, not divider-bound, at
+  pair granularity too; the r4 CMS=1 verdict extends to the SoA shape.
+  Default stays the exact divide (also the simpler bit class).
+* **FFT45_VGPF (paced prefetch of the NEXT plane's streams over the two
+  non-mapped L2-resident passes) — r7's open item 2, now SETTLED:
+  every variant loses.**  pf2 (state T1) 290.5 sd 0.21% vs hp ~228
+  (+27%); pf6 (state prefetchw) 241.8 sd 0.38% vs 228.0 (+6%); pf1
+  (c-plane T1) 251.1 vs 252.8 in a noisy adjacent pair (wash at best);
+  pf3 267.7 noisy.  r6's "no prefetch anywhere near the mapped pass"
+  verdict extends to the custody shape's OTHER passes as well: the
+  sweep's fill buffers are already the binding resource and 2025 extra
+  prefetch uops/plane is pure tax.  The prefetch space at L=45 is now
+  exhausted in BOTH chain shapes; do not re-propose without a PMU
+  fill-buffer number.
+* The codegen audit before the node (r2 discipline) held: 90 prefetcht1
+  (pf3) / 45 prefetchw (pf6) in exec_1_vgpf, VGDF pair divides 25 -> 5,
+  madvise call present, base build's mapped body unchanged (25 vdivpd +
+  25 vrsqrt14pd).
+
+### Borrowed this round (attributions)
+
+* **L13_direct ice_r8**: the huge-page arena (their `hp` keep, from the
+  warm rival's `alloc_huge`) — the round's one shipped speed lever; and
+  the confirmation that the warm cohort's lazy map is a VM artifact
+  (their lz race lost +3-12%), which kept me from re-testing it here.
+* **L17_winograd ice_r8**: the fft3d_chain NULL guard, and the m=2
+  proxy protocol for the one-step contract while the driver's
+  --chain 1 --map path writes nothing.
+* **L23_rader / L17_rader / L13_direct ice_r8 harness notes, used
+  verbatim**: check.py's m>2 chain branch crashes (`math` unimported at
+  line 94) — I ran it with `builtins.math` injected via runpy rather
+  than editing the shared file; tryout's $W bug (r4) and reserve.sh's
+  off-node squeue false-negative (~/bin_shim on PATH) are both still
+  live.
+* Protocol: within-window rebuilt-incumbent A/Bs (my r5 rule);
+  codegen-audit-before-node (r2).
+
+### Next round
+
+1. **The structural ledger is now clean**: custody (r7) deleted the
+   two-sweep traffic, hp (r8) deleted the page-walk tax, and every
+   prefetch/divider/pairing variant in both shapes has a measured
+   negative.  The remaining gap to the ~150 us two-port floor is
+   in-kernel (the 344-op pencil DAG's schedule) or machine-state.  The
+   one unexplored lever of plausible size: PMU counters under a
+   privileged monitor run (perf_event_open is EACCES for us since r2)
+   to split the fast/elevated toggle into ports vs fill buffers vs
+   walks — hp shrinking the elevated state suggests the toggle is
+   partly memory-system, so there may be another allocation-shaped win
+   hiding there (e.g. hugepaging the B<4 classic arena, unscored today).
+2. Expect the scored B=4 number at **~218-232 depending on the window
+   class** (fast-state floor 218.1/228.0; elevated 252-256 with MKL at
+   789 in the same window — if the scored number lands there, check the
+   MKL column before suspecting the code).
+3. If B=1 ever scores: it still runs the r6 path (270.6 elevated this
+   round); hugepage its arena first (one-line change, same knob), then
+   the within-volume SoA fallback from the r7 list.
+4. Warm cohort at this size (263.6 us/xform) is beaten by ~14% at the
+   fast-state floor; the panel's L=45 pressure is L45_pfa (231.2 in
+   r7), not the rivals.
+
+### Shipped state
+
+Defaults: FFT45_VG=1, FFT45_VGC=1, FFT45_VGHP=1 (NEW: 2M-aligned
+MADV_HUGEPAGE SoA arena, eager-faulted), FFT45_VGDF=0, FFT45_VGPF=0,
+MPAIR=1, CMS=0; remainder/B<4 = r6 padded path unchanged; chain tag
+`vg4-custody+hp`.  Node minima this round: B=4 **218.111** (fast
+window) / 228.0-228.4 (fast-state core 2) / 252-256 (elevated, MKL 789
+same window); B=16 254.9 (elevated); B=1 270.6 (elevated cell).
+Single 4.058e-16 (B=4) / 4.065e-16 (B=1); two-step gate 2.036e-15
+(B=4) / 1.758e-15 (B=1) vs 3e-14; chain m=177 6.260e-14 vs 1e-10
+(anchor 4.465e-14); bit-repeatable across processes; m=1 map run
+guarded; setup 0.39-0.68 s.

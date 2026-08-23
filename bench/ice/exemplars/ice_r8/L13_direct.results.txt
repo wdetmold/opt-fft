@@ -1,0 +1,2 @@
+   L13_direct                     3.438 us 140581.311 us    35.48       0.2%    0.194s  ok ch=1.2e-13/1e-10 1s=1e-15 1.00x
+   L13_direct               conj-folded dense 13x13 per axis, lanes=lines, pinned sines; 512b all-pinned zsolidY+xmm-tail X-first+ov; chain=S8[B>=8] soa8-2sweep-pinned map@Ystore(v0) r8[fz-xstep-fused hp2M rk0 lz0] else pairmap+mz1; chain-ab[B32]=zs3755,ov3716,oz3883,op4196,os3736,pf4186 ns/vol pick=ov(inc); fch-ab=cz5936,cv5936,v15463,v25470,v45466,m15283,m25291 pick=m1(inc)

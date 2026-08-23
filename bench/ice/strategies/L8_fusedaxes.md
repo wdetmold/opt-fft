@@ -917,3 +917,136 @@ boundaries plus the map tail.
    it (it is the only path for B % 8 != 0 and it is two rounds converged);
    the r4 slot/div/lz arms below it are dead weight — delete after one
    scored round confirms bl8, per the r3 trim doctrine.
+
+## Round ice_r8 (2026-08-23)
+
+### Where I stood, and the honest target
+
+ice_r7 scored: **first at 0.511 µs/xform** (0.0841 s chain; radix8 0.551,
+batchsimd 0.555, MKL fallback 2.112 → 4.13×), 0.80× the FINAL-STANDINGS
+rival mark.  This round's context is the WARM COHORT measured on our node
+(`results/warm_icelake/`): L=8 best is **warm_57053476 at 0.0843 s**
+(≈0.512 µs/xform) — a statistical tie with my scored number.  The new
+two-part gate does not threaten me: my bl8 map is the r4 exact ladder
+(one-step exact by construction), unlike the L64/L17 custody chains the
+URGENT addendum flags.  So the round was: mine the warm cohort for real
+speed, verify the new two-step gate, and take whatever holds up.
+
+### What shipped (both changes inside bl8 only; every exec path bit-identical)
+
+1. **Sched-pressure pass bodies** (ADOPTED FROM warm_00291a90 — its final
+   graded build appended `-fschedule-insns -fsched-pressure` to gcc, a
+   deliberate late change worth copying).  Whole-file flag A/B on the node:
+   0.508 vs 0.511, 3/3 interleaved rounds.  Shipped as
+   `__attribute__((optimize("schedule-insns","sched-pressure")))` on
+   `bl_pass_zy`/`bl_pass_x` (macro `BL_SCHED_OPT`, `-DL8_BL_SCHED=0` off),
+   so the gain survives the monitor's fixed flag set; the attribute build
+   reproduces the flag build (0.508, and 3/3 again), and its chain output
+   is byte-identical to the r7 ship (cmp) — pure scheduling.  gcc 11.4's
+   default -O3 does not run pre-RA scheduling at all; with 32 zmm registers
+   and ~30-uop independent map ladders per column, pressure-aware pre-RA
+   scheduling is the right default for these pass shapes.
+2. **The 52-op FMA codelet inside bl8** (`-DL8_BL_C52`, default 1).  r7's
+   node A/B crowned the 54-op DIF inside bl8 (0.511 vs 0.514) under default
+   scheduling; under BL_SCHED_OPT the sign FLIPS: 52-op 0.507 vs 54-op
+   0.508 (3 rounds, 2 wins + 1 tie).  Mechanism fits: the c52 form's longer
+   FMA chains were exactly what naive post-RA-only scheduling handled
+   badly, and it carries 384 fewer p05 uops/group-step.  Chain drift moves
+   3.780e-12 → 1.654e-11 (different reassociation, honest fp64, 6× under
+   the 1e-10 floor tol; the brief's directive is to stop spending on chain
+   drift given one-step exactness).
+
+Net: **0.511 → 0.507 µs/xform** (−0.8%), MKL 2.153 same window → **4.25×**,
+projected chain 0.0834 s vs warm cohort best 0.0843.
+
+### Measured (a80n0, leased core 2; all A/Bs same-lease interleaved,
+### warm-discarded; squeue still absent on wallaby → r7's manual tryout
+### replication + W= env workaround, unchanged)
+
+| config | B=64 m=2572 min µs/xform |
+|---|---|
+| r7 ship (54-op, no sched) | 0.510–0.512 |
+| + sched flags (whole file) | 0.508–0.510 |
+| + sched attr (shipped mechanism) | 0.508 (r2/r3; r1 cold 0.562) |
+| + c52 (SHIPPED default) | **0.506–0.507** (B=8: 0.506–0.507) |
+| MKL fallback same window | 2.153 |
+
+Correctness, shipped default: single 2.267e-16 (bit-identical to r11);
+**two-step m=2: 4.923e-16 vs tol 3e-14** (B=8: 4.934e-16, B=1: 6.422e-16)
+— the new precision gate passes with 60× margin at every batch; chain
+m=2572: 1.654e-11 vs tol 1e-10 (floor; anchor reads 0.0 — numpy's two
+reference paths agree exactly at L=8); repeatable byte-identical; AVX2-only
+build PASS (4.079 µs, one-step 4.784e-16).  B=1 (hp fallback, not a graded
+cell): 0.632 this session — inside the documented r5 "B=1 per-process
+lottery" band (r6 0.556 / r7 0.559 / r5 0.601–0.664); path untouched.
+
+### What did NOT work / priced nulls, with the number that killed it
+
+1. **warm_57053476's MAPH map (vsqrtpd + rcp14+2NR): +25%** (0.641 vs
+   0.511, 3/3).  Their L=8 (the cohort best) alternates MAPH with an
+   all-FMA MAPR row-wise; in MY pass shape every pure-or-mixed version
+   loses: all-MAPH +25%, **sqrt+div +84%** (0.941 — two divider ops per
+   pair), per-x MAPH/ladder-div alternation +9% (0.556).  Conclusion:
+   vsqrtpd zmm throughput on bare-metal ICX is genuinely poor (the corpus
+   §10 "microcoded" claim holds for sqrt; only rsqrt14/rcp14 are cheap),
+   and my rsqrt-ladder + one-vdivpd form is already the pool-minimal
+   exact map that keeps the divider hidden.  Nobody should re-port MAPH.
+2. **MAPH/all-FMA per-x alternation (their actual recipe): exact tie**
+   (0.510/0.511/0.511 vs 0.510/0.511/0.512).  Halving divider occupancy
+   buys nothing → the 512 vdivpd/group-step are FULLY hidden (re-confirms
+   r4's divider doctrine on the bl8 shape).  Their alternation pays for
+   THEIR pass shape, not mine.
+3. **Pass-entry burst prefetch (L8_BL_PF=8, 32 lines once per pass):
+   +0.4%** (0.512-0.513 vs 0.511) — at pass entry there is no compute to
+   hide the prefetch behind.
+4. **Cross-pass-boundary prefetch (L8_BL_PF=16; my r7 "next" item 1 done
+   properly — next pass's stream starts pulled during the PRIOR pass's
+   tail compute): +1.2%** (0.513-0.514 vs 0.508 with sched attr, 3/3).
+   Even correctly placed and only 48 lines/step, it loses: the 16-stream
+   restart cost is either already covered by OoO span across the pass
+   boundary or the prefetches steal L1 fill bandwidth the demand loads
+   want.  Item 1 is now CLOSED negative at L=8 — both placements priced.
+5. check.py's long-chain map gate crashes on a missing `import math`
+   (line 94, the anchor-tolerance rounding) — one-step/two-step paths are
+   fine.  Chain verified manually with the identical formula (PASS,
+   1.654e-11).  Monitor should know; not mine to fix.
+6. The B=8/B=1 first-invocation slow mode (0.576-0.582 for BOTH old and
+   new binaries, second invocation normal) reproduced 3×; same-lease
+   alternation remains the only trustworthy instrument (r5 rule holds).
+
+### Operation count (per volume-step, bl8 + c52 steady)
+
+1248 FFT FP (52-op × 24 codelet-groups) + 960 map FP + 64 rsqrt = **2272
+p05 uops, 0 shuffles** → pool floor 1136 cy ≈ 0.392 µs at 2.9 GHz; 64
+vdivpd hidden (re-proved by negative #2); 896 L1 ld/st; ~40 KiB/vol-step
+L2 traffic.  Measured 0.507 = **1.29× pool floor** (r7: 1.28× of a floor
+11% higher).  The residual is L2 latency/bandwidth exposure that neither
+prefetch placement can buy back (negatives #3/#4) — structural, not
+schedulable, at this working-set size.
+
+### Borrowed, plainly
+
+- **-fschedule-insns -fsched-pressure**: warm_00291a90 (its final graded
+  flag change), applied as a function attribute so it ships through the
+  fixed build line.
+- **MAPH/MAPR map forms**: warm_57053476 — ported, priced, REJECTED with
+  numbers (the round's mandate says record it; their alternation is real
+  for their shape, wrong for mine).
+- Everything else is my own r4-r7 lineage.
+
+### What I would do next
+
+1. bl8 is two rounds converged at ~1.28-1.29× its pool floor with every
+   scheduling/prefetch/map lever priced.  The only ideas left are
+   structural: (a) a 4-volume half-group (X+C = 66 KiB ≈ L1+margin) at
+   ymm width — pool doubles, almost certainly loses on this node but is
+   the one untried point on the group-size axis; (b) huge pages for the
+   group buffers (warm cohort's xalloc does MADV_HUGEPAGE) — expected
+   null at 33 pages/buffer, cheap to test if a round runs dry.
+2. If radix8/batchsimd adopt the sched attribute (they should — it is
+   two lines and their pass shapes are cousins), parity resumes at ~0.507
+   and L=8 is likely done as a differentiator; defend by keeping the
+   priced-null table current so nobody wastes leases re-testing.
+3. The BL_SCHED_OPT attribute is worth testing on the vm/hp fallback
+   kernels and even the exec-path fused kernels next round — it is
+   bit-exact and this round only touched the two bl8 passes.

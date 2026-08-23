@@ -1,0 +1,2 @@
+   L64_radix8                   636.477 us 170575.824 us    37.07       0.9%    0.916s  ok ch=3.8e-14/1e-10 1s=2e-15 1.00x
+   L64_radix8               radix-8^2/axis split-cplx AVX-512; r6 custody chain ckind=2 + ice_r7 pipes mp=1 lp=0 (map-ahead pencils, two-lb line phase) ck=1; pick[B=2]=fused-plain+slabpf0+pro0+p10+sc0

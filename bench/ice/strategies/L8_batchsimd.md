@@ -811,3 +811,157 @@ Parity with fusedaxes' r6 scored 0.555 at identical technique.
 3. If the scored number lands ≥0.58, it drew the documented fresh-lease
    slow mode — the warm number is 0.554–0.556 at sd 0.02% across three
    leases, and the tryout min was 0.548.
+
+## Round ice_r8 (2026-08-23)
+
+### Where I stood, and the round's one obvious move
+
+ice_r7 scored: **third at 0.555 µs** (fusedaxes 0.511, radix8 0.551, MKL
+2.112 → 4.1× for the winner).  fusedaxes won the round with "bl8" — the
+batch-lane SoA chain (8 volumes fill the zmm lanes, zero shuffles in the
+steady step) — which is EXACTLY the structural idea my own r7 "next round"
+item 1 flagged from the rival sources, and their record explicitly invites
+adoption ("radix8/batchsimd should — it beat every lane-spatial variant by
+7%+"), with their nulls pre-priced so I would not re-spend leases.  The r8
+warm-cohort target moved to 0.0843 s (≈0.512 µs/xform); fusedaxes' 0.511
+already edges it.  This round: adopt bl8 faithfully, then spend the saved
+leases pricing the ideas *nobody* had priced.
+
+### What shipped
+
+1. **bl8, the batch-lane SoA chain** (adopted whole from L8_fusedaxes
+   ice_r7, who re-derived it from rival attempts v5_cb7847fb / 8dc1a96d;
+   my implementation is in my own kernel vocabulary — vd macros, vtrans,
+   map8 — so it also runs under the EMU8 harness).  Group of 8 volumes;
+   `X[x*1056 + D*8 + b]` (D = plane-local double 0..127, b = volume lane);
+   C same layout for the map field.  Step = `bl_pass_zy` (per x-plane,
+   8448 B L1-hot: 8 z-DFTs stride 16, 8 y-DFTs stride 128, in place) then
+   `bl_pass_x` (per column: 8 loads at plane stride, DFT, my r4 exact map
+   ladder — rsqrt14 + 2 quadratic Newtons + ONE vdivpd — store, C
+   streaming beside).  Every axis DFT elementwise across registers — ZERO
+   shuffles per step (hp paid 384); layout step-invariant, so any m is
+   legal including the new m=2 precision gate.  Pack/unpack once per
+   group-chain via vtrans with the SW pre-permute (SW is an involution, so
+   w[SW(b)] = M[b] yields the pure 8×8 transpose).
+2. **Their three findings pre-adopted, sight unseen**: outer loops pinned
+   `#pragma GCC unroll 1` + register loops pinned `unroll 8` (tryout's
+   -funroll-loops otherwise un-DSBs the step, their +9%); NO per-column
+   software prefetch (their +12% negative); the DIF codelet form local to
+   bl8 (`-DL8_BL_CODELET=1` restores c52 for re-tests; exec/vm/hp paths
+   keep r8() bit-identical to lineage).
+3. **The frame**: one page-aligned 132 KiB block, X at 0, C at +8448
+   doubles, so (C−X) ≡ 2048 mod 4096 BY CONSTRUCTION (their pin; the
+   rivals' malloc was a lottery); plane stride 1056 doubles ≡ 256 mod 4096
+   (the rivals' anti-alias pad).  In pass x the 16 stream bases are all
+   distinct mod 4096 (X plane k at 256k, C plane k at 2048+256k).
+4. **Dispatch BY RULE**: bl8 owns every B % 8 == 0 chain (deterministic in
+   B — no tuner flip can change output); all other B keep the r7 hp
+   volume-major chain byte-untouched.  `-DL8_CHAINBL=0` restores r7
+   dispatch; OOM on the group buffer falls through to it.  chv_race() is
+   skipped when bl8 owns the cell (the vm/hp machinery is then reachable
+   only via OOM, whose anchor sig=0/hp is the scored r7 configuration),
+   cutting setup time.  FTZ/DAZ set inside the chain, saved/restored.
+5. Codegen audit (icelake-server, tryout flags): bl_pass_zy 205 instr /
+   bl_pass_x 291 / ZERO zmm stack refs — within 1 instruction of
+   fusedaxes' reported 204/291, which is how I knew the shape had landed
+   before spending any lease.
+
+### Operation count (per volume-step, bl8 steady)
+
+24 DIF codelets (~54 instr) ≈ 1300 FFT FP + ~900 map FP + 64 rsqrt14 =
+~2300 p05 uops, **0 shuffles** (hp: ~2600 incl. 384 shuffles) → pool floor
+~1160 cy ≈ 0.40 µs at 2.9 GHz; 64 vdivpd hidden under it; ~890 L1 ld+st
+per volume-step; ~40 KiB/vol-step of L2 traffic (X swept rd+wr twice + C
+rd once per group-step; group working set 132 KiB, L2-resident).  Measured
+0.509 = **1.27× the pool floor** — the same ratio fusedaxes reports at
+0.511; the residual is L2-side, and this round priced two candidate cures
+(both losers, below).
+
+### Measured on the NODE (a80n0; graded B=64 m=2572; warm-lease
+### interleaved twin binaries after one discarded invocation)
+
+| case | result |
+|---|---|
+| **B=64 graded chain, shipped default** | **0.509–0.510 µs/xform min, median 0.509–0.510, sd ≤0.06%** across 3 leases (chain ≈ 0.0838 s: warm-cohort best 0.0843, fusedaxes r7 0.0841); final tryout run 0.509/0.509; MKL same windows 2.12–2.13 → **4.2×** |
+| first fresh-lease invocation of the day | 0.580 — the documented cold-lease mode; warm numbers above are the real pace |
+| B=1 (hp path, untouched) | 0.556 fresh-lease via tryout (r7 band 0.549–0.556); single rel_l2 2.269e-16 |
+| correctness | single 2.267e-16 (B=64); **two-step gate 5.43e-16 vs tol 3e-14 (55× margin)**; **whole-chain m=2572 3.780e-12 vs tol 1e-10** (the same value fusedaxes' bl8 reads — same structure, same ladder); repeatable: chain outputs byte-identical across processes |
+| local harness (wallaby now HAS AVX-512 — native local testing, no EMU8 detour needed) | numpy reference chain PASS: B ∈ {8,16,24} × m ∈ {2,3,5,7,10,31} on the bl8 path, B ∈ {1,4} × m ∈ {2,7} on the hp fallback |
+
+### What did NOT work, with the number that killed it
+
+1. **"xf" x-first step (MY one structural idea this round — map moved to
+   the plane-local pass): 0.548 vs 0.509, +7.5%, 3/3 interleaved.**
+   Design: run the x-DFT as a lean pure cross-plane pass (8 L2 streams
+   instead of 16), then z+y DFTs AND the map per plane, C consumed
+   plane-locally.  Hypothesis was 16 concurrent pass-x streams sit at the
+   L2 streamer's tracking limit.  Verdict: stream count is NOT the binder;
+   the 16 sequential +128 B streams are exactly what the HW prefetcher
+   likes, and concentrating map+z+y into one plane-resident block makes an
+   hp-style over-long group against the ROB.  Priced and dead — kept
+   compiled behind `-DL8_BL_XF=1`.
+2. **Boundary-only stream priming (`-DL8_BL_BPF`, ~32 prefetch uops once
+   per pass tail — deliberately NOT their per-column +12% negative):
+   bpf1 +0.5%, bpf2 +0.2% (≤noise), bpf3 +0.8%, 3/3.**  The pass-boundary
+   L2 exposure is either already covered by OoO or too small to buy back;
+   fusedaxes' untried "software-pipeline loads across the barrier" item is
+   hereby half-answered: the cheap prefetch version of it is worthless,
+   and after xf's loss I did not build the expensive real-load version.
+3. **Hardware-sqrt map inside bl8 (-DL8_MAPV=2): 0.646 vs 0.509, +27%.**
+   Worse than in the hp shape (r4: +15%).  In pass x the vsqrtpd occupancy
+   lands directly before the plane-strided store tail.  v0's ladder stays
+   mandatory-by-measurement in every shape I have ever timed it in.
+4. **Codelet A/B (cd1 = c52): min 0.510 vs DIF 0.509 — a min-tie** (their
+   0.6% gap did not clearly reproduce in my build; medians noisier for
+   c52).  DIF stays, matching their shipped default, but the gap is
+   sub-noise here.
+5. **Measurement-hygiene catch worth recording: my `-DL8_MAPV=4` "arm" was
+   a null test** — bl_pass_x calls map8() directly and MAPV=4 routes
+   map8→v0, so bin_m4 differed from bin_def only in dead hp-path text.
+   It still read 0.508 vs 0.509 "reproducibly" (3/3).  That is the size of
+   pure code-layout luck at this cell: differences ≤0.2% between binaries
+   are NOT decisions, even at sd 0.01%.
+6. Infra, standing: tryout's $W-before-definition chain bug (env-prefix
+   workaround still works); NEW: check.py's map-check crashes for m>2 on a
+   missing `import math` (NameError at line 94) — single-transform and
+   m≤2 checks are unaffected; I verified m>2 chains with a standalone
+   replica of its two-tier gate (including the 300×-anchor tol grid).
+   The sweep presumably uses the same code path — monitor may want to know.
+
+### Borrowed, plainly
+
+* **L8_fusedaxes ice_r7: the entire bl8 design** — layout, plane pad,
+  (C−X) page pin, two-pass step shape, unroll-pinning doctrine, the
+  no-prefetch and DIF-codelet findings, and the dispatch-by-rule idea.
+  This round is an execution of their record on my kernel vocabulary, as
+  r5 was of radix8's and r7 was of theirs.  Original structure: rival
+  attempts v5_cb7847fb / 8dc1a96d (fft_v5v6_solutions/), the v6
+  generator's SoA-below-L36 doctrine.
+* Their nulls NOT re-spent: column-pair unroll, per-column prefetch
+  (all three masks).  My bpf/xf/mapv arms were deliberately outside their
+  priced set.
+* The exact map ladder, FTZ discipline, warm-lease interleaved A/B drill:
+  my own r4–r7 lineage.
+
+### For next round
+
+1. **The cell is at cohort-best pace (0.509 vs 0.0843 s ≈ 0.512) and
+   1.27× the pool floor, and this round killed the two cheap L2-side
+   ideas (xf, boundary priming).**  What remains: (a) PMU attribution of
+   the ~110 ns/vol residual if perf_event ever unblocks (last checked
+   EACCES); (b) two-GROUP step interleaving (264 KiB, still L2) to
+   overlap pass-boundary stalls of group A with compute of group B —
+   expensive to build, unpriced, and xf's loss suggests the boundary
+   stall is not the binder, so demand PMU evidence first; (c) shaving the
+   codelet 56→52 contracted ops — sub-noise by the cd1 tie.
+2. If fusedaxes lands their real-load cross-barrier pipeline and it wins,
+   adopt it; my bpf negative says the prefetch flavor is dead but says
+   nothing about true load-level pipelining.
+3. If the scored number lands ≥0.55 it drew the cold-lease mode — the
+   warm number is 0.509–0.510 at sd ≤0.06% across three leases, and the
+   final fresh tryout ALSO read 0.509 (the cold mode is intermittent, not
+   universal).
+4. B=1 stays on hp at ~0.556; bl8 cannot help below B=8.  If a B%8!=0
+   batched cell ever appears in cases.txt, a within-group tail (pad to 8
+   with dead volumes) is trivial and costs only the tail group's
+   proportional waste.

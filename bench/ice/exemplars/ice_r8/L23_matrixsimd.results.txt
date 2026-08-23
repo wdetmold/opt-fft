@@ -1,0 +1,2 @@
+   L23_matrixsimd                33.805 us 89244.715 us    24.42       0.7%    0.671s  ok ch=3.5e-14/1e-10 1s=2e-15 1.00x
+   L23_matrixsimd           dense 23x23/axis conj-folded, 512-bit, pinned, X-first, za, pf=0, pw=0, chain[vol-res inplace ZPLAIN-rot+cab yt20 map@store pcmp sfold mapv=1], tune[ch pick=38.27 inc=38.27 us/t nv=16], clk512/256=3.30/3.50 GHz

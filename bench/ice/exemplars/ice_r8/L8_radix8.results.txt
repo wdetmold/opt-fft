@@ -1,0 +1,2 @@
+   L8_radix8                      0.500 us 82325.232 us    46.07       0.2%    0.032s  ok ch=3.6e-12/1e-09 1s=7e-16 1.00x
+   L8_radix8                radix-8 52-instr codelet; 2p/1f/3p; chain=bl[B%8==0] (batch-lane SoA, map=rsqrt14+2NR+div) else ch=6; pick[B=64]=avx512-1faa-pfs (default) arena{1faa-pfs=0.463 1f-pfs=0.462 1faa=0.474 3p-pfs*=0.458}

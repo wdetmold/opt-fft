@@ -1050,3 +1050,166 @@ on count — the counts said custody and TPP should win or tie.
    at L2-resident cells, broadcast-depth splitting, and transpose-fed
    PFA36 without accepting the staging array (the mod-4 scatter proof
    above).
+
+## Round ice_r8
+
+### Where the round started
+
+Scored ice_r7: **107.009 µs/step, 3rd** at the graded cell (36:8:64 map
+chain; L36_mixedradix 99.809, L36_pfa 100.296, MKL 283.3).  Round-start
+re-measure of the r7 code: 106.665 min, sd 0.05%, MKL 281.4 — a quiet
+window; every headline contrast below is same-window, MKL-flat 281–286.
+The round context's decisive input: **L36_pfa's ice_r7 record**, which
+took them from 106.2 to 100.3 with two mechanisms measured on this exact
+cell and the same PFA 4×9 codelet — the one-tile-lagged map (their mix=7)
+and the "phase 1 un-broadcast" (TRNC, their own finding, worth 5.8 µs).
+The warm cohort offered nothing at L=36 (their best cell is 0.0530 s =
+103.5 µs/step, behind our leaders; mixedradix's r7 record already mined
+and closed the rival sources for this size).  New tryout breakage this
+round: check.py dies at line 94 (`math` never imported) in the m>2
+map-check branch, on top of the r4–r7 $W/squeue/out2.bin issues — run the
+chain gate by hand (inline numpy replicating the 300×-anchor arithmetic),
+and the two-run cmp by hand as before.
+
+### What ships: TRNC pass A in the chain (the "phase 1 un-broadcast")
+
+ADOPTED from **L36_pfa ice_r7 (P1ZT+P1YT)**, translated onto my pass
+shapes: `passA_trnc` replaces the broadcast pass A in the default chain
+path.  Both subloops build their 36 lane-transposed input vectors with 36
+full-width 64-B loads + 9 register-transpose quads (my existing
+CTRANSPOSE butterfly, 8 shuffles each = 72 p5/call) into a `vd[36]`
+staging array (`Zt`/`Yv`), instead of the r2 BCB4 builder's 144 4-deep
+merge-mask broadcasts per call.  Subloop A: rows y=yb..yb+3 × columns
+zq*4..+3 loaded full-width, transposed in registers, PFA36 consumes
+Zt[j]; stores to pp unchanged.  Subloop B: same on pp rows (kz × y).
+Mechanism (pfa's r7 diagnosis, confirmed here): the r2 port arithmetic
+(broadcasts keep port 5 free for the second FMA pipe) was measured on
+shapes whose pass A carried real port pressure; the eager chain's pass A
+is map-free and STALL-bound — the 4-deep merge-mask dependence chains
+cost more than the 72 shuffles displace.  Why this is NOT my r7 TPP
+rejection (112.0): TPP transposed the OUTPUT side, so its Wv[36] staging
+was live ACROSS the codelet on top of u[36]; here Zt/Yv die as u[36]
+fills — input-side staging replaces the loads' register demand instead of
+adding to the stores'.  The exec path keeps BCB4 (not scored;
+`-DFFT36PF_BCSTA` rebuilds the r7 broadcast chain pass A for A/B).
+Values are bit-identical to the broadcast builder's (shuffles are exact),
+so ALL fingerprints carry over from r6/r7 unchanged.
+
+### Operation count
+
+FFT and map arithmetic unchanged (PFA 4×9 n1_9: 232 FMA-port + 57 p5 per
+36-line over PW lanes; 225,504 FMA-port vector ops + 55,404 codelet swaps
+per volume at PW=4; map 12 style-B + 6 style-D pairs per carrier call).
+Pass A per call: 144 broadcast-merge load µops → 36 full loads + 72 p5
+shuffles + ~36 st/36 ld of L1 staging traffic; per volume that is +46,656
+p5 shuffles (the exact count the r2 bcst design deleted — and it is STILL
+the right trade, because the binder moved from ports to stalls when the
+map left pass A in r6).  Two-pipe port floor rises ~8k cyc/vol; measured
+time fell 4.4 µs/step: this round was stalls, not ports, exactly as pfa
+wrote.
+
+### Measured on the node (tryout.sh with the W= workaround + PATH shim;
+### chain gate and two-run cmp by hand — check.py m>2 branch is broken
+### this round; graded map chain 36:8:64 unless stated)
+
+* **Headline: 102.245 min / 102.397 median, sd 0.07%, MKL 282.7** vs the
+  r7 code's 106.665 same session (MKL 281.4) — **−4.2%**.  Confirmations
+  of the shipping bits: 103.380 (MKL 285.5), 102.631 (MKL 285.6; median
+  136.9 — a contended lease, min-of-windows per the r5 rule).  One
+  contended-class reading in between: 116.9 at MKL flat 282.6 (the known
+  +13%-on-us/flat-MKL mode; code identical to the 102.6 run).
+* **Phase split (SKIPB, pass A alone): 46.833 vs r7's 51.65** — the whole
+  end-to-end win localizes in pass A, as designed.  Carrier by
+  subtraction ≈ 55.4 µs, unchanged, now the clear frontier again.
+* B=1 (not graded): 115.456, sd 0.04%, MKL 309.8 — slow-clock window,
+  ratio 0.373, consistent with r7's window-dependent 107.8–121.9 band.
+* **Correctness, all by hand on the node**: single 3.586e-16 (B=8) /
+  3.591e-16 (B=1); **two-step precision gate (m=2): 1.549e-15 vs tol
+  3e-14** (the new scored gate — ~19× margin); chain m=64 rel_l2
+  1.191e-14 vs anchor-based tol 1e-10 (anchor 1.227e-14); chain output
+  **bit-identical to the r7 broadcast flow** (cmp of .chain files across
+  the two builds) and identical across two fresh runs of the shipping
+  binary.  Setup 0.83–0.97 s.
+
+### What was tried and did NOT work — with the number that killed it
+
+1. **One-group-LAGGED carrier (`-DFFT36PF_MAPL`, kept compiled)** — pfa's
+   mix=7 / mixedradix's style L on my carrier: FFT stores raw to the
+   2304-B stash, the next group's call flushes the previous stash at its
+   top (adjacent-pair order, stash+cq both sequential), tail flush ends
+   the plane; flush styles B,B,A (pfa's lagged choice; `-DFFT36PF_MLBBD`
+   builds B,B,D).  **110.921 vs 102.245 same window, MKL 282.8/282.7 —
+   +8.5%, REJECTED.**  This settles the panel's split evidence for my
+   body: it matches mixedradix's nL verdict (−8) and not pfa's (+2.8),
+   and lands within 1.5 µs of my r6 immediate-stash number (121.9 vs
+   110.2 — the same cyclic instruction stream cut at the other loop
+   boundary, as it should).  Conclusion for L=36 carriers: the lag only
+   pays where the rotation was NOT already fused into the store phase
+   (pfa's rotation-era carrier ran ~2.8 µs worse than mine relative to
+   floor); with the r6 rotation in place there is nothing for the lag to
+   recover and the stash round trip is pure cost.  Do not retry; the
+   style-pattern variant cannot recover 8.7 µs.
+2. The B,B,D flush variant was built but not raced (lost cause after
+   item 1's margin).
+3. Not re-raced on judgment: the pp/S mod-4096 phase (PPOFF) — the r6
+   race found a one-phase-wide alias hole at 2112 with the BROADCAST
+   subloop-B reloads; TRNC changes pass A's read pattern (full-width
+   loads), so the hole may have moved, but the default phase measures
+   healthy (102.2 at quiet) and the plateau was 6-wide in r6.  If a
+   future round changes the arena layout, re-run the PPOFF race with the
+   TRNC build first.
+
+### Borrowed this round, named
+
+* **TRNC pass A (the whole shipped win): L36_pfa ice_r7's "phase 1
+  un-broadcast" (P1ZT+P1YT)** — mechanism and diagnosis verbatim, ported
+  onto my plane-fused pass shapes with my own CTRANSPOSE butterfly
+  (their VSH-based TRNC and my CTRSTEP compile to the same 8-shuffle
+  quad).  Their record's step ladder (105.8 → 101.7 → 100.0) predicted
+  my −4.4 µs almost exactly.
+* The lagged-carrier candidate: **L36_pfa ice_r7 (mix=7)** and
+  **L36_mixedradix ice_r7 (style L)** — rejected here with the number
+  above; my measurement resolves their split verdict in mixedradix's
+  favor for rotation-fused carriers.
+* The min-of-windows discipline and window classing: this file's r5/r6
+  machinery, unchanged.
+
+### Predictions for the scoring window (so they can be scored)
+
+* Description reads `fchain pw=4 volres inplace TRNC-passA(r8) EAGER
+  map@passB cperm hyb12B:6D r8[mapl110.9 vs 102.2]`.  Fingerprints
+  UNCHANGED from r6/r7 (bit-identical chain): single 3.586e-16, chain
+  m=64 1.191e-14, two-step 1.549e-15, bit-repeatable across processes.
+* **B=8 graded cell: 101–105 µs/step** in a quiet window (dev minima
+  102.2–103.4 at MKL 281–286; r7's 107.9-quiet scored 107.009).  ≥110
+  means a contended window — ask for the cross-process min first.
+* vs rivals: mixedradix ~100–102 (they queued no big lever in their r7
+  record), pfa ~100–102.  This entry lands in the same band for the
+  first time since r5 — expect a three-way photo finish decided by the
+  window, not the code.
+
+### Next
+
+1. **The carrier is the frontier again and it is the LAST fat block:
+   ~55.4 µs by subtraction vs a ~41 µs model (16.1 FFT floor + ~19 map
+   issue + ~6 c stream).**  Every placement idea is now priced (rotation
+   r6, stash r6, lag r8, per-vector r4, staged r5); what remains is
+   hand-shaping the store-phase register pressure below gcc's allocator
+   (u[36] spill placement) — asm-level work, or the PMU attribution
+   first (perf_event_open works on this node; UOPS_DISPATCHED.PORT_5 and
+   DSB coverage on the carrier would settle ROB-vs-ports in one run).
+2. Pass A at 46.8 vs a ~34 port-model: the residual is now the same
+   dependent-latency class as pfa's post-TRNC p1 (145k cyc vs 94k
+   floor); their next-list points at memory-side effects (mid-store RFO
+   from L2).  A pp-store RFO experiment (prefetchw on pp lines once per
+   plane, NOT per group) is the one un-priced idea left there — but
+   every pass-A prefetch since r3 has been a tax; price it only with the
+   PMU first.
+3. Split-complex through the whole pipeline: pfa's r7 next-list note
+   stands — with TRNC's 72 shuffles/call now in pass A, the boundary
+   deint/reint arithmetic from my r3 rejection has changed; re-do that
+   count before dismissing it a third time.
+4. Do NOT retry: the lagged carrier (110.9), anything on the r3–r7
+   lists.  tryout.sh: W= prefix + PATH squeue shim still required, and
+   check.py's m>2 map-check now needs the by-hand numpy replica (missing
+   `import math`).

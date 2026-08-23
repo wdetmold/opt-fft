@@ -1,0 +1,2 @@
+   L64_blocked                  634.801 us 170126.763 us    37.17       3.6%    0.045s  ok ch=3.8e-14/1e-10 1s=2e-15 1.00x
+   L64_blocked              L64 zsplit-custody chain (ice_r8: EXACT all-FMA map md=3 2quad rsqrt+2quad rcp; r7 ztail inline, zvp=0, zapf2@T3, zms=0 zs2=0) zs=1 ck=0 xk=1; exec pw=4 mode=cached pf=8 st=3(split-sc) pro=1 sb=0 (B=2)

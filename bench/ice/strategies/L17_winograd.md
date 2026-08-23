@@ -801,3 +801,177 @@ hold.
    nobody on this panel has used it yet).
 4. B=1 is unscored but improved for free (13.35 -> 12.67); nothing left to
    do there deliberately.
+
+## Round ice_r8
+
+### Where this round started
+
+ice_r7 leaderboard: L17_winograd 10.922 us/step (17.1% spread -- a mixed
+scoring window), SECOND: L17_matrixsimd jumped to **9.035** with their chain
+v7 -- VOLUME-SoA lanes (4 volumes per zmm, interleaved complex), adopted from
+rival v6_f40c5e25 and made cheaper than the rivals' own 8-volume split form.
+Their matched pairs: v7 9.04 vs their v6 11.95 (-24%).  The honest external
+marks: best cold rival on this node 1760b1bf = 10.68 us/step (already beaten
+by both of us); the warm cohort (0.99-scorer at ~r=0.145) could not be
+re-benchmarked on the node this round (all five reconstructions fail to
+compile in results/warm_icelake/warm.json -- arm64-regenerated sources), so
+matrixsimd's 9.035 was the number to catch.
+
+Round 8 also CORRECTED THE GATE (see PANEL_BRIEF "RIVAL UPDATE"): a new
+ONE-STEP gate (single map step vs numpy, 1e-14 rel L2) carries the precision
+contract; the chain gate is now 300x the worst library drift (chaos-aware).
+Consequence for THIS entry: the r7-shipped default map tier -- one Halley
+step, 2^-42 ~ 2.3e-13/application -- FAILS the new one-step gate by ~20x.
+Shipping r7's code unchanged would have been a REJECTED entry this round.
+
+### What was changed
+
+1. **Map tier default: Halley -> O4 (one-step-exact), everywhere.**  The
+   O4 tier (ONE order-4 rsqrt refinement, 6 ops, (2^-14)^4 = 2^-56 < eps/2)
+   was already built and measured in r7 (+0.11 us vs Halley, -0.24 vs NR2);
+   it is now the default in map8s and in the new SoA map.  The nr-path
+   reciprocal likewise reverts from the r7 cubic (2^-42) to two Newtons
+   (2^-56).  -DL17_MAP_HALLEY keeps the r7 tier for dev A/Bs ONLY (it can no
+   longer pass); -DL17_MAP_NR2 unchanged.  Measured one-step-tier error via
+   the m=2 gate path locally: 1.16e-15 vs tol 3e-14 (25x margin) -- the O4
+   ladder is exact to final rounding, as designed.
+2. **Volume-SoA chain (chvar 12 msa8 / 13 msac8) -- ADOPTED WHOLESALE from
+   L17_matrixsimd ice_r7 (chain v7 + kernel chunk17zri), itself from rival
+   v6_f40c5e25's volumes-in-lanes layout.**  4 volumes per zmm, interleaved
+   complex: a pencil along ANY axis is a plain strided in-place sweep --
+   zero shuffles, zero transposes, zero tails, zero repacks; the only
+   orientation cost is the DFT's own +-i as 8 MULI swaps per 17-point chunk
+   (sine tables sign-folded, odd lanes negated, so MULI is a bare
+   vpermilpd).  Ported into this entry's idiom: kernel k17soa (their
+   chunk17zri arithmetic verbatim -- generator-3 nested cyclic/negacyclic,
+   148 FP vector ops per 4 pencils, all 17 loads before all 17 stores so
+   in-place is well-defined), the 4x8 cosine-pair table + 8 pinned sine
+   splats (their create() fill, verbatim math), arena point q = j0*289 +
+   j1*17 + j2 at pa[8q] (314 KB state + 314 KB c, L2-resident per 4-volume
+   group-chain, bases 3200 B apart mod 4K inside the existing 2-MB THP
+   arena), step = pass j0 (289 in-place chunks, stride 2312) then per
+   18.5-KB j0-slab: pass j1 (stride 136) + pass j2 (contiguous) with the
+   map at 4-pencil granularity.  What is NOT theirs: the map is THIS
+   entry's tier ladder (O4 default) in their pair-packed shape (|z+c|^2 of
+   2 zmm packed into one by two 2-source shuffles, one ladder + one vdivpd
+   -- or rcp14+2N in msac8 -- per 8 points, expand, two muls; noinline per
+   style).  batch%4 remainder and B<4 run the r7 rotating chain unchanged.
+3. **Safety gate rok3** (r6 pattern): create cross-checks msa8 against the
+   trusted msp8 on a full 4-volume group at m=5 AND m=6 to 1e-12 before
+   admitting chvar 12/13 to the race; printed in the scored string.  The
+   port passed it on the first node run (and the first local run).
+4. **fft3d_chain NULL guard**: driver.c:141 still passes pong=NULL at
+   --map --chain 1 (the one-step gate's exact shape; r7 trap note, still
+   unfixed).  fft3d_chain now returns on final_out == NULL -- the m=1 map
+   run no longer segfaults (verified on the node; it used to ASan-trace
+   through tsto8m_core).  Under a fixed driver the m=1 path runs normally
+   (unpack, one step, pack) and is covered by the m=2 gate check.
+
+### Operation count
+
+FFT arithmetic per volume-step UNCHANGED in total: 867 in-place chunks per
+4-volume group-step x (148 FP + 8 swaps + 17 ld + 17 st) = 32.1k vector FP
+ops + 1.7k swap uops per volume-step -- identical FP density to the rotating
+engine's 256,632 FP instr / 8 lanes.  DELETED per volume-step vs mrotc8: all
+~150 tr8-equivalent transposes, the pass-3' xbuf staging (34L+96shf+34S x
+34), the R=16 tail-plane and Q=16 corner glue (~3k uops), both per-volume
+repacks, and the csA/csB 9826-double gathers (the SoA c arena is unpacked
+once per GROUP).  Map: O4 ladder (6 ops) + 1 vdivpd per 8 points (msa8),
+~614 pair-instances per volume-step; the 17 odd slab vectors ride a
+lane-duplicated exact ladder + vdivpd.  Unpack/pack: 2 x 629 KB of 16-B lane
+copies once per 4-volume group-chain, amortized by m=98 to noise.
+
+### Measured on the node (manual tryout protocol on a slot lease -- squeue
+### is not in wallaby's PATH this round so reserve.sh --status false-negatives
+### while the node answers ssh, exactly matrixsimd's r7 note; core 4)
+
+- **Matched same-lease alternating full-binary pairs vs the r7 exemplar,
+  B=32 m=98, 4 pairs: r8 won 4/4 -- 10.320/9.039/9.052/9.042 vs
+  10.976/10.920/11.130/11.161** (pair 1's r8 was the cold table).  Steady
+  state **-1.9 us/step (-17%) matched**.
+- **FINAL: B=32 min 9.041 / median 9.044 us/step (sd 0.02%)**; three
+  independent processes landed 9.039-9.052.  In-create race (contended
+  window): msa8=11.01 < msac8=11.42 < mrot8=14.41 < mrotc8=14.48 <
+  mrp8=15.53, rok=1 rok2=1 rok3=1 -- the pick's margin is structural, not
+  window-dependent.
+- B=1 (rot fallback path, unscored): 11.138 us/step (r7: 12.670; the delta
+  is window, the path is untouched apart from the map tier).
+- **O4-vs-NR2 matched pairs inside the SoA engine: a WASH** (9.040/9.035/
+  9.080 vs 9.075/9.068/9.054, won 2/3 by ~0.035) -- unlike the rotating
+  engine's -0.24 (r7): the pair-packed map amortizes the ladder over 8
+  points and hides under the next block's chunks, so the tier's op count
+  barely surfaces.  O4 kept as default (never slower, one fewer op, and the
+  margin arithmetic is cleaner).
+- Correctness: single transform rel_l2 3.254e-16 (B=32) / 3.269e-16 (B=1);
+  **map-chain m=98 end state 2.101e-14 (B=32) / 9.53e-15 (B=1)** vs the
+  corrected anchor-based tol 1e-10 (anchor 3.0e-14 at B=32); local sweep
+  B in {1,4,5,8} x m in {2,6,98} all PASS (B=5 exercises the group+remainder
+  seam; m=2 the one-step tier: 1.16-1.25e-15); out.bin AND out.bin.chain
+  byte-identical across two node processes; m=1 map run no longer crashes.
+- check.py is BROKEN this round for every implementer at m>2: the map-chain
+  branch uses math.floor without importing math (line 94) -- it prints the
+  single-transform PASS then dies before the chain check.  I ran the chain
+  check with a standalone replica of its exact formula (anchor chain, 300x,
+  {1,3}x10^n grid).  Monitor: one-line fix, `import math`.
+
+### What did NOT work / was skipped on others' evidence
+
+- Nothing failed on the node this round -- the port ran gate-clean on the
+  first attempt.  What made that true (same as r6): kernel and tables taken
+  VERBATIM from a proven source (matrixsimd's chunk17zri text and their
+  create() table fill), the rok3 gate wired in before the first node run,
+  and the local AVX-512 sweep (wallaby) before the node ever saw the code.
+- SKIPPED on matrixsimd's r7 evidence, per the brief's "do not rediscover":
+  their v7-P1 slab pipelining (lost 3/3 -- no complementary port mix left),
+  and the rivals' literal 8-volume split-complex SoA (their arithmetic
+  rejection: ~336 vector ops per 8 pencils vs 296+8, double the footprint).
+- SKIPPED on my own r7 evidence: pair-GROUP interleaving (two 4-volume
+  arenas in flight = 1.26 MB state, the exact working-set doubling that
+  made mrp8 lose every region of the r7 profile).
+- The O4-map edge I hoped would beat their s6 tier inside the same engine
+  is a wash (numbers above) -- worth knowing: the map tier matters in
+  store-side fused maps, not in the pair-packed slab map.
+
+### Borrowed this round, named
+
+- **L17_matrixsimd ice_r7**: the whole chain v7 design -- volume-SoA-4
+  interleaved layout, the in-place chunk17zri kernel text, the nested-kernel
+  table construction, the slab step shape, the map placement, the pa/ca
+  mod-4K congruence, and the pair-packed map body shape (their r6
+  l17_map_vecs).  This is the round's entire speed delta; my additions are
+  the O4 tier default, the rok3 gate wiring, and the NULL guard.
+- **v6_f40c5e25** (fft_v5v6_solutions): the volumes-in-lanes idea, via
+  matrixsimd's adaptation.
+- The gate-correction response (O4 default) is this entry's own r7 tier
+  ladder, re-defaulted per the brief's directive.
+
+### Score projection
+
+Dev steady state 9.04 us/step (sd 0.02%) across three processes and two
+windows; the scoring window is quieter.  Expect **~8.9-9.1 scored**
+(~0.0278 s for the graded point, ~0.85x the best rival's node re-benchmark).
+matrixsimd r7 scored 9.035 from the same engine and is presumably pushing
+its open kernel-wall item this round, so parity or a narrow 2nd is honest;
+the panel's L=17 cell should now hold two gate-clean ~9.0 entries.
+
+### Next round
+
+1. The kernel wall is the whole story for BOTH 9.0 entries now: 9.04
+   us/step ~ 26 kcyc/volume at 2.9 GHz against matrixsimd's ~21-22 kcyc
+   all-port floor.  Their open j0-block-custody idea (keep the state
+   j0-major half the time) reintroduces transposes -- price it against
+   their 5.8k-uop lesson AND my r6 rotating-state experience (which is
+   exactly a custody scheme, at 8 lanes) before building.
+2. If the scored mch[] shows msa8 NOT winning the quiet window (opposite
+   of an 11.01-vs-14.41 race margin), something structural changed --
+   re-run the same-lease pairs before believing anything.
+3. Verify the one-step gate end-to-end the moment the monitor ships a
+   fixed driver (--map --chain 1 with a real pong): the m=1 SoA path is
+   exercised by construction but has never met a real harness check.
+4. B=1 still runs the rotating chain (11.1); if B=1 ever becomes scored,
+   the SoA form is meaningless there and the r6/r7 open list applies.
+5. Housekeeping for the monitor: check.py `import math` (map-chain branch
+   dead since the gate correction); driver.c:141 pong NULL at --chain 1
+   --map (my entry now guards, others still segfault); reserve.sh --status
+   false-negatives from wallaby (squeue not in PATH); tryout.sh $W bug
+   still live (r4 note has the one-line fix).

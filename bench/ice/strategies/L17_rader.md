@@ -830,3 +830,166 @@ kernel-issue-shape, not structure.
    as raced, gate-verified fallbacks (msr is one L17R_FORCE_V6=0 away).
 4. Housekeeping unchanged: $W bug, W= prefix, manual check.py, manual cmp,
    and now the PATH/slurm and in.bin-regeneration notes above.
+
+## Round ice_r8
+
+### Where this round started
+
+ice_r7 leaderboard: L17_matrixsimd **9.035**, L17_winograd 10.922, me
+**11.919 us/step** (scored desc: `ch=ms6 12.58 nm=15.97 msr=12.27
+msnm=9.03 msok=1 ms6=12.58 ms6nm=8.65 ok6=1`).  matrixsimd jumped 11.94 ->
+9.04 in one move: "chain v7", VOLUME-SoA LANES -- 4 volumes per zmm in
+interleaved-complex form, so a transform along ANY axis is a plain strided
+in-place sweep of the shared 148-op kernel with ZERO shuffles, zero pad
+lanes, zero tile transposes (their adaptation of rival v6_f40c5e25's
+"SoA volumes-in-lanes" from 8-volume split-complex, which they REJECTED on
+arithmetic: ~336 vector ops per 8 pencils vs our 296+8 and double the L2
+footprint).  My r5/r6/r7 pattern applied unchanged: port the donor's
+engine verbatim behind a numerical gate.  This round is that port, and it
+landed at the donor's exact level.
+
+### What was built: the "ms7" chain engine (port of L17_matrixsimd chain v7)
+
+ADOPTED WHOLESALE from impl/L17_matrixsimd.c ice_r7 (their l17_chain_v7):
+
+1. **Volume-SoA arenas** (p->pa7 state, p->ca7 c field): point
+   q = j0*289 + j1*17 + j2 holds 4 volumes' complex values in ONE zmm at
+   pa7[8q]; 4913 x 64 B = 314 KB each, both L2-resident for the whole
+   m=98 group-chain.  pa7 padded +8 dbl so ca7's base sits 3200 B away
+   mod 4K (their exact spacing, L1 set spread on the paired map streams).
+   Every access in every pass is one full aligned line (a point-group IS
+   a line).
+2. **Step = three in-place strided sweeps of ms_chunk17zri** (the r7 kernel
+   unchanged -- lanes now mean volumes): pass j0 at stride 2312 dbl (289
+   lines, mod-4K 33 lines odd -> set spread), 289 chunks over the arena;
+   then per 18.5 KB slab: pass j1 at stride 136 (17 lines, odd), pass j2
+   at stride 8 (contiguous) with the s6 map interleaved at 4-pencil
+   granularity (v6's proven placement, same noinline bodies: ms_map_vecs
+   pairs + ms_map_vec1 for the odd vector).
+3. **Unpack/pack**: 16-B lane copies once per group-chain, amortized by m
+   (arena-custody doctrine).  batch%4 remainder volumes and all of B<4
+   run the untouched ms6 engine (l17r_chain_v6 already had the nbv
+   parameter).  B=1 therefore stays ms6.
+4. **Self-check gate (r5 pattern, widened to the group)**: ms7 enters the
+   race only if a full m=3 group-chain over 4 VOLUMES (FFT + map each
+   step; m=3 exercises the SoA arena re-entry, 4 volumes exercise the
+   lane mapping -- a misindexed lane corrupts a whole volume) agrees with
+   ms6 run per-volume to 1e-12 rel L2.  Race band 15% as for ms6 (create
+   races are cold-biased against the newest arenas; the donor ships v7
+   with no race at all).  -DL17R_FORCE_V7=0/1 for A/Bs; ok7/ms7/ms7nm
+   published in the description.
+5. **NOT ported, on the donor's own numbers**: their v7-P1 hook (slab
+   i+1's j1 chunks pipelined into slab i's j2+map phase) -- LOSES 3/3
+   matched pairs on their side (9.409/9.241/9.225 vs 9.045/9.045/9.040);
+   v7 has no shuffle-heavy phase left to hide load-heavy work under.
+6. **Map tier decision forced by the r8 gate correction**: the new
+   ONE-STEP gate (single map step vs numpy, 1e-14 rel L2) outlaws
+   winograd's r7 Halley tier (~5.7e-13/application) and every fp32-seeded
+   form (~2.6e-12) by arithmetic.  The s6 exact tier (rsqrt14 + 2 Newton
+   to ~2^-54, ONE correctly-rounded vdivpd) stays everywhere: measured
+   m=2 end state 1.2e-15 (tol 3e-14), i.e. ~one-step ~6e-16/step -- 20x
+   inside the contract.  Do not spend flops on chain drift beyond that
+   (chaos amplifies everyone's roundoff equally; anchor at m=98 is
+   3.0e-14 and the gate is 300x the library divergence).
+
+### Operation count
+
+Per volume-step: 867/4 = 216.75 chunk-equivalents x 148 FP = 32.1k vector
+FP ops (was 36.0k over 243 chunks with pads), ZERO transpose uops (was
+~5.8k port-5 vpermt2pd + 40-vector stack round trips), map on exactly 4913
+points (was +17% on row pads): 614 pair-iters + 4.25 single-vector calls
+per volume-step.  Rough total vector uops per volume-step: ~58k, -23% vs
+ms6.  FFT arithmetic per pencil unchanged (148 FP per 4 pencils + 8
+sign-folded MULI swaps).
+
+### Measured (ICE node; A/Bs are same-lease alternating full binaries,
+### r5 protocol; every number names its window)
+
+| config | result |
+|---|---|
+| **tryout B=32 m=98, first lease (quiet)** | **min 9.028 / median 9.030 us/step, sd 0.15%** (MKL same core 88.77, sd 0.05% -> 9.8x) |
+| matched pairs, same lease, 3/3 | **ms7 9.079 / 9.082 / 9.083 vs ms6 11.957 / 12.021 / 12.051 (-24.5%)** -- the donor's own delta reproduced to the third digit |
+| second lease (different core, co-tenant mode) | min 10.306, sd 0.04% -- window level, not code (r6 lesson holds) |
+| **B=1 m=98 (ms6 path, untouched)** | **min 13.567 / median 13.568, sd 0.01%** (r7: 13.548-13.567; MKL 99.5) |
+| single-transform gate | rel_l2 3.160e-16 (B=32), 3.114e-16 (B=1) |
+| chain gate m=98, manual (check.py's NEW r8 m>2 branch crashes -- see notes) | **B=32: 2.055e-14 (anchor 3.004e-14, tol 1e-10); B=1: 1.163e-14 (anchor 1.034e-14)** |
+| one-step contract (m=2 proxy, driver m=1 still segfaults -- driver.c:141 NULL pong) | **1.212e-15 at B=32 (tol 3e-14)**; B=1/4/5/6/8 all 1.1-1.3e-15 (group+remainder seams) |
+| bit class | ms7 chain output BIT-IDENTICAL to ms6's (cmp, node AND wallaby -- the donor's v6/v7 bit-identity claim reproduced), and to the r7 SHIPPED binary's chain on the same seeds; repeatable across processes |
+| in-create race (wallaby, cold levels, ranks only) | ch=ms7 7.63 ok7=1 ms7nm=5.08 (picked over ms6/msr) |
+
+### What did NOT work / notes
+
+* No failed mechanisms this round -- the port landed at the donor's level
+  on the first node run (self-check ok7=1 immediately; the r5 porting
+  discipline again: kernel and map bodies untouched, only the arena walk
+  is new text, and the gate catches transcription before it can ship).
+* **check.py's new m>2 chain-gate branch crashes** (`math` used at line
+  94, never imported -- the r8 two-part-gate edit).  The m<=2 branch
+  works.  Workaround this round: compute the m=98 gate manually
+  (anchor = numpy fftn-vs-V*conj(ifftn(conj)) divergence on the same
+  chain, tol = {1,3}x10^n grid on 300x anchor, floor 1e-10).  Monitor:
+  one-line fix, `import math`.
+* **driver.c:141 NULL-pong segfault at --chain 1 --map is STILL live**
+  (winograd's r7 find) -- the ONE-STEP gate as specified (--map --chain 1)
+  cannot currently be run through the driver; m=2 is the workable proxy
+  (chaos-free at 2 steps, tol 1.5e-14*m).
+* tryout.sh $W bug STILL live (r4 note; W= env prefix + manual check.py +
+  manual cmp).  Its inner check.py call now ALSO breaks on the new
+  map-check plumbing ('/c.bin' path) -- the map gate silently never runs
+  in tryout; run it by hand every time.
+* tryout regenerates in.bin/c.bin at the requested batch (r7 note) --
+  B=32 A/B files must be regenerated (or the A/B run first) after any
+  B=1 tryout.
+
+### Borrowed this round, named
+
+* **The entire ms7 chain engine is L17_matrixsimd ice_r7's chain v7**
+  (volume-SoA arenas with the 3200 B mod-4K pa/ca spacing, the three
+  in-place strided passes, map-at-4-pencil placement, unpack/pack lane
+  copies, v6-remainder routing), itself the rival **v6_f40c5e25**
+  volumes-in-lanes layout adapted to 4-volume interleaved complex.
+  Stated plainly: this round is their work adopted under the cumulative
+  rules, with the m=3x4-volume gate shape and the domap probe flag as my
+  additions, and their v7-P1 negative respected (not rebuilt).
+* The decision NOT to chase the warm cohort's 8-volume split-complex SoA
+  prime engines (fft_warm_solutions/warm_d43251c2, score 0.99) follows
+  **L17_matrixsimd r7's arithmetic rejection** of that exact form (more
+  vector ops per pencil, 2x L2 footprint, and the rivals' own SoA
+  attempts measure slower than 1760b1bf on this node at L=17).
+* The exact-tier-only map ruling applies the **r8 brief's gate
+  correction** (one-step 1e-14 contract); winograd's r7 Halley tier is
+  the named casualty -- do not port it anywhere the one-step gate exists.
+
+### Score projection
+
+Dev floor 9.03-9.08 matched against ms6 11.96-12.05 (whose window class
+scored 11.919 in r7), so expect **~9.0-9.2 us/step scored**, from 11.919
+-- i.e. parity with matrixsimd's 9.035 (bit-identical engines, modulo
+their create-window), both ~15% ahead of the best rival measured on this
+node (1760b1bf, 10.68), chain-true at 2.06e-14.
+
+### Next round
+
+1. Read the scored description: expect `ch=ms7 ... ok7=1`; ms7nm is the
+   FFT residual on the SoA passes (wallaby create read 5.08 -- node value
+   will differ; the donor's kernel-wall arithmetic says ~29.9 kcyc/volume
+   measured vs ~21-22 kcyc all-port floor, so ~25% headroom exists INSIDE
+   the kernel issue shape, none left in structure).
+2. All three L=17 entries now share one engine at ~9.0-9.1; further
+   progress is kernel-level or nothing.  The costed-not-built cards, in
+   order: (a) the donor's j0-block-transposed custody (L1-localize pass
+   j0, the only phase reading L2 at distance -- price against the 5.8k
+   transpose-uop lesson first); (b) a PMU look at the ~8 kcyc gap
+   (perf_event_open works on the node; NOBODY on this panel has used it
+   yet -- winograd's r7 next-round note, still true).
+3. The divider is NOT binding (donor arithmetic: 2456 vdivpd x ~16 cyc =
+   39 kcyc/group vs ~119 kcyc measured) -- do not revisit map ladder
+   arithmetic; the exact tier is also now gate-mandatory.
+4. If matrixsimd or winograd ships a kernel-level win on the shared
+   chunk, port it -- the engines are bit-identical now, deltas transfer
+   mechanically (and in reverse: they should confirm their v7 arenas'
+   line alignment against my r6 audit pattern; theirs were fine this
+   time).
+5. Housekeeping for the monitor, all one-liners: check.py `import math`;
+   driver.c:141 pong ternary (blocks the specified one-step gate);
+   tryout.sh $W (two sites now).

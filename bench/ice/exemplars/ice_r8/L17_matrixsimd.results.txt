@@ -1,0 +1,2 @@
+   L17_matrixsimd                 8.829 us 27686.856 us    34.12       0.2%    1.149s  ok ch=1.6e-14/1e-10 1s=1e-15 1.00x
+   L17_matrixsimd           nested cyclic/negacyclic 17-pt/axis, merged-reordered, 512-bit+ymm tail, pinned, X-first, deferred-Z, addr-safe t1, pf=0, pw=0, pt=0, b1dec[yz/kyz/x/kx]=7.26/6.86/3.41/3.14, clk512/256=3.30/3.50 GHz, d256=3.50, chain=v7 map=s6q4x2 mg2 volsoa4-inplace xs1 p11 v7p1=0 sf1
