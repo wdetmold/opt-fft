@@ -1153,7 +1153,7 @@ static void __attribute__((unused)) tune_chain(fft3d_plan *p,
         if (m > 0 && (size_t)m < sizeof g_arena)
             snprintf(g_arena + m, sizeof g_arena - m, "}");
     }
-    if (1) {  /* XXX dev: unconditional while iterating; re-gate before done */
+    if (getenv("L8_TUNE_DEBUG")) {
         fprintf(stderr, "L8_fusedaxes tune_chain B=%d steps=%d:", p->batch, steps);
         for (int c = 0; c < nc; ++c)
             fprintf(stderr, " %s=%.3fus", vname[cand[c]],
@@ -1491,7 +1491,7 @@ fft3d_plan *fft3d_create(int L, int batch)
          * driver's unitary scale pass between steps, kernel intervals only.
          * 25 steps/trial covers both (src,dst) orderings ~12x each;
          * min-of-9 rounds; 2% hysteresis toward the fusedAA2 anchor. */
-        tune_chain(p, cand_small, (int)sizeof cand_small, batch, 0.02, 9, 25);
+        tune_chain(p, cand_small, (int)sizeof cand_small, batch, 0.05, 9, 25);
         how = "chain-tuned";
     } else {
         /* tiny band incl. B=1, tuned since r7.  Surrogate = the exact batch

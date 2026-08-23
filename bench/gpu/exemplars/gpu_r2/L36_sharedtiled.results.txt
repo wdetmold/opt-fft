@@ -1,0 +1,4 @@
+   L36_sharedtiled               10.001 us    10.001 us   361.77       1.7%    0.056s  ok 4.8e-16       1.11x
+   L36_sharedtiled                1.383 us    30.433 us  2615.53       1.8%    0.409s  ok 4.8e-16       1.00x
+   L36_sharedtiled                1.446 us  2079.858 us  2501.54       0.3%    0.585s  ok 4.8e-16       1.07x
+   L36_sharedtiled          two-pass plane-per-block, 6x6 CT lines, padded shared; smallB split chunk=0 ns=1 pol=stream launch=graph

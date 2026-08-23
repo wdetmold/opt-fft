@@ -54,7 +54,7 @@
  *  * L == 6 only.
  *  * in/out are 64-byte aligned, as fft3d_api.h guarantees, and distinct.
  *  * double _Complex is a pair of adjacent doubles (C99 guarantees this).
- *  * 10 kernel variants are RACED AGAINST EACH OTHER AND VALIDATED against a
+ *  * The kernel variants (17 in ice_r2) are RACED AGAINST EACH OTHER AND VALIDATED against a
  *    scalar reference inside fft3d_create(); a variant that disagrees with the
  *    reference by more than 1e-11 relative is disqualified and can never be
  *    selected.  This is what makes an untestable-locally code path safe.
@@ -1353,9 +1353,9 @@ fft3d_plan *fft3d_create(int L, int batch)
 #endif
         if (gk > 0.0) {
             /* ab1 = in-plan nvol=1 discriminator, min ns/volume,
-             * licence-fair (each kernel self-warmed): y = fused_zp (the
-             * ymm incumbent), z = zff (the zmm challenger); 0.0 = not
-             * available/not gated.  zwd = best-zmm vs best-ymm race
+             * licence-fair (each kernel self-warmed): y = fused_pf (the
+             * chain-winning ymm shape), z = zxf (the chain-winning zmm
+             * shape); 0.0 = unavailable.  zwd = best-zmm vs best-ymm race
              * delta at the plan's raced batch size, positive = 512-bit
              * slower (the width question at the graded batch).
              * xod = fused_zp vs fused family-best race delta at the

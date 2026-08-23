@@ -1,0 +1,4 @@
+   L45_pfa                       12.623 us    12.623 us   594.67       0.7%    0.000s  ok 8.2e-16       1.00x
+   L45_pfa                        3.319 us    36.513 us  2261.47       0.3%    0.000s  ok 8.2e-16       1.00x
+   L45_pfa                        3.311 us  2436.754 us  2267.33       0.4%    0.000s  ok 8.2e-16       1.00x
+   L45_pfa                  two-pass PFA 9x5: unit-parallel zy-plane + x-tile kernels; evict-first-hinted L2 chunks (9) round-robined on 2 streams; slice-per-stream + direct stores at L2-resident B; B=1 graph

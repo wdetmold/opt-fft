@@ -155,3 +155,121 @@ to B=64 (one wave, single-volume latency); the split path scales with B.
    their DMMA panels inside this entry's one-read-one-write volume-resident shell.
 5. If a future round needs finer path selection, replace the compile-time CUT=12 with a
    plan-time measured A/B (`create()` may time both paths; setup is unscored).
+
+---
+
+## Round gpu_r2 (2026-08-22) — load/compute overlap, split-path latency cuts
+
+Context at the start of the round (gpu_r1 leaderboard): won B=1 (9.76 vs L17_dmma's
+11.36 µs) and the L2 point (149 vs 168 ns/t), **lost the primary HBM point to
+L17_dmma by 2%** (118.0 vs 115.8 ns/t). Two facts taken from the rival records before
+touching code: the SXM4-40GB peak is **1555 GB/s, not the brief's ~2.0 TB/s**
+(hardware correction from `L13_dmma`/`L17_dmma` round 1 — 1215 MHz memory clock, ncu
+percentages agree), so r1's 1332 GB/s was already 86% of peak; and cp.async staging
+was worth −2.5% to L17_dmma.
+
+### What changed
+
+1. **Warp-chunked cp.async staging fused into the z pass** (fused kernel). The z map
+   is line = tid, so warp w's 32 z lines cover exactly the contiguous elements
+   [544w, 544w+544). Each warp now issues cp.async (16 B copies → `cp.async.cg`,
+   global→shared direct, bypassing the ~28 KB of L1 left under the max carveout) for
+   its **own** chunk only, `__pipeline_commit`/`wait_prior(0)`s on its own group,
+   `__syncwarp()`s, and starts its z lines while later warps' loads are still in
+   flight. Load/z overlap with zero cross-warp synchronization, on top of the
+   two-co-resident-block de-phasing; also deletes the load→z `__syncthreads` and the
+   15-register staging buffer. The idea of cp.async came from **`L17_dmma` round 1**;
+   the per-warp chunking + early z start is new (theirs is a block-wide flat copy with
+   a full barrier). HBM point 1611 → **1574–1586 µs** across windows (−2.3%); ncu at
+   B=2160: DRAM 72 → **80.7%** of peak, FP64 pipe 58 → 65%. Neutral at B=213 (A/B in
+   the same window: 32.10 old vs 32.24 µs new, sd ~7%). Old staging kept under
+   `-DL17RF_STAGE_R1`.
+2. **Split-path planes kernel: removed a no-op staging round-trip.** r1 staged the
+   y-pass result through shared "so the global store is coalesced" — an indexing
+   thinko: the y output of thread (k = tid/17, ln = tid%17) lands at plane offset
+   k*17+ln **= tid**, so the direct global store was already coalesced. The staging
+   store, its two `__syncthreads`, and the extra shared load are simply deleted.
+3. **`fft17_xlines` block size 128 → 32.** The kernel is latency-bound (r1: DRAM 22%,
+   SM 12%); at B=1, 289 lines in 128-thread blocks is 3 blocks = 3 SMs. 32-thread
+   blocks put 10 SMs on it: 10.08 → 9.15 µs at B=1 (16/32/64 all measure 9.0–9.15;
+   128 is the only bad choice). Combined with item 2: **B=1 9.87 → 8.81 µs**.
+4. **Path cut retuned 12 → 14** (`L17RF_CUT`): the faster split path now wins B=12
+   (11.15 vs 13.36 µs) and B=13 (13.09 vs ~13.4), tie at 14.
+
+Operation count unchanged: 496 real flops/line, 867 lines/volume, one global read +
+one global write per volume on the fused path.
+
+### Measured — reserved-node A100-SXM4-40GB over the tryout lease (min of samples)
+
+| case | gpu_r1 | gpu_r2 | per transform | cuFFT same window | speedup |
+|---|---|---|---|---|---|
+| B=1 | 9.87 µs | **8.81 µs** | 8.81 µs | 13.66 µs | **1.55×** |
+| B=213 (L2) | 31.86 µs | **32.1–33.0 µs** (windows noisy, sd 7%) | ~150 ns | 67.1–68.1 µs | **2.1×** |
+| B=13656 (HBM) | 1611 µs | **1574–1586 µs** | **115.3–116.1 ns** | 4767 µs | **3.0×** |
+
+HBM effective bandwidth **1363 GB/s = 87.7% of the 1555 GB/s peak** (r1: 85.7%);
+L17_dmma's r1 number on the same case was 1582–1587 µs, so the primary cell should
+flip. rel L2 3.07–3.16e-16 at every batch tried (1, 2, 4, 8, 11, 12, 13, 14, 16, 24,
+32, 48, 64, 213, 13656); bit-identical across runs at every batch;
+`compute-sanitizer --tool memcheck` clean on both paths (B=8 split, B=64 fused).
+B=213 could not be cleanly separated from r1 today — every window at that batch had
+6–8% sd (cuFFT elevated identically); the minima match r1 within ~1%.
+
+### What was tried and did NOT work — with the numbers
+
+1. **Cooperative single-launch split path** (adopted from `L17_dmma` round 1, where it
+   was worth 1.7 µs): planes body + `grid.sync()` + x lines in one
+   `cudaLaunchCooperativeKernel`. **13.95 µs vs 10.08 two-launch at B=1** — the
+   cooperative launch + grid.sync cost ~3.9 µs more than the second launch. It paid
+   for dmma because their two kernels are heavy (dense per-output z+y, global
+   scratch); against two already-lean launches it is pure overhead. Kept under
+   `-DL17RF_COOP` so nobody re-measures it.
+2. **Dense thread-per-output x pass** (adopted from `L17_dmma`'s `fft17_x_dense`:
+   17B blocks × 289 threads, planes→scratch→out): **11.96 µs vs 10.08** at B=1. The
+   17× SM coverage does not compensate for the scratch round trip and the 17×
+   read amplification of the volume. Their x_dense is only right next to their
+   heavier planes kernel. Kept under `-DL17RF_XDENSE`.
+3. **Streaming stores (`st.global.cs`) on the fused x pass**: clean-window A/B at
+   B=13656: **1599.6 µs vs 1575.3 plain** (+1.5%). Evict-first on the write stream
+   does not help a kernel whose reads already stream through L2 once. Kept under
+   `-DL17RF_STCS`.
+4. **Warp-per-plane variant (544 threads, plane-owning warps, z AND y overlapped with
+   load) — rejected by arithmetic before building.** With ncu showing the FP64 pipe
+   at 65% after change 1, plane-granular warps run 17-lane-active line passes at 53%
+   lane efficiency → z+y issue cost ×1.7 ≈ 94% pipe → compute-bound, and 544 threads
+   ×2 blocks busts the 60-register budget (line17w needs ~80 live doubles at peak).
+   A 2-planes-per-warp variant at 320 threads has 34 lines on 32 lanes: the 2
+   leftover lines serialize a full second line17w issue stream per warp per pass.
+
+### Borrowed this round (attribution)
+
+* **`L17_dmma` round 1**: the cp.async staging direction (reworked into per-warp
+  chunks + early z), the cooperative-launch and dense-x ideas (both measured, both
+  rejected here — see above), and the co-residency occupancy check pattern in
+  `create()`.
+* **`L13_dmma` / `L17_dmma` round 1**: the 1555 GB/s SXM4-40GB bandwidth correction,
+  which reframes this kernel as ~88% of peak rather than ~67% — i.e. near the wall,
+  so round 3+ effort should go to the L2 and B=1 cells, not HBM heroics.
+
+### Next round, in order
+
+1. **The remaining HBM gap (~12% to the 1381 µs floor) is the y window**: z overlaps
+   the load now, x overlaps the store; y is the one phase with zero memory traffic.
+   The only structure that overlaps y without killing occupancy or lane efficiency is
+   plane-granular mbarrier pipelining (`cuda::memcpy_async` + 17 shared barriers with
+   17-thread waiter groups). Fiddly; expected ceiling ~1450–1500 µs. Measure the
+   barrier-poll cost on a toy first.
+2. **B=213 (~150 ns/t vs 115.3 at HBM) is still wave-quantized latency**: 213 blocks
+   on 216 slots, per-call ≈ 2× single-volume latency because co-resident pairs share
+   the FP64 pipe and LSU. Any cut in per-volume issue count moves this cell ~1:1.
+   The two remaining `__syncthreads` (z→y, y→x) are candidates: a 2-volume block
+   sharing barriers is NOT (barriers would couple 640 threads), but the z→y barrier
+   could become 17 shared mbarriers with plane-local waiters, same machinery as
+   item 1.
+3. **B=1 residual (~8.8 µs)**: profile where it sits now — planes (17 blocks) vs
+   xlines (10 blocks) vs two launch overheads. If launches dominate, the only lever
+   left is a single non-cooperative kernel doing z+y+x for B≤2 via inter-block
+   spin-flags on L2 (risky, and the driver's correctness gate punishes any hang —
+   prototype off-line first).
+4. If the monitor's scored B=213 window is as noisy as today's, consider a plan-time
+   measured A/B for CUT (create() may time both paths; setup is unscored).

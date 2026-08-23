@@ -1,0 +1,4 @@
+   L36_globalpass                 9.034 us     9.034 us   400.51       1.7%    0.359s  ok 4.8e-16       1.00x
+   L36_globalpass                 1.673 us    36.798 us  2163.10       4.4%    0.575s  ok 4.8e-16       1.21x
+   L36_globalpass                 1.353 us  1945.088 us  2674.87       0.0%    0.395s  ok 4.8e-16       1.00x
+   L36_globalpass           two-pass radix-6^2 shared s37; plain pair hints=0 chunk=0 ns=1 lead=0 graph=1

@@ -90,12 +90,11 @@
  *   a leaderboard number.  Cross-class candidates are timed and published
  *   through fft3d_description() ('*' marks them in the arena string) but can
  *   never be picked -- L36_mixedradix's "installable" rule, adopted verbatim.
- *   B=1 -> HARDWIRED avx512-2p, no tournament.  This executes the r10
- *   pre-registered fork: 1f520 shipped fixed in r10 and read 0.5760 with its
- *   arena showing 1f520 == 1f, i.e. the de-alias bought nothing here and the
- *   branch taken is "r11 hardwires 2p and B=1 is closed".  The r10 node
- *   arena independently ranked 2p first 3/3 (0.560/0.569/0.569).
- *   Probes timed at B=1: {1faa, 1f, 3p}.
+ *   B=1 -> HARDWIRED avx512-1faa since ice_r2 (was 2p, a Cascade Lake
+ *   verdict): on the bare-metal ICE node the dev arena read 1faa 10 % ahead
+ *   (0.468 vs 2p 0.524 / 1f 0.521) and forced driver chain A/Bs confirmed
+ *   ~1.8 % (0.566/0.567 vs 0.576/0.579, MKL steady).  No tournament.
+ *   Probes timed at B=1: {2p, 1f, 3p}.
  *   Mid regime (B>1, in+out <= 0.9*L3; the graded ICE B=64 chain cell) ->
  *   installable {1faa-pfs (default, NEW in ice_r2), 1f-pfs, 1faa} (one
  *   class: y,x,z order, 2.27e-16, bit-identity of 1faa vs 1f verified by
@@ -1184,21 +1183,20 @@ fft3d_plan *fft3d_create(int L, int batch)
 
 #if defined(__AVX512F__)
     if (batch == 1) {
-        /* B=1, panel_r11: HARDWIRED to 2p.  This executes my own r10
-         * pre-registered fork: the de-aliased fused shape (1f520) shipped
-         * fixed in r10 and read 0.5760 with its arena showing 1f520 == 1f
-         * (0.569/0.567, 0.574/0.572 x2) -- the "fix bought nothing, the tax
-         * is code layout, r11 hardwires 2p and B=1 is closed here" branch.
-         * The r10 node arena also ranked 2p FIRST in all three runs
-         * (0.560/0.569/0.569), agreeing for the first time with the r8
-         * driver measurement (2p 0.5700 vs 1f 0.5813/0.5829).  No
-         * tournament (L8_batchsimd's r9 rule stands): candidates below are
-         * timed and published, L8R_FORCE works for A/Bs, nothing displaces
-         * the pick.  The 1f520j association-order probe is RETIRED from the
-         * timed set -- the node answered it in r10 (+0.5..0.7 %, VERDICT
-         * closed the propagation ask); the kernel stays compiled. */
-        ADDC(run_2p_avx512,     run_2p_avx512,     "avx512-2p",     0, 1);
-        ADDC(run_1faa_avx512,   run_1faa_avx512,   "avx512-1faa",   0, 0);
+        /* B=1, ice_r2: HARDWIRE MOVES 2p -> 1faa.  The r11 2p hardwire was a
+         * Cascade Lake decision (r10 node arena 2p first 3/3).  On the ICE
+         * bare-metal node the anti-aliased fused shape wins BOTH ways: the
+         * dev-core create arena read 1faa=0.4684 vs 2p=0.5236/1f=0.5212
+         * (-10 %), and forced driver-level chain A/Bs (m=2572) read
+         * 1faa 0.566/0.567 vs 2p 0.576/0.579 with MKL steady at 0.619 --
+         * a reproducible ~1.8 %.  Still no tournament (L8_batchsimd's r9
+         * rule: the arena cannot rank near-ties at B=1; this was not a
+         * near-tie): candidates below are timed and published, L8R_FORCE
+         * works for A/Bs, nothing displaces the pick.  Single installable =
+         * single bit class (the 1f/1faa y,x,z class, B=1 rel_l2 2.269e-16,
+         * checked by the tryout gate in the same runs). */
+        ADDC(run_1faa_avx512,   run_1faa_avx512,   "avx512-1faa",   0, 1);
+        ADDC(run_2p_avx512,     run_2p_avx512,     "avx512-2p",     0, 0);
         ADDC(run_1f_avx512,     run_1f_avx512,     "avx512-1f",     0, 0);
         ADDC(run_3p_avx512,     run_3p_avx512,     "avx512-3p",     0, 0);
         notune = 1;

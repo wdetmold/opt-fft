@@ -1,0 +1,4 @@
+   L17_dmma                       7.635 us     7.635 us    39.45       1.5%    0.000s  ok 3.2e-16       1.00x
+   L17_dmma                       0.149 us    31.696 us  2024.28       0.2%    0.000s  ok 3.2e-16       1.00x
+   L17_dmma                       0.115 us  1571.669 us  2618.07       0.1%    0.000s  ok 3.2e-16       1.00x
+   L17_dmma                 one volume/block in shared, fused 3-axis cyclic/negacyclic 17-pt lines, batch-selected staging (regs vs cp.async), 1 global read + 1 write; single-launch soft-barrier plane-split at batch<=16

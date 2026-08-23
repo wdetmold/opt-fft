@@ -1,0 +1,29 @@
+# round gpu_r2
+host: a80n1.lqcd.mit   date: 2026-08-22T20:09:36-04:00   slurm_job: 438580
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+gpu: NVIDIA A100-SXM4-40GB, 40960 MiB, 1410 MHz, 1215 MHz, Disabled
+visible devices: 0  (pinned to one A100 on purpose)
+all gpus on node: 0, NVIDIA A100-SXM4-40GB
+all gpus on node: 1, NVIDIA A100-SXM4-40GB
+all gpus on node: 2, NVIDIA A100-SXM4-40GB
+all gpus on node: 3, NVIDIA A100-SXM4-40GB
+all gpus on node: 4, NVIDIA A100-SXM4-40GB
+all gpus on node: 5, NVIDIA A100-SXM4-40GB
+all gpus on node: 6, NVIDIA A100-SXM4-40GB
+all gpus on node: 7, NVIDIA A100-SXM4-40GB
+nvcc: Build cuda_12.2.r12.2/compiler.33053471_0
+driver: 525.125.06
+clocks after sweep: 210 MHz, 1410 MHz, 28, 56.20 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 24, 55.34 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 25, 58.82 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 27, 56.36 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 27, 54.95 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 25, 55.76 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 24, 54.68 W, 0x0000000000000001
+clocks after sweep: 210 MHz, 1410 MHz, 26, 51.85 W, 0x0000000000000001

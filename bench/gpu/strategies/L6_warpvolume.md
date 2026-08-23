@@ -95,3 +95,109 @@ B_HBM: DRAM 89% of SoL, L2 74%, compute 30%, achieved occupancy 16.8%.
    CUDA graph or a pre-recorded launch in create(), that is where the 2× lives.
 3. If a future round adds an inverse/normalized variant, the DIF-z/DIT-yx split and the
    parity maps transpose cleanly; keep the store side the full-sector one.
+
+---
+
+## Round gpu_r2 (2026-08-22) — the register-resident design retired on measurement
+
+### Standing entering the round
+
+r1 leaderboard: won B_L2 (18.38 vs 23.88), lost B=1 (5.37 vs 3.64), near-tie at B_HBM
+(1548.2 vs 1540.1). But rival `L6_batchcoalesced`'s round-gpu_r2 record shows they had
+already borrowed my `__stcs` trick and taken B_L2 to 14.8–15.5 µs — entering this round
+I was behind at **all three points**.
+
+### Technique ended on
+
+**The r1 warp-register kernel is gone from the hot path.** This file now ships:
+
+* **batched (all B > 1): `fft6_bstage`** — shared-staged batch-major kernel, structure
+  **borrowed outright from `L6_batchcoalesced` round gpu_r1** (8 consecutive volumes
+  per 288-thread block, batch-major swizzled shared `slot = i*8 + ((v+i)&7)`, flat
+  coalesced load, z/y passes thread=(volume fast, line slow) so shared access is
+  bank-conflict-free at any stride, x-pass thread=(line fast, volume slow) storing
+  straight to global). My own DIT-6 = 2×3 codelet (two Winograd DFT-3s + w6 twiddles).
+  40 registers, zero spills, 5 blocks/SM = 45 warps/SM. Their occupancy argument is
+  simply correct at a 5.15× bandwidth-bound size, and my measurements below say the
+  register-resident design cannot match it at any scored point.
+* **stores: `__stcs` exactly while the *input* buffer ≤ 36 MiB** (predicate borrowed
+  from their r2 record), plain stores above (at B_HBM `__stcs` measured 1543.6 vs
+  plain **1540.8** — same sign they found; at B_L2 stcs is the 18.6 → 15.1 win).
+* **B = 1: `fft6_single`** — one 64-thread block, 36 line-threads per pass, padded
+  shared `slot = i + i/6`, 3 barriers of 2 warps, x-pass stores direct. Same idea as
+  `L8_blockfused`'s `fft8_single`. **3.09–3.16 µs** vs 3.64 for the 288-thread kernel
+  at B=1 and 5.29 for my r1 kernel: at B=1 the whole GPU is one block, so what matters
+  is minimum serial depth per thread (one 6-point line per pass) and cheap barriers —
+  my r1 kernel's 8 working lanes × 27 points of serial chain was ~1.9 µs of kernel on
+  a ~3.4 µs launch floor.
+
+### Measured (tryout.sh leased SXM4; min over runs, sd on the batched points ≤ 1%)
+
+| case | r1 (this entry) | r2 | rival r2 | cuFFT |
+|---|---|---|---|---|
+| B = 1 | 5.29 µs | **3.09 µs** | 3.78 µs | 10.2 µs |
+| B = 4854 (L2) | 18.59 µs | **15.08 µs** (2,224 GB/s eff) | 14.8–15.5 µs | 51.7 µs |
+| B = 310608 (HBM) | 1563.9 µs | **1540.4 µs** (1393.8 GB/s) | 1540.4 µs | 3528 µs |
+
+rel L2 error 2.4–2.5e-16 at B = 1, 3, 13, 100, 4854, 10925 (tail + stcs boundary),
+310608; bit-identical across runs; compute-sanitizer memcheck 0 errors.
+
+### Tried and rejected, with the numbers that killed them
+
+* **Triad decomposition** (my r1 "next" idea #1: 27 lanes/volume, 2×2×2 points/lane,
+  cross-lane DFT-3 via computed-source shuffles with the CT twiddles folded into
+  per-lane coefficients, DIF-z for the least-bad ternary store pattern). Built,
+  verified (2.4e-16), 96 regs no spills, 21 warps/SM. **B_L2 23.7 µs vs 18.6 —
+  compute-bound: ncu 62% SM throughput.** One-output-per-lane DFT-3 costs 3 generic
+  cmuls per output ≈ 2× Winograd's arithmetic, ×32/27 idle-lane tax = 72 flop/point
+  against warpvolume's 36 and bstage's ~31. At B=1 it gave 4.23 µs (better than r1's
+  5.29, worse than fft6_single's 3.09). The lesson the hard way: *occupancy bought
+  with more arithmetic is a loss at a bandwidth-bound size; occupancy must come from
+  thinner threads, not wider distribution of the same math.*
+* **L2-persistence windows (`cudaAccessPolicyWindow`), 4 configurations at B = 4854.**
+  The idea: in+out = 32 MiB fits the 40 MB L2, so persist buffers and stop paying the
+  16.8 MiB/call DRAM writeback (~10.8 µs floor) entirely. All lost to plain `__stcs`
+  (15.08): window-on-out + plain stores **23.4 µs** (reads pushed to DRAM — read
+  latency is what the kernel actually feels); exact-fit 16.8 MB carve thrashes on
+  associativity (out written back every call; ncu dram__bytes 16.8 MB); with 21 MB
+  carve, writes drop to 2–4 MB but reads lose residency (**19.9 µs** window-on-in +
+  plain stores; the 19 MB normal partition can't also hold out, and plain stores
+  write-allocate against in); window-on-in + stcs stores **15.18 µs** = stcs within
+  noise, because stcs already keeps in resident without reserving anything. Net: at
+  this working set the 40 MB pie cannot be partitioned into 33.6 MB of protected
+  residency; `__stcs` alone is the whole win. Removed from the shipped code.
+* **`cp.async` (`__pipeline_memcpy_async`) load staging at B_HBM**: 1610.6 vs 1540.8
+  µs, **4.5% worse**. The register/L1 round trip it removes was not costing anything;
+  the direct global→shared path evidently serializes worse at 5 blocks/SM.
+* **r1 warpvolume at B_HBM, same-session A/B**: 1549.8 vs bstage's 1540.8. The 0.6%
+  is real and repeatable (sd 0.1%); perfect store sectors do not beat +32 warps/SM of
+  latency hiding even at the DRAM-bound point.
+
+### Borrowed, with attribution
+
+* Whole batched-kernel structure, V=8/288-thread choice, and the store-policy
+  predicate (`__stcs` while input ≤ 36 MiB, plain above): **L6_batchcoalesced rounds
+  gpu_r1 and gpu_r2**. Their records also saved me re-testing V=4 (worse both rounds)
+  and load-fused-z (1582 µs at B_HBM).
+* B=1 single-volume shared kernel shape: **L8_blockfused's `fft8_single`** (via
+  L8_warpradix8's record).
+* "Only choose between kernels deterministically, never by measured autotune across
+  arithmetic-different kernels": **L8_warpradix8 r1** repeatability bug.
+
+### What I would do next
+
+1. **B_L2 (15.08) still sits ~4 µs above the 10.8 µs writeback floor** and ncu shows
+   nothing saturated; the remaining structure is the 3-barrier chain at 1.12 waves.
+   The one untried idea with real headroom: narrow the z→y barrier to 96-thread
+   named-barrier groups (`bar.sync id, 96` — the z→y data dependence is closed within
+   48 threads, 96 is the warp-aligned cover), and check whether the y→x full barrier
+   can be split per-volume-pair. Expected small; measure before believing.
+2. B = 1 at 3.09 µs is ~90% launch path now; nothing left under the per-call execute
+   contract.
+3. B_HBM 1540 µs = 89–90% of the part's sustained 1555 GB/s with exact-minimum bytes;
+   every entry lands there. I re-confirm rival's r2 conclusion: treat it as the
+   hardware answer for this geometry.
+4. The triad kernel's folded-coefficient cross-lane DFT-3 machinery (computed-source
+   shuffles, twiddles folded receiver-side into per-lane constants) is sound and
+   verified — it is the wrong tool at L=6 where arithmetic must stay minimal, but a
+   prime-size entry distributing a Rader convolution across lanes could reuse it.
