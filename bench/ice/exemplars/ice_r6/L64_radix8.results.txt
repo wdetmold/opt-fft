@@ -1,0 +1,2 @@
+   L64_radix8                   660.301 us 176960.540 us    35.73       1.9%    0.788s  ok 4.5e-16       1.03x
+   L64_radix8               radix-8^2/axis split-cplx AVX-512; ice_r6 chain ckind=2 (2=fused-boundary custody: alt x/y-plane sweeps, 1 sweep/step, map+zline in plane) ck=1; pick[B=2]=fused-pfw+slabpf1+pro0+p10+sc0

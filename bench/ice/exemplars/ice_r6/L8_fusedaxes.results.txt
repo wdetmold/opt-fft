@@ -1,0 +1,2 @@
+   L8_fusedaxes                   0.555 us 91301.214 us    41.54       0.0%    0.209s  ok 2.3e-16       1.00x
+   L8_fusedaxes             8^3 fused/AA/AA2 c52 + vm3 rot-chain[sig=0,so=1,go=0,gs=2;fb=slot+pfs]; B=64 pick=fusedAA2+pfs (chain-tuned) chain-arena{fused+pfs=0.425,fusedAA2=0.424,fusedAA2+pfs=0.417,fusedAA2b=0.426,fusedAA2b+pfs=0.420} vm-arena{s0=0.583,s8=0.583,s16=0.583,s24=0.583,s40=0.583,s48=0.583,s56=0.583|nn=0.583,dn=0.583,nr=0.583,dr=0.583,gn=0.583,gd=0.585,hp=0.556,hf=0.646} pmc=na

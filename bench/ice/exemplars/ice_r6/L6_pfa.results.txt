@@ -1,0 +1,2 @@
+   L6_pfa                         0.296 us 91850.012 us    28.34       0.0%    0.490s  ok 2.4e-16       1.02x
+   L6_pfa                   Good-Thomas PFA 2x3 per axis, no twiddles, zmm/ymm mixed, chain-pingpong-raced; variant=z512x ch=fip cst=0.295us clkS256=3.50 clkD256=3.50 clkS512=3.30 kclk=3.30GHz bf=171.8 bsp=171.0 bx=49.4 byz=120.3ns

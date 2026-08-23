@@ -526,3 +526,143 @@ r0=0.667..oe=0.665 µs/step incl. boundary-step bias at m=7).
 3. If the scored number lands at ~0.68, it drew the slow mode — believe
    the 0.596 and ask the monitor about the bimodal state (radix8 has asked
    twice; it is not frequency and not co-tenant L2, per their record).
+
+## Round ice_r6 (2026-08-23)
+
+### Where I stood, and the diagnosis
+
+ice_r5 scored: **third at 0.596 µs** (radix8 0.570, fusedaxes 0.585, MKL
+2.095 → 3.5×).  All three L=8 entries now run the same volume-major
+split-state 384-shuffle chain at the same op count, so the 4.5% gap had to
+be plumbing.  Reading both rivals' records and radix8's exemplar source
+found exactly three things their chains do that mine didn't — plus one
+self-inflicted wound visible in my own scored race table:
+
+* Both rivals run the steady step **IN PLACE** on one fixed-address state
+  (radix8 `kernel_chsplit(st, st, ...)`; fusedaxes in-place in final_out).
+  My ping-pong pair st0/st1 sat 1152 doubles = **1024 B apart mod 4096**:
+  every step boundary paid state↔state 4K false aliases (pass-A plane p
+  loads vs the previous step's in-flight group-kj stores whenever
+  p ≡ kj ± 1 mod 4), and alternate steps saw DIFFERENT scratch↔state
+  residues.  A channel only I was paying.
+* radix8 refills ONE fixed 24 KiB clay per volume (~6k scalar moves vs
+  2572 vector steps); my cached batch×24 KiB csplit gave every volume the
+  same relations only by the accident of its 6-page stride, cost 1.5 MiB,
+  and carried a stale-pointer cache key.
+* Both set **FTZ/DAZ** inside fft3d_chain (corpus: denormal assists are
+  the stealth killer).  I never did.
+* My scored chv table read **s32 = 0.621 < shipped s48 = 0.632** — but
+  s32 was 1.7% better and my hysteresis was 2%: my own tuner measured the
+  win in the scored window and VETOED it.  (s32 in the old base arithmetic
+  is scr ≡ state mod 4096, i.e. mod-64 line class 0.)
+
+### What shipped
+
+1. **In-place single-state step** (adopted from L8_radix8 ice_r4 v2, the
+   design behind their 0.570; fusedaxes' vm3 concurs).  The ice_r5 gcc
+   trap (an always-inline step with one non-restrict st made gcc legalize
+   the pass-A-load/pass-B-store alias by bulk-copying the state to the
+   stack, 855 zmm refs) is dodged radix8's way: the step is a **NOINLINE
+   function with separate UNQUALIFIED sin/sout parameters, called with
+   sin == sout**.  Per-STEP noinline — not ice_r5's rejected per-GROUP
+   noinline; cross-group compile-time scheduling inside the step is
+   intact, and the perm rows still constant-fold (one instance per raced
+   arm).  Ping-pong buffer deleted; L1 footprint 48 → 40 KiB.
+2. **Fixed clay** (radix8): one 24 KiB 3-phase c relayout at a
+   plan-constant address (line class 8, their skew), refilled per volume,
+   indexed by GROUP (natural) so it is perm-independent and the m==1 fmap
+   path shares it.  rawc (1.5 MiB) and the pointer cache are gone.
+3. **FTZ/DAZ** set inside fft3d_chain, saved/restored.  Flushed values
+   are < 1e-300 — invisible at the gate (chain rel_l2 unchanged to the
+   digit, see below).
+4. **Race repriced**: sig is now the true scr−state mod-64 line class
+   (state is 2 whole pages), classes {0,8,16,24,40,48}, **anchor class 0,
+   hysteresis 2% → 0.5%** (all arms output-bit-identical, so a noise flip
+   is harmless — the r5 veto cannot recur).  Stage 2 grew two knobs from
+   fusedaxes' vm3, both compile-time: **r0d** = r0 row + boundary-dodge
+   pass-A plane order (2,6,7,3,4,0,1,5), and **r0g/natg** = "gs grid
+   scratch" (swap which transpose side strides: pass-A stores strided,
+   pass-B group loads contiguous in block kj mod 4).  The never-picked r1
+   row left the set.
+5. Arithmetic, value order, and results are **BIT-IDENTICAL to ice_r5**
+   (same numbers through the same ops; only addresses changed) — verified
+   by the gate numbers reproducing r5's to the last digit.
+
+### Operation count (per volume-step, steady)
+
+Unchanged from ice_r5: 1248 FFT FP + 384 shuffles + ~900 map FP + 64
+rsqrt + 64 vdivpd (hidden) ≈ 2600 p05 uops → floor ~1300 cy ≈ 0.45 µs at
+2.9 GHz.  Measured 0.575 = **1.28× floor** (was 1.33×).  Loads/stores
+640/step unchanged; working set 40 KiB (st 8 + scr 8 + clay 24) in L1d.
+
+### Measured on the NODE (a80n0; graded m=2572; same-lease interleaved
+runs after one discarded warmup, per radix8's dev-window discipline)
+
+| case | this round | ice_r5 | MKL same window |
+|---|---|---|---|
+| B=64 graded chain | **0.574–0.576 µs/xform, sd 0.01–0.02%** (3 leases, many runs) | 0.596 scored | 2.13–2.15 → **3.7×** |
+| B=1 chain | **0.574–0.576** (batch-invariant, same code path) | 0.595 | 2.27 → 4.0× |
+
+−3.5% on my r5 score; parity with radix8's r5 0.570 within window noise.
+In-plan race (min-of-7, µs/step at the 7-step unit, reproduced 3×):
+sig s0=0.617 < s8=0.625 < s48=0.620–0.629 < s16/s24=0.63x — **class 0
+confirmed ~2.5% over the old shipped class 16**; rows r0/nat/oe tie
+(0.611–0.617), pick flips r0/oe across processes (legal: bit-identical,
+cmp-verified).  Correctness: single rel_l2 2.267e-16 (B=64) / 2.269e-16
+(B=1); **whole-chain 2.599e-11 (B=64) / 9.154e-13 (B=1) vs tol 2.6e-10**
+— byte-for-byte the ice_r5 numbers, as the bit-identity argument demands;
+chain output bit-identical across independent processes (cmp of .chain);
+EMU8 harness vs naive-DFT reference chain: 20/20 PASS over
+m ∈ {1..7,9,10,31} × B ∈ {1,5}, plus forced-arm runs for r0d/r0g/natg.
+
+### What did NOT work / null results, with numbers
+
+1. **The gs grid scratch loses ~1% here** (r0g 0.617–0.621, natg
+   0.619–0.622 vs r0/nat 0.611–0.616, 3/3 windows).  fusedaxes' −1.5% does
+   not transfer: my pass-B group stores are ALREADY block-contiguous
+   (1 KiB per group), so gs only relocates the stride from pass-B loads to
+   pass-A stores and frees nothing.  Their win was specific to a scratch
+   whose load side cycled all four blocks.  Kept as race arms.
+2. **The r0d boundary dodge loses ~1%** (0.619–0.623 vs r0 0.611–0.616).
+   Expected in hindsight: in-place made the boundary contacts
+   same-ADDRESS (store-forward), so there is little false aliasing left
+   to dodge, and the non-natural plane order costs its own locality.
+3. **B=1 in a fresh lease reads 0.653–0.654 (sd 0.01%)** — three
+   invocations in one lease, all slow, while the next lease read 0.574 at
+   both batches.  This is fusedaxes' "B=1 mostly-slow mode" + radix8's
+   "first lease invocation" effect; tryout's single fresh-lease number
+   for B=1 is not trustworthy at this cell.  All decisions above came
+   from warm-lease interleaved runs.
+4. tryout.sh chain plumbing still broken ($W before definition, check.py
+   gets --cin '/c.bin'): W=... env prefix + manual check.py remains the
+   drill; map-check and repeat-cmp above went through the manual gate.
+   Remote manual runs need `source env.sh` for numpy (gen_input).
+
+### Borrowed, plainly
+
+* **L8_radix8 ice_r4/r5 (exemplar source read directly)**: the in-place
+  single-state step with unqualified sin/sout through a noinline
+  boundary, the fixed per-volume clay refill, FTZ/DAZ-inside-chain, and
+  the warm-lease/same-lease A/B discipline.
+* **L8_fusedaxes ice_r5**: the boundary-dodge pass-A order and the gs
+  grid scratch — both adopted as race arms, both measured ~1% LOSERS in
+  my layout (their record predicted neither transfers unconditionally;
+  now priced here so nobody re-derives them for this kernel).
+* The hysteresis-veto diagnosis is my own scored-table read; the fix
+  (anchor to the measured winner, tiny hysteresis, bit-identical arms)
+  follows L13_rader's adoption-legality standard.
+
+### For next round
+
+1. The remaining 1.28× over the p05 pool floor (~360 cy/step) is the
+   same residue radix8 names at their 0.570: the pass-A→pass-B barrier
+   (pass B group 0 needs all 8 pass-A stores), map-ladder latency tails,
+   and ~400 gcc spill refs.  radix8's untried "split pass B into two
+   half-passes" probes it from the group-size side (their v3 negative
+   proves the fused direction loses; the split direction is open, 50/50).
+2. Two-volume step interleaving (my r5 item 2) doubles ILP at every
+   latency wall for +40 KiB working set (c phases stream from L2) — the
+   one structural idea nobody at L=8 has priced.  Needs the PMU to say
+   whether the residue is latency (helps) or ports (hurts).
+3. If the scored number lands ≥0.60, it drew a slow window — the warm
+   number is 0.574–0.576, reproduced across three leases at sd 0.02%.

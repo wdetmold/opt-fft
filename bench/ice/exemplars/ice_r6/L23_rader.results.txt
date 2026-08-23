@@ -1,0 +1,2 @@
+   L23_rader                     37.172 us 98134.052 us    22.21       0.8%    0.506s  ok 3.8e-16       1.04x
+   L23_rader                rader23 folded pair, 512-bit, pinned two-sweep, X-first, pf=0 pw=0, zmap=nr, ch=r, tuner pick=32.94 inc=32.94 us/t nv=8, chAB e=38.61 g=38.59 r=38.13

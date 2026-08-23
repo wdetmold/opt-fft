@@ -1,0 +1,2 @@
+   L13_rader                      5.377 us 219907.269 us    22.68       0.3%    0.197s  ok 3.0e-16       1.02x
+   L13_rader                Rader-13 CRT (93 FP/chunk) lanes=lines + paired lazy-map chain, ice_r6 VOLUME-GROUP-MAJOR (vm, L13_direct r5 machinery: all m steps per G-vol L2-resident group, xstep-ov inside), 512-bit; exec=ov chain=v2 fch-ab[B32]=cv:7959,cz:7882,v1:6504,v2:6553,v4:6563

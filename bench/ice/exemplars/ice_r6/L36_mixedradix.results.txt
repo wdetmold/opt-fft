@@ -1,0 +1,2 @@
+   L36_mixedradix               100.801 us 51610.332 us    35.89       0.4%    0.351s  ok 3.6e-16       1.00x
+   L36_mixedradix           PFA 4x9 2-sweep chain (per-vol in-place, arena hp=2); pick=v1+nF3-pf1 prot=p2map-cperm pinD=2112 B=8 nF3-pf1=100.1 nF-pf1=101.5 nF4-pf1=99.4 nFD-pf1=101.2 nE-pf1=102.1 nF-pf2=101.8 nF2-pf1=102.1 nF-pf0=103.0 mQ-pf1=106.5

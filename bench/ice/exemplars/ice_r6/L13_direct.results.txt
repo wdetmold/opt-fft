@@ -1,0 +1,3 @@
+   L13_direct                     5.287 us 216220.850 us    23.07       0.2%    0.210s  ok 2.9e-16       1.00x
+   L13_direct               conj-folded dense 13x13 per axis, lanes=lines, pinned sines; 512b all-pinned zsolidY+xmm-tail X-first+ov; fchain=pairmap(v2)+mz1; chain-ab[B32]=zs4534,ov4477,oz4759,op5136,os4578,pf4972 ns/vol pick=ov(inc); fch-ab=cz7177,cv7096,v16392,v26367,v46356,m16198,m26304 pick=m1(inc)
+   L13_rader                Rader-13 CRT (93 FP/chunk) lanes=lines + paired lazy-map chain, ice_r6 VOLUME-GROUP-MAJOR (vm, L13_direct r5 machinery: all m steps per G-vol L2-resident group, xstep-ov inside), 512-bit; exec=ov chain=v2 fch-ab[B32]=cv:7959,cz:7882,v1:6504,v2:6553,v4:6563

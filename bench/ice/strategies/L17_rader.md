@@ -538,3 +538,142 @@ matrixsimd's identical engine scored 13.009 in the r4 quiet window; expect
    time ever matters.
 5. If B=1 returns to scoring separately: msr won B=1 in-race too (17.15 vs
    19.93 contended); nothing else needed.
+
+## Round ice_r6
+
+### Where this round started
+
+ice_r5 leaderboard: L17_matrixsimd 12.736, L17_winograd 14.412, me **15.052
+us/step** (scored desc: `ch=msr 15.14 nm=15.53 msr=15.14 msnm=11.77 msok=1`).
+The r5 port of matrixsimd's engine was supposed to land ~13.0-14.0; it landed
+at the contended-window dev level instead, and the gap to their IDENTICAL
+engine (2.3 us) was stable across every window -- structural, not
+contention.  This round found it, and it was a one-line bug of my own
+making, not their engine.
+
+### The find: the msr arena was 16 B off a cache line, so EVERY access split
+
+Diffing my r5 binary against theirs (objdump histograms: map bodies
+byte-equivalent, chunk codegen equivalent) left arithmetic differences too
+small to explain 2.3 us, so I audited the plan arena arithmetic instead.
+`2*NVOL = 9826 = 2 (mod 8 doubles)`, and FIVE volume-sized buffers
+(vo_w8, vo2_w8, sc0, sc1, mv) sit ahead of the msr block in the (64 B
+posix_memalign'd) arena -- net offset 10 doubles = 16 B past a line
+boundary for msc, mss, mspb, mspb2, mst1.  Consequences per graded step:
+all 32 cosine-splat FMA memory operands per chunk (~7.8k loads across 243
+chunks) were cache-line-SPLIT loads, and every t1 store/load and pb
+store/load split likewise; the addr-safe t1 shift table's 64 B-granular
+collision model was also silently operating 16 B off its assumptions.
+matrixsimd's own arena keeps these aligned, which is why the same source
+ran 12.7 there and 15.1 here.
+
+**Fix: one realign statement before p->msc (`q += (8 - (q - mem) & 7) & 7`)
+plus +8 doubles of nd slack.  Bit-identical by construction (alignment
+changes no arithmetic).  Worth ~2.3 us/step alone (15.14 -> ~12.7-12.8).**
+
+### Also this round (both bit-identical, cmp-verified)
+
+1. **Sign-fold, ADOPTED from L17_matrixsimd ice_r5**: every use of
+   MS_MULI's result is an FMA against a sine pin, so the odd-lane sign
+   flip moved into the K tables ((+k,-k,...) splats) and MULI is now just
+   the re/im swap -- deletes 8 vpxor-class uops per chunk from ports 0/5
+   (the two FMA pipes), ~1.9k uops/step.  `-DL17R_NO_SFOLD` restores the
+   XOR form.  IEEE multiply carries sign as XOR, so (-k)*x == k*(-x)
+   bitwise, FMAs included -- same bit class, and the node cmp confirms.
+2. **tr=2 lane-3 tail store (my own, new this round)**: the r5 deviation
+   (overlapped 5th zmm chunk at offset 13) was doing the FULL 4-row tile
+   store -- 40 p5 shuffles + 20 stores -- when lanes 0..2 only recompute
+   rows the f0=12 chunk already stored bit-identically.  The tail now
+   stores only its new row 16: 3 shuffles + 1 store per 4-column block
+   (15 + 5 total), deleting 25 port-5 zmm shuffles + 15 stores per Y/Z
+   group x 34 groups/step.  This makes my tail CHEAPER than their
+   chunk17n_w2 ymm tail (which pays 33 phase-serial row loads + ~40 ymm
+   shuffles); the deviation is now an advantage, not a wash.
+   `-DL17R_MS_TAILFULL=1` restores the full tile for A/Bs.  Stored bytes
+   identical (same E lane-3 registers; overlapping m0=12/13 columns carry
+   the same values).
+
+### Operation count
+
+FFT arithmetic unchanged (148 FP ops per zmm chunk, 243 chunks/volume-step,
+527 kflop/volume; map s6 unchanged: 26 uops + one vdivpd per 8 points).
+Deleted per step vs r5: ~7.8k line-split load penalties (alignment), ~1.9k
+p0/p5 XOR uops (sfold), 850 p5 shuffles + 510 stores (tail tr=2).
+
+### Measured (ICE node via tryout.sh, graded L=17 B=32 m=98; MKL same
+core/window quoted as the contention gauge)
+
+| config | result |
+|---|---|
+| r5 shipped (for reference, r5's own windows) | 15.14-15.25, scored 15.052 |
+| **r6 full (align + sfold + tail3), cleanest window** | **min 12.339 / median 12.355 us/step, sd 0.38% (MKL 88.8 sd 0.03%)** |
+| r6 full, later contended window | min 12.465, median 12.98, sd 6.4% (MKL 89.2 steady) |
+| align-only (`-DL17R_NO_SFOLD -DL17R_MS_TAILFULL=1`) | min 12.819 (contended, sd 11%; first attempt 14.76 sd 7.3% -- window-poisoned, discard) |
+| align + sfold (`-DL17R_MS_TAILFULL=1`) | min 12.679 / median 12.690, sd 0.05% (MKL 88.9) |
+| **B=1 m=98** | **min 13.888 / median 13.890, sd 0.02%** (MKL 87.6 on that core -- window ~inflated vs its quiet 73.8) |
+| single-transform gate | rel_l2 3.160e-16 (B=32), 3.114e-16 (B=1) |
+| chain gate, manual check.py ($W bug still live) | **B=32: 2.051e-14, B=1: 1.154e-14** (tol 9.8e-12) -- BYTE-IDENTICAL to the r5 chain values, as all three changes require |
+| repeatability / bit-class | out.bin.chain cmp-identical across runs AND across all hook configs AND vs the r5 binary's output |
+
+Decomposition (same-day windows): alignment ~-2.3 us, tail tr=2 -0.34 us
+(12.679 -> 12.339 in back-to-back clean runs), sfold ~-0.1-0.15 us (inside
+the align-only run's noise; matrixsimd's matched pairs say -1.3% ~ -0.17,
+consistent).
+
+### What did NOT work / notes
+
+* No failed mechanisms this round; the round was one diagnosis and three
+  bit-identical deletions.  The near-miss to record: my first align-only
+  A/B read 14.76 (sd 7.3%) and briefly pointed at sfold as a 2 us lever,
+  which is impossible by uop arithmetic (8 uops/chunk); a re-run in a
+  cleaner window read 12.819.  The r1 lesson generalizes: a same-binary
+  sd above ~1% on this node means the MIN is contaminated too, not just
+  the median -- re-run before believing any per-piece decomposition.
+* **Transfer warning for every implementer sharing arena-style plans: check
+  buffer alignment arithmetic whenever buffer COUNTS or volume sizes
+  change.**  9826 mod 8 != 0 was invisible in every objdump diff (the asm
+  is identical -- only the runtime addresses split), invisible to
+  correctness (bits don't change), and cost 2.3 us/step for one round.
+  The probes that WOULD have caught it in-plan: a create-time
+  `(uintptr_t)ptr & 63` assert, or comparing msnm against the donor's
+  skeleton probe (11.77 vs their 11.33-with-map-sweep was the smell this
+  round chased).
+* tryout.sh $W bug from r4/r5 STILL live; same workaround (env `W=` prefix,
+  manual check.py --map-check, manual cmp).
+
+### Borrowed this round, named
+
+* **Sign-folded sine constants: L17_matrixsimd ice_r5**, adopted verbatim
+  in mechanism (their stab/nts fill trick applied to my mss pins + MS_MULI).
+* The objdump-histogram diff protocol that localized the gap (map bodies
+  identical, chunks identical, therefore addresses) follows their r5
+  within-one-binary A/B discipline; the alignment find itself is mine.
+
+### Score projection
+
+Dev floor 12.34 (MKL 88.8 window, the same gauge level r5's 15.14 was
+measured under -> scored 15.05).  Expect **~12.2-12.5 us/step scored**,
+from 15.052.  matrixsimd's r5 floor was 12.74-12.82 -> scored 12.736; if
+their r6 stands still I take the lead at L=17; their record says only
+algorithmic kernel levers remain for them, so expect them at ~12.4-12.7.
+
+### Next round
+
+1. Read the scored description: `msr` and `msnm` are now measured on
+   ALIGNED buffers -- msnm should read ~9.5-10.5 (was 11.77).  If msr
+   lands >12.8, suspect a window story, not structure.
+2. The engine is now matrixsimd's minus their ymm tail plus my cheaper
+   tr=2 tail, aligned like theirs, sign-folded like theirs.  Remaining
+   levers are the same as their r5 "open" list: algorithmic only (their
+   verdict: symmetric/antisymmetric convolution split or negacyclic-8
+   Winograd, both gated on TOTAL-uop arithmetic vs the 64-uop dense sine
+   block -- and L17_winograd's record says no split of x^8+1 beats it).
+   Read BOTH rivals' r6 records before building anything.
+3. If matrixsimd's r6 ships a kernel-level win, port it -- the engines are
+   now structurally identical, so their deltas apply almost mechanically
+   (and vice versa: they should take my tr=2 tail and the alignment
+   audit).
+4. The old xk/xm/mp chain family and the vo/sc buffers remain misaligned
+   (deliberately untouched -- unscored insurance paths only).  If any of
+   them is ever promoted back to a scored path, realign those buffers
+   first.

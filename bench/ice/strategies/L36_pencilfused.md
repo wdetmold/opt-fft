@@ -694,3 +694,190 @@ round moved zero arithmetic; it moved WHERE the map issues.
    group loop (123.2), c prefetch in maprows (wash), plus everything on
    the r3/r4 lists (XV staging, NTA on c or S, eager map at pass-B
    stores, whole-plane SPF/CPFIN cursors).
+
+## Round ice_r6
+
+### Where the round started
+
+Scored ice_r5: **108.631 µs/step, 2nd** at the graded cell (36:8:64 map
+chain), 4.7 µs behind L36_mixedradix's 103.888 (33.1% spread on their
+number; L36_pfa 115.437, MKL 283.2). Round-start re-measure of the r5 code:
+110.262 min, sd 0.09%, MKL 288.5 — a quiet session; nearly every contrast
+below is MKL-flat (288–290), so same-window minima are directly comparable.
+This round was explicitly cumulative, and the decisive input was reading
+L36_mixedradix's code and record: their ice_r6 was ALREADY in their file
+(nF3, divider:ladder 2:1, 4/4 windows) when I started.
+
+### The four-way phase split that framed everything (new protocol pieces:
+### -DFFT36PF_NOMAP = pass A with no map/staging, -DFFT36PF_MAPNOP = staging
+### movement with the ladder/divide replaced by one add; both wrong-answer
+### diagnostics, both under SKIPB[+NOC]; all one quiet window, MKL 288–290)
+
+| configuration | µs/step | increment = |
+|---|---|---|
+| pass A alone (NOMAP) | 52.8 | pass A: ~19 above its ~33 port model |
+| + staging movement (NOC+MAPNOP) | 66.0 | **13.1 = the r5 mr round trip, pure overhead** |
+| + map arithmetic (NOC) | 84.8 | 18.9 ≈ the map's issue floor — already optimal |
+| + c bytes (SKIPB) | 90.8 | 6.0 compulsory L3 stream |
+| + pass B (full) | 110.26 | 19.4 vs 16.1 floor |
+
+The 13.1 µs staging round trip was the round's target.
+
+### What ships
+
+1. **EAGER map fused at pass B's store sites** (`passB_mape`): a 2-deep
+   deferred-pair rotation at PFA36's 36 stores maps (z+c) while z is still
+   in registers; S holds MAPPED state between steps; pass A reads it
+   directly (the s==0 path every step, no maprows/mr/mp); the last step's
+   pass B writes final_out directly (mapvol gone from the default path).
+   ADOPTED from **L36_mixedradix ice_r5's nF "new protocol"** — whose record
+   credits this file's r4 eager-on-strided-c post-mortem (143 vs 113) for
+   the enabling trick: **cperm**, a per-volume copy of c permuted into
+   pass-B store order (`cpfill`, sequential read / full-line 64-B scatter
+   writes, once per volume per chain, amortized /64 and measured free:
+   SKIPB with cpfill 51.65 vs NOMAP without 52.8). The map2 pairing changes
+   but every per-point value is lanewise, so eager-with-style-D bits are
+   IDENTICAL to r5 (verified: chain rel_l2 1.240e-14 exactly).
+2. **2:1 divider:ladder map hybrid** (ADOPTED from **L36_mixedradix
+   ice_r6's nF3** and their diagnosis verbatim: the map-carrying pass is
+   UOP-COUNT-bound, so trade FMA-port ladder ops for divider ops until the
+   divider nears saturation; their measured budget 12 sqrts/call rides
+   free, 18 loses). map2 grew a compile-time style: B = vsqrtpd + rcp14+2NR
+   (~11 FMA-port ops/pair, divider), D = rsqrt14+2NR + vdivpd (~16, the
+   r4/r5 shape), A = both ladders (~21, divider-free). The 18 pairs/call
+   cycle B,B,D — 12 sqrts + 6 divs ≈ 264 divider cyc/call. Same-window
+   race: all-D 110.24, BBA 109.18/109.19, **BBD 107.95/107.92**, 5:1
+   B:D 109.39 (divider saturates, exactly their nE lesson). Note the
+   asymmetry against their nF3 (their third style is A): MY D beats A in
+   the third slot — with only 6 non-B pairs the divider still has room, so
+   vdivpd's 5-op saving over the rcp ladder wins; their nFD result (D no
+   better than A) was at 1:1 where the divider is fuller.
+3. **map2 compress/expand on IMMEDIATE-controlled shuffles** (vshufpd imm /
+   vpermpd imm instead of two-source __builtin_shuffle → vpermt2pd): the
+   index VECTORS were registers pinned across the fused body. Frame
+   1096 → 968 B; ~neutral alone (the spills are u[36]-inherent), kept for
+   the register hygiene. Lanewise → bit-neutral.
+4. **Chain arena on 2 MB pages** (MAP_HUGETLB attempt, THP-madvise real
+   path — verified AnonHugePages 4096 kB on the node; posix_memalign last
+   resort; munmap in destroy). Idea from **L36_mixedradix ice_r4** /
+   **L64_blocked**. Measured ~neutral here (dTLB theory: pass B touches
+   ~72 4K pages/group vs the 64-entry L1 dTLB — the STLB apparently covers
+   it), kept because it also fixes the arena's page-phase lottery.
+5. New knobs: FFT36PF_LAZYRGI (r5 flow), FFT36PF_ESTASH / FFT36PF_MBBA /
+   FFT36PF_M51 / FFT36PF_MALLD (rejected twins), FFT36PF_PPOFF (pp/S
+   phase), FFT36PF_CQOFF (cperm phase, default +256 B = maximally distant
+   from S's 512-B plane-phase grid), FFT36PF_NOMAP / FFT36PF_MAPNOP
+   (diagnostics). BNOPF now also gates passB_mape's read prefetch.
+
+### Operation count
+
+FFT unchanged (PFA 4×9 n1_9, 232 FMA-port + 57 p5 per 36-line over PW
+lanes, 225,504 FMA-port vector ops/volume at PW=4). Map per volume: 5832
+pairs — per 36-output call, 12 style-B pairs (~11 FMA-port + 4 p5 + 1
+vsqrtpd) + 6 style-D (~16 FMA-port + 4 p5 + 1 vdivpd) ≈ 228 FMA-port ops
+(was 270 all-D, −13.6k ops/step) + ~264 divider cyc/call, concurrent with
+the FFT's port work. Staging movement deleted: −13.1 µs measured, of which
+the rotation gives back ~9 µs as register-pressure stalls in the fused
+store phase (the carrier runs ~500 cyc/call vs ~333 p05 floor; frame ~1 KB
+of u[36] spills) — net eager win ~2.3 µs, + ~1.3 µs from the 2:1 ratio.
+
+### Measured on the node (tryout.sh = leased core on a80n0, graded map
+### chain 36:8:64; W= workaround + check.py by hand still required exactly
+### as r4/r5 documented; single rel_l2 = 3.586e-16 every run; chain m=64
+### rel_l2 = 1.191e-14 (BBD bits) vs tol 6.4e-12; chain output
+### bit-repeatable across processes, verified by explicit double-run cmp)
+
+* **Headline, quiet windows (MKL 288.1–288.6): 107.945 / 107.922 µs/step
+  min, sd 0.07–0.20%**, vs the r5 shape's 110.262 same session — −2.1%.
+  Contended-window final check: 109.567 min at MKL 313.6.
+* B=1: 121.585 (MKL 311.6, loaded window; not graded). B=32: **107.496**
+  (MKL 333.0), chain 1.416e-14 — per-volume chaining stays batch-invariant.
+  Setup 0.78–1.04 s at B=8.
+* Every intermediate step is in the technique section above with its
+  same-window MKL.
+
+### What was tried and did NOT work — with the number that killed it
+
+1. **Group-stash eager** (`passB_mste`, kept under -DFFT36PF_ESTASH): FFT
+   stores raw to a 2304-B L1 stash, tight pair-map loop does the strided
+   stores. **121.9 vs 110.2** (MKL flat 288.9). With r5's 13.1 µs mr
+   staging and this, the lesson is now measured twice: ANY memory round
+   trip for the map costs ~13–14 µs regardless of buffer size or layout;
+   only the register rotation avoids it.
+2. **The r5-lazy hybrid borrow** (all-rcp MAPRCP in the rgi shape): 113.02
+   vs 110.26 — removing ALL divider work bought nothing, i.e. the divider
+   was already fully hidden in the lazy interleave; vdivpd zmm is ~8 cyc
+   rtp here, not the 16+ I had assumed. Saved building the staged hybrid.
+3. **PFA36X2 stage-interleaved pass B** (-DFFT36PF_PAIRB under LAZYRGI),
+   the every-round-since-r1 pairability idea, finally priced: 112.15 vs
+   110.26. The doubled live set's spills eat the dual-pipe win. Retire it.
+4. **Hugepage arena as a SPEEDUP**: ~neutral (110.7 vs 110.2 window-shifted;
+   THP confirmed materialized). The dTLB-thrash theory of the carrier's
+   stalls is dead; kept for page-phase control only.
+5. **Carrier without its read prefetch** (BNOPF): 110.64 vs 107.95. Still
+   load-bearing even though the pass is uop-bound (36 streams beat the L1
+   DCU prefetcher, r5's finding survives the fusion).
+6. **pp/S mod-4096 phase race** (PPOFF; the r5 next-list junction, now
+   priced): default phase 1024 = 107.95, phases {512,1536,2624,3136,3584,
+   64} all 107.9–109.4 — a wide plateau — but **phase 2112 = 137.5
+   (+27%)**: a violent alias hole between subloop-B's S stores and pp
+   broadcast reloads, one page-phase wide. Default 0 ships; if the arena
+   layout ever changes, re-run this race first.
+7. 5:1 sqrt:div ratio: 109.39 — the divider budget really is ~12 sqrts per
+   ~500-cyc call, exactly as mixedradix's nE/nF3 numbers say.
+8. Immediate-shuffle map2 alone (before the hybrid): 111.7 at MKL 289.9 ≈
+   wash normalized — index-register pressure was not the spill driver;
+   u[36] is.
+9. BBD pattern permutations (post-record addendum, knobs kept): D-first
+   (-DFFT36PF_MDF) 108.63 at MKL 284.8 = 0.3814 normalized vs interleaved
+   0.3740; B-first (-DFFT36PF_MBF) landed a contended window (109.04 at
+   MKL 321.6), not better. Interleaved B,B,D ships; next-list item 2 is
+   answered — the divider wants steady feeding, not front-loading.
+
+### Borrowed this round, named
+
+* Eager map at the final pass's store sites, the 2-deep deferred-pair
+  rotation, cperm + cpfill, and last-step-writes-final_out:
+  **L36_mixedradix ice_r5 (nF)** — a mutual borrow, since their record
+  credits this file's r4 strided-c post-mortem for cperm.
+* The uop-count-bound carrier diagnosis, the divider-ratio lever, and the
+  12-sqrt budget: **L36_mixedradix ice_r6 (nF3)**, read from their file
+  mid-round as this cumulative format intends. Their nFD note also warned
+  me off 1:1 with style D; the 2:1 D-third refinement is this file's own.
+* Hugepage arena: **L36_mixedradix ice_r4**, ultimately **L64_blocked**.
+* The four-way split protocol extends my own r5 SKIPB/NOC machinery.
+
+### Predictions for the scoring window (so they can be scored)
+
+* Description reads `fchain: volres inplace EAGER map@passB-stores cperm
+  hyb12B:6D`. Fingerprints: single 3.586e-16 (B=8), chain m=64
+  **1.191e-14**, bit-repeatable.
+* **B=8 graded cell: 105–110 µs/step** in a quiet window (best dev 107.92
+  at MKL 288.1). ≥114 means a contended window — ask for the cross-process
+  min before reading anything into the code.
+* L36_mixedradix ships nF3 (their file already says so): expect them at
+  ~100–102 and this entry 2nd again, gap narrowed from 4.7 to ~4–6 µs.
+  If they somehow stood still at nF, this is a photo finish.
+
+### Next
+
+1. **Pass A is now the biggest block: 51.65 µs vs ~41 realistic model**
+   (and vs mixedradix's 48.9 for the same two axes). Unpriced ideas: the
+   4-deep dependent merge-broadcast chains in BCLD (a maskz+vorpd tree
+   halves the depth for +36 p05 uops/call — probably a wash, measure not
+   argue); their pind-style discipline applied INSIDE pass A (subloop-A
+   pp-stores vs S-row loads — note the PPOFF race above only moves pp
+   globally, both subloops at once).
+2. The carrier's remaining ~170 cyc/call over floor is u[36]-spill
+   latency in the store phase. Ideas spent: stash (121.9), per-vector map
+   (r4: issue-bound), style shuffling (done). What's left is surgical:
+   force the 6 D-pairs to the FIRST SB_ blocks — DONE this round (dead
+   end 9): the interleaved pattern wins; the surgical road left is
+   splitting SB_'s map bursts across smaller register windows, which
+   likely needs hand-scheduling beyond what gcc's allocator honors.
+3. Do NOT retry: any staged/stash map placement (two independent 13-14 µs
+   measurements), PAIRB, 5:1+ divider ratios, prefetch removal, NTA/t0/t1
+   cursors anywhere on chain streams (r3/r4/r5 lists), hugepages-for-speed.
+4. tryout.sh line 36 still expands $W before defining it; keep the
+   `W=$PWD/build/tryout/<name>` prefix and run check.py by hand (which is
+   also the only chain-repeatability check that exists in map mode).
