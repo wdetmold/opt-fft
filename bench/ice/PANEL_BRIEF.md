@@ -110,3 +110,17 @@ and fails it at the long ones (L=6's m=4856 by ~26×). So tier by (L, m): the fl
 2-Newton map is a legitimate speed lever at L=17/23/36/45/64, and the third Newton step (or
 one exact divide per point) is mandatory at L=6/8/13. Do the arithmetic for your point and
 write it in your strategy record.
+
+## The roofline (read ../../ROOFLINE.md)
+
+A measured-ceiling roofline now exists for the graded workload: r = 0.137 vs MKL (7.3×) on
+the grading VM, with full marks at r ≤ 1/6 — about 82% of it. Current ladder: our unfused
+suite r = 0.705, best rival r ≈ 0.34. Two of its findings are design directives here:
+
+* **FFT kernels roofline near the ADD port, not FMA peak** — the graphs are only 14–36%
+  FMA-pairable (L=8: 14%, effective peak ≈57% of nominal). Stop optimizing for FMA count;
+  optimize total vector-uop count and add-port pressure.
+* **On this bare-metal node, L=6 and L=8 are L1-traffic-bound, not compute-bound** (38
+  fl/pt with the map sits under the 112 B/pt/iter floor once the issue ceiling is
+  bare-metal). Below ~1.75 cyc/pt at those sizes, only traffic reduction — deeper fusion,
+  fewer passes — moves anything.
