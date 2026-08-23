@@ -1,0 +1,5 @@
+src = open('implementation.c').read()
+src = src.replace("#ifndef JU13\n#define JU13 8\n#endif", "#ifndef JU13\n#define JU13 16\n#endif")
+src = src.replace("#ifndef JU17\n#define JU17 1\n#endif", "#ifndef JU17\n#define JU17 2\n#endif")
+src = src.replace("#ifndef CPFHINT\n#define CPFHINT _MM_HINT_T0\n#endif", "#ifndef CPFHINT\n#define CPFHINT _MM_HINT_T1\n#endif")
+open('implementation.c','w').write(src)

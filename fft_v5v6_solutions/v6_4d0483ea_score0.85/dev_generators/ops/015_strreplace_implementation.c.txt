@@ -1,0 +1,111 @@
+OLD>>>
+// ---------------------------------------------------------------- conversions
+<<<NEW>>>
+// ------------------------------------------------- fused L=64 pipeline
+// x-axis CT:  x = n1 + 8*n2  (residue group n1 = {n1, n1+8, ...}).
+// stage1: FFT8 over n2 within residue group g (+ twiddle w64^(g*k2)),
+//         output k2 -> slice 8*k2 + g of the destination buffer.
+// stage2: FFT8 over n1 across consecutive block {8g..8g+7} (+map),
+//         output k1 -> staging slot k1  (= final slice x = 8*k1 + g).
+// Ping-pong S/T keeps staging group L2-resident between phase2_k and phase1_{k+1}.
+#define R64 72L
+#define SS64 4616L
+#define LP64 64L
+
+static double *STGre, *STGim;   // staging: 8 slices
+
+static void slice_zy_64(double *br, double *bi) {
+  for (long y0 = 0; y0 < 64; y0 += 8) {
+    tile_load(br + y0 * R64, R64, SZA, 8);
+    tile_load(bi + y0 * R64, R64, SZB, 8);
+    fft64_line(SZA, SZB, 8, 0, 0, 0, 0);
+    tile_store(br + y0 * R64, R64, SZA, 8, 64);
+    tile_store(bi + y0 * R64, R64, SZB, 8, 64);
+  }
+  for (long zc = 0; zc < LP64; zc += 8) fft64_line(br + zc, bi + zc, R64, 0, 0, 0, 0);
+}
+
+// stage1-X on staging group g -> dst residue-group slices
+static void stage1_64(long g, double *dre, double *dim) {
+  DEFCONSTS
+  const double *twr = TW64R + g * 8, *twi = TW64I + g * 8;
+  for (long y = 0; y < 64; y++) {
+    for (long zc = 0; zc < LP64; zc += 8) {
+      long off = y * R64 + zc;
+      v8 x0r = VL(STGre + 0 * SS64 + off), x0i = VL(STGim + 0 * SS64 + off);
+      v8 x1r = VL(STGre + 1 * SS64 + off), x1i = VL(STGim + 1 * SS64 + off);
+      v8 x2r = VL(STGre + 2 * SS64 + off), x2i = VL(STGim + 2 * SS64 + off);
+      v8 x3r = VL(STGre + 3 * SS64 + off), x3i = VL(STGim + 3 * SS64 + off);
+      v8 x4r = VL(STGre + 4 * SS64 + off), x4i = VL(STGim + 4 * SS64 + off);
+      v8 x5r = VL(STGre + 5 * SS64 + off), x5i = VL(STGim + 5 * SS64 + off);
+      v8 x6r = VL(STGre + 6 * SS64 + off), x6i = VL(STGim + 6 * SS64 + off);
+      v8 x7r = VL(STGre + 7 * SS64 + off), x7i = VL(STGim + 7 * SS64 + off);
+      FFT8_CORE(x0, x1, x2, x3, x4, x5, x6, x7);
+      if (g) {
+        CMULT(x1r, x1i, x1r, x1i, vbc(twr[1]), vbc(twi[1]));
+        CMULT(x2r, x2i, x2r, x2i, vbc(twr[2]), vbc(twi[2]));
+        CMULT(x3r, x3i, x3r, x3i, vbc(twr[3]), vbc(twi[3]));
+        CMULT(x4r, x4i, x4r, x4i, vbc(twr[4]), vbc(twi[4]));
+        CMULT(x5r, x5i, x5r, x5i, vbc(twr[5]), vbc(twi[5]));
+        CMULT(x6r, x6i, x6r, x6i, vbc(twr[6]), vbc(twi[6]));
+        CMULT(x7r, x7i, x7r, x7i, vbc(twr[7]), vbc(twi[7]));
+      }
+      VS(dre + (8 * 0 + g) * SS64 + off, x0r); VS(dim + (8 * 0 + g) * SS64 + off, x0i);
+      VS(dre + (8 * 1 + g) * SS64 + off, x1r); VS(dim + (8 * 1 + g) * SS64 + off, x1i);
+      VS(dre + (8 * 2 + g) * SS64 + off, x2r); VS(dim + (8 * 2 + g) * SS64 + off, x2i);
+      VS(dre + (8 * 3 + g) * SS64 + off, x3r); VS(dim + (8 * 3 + g) * SS64 + off, x3i);
+      VS(dre + (8 * 4 + g) * SS64 + off, x4r); VS(dim + (8 * 4 + g) * SS64 + off, x4i);
+      VS(dre + (8 * 5 + g) * SS64 + off, x5r); VS(dim + (8 * 5 + g) * SS64 + off, x5i);
+      VS(dre + (8 * 6 + g) * SS64 + off, x6r); VS(dim + (8 * 6 + g) * SS64 + off, x6i);
+      VS(dre + (8 * 7 + g) * SS64 + off, x7r); VS(dim + (8 * 7 + g) * SS64 + off, x7i);
+    }
+  }
+}
+
+static void phase1_64(long g, double *dre, double *dim) {
+  for (long j = 0; j < 8; j++) slice_zy_64(STGre + j * SS64, STGim + j * SS64);
+  stage1_64(g, dre, dim);
+}
+
+// stage2-X + map on block g of (sre,sim) -> staging
+static void phase2_64(long g, const double *sre, const double *sim) {
+  DEFCONSTS
+  const double *bre = sre + 8 * g * SS64, *bim = sim + 8 * g * SS64;
+  for (long y = 0; y < 64; y++) {
+    for (long zc = 0; zc < LP64; zc += 8) {
+      long off = y * R64 + zc;
+      long off2 = (zc + 8 < LP64) ? off + 8 : (y + 1) * R64;   // next step (prefetch)
+      _Pragma("GCC unroll 8") for (int q = 0; q < 8; q++) {
+        PF1(bre + q * SS64 + off2); PF1(bim + q * SS64 + off2);
+        PFC(Cre + (8 * q + g) * SS64 + off2); PFC(Cim + (8 * q + g) * SS64 + off2);
+      }
+      v8 x0r = VL(bre + 0 * SS64 + off), x0i = VL(bim + 0 * SS64 + off);
+      v8 x1r = VL(bre + 1 * SS64 + off), x1i = VL(bim + 1 * SS64 + off);
+      v8 x2r = VL(bre + 2 * SS64 + off), x2i = VL(bim + 2 * SS64 + off);
+      v8 x3r = VL(bre + 3 * SS64 + off), x3i = VL(bim + 3 * SS64 + off);
+      v8 x4r = VL(bre + 4 * SS64 + off), x4i = VL(bim + 4 * SS64 + off);
+      v8 x5r = VL(bre + 5 * SS64 + off), x5i = VL(bim + 5 * SS64 + off);
+      v8 x6r = VL(bre + 6 * SS64 + off), x6i = VL(bim + 6 * SS64 + off);
+      v8 x7r = VL(bre + 7 * SS64 + off), x7i = VL(bim + 7 * SS64 + off);
+      FFT8_CORE(x0, x1, x2, x3, x4, x5, x6, x7);
+      STORE_MAP(STGre + 0 * SS64 + off, STGim + 0 * SS64 + off, x0r, x0i,
+                Cre + (8 * 0 + g) * SS64 + off, Cim + (8 * 0 + g) * SS64 + off);
+      STORE_MAP(STGre + 1 * SS64 + off, STGim + 1 * SS64 + off, x1r, x1i,
+                Cre + (8 * 1 + g) * SS64 + off, Cim + (8 * 1 + g) * SS64 + off);
+      STORE_MAP(STGre + 2 * SS64 + off, STGim + 2 * SS64 + off, x2r, x2i,
+                Cre + (8 * 2 + g) * SS64 + off, Cim + (8 * 2 + g) * SS64 + off);
+      STORE_MAP(STGre + 3 * SS64 + off, STGim + 3 * SS64 + off, x3r, x3i,
+                Cre + (8 * 3 + g) * SS64 + off, Cim + (8 * 3 + g) * SS64 + off);
+      STORE_MAP(STGre + 4 * SS64 + off, STGim + 4 * SS64 + off, x4r, x4i,
+                Cre + (8 * 4 + g) * SS64 + off, Cim + (8 * 4 + g) * SS64 + off);
+      STORE_MAP(STGre + 5 * SS64 + off, STGim + 5 * SS64 + off, x5r, x5i,
+                Cre + (8 * 5 + g) * SS64 + off, Cim + (8 * 5 + g) * SS64 + off);
+      STORE_MAP(STGre + 6 * SS64 + off, STGim + 6 * SS64 + off, x6r, x6i,
+                Cre + (8 * 6 + g) * SS64 + off, Cim + (8 * 6 + g) * SS64 + off);
+      STORE_MAP(STGre + 7 * SS64 + off, STGim + 7 * SS64 + off, x7r, x7i,
+                Cre + (8 * 7 + g) * SS64 + off, Cim + (8 * 7 + g) * SS64 + off);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- conversions

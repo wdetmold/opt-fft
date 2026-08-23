@@ -111,12 +111,13 @@ Reference points on the same (3×) workload, same grader:
 
 ## Goal-post interpretation
 
-The problem's current score curve (0 above MKL; 0.1 at parity; linear to 1.0
-at r ≤ 1/6 = 0.167, i.e. 2.23 s) puts full marks at **≈82% of the
-measured-ceiling roofline** — demanding, in-principle attainable, with the
-ISA-ideal safely unreachable. Alternative: anchor full marks at the roofline
-itself (r = 0.137, 7.3×), making 1.0 the asymptote "theoretically perfect on
-this VM". Either choice is now roofline-justified rather than a round number.
+ADOPTED (problem v7, 2026-08-23): full marks are anchored AT the
+measured-ceiling roofline — score 0 above MKL, 0.1 at parity, linear to 1.0 at
+r ≤ 0.137 (7.3×). A score of 1.0 therefore means "theoretically perfect on
+this VM"; the best AI attempts to date sit at ≈53% of the roofline (r ≈ 0.25,
+score ≈ 0.88 on this curve). Problem versions ≤6 used a full-marks anchor of
+r ≤ 1/6 = 0.167 (≈82% of the roofline); their recorded scores are on that
+older, slightly more generous curve.
 
 Precision caveat: the bound above is for a chain carried entirely in fp64. A
 solver exploiting reduced precision on the short-chain sizes (where chaotic

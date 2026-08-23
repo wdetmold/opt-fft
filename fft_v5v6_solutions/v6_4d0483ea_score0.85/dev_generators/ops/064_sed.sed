@@ -1,0 +1,1 @@
+s/DEF_SWEEPB(6, 6, 8, 8, 8, 72, fft6_line, 2)/DEF_SWEEPB(6, 6, 8, 8, 8, 72, fft6_line, 1)/; s/DEF_SWEEPB(8, 8, 8, 8, 8, 72, fft8_line, 2)/DEF_SWEEPB(8, 8, 8, 8, 8, 72, fft8_line, 1)/
