@@ -20,12 +20,26 @@ Same task, gates, and roofline curve as the cold-start cohorts:
 |---|---|---|---|
 | cold v5/v6 | 0.74 – 0.91 | ~0.28 (≈3.6× MKL) | — |
 | cold v7 | 0.77, 0.78, 0.79, 0.81, 0.82 | ~0.24 | 3/8 |
-| **warm** | **0.89, 0.90, 0.93, 0.97, 0.99** | **0.145 (6.88× MKL)** | 3/8 |
+| **warm** | 0.89, 0.90, 0.93 (+0.97→~0.87, 0.99→~0.85 audited) | ~0.20 (≈4.9× MKL, att `361a3485`) | 3/8 |
 
-Handing agents the prior work lifted the completed band from ~0.80 to ~0.93 and produced
-a **0.99** attempt sitting essentially on the measured-machine roofline — the ~45 %
-headroom cold-start attempts could not close was nearly closed with the prior kernels and
-machine model in hand. The 3/8 env-failures are the recurring import-preamble timing
+Handing agents the prior work lifted the completed band from ~0.80 to ~0.93. The headline
+**0.99 was audited and is a measurement artifact**: its opt walls were [3.90, 4.09, 2.02] —
+min/median 0.49 — and the 2.02 s shot is *below the physical floor of that binary* (its
+bare-metal rebuild runs 0.857 s per 1× pass, so the 3× graded workload needs ≥ 2.57 s even
+at bare-metal speed, and the VM's own honest shots imply ~1.3 s/1×). The mechanism is a
+CPU-steal burst landing in that shot's zero-work *baseline*, inflating the subtraction;
+best-of-shots then latched the under-measurement, which sat above the 1.0 s plausibility
+floor. Honest score from the 3.90 s shot: **≈ 0.85** (r = 0.28). The audit found the
+solution itself integrity-clean (no FFT library, no threads, no memoization).
+
+**Second audit (0.97, `00291a90`):** a *different* grading artifact — its three graded
+shots were stable but 1.5–1.6× faster than the attempt's own final VM self-benchmark
+four minutes earlier (workload-weight-converted). Honest score ≈ 0.87–0.88. Its final
+optimizations were fully recovered by command replay (see its README addendum); the
+recovered `implementation_final.c` is expected to be the genuine best of the family on
+bare metal (~0.83–0.85 s/1×). Two grading measurement artifacts in one 8-run job: the
+walls of every outlier score should be reconciled against the attempt's own last logged
+self-benchmark before being believed. The 3/8 env-failures are the recurring import-preamble timing
 artifact (heavy variable import work floors best-of-shots → `C_opt = 1e-6` → the score_fn
 plausibility guard converts it to an env-failure rather than a false 1.0); the rate is the
 same as cold v7 and independent of warm-start.
@@ -39,8 +53,8 @@ were never printed verbatim**. The only source of the exact graded bytes is each
 
 | attempt | score | C_opt | ratio vs MKL | state | runnable as-is? |
 |---|---|---|---|---|---|
-| `d43251c2` | 0.99 | 2.02 s | 0.145 (6.88×) | **complete** — wrapper + regenerated `impl_mine.c` + 3 vendored prior-work engines | **yes** (x86) |
-| `00291a90` | 0.97 | 2.13 s | 0.163 (6.1×) | wrapper + 12 generators; `implementation.c` (~2 MB, generator-emitted) **not recoverable** from transcript | no — needs regeneration |
+| `d43251c2` | 0.99 → **honest ≈ 0.85** (audited) | 2.02 s (artifact; honest 3.90 s) | 0.280 (3.6×) | **complete** — wrapper + regenerated `impl_mine.c` + 3 vendored prior-work engines | **yes** (x86) |
+| `00291a90` | 0.97 → **honest ≈ 0.87** (audited) | 2.13 s (stable grading artifact; own last VM self-bench ⇒ ~3.3 s) | ~0.25 (~4×) | **complete** — `implementation_final.c` + `dev_generators_final/` recovered by full command replay | **yes** (x86) |
 | `361a3485` | 0.93 | 2.67 s | 0.206 (4.9×) | wrapper + generators; `implementation.c` generator-emitted, **not recovered** | no — needs regeneration |
 | `57053476` | 0.90 | 2.97 s | 0.229 (4.4×) | wrapper + **best-effort** reconstructed `implementation.c` (tolerant edit-replay; **may diverge** from graded source) | build-and-check |
 | `53ebdad6` | 0.89 | 3.15 s | 0.241 (4.2×) | wrapper + `implementation.c` regenerated via a traceable patch chain on the `v6_f40c5e25` base | build-and-check |
