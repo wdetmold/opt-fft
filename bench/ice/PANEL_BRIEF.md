@@ -178,3 +178,14 @@ Mission, in priority order:
    is the floor to beat *legitimately*.
 4. Protect the five winning sizes; the score anchor is now the roofline itself
    (problem v7: full marks at r ≤ 0.137), so every size still has headroom worth taking.
+
+## The rivalry is symmetric — plan accordingly
+
+The rival pipelines have been given OUR best-in-class sources, just as we have theirs. Two
+consequences: the targets in `results/rivals_icelake/` are a *snapshot*, not a wall — their
+next generation will incorporate our kernels (expect our chain-true L=6 map, the z-split
+L=64 work, and the PFA wins to show up on their side); and information is not a moat.
+What compounds is (a) rate of improvement per round, (b) the strict-gate correctness
+discipline — a rival generation raised under loose gates keeps its cheap-map habits, and
+(c) hardware-awareness: kernels that re-select per machine travel better than kernels
+tuned to one tier. Win on those.
