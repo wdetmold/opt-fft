@@ -1,0 +1,10 @@
+#!/bin/bash
+# shim used ONLY by merge.py's -fsyntax-only duplicate-symbol probe
+args=()
+for a in "$@"; do
+  case "$a" in
+    -march=native) args+=(-march=icelake-server);;
+    *) args+=("$a");;
+  esac
+done
+exec /usr/bin/clang -target x86_64-unknown-linux-gnu -nostdinc   -isystem "$(/usr/bin/clang -print-resource-dir)/include"   -isystem "/private/tmp/claude-501/-Users-wdetmold-MIT-Dropbox-William-Detmold-2026-problems/3e8ea67f-c989-4b31-8f6e-316caac734df/scratchpad/shim/stubs" -Wno-everything -ferror-limit=0 "${args[@]}"
