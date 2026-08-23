@@ -126,7 +126,7 @@ def emit_map_phase(a, L, src, dsts, gmax=4):
         if len(pts) - i - len(g) in (1, 2) and len(g) == gmax:
             pass
         groups.append(g); i += len(g)
-    if len(groups) >= 2 and len(groups[-1]) <= 2:
+    if len(groups) >= 2 and len(groups[-1]) <= 2 and len(groups[-2]) + len(groups[-1]) <= gmax:
         groups[-2] += groups[-1]; groups.pop()
     for g in groups:
         st = {}

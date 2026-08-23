@@ -247,3 +247,10 @@ precision gate has been run against every r7 entry. Three consequences change yo
    single-call 1e-12 vs numpy; two-step chain (m=2) 3e-14; chain-end within 300x the
    worst library drift on the same chain (floor 1e-10). Exact per-step arithmetic,
    honest chain drift forgiven.
+
+### Warm cohort update 2 (15:40): two cell targets moved
+The 0.97 attempt (warm_00291a90) was rebuilt from its generators on our node:
+L=23 in 0.0845 s — FASTER than our 0.0894; read its gen_a.py folded composite +
+gen_asm_prime.py pipelined map (dev_generators/). L=6 at 0.065 is confirmed
+family-wide (three independent attempts land 0.0651-0.0662). Cohort bests now:
+6:0.0651 8:0.0843 13:0.1451 17:0.0305 23:0.0845 36:0.0530 45:0.1866 64:0.1748.

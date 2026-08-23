@@ -93,14 +93,27 @@ static void convout_{L}(const double* G, double* const* dst, int nv){{
 }}
 """
 
-def gen_driver(L, PS, pair_y=False):
+def gen_driver(L, PS, pair_y=False, prime_asm=False):
     L2, L3 = L*L, L*L*L
     PSZ = PS*16
     cd = f"cd{L}"
-    if pair_y:
-        AXY = f"""{{ int k=0; for(;k+2<={L};k+=2) {cd}_pp(sl + k*16, sl + k*16 + 16, {L*16}); for(;k<{L};k++) {cd}_p(sl + k*16, {L*16}); }}"""
+    if prime_asm:
+        AXY = f"for(int k=0;k<{L};k++) {cd}_y_p(sl + k*16);"
+        ZP  = f"{cd}_z_p(sl + (long)j*{L*16})"
+        ZM  = f"{cd}_z_m(sl + (long)j*{L*16}, cl + (long)j*{L*16})"
+        ZMN = f"{cd}_z_mn(sl + (long)j*{L*16}, cl + (long)j*{L*16})"
+        XM, XMN = f"{cd}_x_m(p, pc)", f"{cd}_x_mn(p, pc)"
+        XMNS = f"{cd}_x_mns(p, pc, SNAP + e*16)"
     else:
-        AXY = f"for(int k=0;k<{L};k++) {cd}_p(sl + k*16, {L*16});"
+        if pair_y:
+            AXY = f"""{{ int k=0; for(;k+2<={L};k+=2) {cd}_pp(sl + k*16, sl + k*16 + 16, {L*16}); for(;k<{L};k++) {cd}_p(sl + k*16, {L*16}); }}"""
+        else:
+            AXY = f"for(int k=0;k<{L};k++) {cd}_p(sl + k*16, {L*16});"
+        ZP  = f"{cd}_p(sl + (long)j*{L*16}, 16)"
+        ZM  = f"{cd}_m(sl + (long)j*{L*16}, 16, cl + (long)j*{L*16})"
+        ZMN = f"{cd}_mn(sl + (long)j*{L*16}, 16, cl + (long)j*{L*16})"
+        XM, XMN = f"{cd}_m(p, {PSZ}, pc)", f"{cd}_mn(p, {PSZ}, pc)"
+        XMNS = f"{cd}_mns(p, {PSZ}, pc, SNAP + e*16)"
     return f"""
 // ---------------- family A driver, L={L} (PS={PS}) ----------------
 static double* XG_{L} = 0;
@@ -114,11 +127,11 @@ static void S_{L}(double* X, const double* C, int mode){{
         const double* cl = C + (long)i*{PSZ};
         {AXY}
         if(mode == 0){{
-            for(int j=0;j<{L};j++) {cd}_p(sl + (long)j*{L*16}, 16);
+            for(int j=0;j<{L};j++) {ZP};
         }} else if(mode == 1){{
-            for(int j=0;j<{L};j++) {cd}_m(sl + (long)j*{L*16}, 16, cl + (long)j*{L*16});
+            for(int j=0;j<{L};j++) {ZM};
         }} else {{
-            for(int j=0;j<{L};j++) {cd}_mn(sl + (long)j*{L*16}, 16, cl + (long)j*{L*16});
+            for(int j=0;j<{L};j++) {ZMN};
             {AXY}
         }}
     }}
@@ -128,9 +141,9 @@ static void P_{L}(double* X, const double* CP, int mode, double* SNAP){{
     for(long e=0;e<{L2};e++){{
         double* p = X + e*16;
         const double* pc = CP + e*{L*16};
-        if(mode == 1) {cd}_m(p, {PSZ}, pc);
-        else if(mode == 2) {cd}_mn(p, {PSZ}, pc);
-        else {cd}_mns(p, {PSZ}, pc, SNAP + e*16, {PSZ});
+        if(mode == 1) {XM};
+        else if(mode == 2) {XMN};
+        else {XMNS};
     }}
 }}
 void run_{L}(const double* x0, const double* c, double* out1, double* outm, long B, long m){{
