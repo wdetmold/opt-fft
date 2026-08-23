@@ -1,0 +1,2 @@
+   L36_pencilfused              108.631 us 55619.050 us    33.31       1.8%    0.922s  ok 3.6e-16       1.05x
+   L36_pencilfused          L=36 PFA4x9; fchain pw=4 volres inplace lazymap2-rgi rsqrt14+2NR+vdiv; exec tuner pw=4 mode=bcst+vr (B=8); chain probe us ip4=122.4 cs4=122.2 is04=128.5 bc4=113.5 xv4=125.9 xr4=124.0 vr4=111.6 nt4=122.4 nv4=120.0

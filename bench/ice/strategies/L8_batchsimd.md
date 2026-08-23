@@ -383,3 +383,146 @@ behind their point but 2.7× ahead of every library through the fallback.
    number sits ≥0.85, believe the median instead and re-examine.
 3. L8_fusedaxes/L8_radix8 will port this next round (cumulative mandate).
    The differentiator left is chain plumbing and the pipeline in item 1.
+
+## Round ice_r5 (2026-08-23)
+
+### The round's mandate executed: adopt the winner's shape
+
+ice_r4 standings: L8_radix8 won the cell at **0.564 µs** with a volume-major
+L1-resident chain + split inter-step state; I was third at 0.779 with the
+batch-major ping-pong (1.5 MiB > L2 — exactly the shape fusedaxes' own
+ping-pong negative priced at +8–16%).  This round rebuilds my chain on their
+design, re-derived for my FUSED kernel's shape, and ends at **0.596 µs
+graded / 0.595 µs at B=1** — batch-invariant, 3.5× MKL's fallback.
+
+### What shipped
+
+1. **VOLUME-MAJOR chain** (adopted from L8_radix8 ice_r4, who took it from
+   corpus §10 §3): the B chains are independent, so each volume runs all
+   m=2572 steps in an L1-resident working set (split state 2×8 KiB
+   ping-pong + 8 KiB scratch + 24 KiB csplit = 48 KiB), instead of sweeping
+   the whole batch through L2 every step.  x0 read once, final_out written
+   once, per volume.  Measured batch-invariant: B=1/2/4/16/64 all read the
+   same per-transform time in the same window.
+2. **SPLIT inter-step state, 896 → 384 shuffles/step** (L8_radix8's v2
+   idea, derivation mine for this kernel): pass B already ends in split
+   registers, so storing split deletes untrans_ilv (384 shuffles) AND the
+   next pass A's deinterleave (128).  The key structural fact I derived and
+   verified: my kernel maps axis roles (plane,reg,lane) → (reg,lane,plane),
+   so ONE kernel text serves every step with roles rotating at period 3.
+   With trans8f's structural rule out[j][l] = in[SW(l)][j] and SW an
+   involution, the steady feed permutation is SW itself — compile-time.
+   c is pre-split per volume into 3 rotation-phase variants (24 KiB).
+   m = 2572 ≡ 1 (mod 3), so the graded chain's LAST step has input roles
+   (X,Y,Z) and ends in exactly the old untrans_ilv+FOUT tail — the graded
+   case pays no relayout sweep; other m pay one scalar sweep (1/m).
+   Verified against a naive-DFT reference chain for m ∈ {1..7,9,10,31} ×
+   B ∈ {1,5} under the EMU8 build (all ≤ 1e-13) before ever timing.
+3. **Map guard folded into the first FMA's addend** (t = fma(wi,wi,
+   fma(wr,wr,1e-300))), from L8_radix8's port of rival 1000f989's mapc:
+   −1 vector op per 8 points vs my old VMAX clamp.  Ladder unchanged
+   (rsqrt14 + 2 Newton + ONE exact vdivpd — the exact tier, mandatory at
+   m=2572).
+4. **The GCC in-place trap, found and fixed**: my first version ran the
+   step in place on one state buffer (st non-restrict).  gcc 11.4
+   legalized the pass-A-load/pass-B-store alias by COPYING the whole 8 KiB
+   state to the stack every step (~256 extra memory ops; 855 zmm stack
+   refs in the step body).  Fix: ping-pong two per-volume 8 KiB buffers
+   (both L1-resident — NOT fusedaxes' batch-level ping-pong negative),
+   restoring full restrict semantics.
+5. **Unroll doctrine, measured both ways**: pass B carries an explicit
+   `#pragma GCC unroll 8` and one CHV_VOL instantiation per candidate row,
+   so perm[yi] and every derived offset constant-fold (L8_radix8's +15%
+   mechanism — gcc will not unroll a 300-instruction body alone).  Pass A
+   is deliberately ROLLED: unrolling it lets gcc interleave planes and
+   spill (625 vs 398 stack refs), and the same-lease interleaved A/B read
+   unrolled 0.624–0.632 vs rolled 0.582–0.596.  Opposite signs per pass.
+6. **create() chain race** (replaces the ice_r4 chmap race): sig =
+   scratch line offset ∈ {48,32,16,8} × pass-B row ∈ {aa2r0, nat, aa2r1,
+   odd-even}, on the plan's real buffers, 7-step volume chains (7 ≡ 1 mod
+   3, the graded tail class), min-of-7, 2% hysteresis.  All arms
+   output-bit-identical.  Deleted: the lazy family, batch ping-pong, ib
+   slide, PF_SC chain arms (volume-major obsoletes all of them).
+
+### Operation count (per volume-step, steady)
+
+1248 FFT FP + 384 shuffles + 896 map FP + 64 rsqrt + 64 vdivpd (hidden);
+p0/p5 pool = 2592 → floor ~1296 cy ≈ 0.447 µs at 2.9 GHz.  Measured 0.596
+= 1.33× floor (was 0.779 = 1.55× of the bigger ice_r4 pool).  ~400 gcc
+spill refs/step remain (see negatives — removing them measured SLOWER).
+Loads 384 + stores 256 ride the mem ports.  Working set 48 KiB = L1d.
+
+### Measured on the NODE (a80n0, leased core; graded m=2572)
+
+| case | this round | ice_r4 | MKL same window |
+|---|---|---|---|
+| B=64 graded chain | **0.596–0.597 µs/xform** fast mode (min 0.582 seen), 0.68 slow mode | 0.779 | 2.10–2.14 ⇒ **3.5×** |
+| B=1 chain | **0.595** (same code path; was fixed-FUSED 0.861) | 0.861 | 2.27 ⇒ 3.8× |
+
+The node is **bimodal per process** (0.595–0.60 vs ~0.68, sd <0.1% within
+either mode, MKL steady in both) — the same environmental stable-slow
+state L8_radix8's ice_r2/r4 records document, striking any batch size.
+The drained scoring window should sit at the fast mode.  Correctness:
+single rel_l2 2.267e-16 (B=64) / 2.269e-16 (B=1); **whole-chain 2.599e-11
+(B=64) / 9.154e-13 (B=1) vs tol 2.6e-10** (10×/280× margin; 2.599e-11 is
+byte-for-byte radix8's number — same rotated-axis reassociation scale);
+chain output bit-identical across independent processes.  In-plan race
+tables are flat (all arms within ~4%: e.g. s48=0.667..s8=0.666,
+r0=0.667..oe=0.665 µs/step incl. boundary-step bias at m=7).
+
+### What did NOT work, with the number that killed it
+
+1. **In-place single-state step (st non-restrict)**: gcc stack-copies the
+   whole state every step — 855 zmm stack refs, and the fix (ping-pong)
+   plus everything else took the same windows from 0.63 → 0.60.  If you
+   write an in-place pass-split kernel, check the asm for a bulk
+   stack-copy prologue before believing any timing.
+2. **NOINLINE per-group functions to kill the spills**: chv_bgrp compiled
+   to a beautiful 339-instruction ZERO-spill group — and measured
+   **0.738–0.747 vs 0.624–0.632** same-lease (interleaved).  The folded
+   addressing + compile-time cross-group scheduling are worth ~15%; gcc's
+   ~600 spill refs are cheaper.  Spills are not automatically the enemy;
+   do not re-fight this trade without a same-lease A/B.
+3. **Unrolled pass A**: 0.624–0.632 vs rolled 0.582–0.596 (3/3 interleaved
+   pairs).  Unroll pragmas are per-pass decisions, not per-file.
+4. **sig/perm race arms**: flat within ~2% resolution in every window —
+   with all chain buffers self-owned and page-aligned, the alias lottery
+   this race was built for (driver-owned ping-pong buffers) no longer
+   exists.  Kept because it is cheap and prices future layout changes.
+5. tryout.sh chain cases still die at `set -u` on `$W` (line 36, before
+   definition) and the remote check.py + repeatability tail is skipped
+   even with the `W=... ` env workaround; all chain checks and the
+   process-cmp above were run manually.  ALSO: tryout regenerates
+   in.bin/c.bin at the CURRENT batch — a later B=1 tryout leaves 1-volume
+   files that make manual B=64 driver runs fail silently (tail -1 of
+   empty).  Generate per-batch files with distinct names.
+
+### Borrowed, plainly
+
+* **L8_radix8 ice_r4**: the entire winning shape — volume-major
+  L1-residency, split inter-step state with rotating axis roles, the
+  3-phase relaid c, the constant-folded-unroll doctrine, the bimodal-node
+  diagnosis, and (via their port of rival 1000f989's mapc) the folded
+  1e-300 guard.  The rotation bookkeeping was re-derived for my kernel
+  (my roles rotate (P,R,Lc)→(R,Lc,P); theirs used an SW-order lane axis) —
+  and my m≡1 (mod 3) fused interleave tail is a refinement their scalar
+  final-conversion does not have.
+* **Corpus §10 §3**: volume-major cache residency (all seven rivals).
+* **L13_rader ice_r4**: bit-identical race arms as the adoption-legality
+  standard; the tryout `$W` workaround (again).
+
+### For next round
+
+1. The remaining 1.33× over the pool floor is ~500 cy/step: candidates are
+   the pass-A→pass-B barrier (pass B's first group needs ALL 8 pass-A
+   stores — a full turnaround per step), the map ladder tails at group
+   ends, and the ~400 residual spill refs.  A PMU read would attribute it
+   (still EACCES last checked).
+2. **Two-volume step interleaving** would double ILP at every latency wall
+   (steps of different volumes are independent) at the cost of a second
+   scratch + state pair (working set 80 KiB > L1d, c phases stream from
+   L2).  Priced but not built this round; it is the one structural idea
+   left that radix8 does not have.
+3. If the scored number lands at ~0.68, it drew the slow mode — believe
+   the 0.596 and ask the monitor about the bimodal state (radix8 has asked
+   twice; it is not frequency and not co-tenant L2, per their record).

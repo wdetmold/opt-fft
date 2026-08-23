@@ -397,3 +397,144 @@ cmp-VERIFIED byte-equal, so the race is free.
 5. Housekeeping: tryout.sh's `$W` bug (workaround in the negatives
    section) also disables its repeatability cmp -- keep running both
    checks manually until the monitor fixes the script.
+
+## Round ice_r5
+
+### The round's premise: cumulative, and the standings said "take the engine"
+
+ice_r4 leaderboard: L17_matrixsimd 13.009, L17_winograd 14.854, me 17.521
+us/step.  My scored description carried nm=16.37 (FFT residual, map off) and
+ch-nm ~ 2.3 (embedded map) -- i.e. essentially ALL of my 4.5 us gap to the
+leader is the FFT engine, not the map.  matrixsimd's own record prices their
+chain skeleton (structure-only probe, map replaced by a scale) at 11.33
+us/step; my plane pipeline has spent five rounds pinned at ~15.6-16.4 by
+plane-phase store->load junctions at L2 latency (probe: ph = 70% of the
+cell).  My r1 and r4 "next round" entries both said the round-sized move is
+porting a rival engine wholesale rather than fighting it piecewise; the
+round's context file made that legal and explicit.  Winograd's engine
+(fu = 12.8 quiet) was the original port target, but matrixsimd's is measured
+faster end-to-end (13.0 scored vs 14.85), so I ported theirs.
+
+### What was built: the "msr" chain engine, ported from L17_matrixsimd
+
+ADOPTED WHOLESALE from impl/L17_matrixsimd.c (their ice_r2/r3/r4 layers), as
+a chain-race candidate behind a create-time numerical self-check:
+
+1. **chunk17zr** -- their ice_r3 merged-reordered class-R kernel, verbatim:
+   lanes = 4 interleaved-complex lines per zmm, 17 row loads, 148 FP ops per
+   chunk, real coefficients as splatted memory operands (cosine) + 8
+   asm-pinned registers K0..K7 (sine), m walked in pair order 0,4,1,5,2,6,3,7
+   so only ONE parked cosine u is live.  My old kernel needed split re/im
+   (deint + 2 transposes per plane); theirs eats the driver layout directly
+   -- that is where the 4 us lives.
+2. **X-first pass order with the addr-safe shifted t1** (their panel_r8
+   collision model, mode 1 only, padded 5120 B plane stride) -- port of
+   l17_as_build, pure integer arithmetic.
+3. **Chain schedule v2** (deferred-Z: Y(x+1) between Y(x) and Z(x) on
+   ping-pong plane buffers) with the **s6 map** (pair-shared |z+c|^2
+   packing, rsqrt14 + 2 Newton, ONE vdivpd per 8 points, in place on the
+   interleaved state) after each Z plane; **volume-major IN-PLACE** chaining
+   with final_out as the state arena.
+4. **One deliberate deviation**: their ymm tail chunk (chunk17n_w2, the old
+   phase-serial kernel plus its whole table set: ~300 lines, Q pins, cn4/sn4)
+   is replaced by a **5th OVERLAPPED zmm chunk17zr at offset 13** (their own
+   pre-panel_r5 off17 shape {0,4,8,12,13}); the X pass tail likewise at 285.
+   On 2x512-pipe ICX the FP time is identical, the overlapped chunk deletes
+   the tail's 16 extra phase-serial row loads, the recomputed lanes are
+   bit-identical (lane-independent arithmetic), and it cut the ported
+   surface by ~400 lines.  The engine is one clean bit class.
+5. **Create-time self-check gate**: one FFT-only msr step vs the tuned exec
+   on the same volume must agree to 1e-13 rel L2 before msr may enter the
+   race (they are different rounding classes ~1e-15 apart; a transcription
+   bug would be ~1e0).  A fast wrong chain scores nothing; the check makes
+   any port bug fall back to the ice_r4 xk path instead of shipping.
+   msr is picked unless the incumbent beats it by >3%.  msr vs xk is a
+   cross-bit-class race -- legal, the harness compares the chain end state
+   to numpy only, never across processes (winograd ice_r4 precedent).
+
+### Operation count
+
+msr chunk: 148 FP ops (84 fma + 12 mul + 52 addsub as vector ops) per 4
+lines; per volume 3*17*5 + 73 = 328 zmm chunks (with the overlap recomputes)
+~ 48.5k vector FP ops -- MORE flops than my old engine (527 vs 423 kflop)
+but ~17 row loads/chunk, no deinterleave anywhere, and two in-register tile
+transposes per plane instead of my three buffer round trips.  Map unchanged
+in spirit from r4: ~15 FMA-class + 1 vdivpd per 8 points, now their s6
+packing.  The old engine and its whole candidate set stay in the file
+(fft3d_execute still runs it; the chain race still ranks xk/xm/mp).
+
+### Measured (ICE node via tryout.sh; windows named per r1 discipline)
+
+| config | result |
+|---|---|
+| graded B=32 m=98, driver steady state, mid window | **min 15.143 / median 15.151 us/step, sd 0.03%** |
+| same, second run (contention arrived mid-run) | min 15.248, sd 6.3% |
+| in-tuner same-window race, run 1 | **msr 17.37** vs xk pin 20.01, xk 20.39, mp pin 21.16 (old family 20-24) |
+| msr FFT residual (msnm, map off, same windows) | 13.68 / 13.49 |
+| old-engine nm same windows (contended: r4 quiet was 15.58) | 17.83 / 17.73 |
+| B=1 m=98 (window ~35% inflated: MKL 99.6 vs quiet 73.8) | **min 17.002, sd 0.04%**, msr picked there too (17.15 vs xk pin 19.93) |
+| MKL same case/core B=32 | 89.6-90.2 us/step (~5.9x) |
+| single-transform gate (old engine, untouched) | rel_l2 3.160e-16 |
+| chain gate, manual check.py (script's $W bug still live) | **B=32: 2.051e-14; B=1: 1.154e-14** (tol 9.8e-12) |
+| repeatability (two runs, leased core, manual cmp) | out.bin AND out.bin.chain byte-identical |
+
+r4 shipped code in its best QUIET window was 17.55; this round's 15.14-15.25
+was measured under visible contention (the same-window xl-family table sat
+18.1-19.7 vs r4's quiet 17.4-19.0, and nm read 17.8 vs its quiet 15.58).
+matrixsimd's identical engine scored 13.009 in the r4 quiet window; expect
+**~13.0-14.0 us/step scored**, from 17.521.
+
+### What did NOT work / notes
+
+* No failed mechanisms this round -- the round was one large port and it
+  landed on the first node run (self-check ok=1 immediately).  The porting
+  discipline that made that true: copy the kernel arithmetic VERBATIM
+  (slot table, sign patterns, pair order untouched), rename only types and
+  table plumbing, and gate the result behind a numerical cross-check
+  against an engine already trusted by the harness.
+* The in-tuner msr number (17.2-17.4) sits ~2 us ABOVE the driver's own
+  steady state (15.14) in the same process -- create runs early on a
+  less-warm core.  Treat create-race numbers as ranks, never levels
+  (r1 lesson, still true).
+* tryout.sh's $W bug from r4 is STILL live (CH built from $W two lines
+  before W is assigned; remote check.py gets literal '$W/c.bin' -> '/c.bin'
+  and the repeatability cmp is skipped).  Workaround unchanged: prefix
+  `W=$PWD/build/tryout/L17_rader`, then run check.py --map-check and the
+  second-run cmp by hand.  Monitor: still worth fixing.
+* g_desc grew (msr/msnm/msok fields); buffer bumped 448 -> 576 so nothing
+  truncates.
+
+### Borrowed this round, named
+
+* **The entire scored chain engine is L17_matrixsimd's**: chunk17zr (their
+  ice_r3), the merged-phase idea behind it (their ice_r2, itself corpus
+  sec 10's ZIPP item), X-first + addr-safe t1 (their panel_r3/r8), chain v2
+  + s6 map + volume-major in-place (their ice_r4).  Stated plainly: this
+  round is their work adopted under the cumulative-round rules, with the
+  overlapped-zmm tail as my one structural simplification and the
+  self-check gate as my safety addition.
+* The "port the engine wholesale rather than fight it piecewise" decision
+  rule is from my own r1 next-round entry (originally about winograd's
+  engine, redirected to the measured leader).
+
+### Next round
+
+1. **Read the scored description**: `chain ch=msr <us> nm=<us> msr=<us>
+   msnm=<us> msok=1`.  msnm in the quiet window is the ported engine's FFT
+   residual on this node; matrixsimd's skeleton probe says ~11.3-12 is
+   available.  If scored msr lands >14, the gap is window/create-shape, not
+   engine.
+2. The remaining daylight to matrixsimd is whatever THEY build in r5 --
+   their open items were an X-pass kernel lever and the port-5-free Z-store
+   layout.  Read their r5 record first; their improvements now transfer to
+   this file almost mechanically (the engine is shared).
+3. My own untried card on TOP of the shared engine: fuse the map INTO the
+   Z-group tile-transpose store (my xk mechanism, their costed-not-built
+   idea).  Their v3 negative (chunk-granularity interleave, port-5
+   saturation) predicts it loses; my r4 fd negative agrees.  Only attempt
+   with a probe showing Z-store slack.
+4. The old plane-pipeline chain candidates (xk/xm/mp families) are now dead
+   weight in create (~80 ms) but free insurance; drop them only if create
+   time ever matters.
+5. If B=1 returns to scoring separately: msr won B=1 in-race too (17.15 vs
+   19.93 contended); nothing else needed.

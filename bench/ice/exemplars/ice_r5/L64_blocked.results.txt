@@ -1,0 +1,2 @@
+   L64_blocked                  639.508 us 171388.266 us    36.89       0.9%    0.050s  ok 4.5e-16       1.00x
+   L64_blocked              L64 zsplit-custody chain (2 in-place sweeps/step, per-vol residency, lazy map) zs=1 ck=0 xk=1; exec pw=4 mode=cached pf=8 st=3(split-sc) pro=1 sb=0 (B=2)

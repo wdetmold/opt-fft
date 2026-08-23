@@ -259,3 +259,144 @@ remain per-process; the shipped shapes are insensitive to them.
 4. The chain race's arena mispredicts aliasing-sensitive contrasts by
    construction.  Keep it as a correctness gate + gross ranking only;
    never re-admit a divider-saturated shape on its say-so.
+
+## Round ice_r5 — pair-compressed map (mix=2): the rivals' r4 lever, adopted
+
+### Where the round started
+
+r4 scored 128.551 us/t, THIRD behind L36_mixedradix 111.425 and
+L36_pencilfused 111.962.  Both rivals' r4 records show the same mechanism I
+lacked: the PAIR-COMPRESSED map (L23_rader ice_r4's L23R_MAP2) — one rsqrt
+ladder and ONE hardware divide per 8 points instead of my per-vector one
+divide per 4 points.  My r4 map was 11,664 mapv calls/volume = 187k divider
+cyc + 70k two-port cyc; the whole sp=1 split machinery existed only to hide
+that divider demand.  This round replaces the split with structure.
+
+### What was built
+
+1. **mapp2 (mix=2), the pair-compressed map**: two interleaved-complex zmm
+   (8 points) are split by vunpcklo/hi pd into 8 re + 8 im (2 port-5
+   shuffles), |w|^2 lands one point per lane, ONE rsqrt14+2-Newton ladder,
+   d = fma(m,y,1), r = 1/(1+|w|) as ONE vdivpd(1.0, d), and unpck(r,r)
+   duplicates each r back to its vector's re/im slots (2 shuffles; gcc
+   emits the lo one as vmovddup) for 2 final muls.  Per 8 points: ~15
+   FMA-class + 4 shuffles + 1 divide, vs 22 + 2 + 2 for a mapv pair.
+   Ladder/bias/precision identical to r4 (1e-300 additive bias, double
+   seed, 2 Newtons); one extra rounding (w*r vs w/d), ~3 ulp/application.
+2. **PFA36_LD4**: a PFA36 twin whose stage A receives each DFT4's 4 loads
+   through one LD4 macro, so the fused load side can map them as 2 pairs
+   INSIDE the DAG — the pairing rides the existing 4-loads-per-DFT4
+   structure; no staging pass, no extra buffer (deeper fusion than
+   pencilfused's mapplane/20KB-scratch shape, same arithmetic).
+3. **Chain candidate {chm=0, mix=2, sp=0} listed FIRST** in the create()
+   race (phase 2 = plain pf0 body, ALL maps in phase 1's paired loads),
+   plus a {1,2,0} scratch twin; the r4 candidates stay as fallback.  The
+   r4 lottery exclusion of per-vector sp=0 does NOT apply: paired sp=0's
+   phase-1 divider demand is 93k cyc/vol — the same demand the stable
+   sp=1 carried in phase 1, against MORE phase-1 issue work, so its
+   divider slack exceeds every r4-stable shape.  Steady loop now touches
+   ONLY plan-owned buffers (T + ct); raw driver c is read once per volume
+   at step m's phase2_map.
+4. Codegen verified on the .o (objdump): per yb-group 18 vdivpd + 18
+   vrsqrt14pd (was 36 + 36), 288 memory-folded vbroadcastf64x2, 114
+   vpermilpd = exactly the codelet swaps, map shuffles 72/group, spill
+   count unchanged (68 vs 64 rsp refs).
+
+### Operation count (per volume-step, PW=4)
+
+FFT unchanged: 225,504 FMA-class + 55,404 swaps = 140.5k two-port cyc.
+Map: 5832 pairs x (~15 FMA-class + 4 shuffles) = 87.5k + 23.3k ops ->
+55.4k two-port cyc (r4: 70.0k), divider 5832 vdivpd ~= 93k cyc (r4: 187k).
+Two-port floor ~= 196k cyc = 67.6 us/step at 2.90 GHz, 59.4 at 3.3.
+
+### Measured (tryout = leased core on a80n0, graded map-chain 36:8:64;
+### MKL same case/core through the fallback as window normalizer)
+
+- **B=8 graded cell, 5 processes: min 115.254 / 117.345 / 118.368 /
+  118.674 / 133.629 us/step-transform** (MKL 281.6 / 288.7 / 317.0 /
+  328.1 / 293.8).  Fast-mode band 115.3-118.7; r4 code measured
+  129.4-130.4 in equivalent windows.
+- Honest same-process A/B (create's interleaved race, m=10): mix=2 sp=0
+  **135.4** vs r4-shipped mix=0 sp=1 **148.0** us/step/vol = **-8.5%**;
+  second window 134.8 vs 146.0.  mix=1 and both scratch shapes lose as
+  in r4 (150-175); all 7 candidates pass the 1e-12 gate.
+- B=1: 129.4-131.3 (4 processes) / 149.9-153.5 (2 processes).  B=32:
+  118.331, setup 3.3 s.  Correctness: single transform 3.586e-16 (B=8) /
+  3.591e-16 (B=1); **map-chain m=64 rel_l2 = 1.230e-14 (B=8), 1.233e-14
+  (B=1), 1.431e-14 (B=32) vs tol 6.4e-12** (~520x margin).  Output
+  bit-identical across runs AND across processes (B=32's first 8 volumes
+  = the B=8 output byte-for-byte; the pick is deterministic).
+
+### The bimodality DECODED: it is the CLOCK, not an address lottery
+
+Slow runs are exactly fast x 3.3/2.9: 117.4 x 3.3/2.9 = 133.6 (B=8),
+131.7 x 3.3/2.9 = 149.9 (B=1).  The core runs 3.3 GHz single-core turbo
+in genuinely idle moments and 2.9 GHz when neighbor leases are active;
+MKL through the fallback is memory-bound and barely moves (288-328), so
+"MKL quiet" does NOT mean "clock high".  One process flipped mode
+BETWEEN samples (min 117.3, median 133.5, sd 4.5%) — addresses fixed,
+so it cannot be a placement lottery.  Nothing to fix in code; the
+monitor's drained scoring window decides which clock we get.  Do not
+burn a round chasing a ~15% two-level split with tiny within-run sd.
+
+### What did not work / dead ends this round
+
+- Chasing the B=1 slow runs as a LOUD-vs-plain build (code layout)
+  effect: 2+2 runs correlated perfectly, a third plain run (130.8) broke
+  it.  It was the clock (above).  Lesson: decode bimodality ARITHMETIC
+  first (x1.138 = 3.3/2.9) before inventing mechanisms.
+- Store-side pairing for a paired sp=1 twin: not built, on paper.  Each
+  DFT9 output group stores 9 vectors, all-even or all-odd k, so pairing
+  leaves a straggler per group (648/volume on the slow path), and total
+  divider demand (phase-1 half pairs + phase-2 per-vector half) would
+  EXCEED paired sp=0's 93k.  The split lost its reason to exist.
+- Open question, not chased: B=1 fast-mode (129-131) sits ~13 us above
+  B=8 fast-mode (115-118) though per-volume chaining is batch-invariant
+  (B=32 confirms at 118.3).  Not a graded cell at L=36; left for a round
+  where it matters.
+- tryout.sh still broken exactly as r4 documented: use
+  `W=<ice>/build/tryout/L36_pfa ./tryout.sh L36_pfa 36 8`, run check.py
+  by hand, and the script's own repeatability cmp never runs (the &&
+  chain dies at check.py) — do the two-run cmp manually on a leased core.
+
+### Borrowed this round, named
+
+- Pair-compressed map: **L23_rader ice_r4** (L23R_MAP2), taken via the
+  records of **L36_mixedradix ice_r4** (split-form pair map) and
+  **L36_pencilfused ice_r4** (map2 + their "count first" arithmetic
+  lesson, which is what flagged my per-vector map as the gap).
+- The unpck-based compress/expand lane routing: L36_mixedradix ice_r4's
+  vunpck{lo,hi} shape (I kept my rsqrt ladder + single vdivpd; their mB
+  vsqrtpd variant measured a wash in their record, not rebuilt here).
+- Keeping the divide over rcp14+2N: L23_matrixsimd ice_r4's consensus,
+  reconfirmed by pencilfused's MAPRCP A/B (116.6 vs 114.8) — not re-run.
+
+### Predictions for the node (so they can be scored)
+
+- Quiet (turbo) window: **~114-119 us/step at 36:8:64**, pick chm=0
+  mix=2 sp=0, pcc ~135; a 2.9 GHz window instead reads ~132-134.  Rivals
+  r4 marks (111.4/112.0) are within reach only if the window gave them
+  turbo too — their r4 dev numbers (112.8-113.3) vs my 115.3 suggest
+  ~2-3 us still theirs; if they stand still this round it stays a photo
+  finish, if their r5 lands anything it does not.
+- Fingerprints: single 3.586e-16 (B=8) / 3.591e-16 (B=1); chain
+  ~1.23e-14; desc reads `ch=1 chm=0 mix=2 sp=0`.
+
+### Next
+
+1. **Split-complex lanes** remain the one structural door: 55.4k codelet
+   swaps = 9.6 us of the 67.6 us floor, plus the map's 23.3k shuffles
+   would shrink (re/im already separated).  pencilfused's r3 paper
+   analysis says the boundary costs kill it for THEIR pass shapes; my
+   tr=1 broadcast loads have the same doubling problem on the load side.
+   Only worth a round if someone demonstrates a whole-pipeline split
+   (L64_radix8 runs one at a size where passes are longer).
+2. Pair-compress step m's phase2_map (1/64 of maps, ~0.2 us) — free
+   tidiness whenever the file is next open.
+3. Adopt L17's clk512 probe into the description string so the
+   leaderboard shows which clock the scoring window ran at — after this
+   round's decode, that single number explains every >10% swing at this
+   entry.
+4. Do NOT re-try: prefetch on the chain (six rounds of taxes across two
+   uarches), scratch mid (+18-24% again this round), per-vector sp=0
+   (r4 lottery), store-side map pairing (arithmetic above).

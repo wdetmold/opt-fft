@@ -1,0 +1,2 @@
+   L13_rader                      5.808 us 237511.462 us    21.00       1.5%    0.164s  ok 3.0e-16       1.08x
+   L13_rader                Rader-13 CRT (93 FP/chunk) lanes=lines + paired lazy-map chain (L13_direct r4 machinery: 1 sqrt+rcp14 ladder/8pt, staged pair units d1-pipelined, xstep-ov, in-place), 512-bit; exec=ov chain=cv fch-ab[B32]=cv:5857,cz:5915,uf:8112

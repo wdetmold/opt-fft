@@ -1,0 +1,136 @@
+```
+=== round ice_r5 ===
+# round ice_r5
+host: a80n0.lqcd.mit   date: 2026-08-23T05:10:18-04:00   slurm_job: 438633
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512bw avx512cd avx512dq avx512f avx512ifma avx512_vbmi avx512vbmi avx512vl avx512_vnni avx512_vpopcntdq fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+
+-- L=6 (batched B=64, chain m=4856), volume 216, working set 0.42 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L6_pfa                         0.304 us 94367.791 us    27.58       0.1%    0.528s  ok 2.4e-16       1.00x
+   L6_unrolled                    0.323 us 100280.029 us    25.96       0.0%    0.343s  ok 2.4e-16       1.06x
+   mkl_dfti                       0.939 us 291928.741 us     8.92       0.3%    0.002s  ok 2.4e-16       3.09x
+   mkl2026_dfti                   0.955 us 296652.784 us     8.77       0.3%    0.001s  ok 2.5e-16       3.14x
+   fftw3_measure                  0.992 us 308416.483 us     8.44       2.4%    0.012s  ok 2.0e-16       3.27x
+   fftw3_patient                  0.993 us 308478.113 us     8.44       0.2%    0.020s  ok 2.0e-16       3.27x
+   fftw3_estimate                 1.556 us 483577.381 us     5.38       0.4%    0.001s  ok 2.0e-16       5.12x
+   ducc0_c2c                      2.457 us 763584.832 us     3.41       3.8%    0.000s  ok 1.8e-16       8.09x
+   baseline_matrix                7.335 us 2279571.700 us     1.14       0.0%    0.000s  ok 6.0e-16       24.16x
+
+-- L=8 (batched B=64, chain m=2572), volume 512, working set 1.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L8_radix8                      0.570 us 93850.212 us    40.41       1.7%    0.031s  ok 2.3e-16       1.00x
+   L8_fusedaxes                   0.585 us 96333.883 us    39.37       0.2%    0.219s  ok 2.3e-16       1.03x
+   L8_batchsimd                   0.596 us 98110.716 us    38.66       0.3%    0.145s  ok 2.3e-16       1.05x
+   mkl_dfti                       2.095 us 344890.094 us    11.00       2.2%    0.002s  ok 1.6e-16       3.67x
+   mkl2026_dfti                   2.115 us 348219.558 us    10.89       1.4%    0.002s  ok 1.6e-16       3.71x
+   fftw3_patient                  2.391 us 393597.436 us     9.64       1.3%    0.020s  ok 1.8e-16       4.19x
+   fftw3_measure                  2.395 us 394165.056 us     9.62       1.1%    0.013s  ok 1.8e-16       4.20x
+   ducc0_c2c                      4.155 us 683972.635 us     5.54       0.6%    0.000s  ok 1.3e-16       7.29x
+   fftw3_estimate                 5.812 us 956725.530 us     3.96       0.2%    0.001s  ok 1.7e-16       10.19x
+   baseline_matrix               22.702 us 3736983.870 us     1.01       0.0%    0.000s  ok 3.9e-16       39.82x
+
+-- L=13 (batched B=32, chain m=1278), volume 2197, working set 2.15 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L13_direct                     5.401 us 220898.798 us    22.58       0.2%    0.186s  ok 2.9e-16       1.00x
+   L13_rader                      5.808 us 237511.462 us    21.00       1.5%    0.164s  ok 3.0e-16       1.08x
+   mkl2026_dfti                  11.801 us 482608.155 us    10.33       1.2%    0.002s  ok 3.3e-16       2.18x
+   mkl_dfti                      11.983 us 490074.006 us    10.18       2.2%    0.002s  ok 3.2e-16       2.22x
+   fftw3_patient                 13.420 us 548821.201 us     9.09       1.6%    0.022s  ok 3.2e-16       2.48x
+   fftw3_measure                 13.521 us 552974.691 us     9.02       3.9%    0.013s  ok 3.2e-16       2.50x
+   fftw3_estimate                14.778 us 604350.591 us     8.25       1.5%    0.001s  ok 3.2e-16       2.74x
+   ducc0_c2c                     34.737 us 1420584.550 us     3.51       1.1%    0.000s  ok 2.5e-16       6.43x
+   baseline_matrix              153.827 us 6290915.630 us     0.79       0.0%    0.000s  ok 7.9e-16       28.48x
+
+-- L=17 (batched B=32, chain m=98), volume 4913, working set 4.80 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L17_matrixsimd                12.736 us 39940.663 us    23.65       1.6%    1.149s  ok 3.3e-16       1.00x
+   L17_winograd                  14.412 us 45195.037 us    20.90       6.2%    0.529s  ok 3.3e-16       1.13x
+   L17_rader                     15.052 us 47204.526 us    20.01       1.5%    0.649s  ok 3.2e-16       1.18x
+   ducc0_c2c                     86.194 us 270304.680 us     3.49       2.9%    0.000s  ok 2.6e-16       6.77x
+   mkl2026_dfti                  88.542 us 277668.917 us     3.40       0.2%    0.051s  ok 3.1e-16       6.95x
+   mkl_dfti                      88.787 us 278437.180 us     3.39       0.1%    0.032s  ok 3.1e-16       6.97x
+   fftw3_estimate                90.122 us 282621.964 us     3.34       0.9%    0.002s  ok 3.0e-16       7.08x
+   fftw3_patient                 90.130 us 282646.161 us     3.34       0.4%    0.019s  ok 3.0e-16       7.08x
+   fftw3_measure                 90.190 us 282834.949 us     3.34       0.1%    0.008s  ok 3.0e-16       7.08x
+   baseline_matrix              446.812 us 1401201.990 us     0.67       0.0%    0.000s  ok 8.4e-16       35.08x
+
+-- L=23 (batched B=16, chain m=165), volume 12167, working set 5.94 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L23_matrixsimd                36.903 us 97423.329 us    22.37       0.8%    0.714s  ok 3.8e-16       1.00x
+   L23_rader                     37.780 us 99740.224 us    21.85       0.3%    0.415s  ok 3.8e-16       1.02x
+   ducc0_c2c                    248.047 us 654844.843 us     3.33       1.1%    0.000s  ok 2.8e-16       6.72x
+   mkl_dfti                     262.156 us 692091.172 us     3.15       0.0%    0.048s  ok 4.2e-16       7.10x
+   fftw3_estimate               269.209 us 710711.189 us     3.07       0.8%    0.001s  ok 3.7e-16       7.30x
+   fftw3_patient                269.285 us 710913.597 us     3.07       0.1%    0.033s  ok 3.7e-16       7.30x
+   fftw3_measure                269.420 us 711268.141 us     3.06       0.4%    0.009s  ok 3.7e-16       7.30x
+   mkl2026_dfti                 283.433 us 748262.907 us     2.91       0.1%    0.053s  ok 4.2e-16       7.68x
+   baseline_matrix             1480.026 us 3907269.800 us     0.56       0.0%    0.000s  ok 7.4e-16       40.11x
+
+-- L=36 (batched B=8, chain m=64), volume 46656, working set 11.39 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L36_mixedradix               103.888 us 53190.667 us    34.83      33.1%    0.373s  ok 3.6e-16       1.00x
+   L36_pencilfused              108.631 us 55619.050 us    33.31       1.8%    0.922s  ok 3.6e-16       1.05x
+   L36_pfa                      115.437 us 59103.522 us    31.34       1.0%    0.678s  ok 3.6e-16       1.11x
+   mkl_dfti                     283.228 us 145012.633 us    12.77       0.5%    0.053s  ok 3.9e-16       2.73x
+   mkl2026_dfti                 285.808 us 146333.899 us    12.66       0.7%    0.048s  ok 4.0e-16       2.75x
+   fftw3_patient                374.687 us 191839.535 us     9.66       4.5%    0.845s  ok 3.9e-16       3.61x
+   fftw3_measure                410.936 us 210399.460 us     8.80       3.2%    0.120s  ok 3.8e-16       3.96x
+   ducc0_c2c                    443.212 us 226924.325 us     8.16       3.5%    0.000s  ok 3.0e-16       4.27x
+   fftw3_estimate               487.436 us 249567.211 us     7.42       0.5%    0.005s  ok 3.5e-16       4.69x
+   baseline_matrix             8802.836 us 4507052.000 us     0.41       0.1%    0.000s  ok 8.0e-16       84.73x
+
+-- L=45 (batched B=4, chain m=177), volume 91125, working set 11.12 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L45_mixedradix               262.959 us 186175.232 us    28.55       3.5%    0.407s  ok 4.0e-16       1.00x
+   L45_pfa                      263.807 us 186775.351 us    28.46       0.5%    1.422s  ok 4.0e-16       1.00x
+   mkl_dfti                     758.065 us 536709.748 us     9.90       0.1%    0.049s  ok 4.4e-16       2.88x
+   mkl2026_dfti                 777.023 us 550132.008 us     9.66       0.1%    0.051s  ok 4.5e-16       2.95x
+   ducc0_c2c                    898.641 us 636237.589 us     8.35       0.4%    0.000s  ok 3.7e-16       3.42x
+   fftw3_patient                932.266 us 660044.597 us     8.05       2.2%    0.584s  ok 4.3e-16       3.55x
+   fftw3_measure                991.323 us 701856.687 us     7.57       2.2%    0.060s  ok 4.3e-16       3.77x
+   fftw3_estimate              1186.143 us 839789.396 us     6.33       0.6%    0.002s  ok 4.2e-16       4.51x
+   baseline_matrix            21649.575 us 15327898.800 us     0.35       0.2%    0.000s  ok 8.0e-16       82.33x
+
+-- L=64 (batched B=2, chain m=134), volume 262144, working set 16.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   L64_blocked                  639.508 us 171388.266 us    36.89       0.9%    0.050s  ok 4.5e-16       1.00x
+   L64_radix8                  1011.066 us 270965.598 us    23.33       1.6%    0.711s  ok 4.5e-16       1.58x
+   mkl_dfti                    1721.297 us 461307.652 us    13.71       0.6%    0.048s  ok 3.4e-16       2.69x
+   mkl2026_dfti                1850.940 us 496051.956 us    12.75       0.7%    0.048s  ok 3.4e-16       2.89x
+   fftw3_patient               2038.470 us 546309.893 us    11.57       2.1%    3.825s  ok 3.5e-16       3.19x
+   fftw3_measure               2065.967 us 553679.234 us    11.42       1.3%    0.240s  ok 3.6e-16       3.23x
+   ducc0_c2c                   2571.282 us 689103.494 us     9.18       0.5%    0.000s  ok 3.0e-16       4.02x
+   fftw3_estimate              3409.168 us 913656.930 us     6.92       0.6%    0.001s  ok 3.5e-16       5.33x
+   baseline_matrix            94879.812 us 25427789.500 us     0.25       0.2%    0.000s  ok 7.8e-16       148.36x
+
+backends:
+   L13_direct               conj-folded dense 13x13 per axis, lanes=lines, pinned sines; 512b all-pinned zsolidY+xmm-tail X-first+ov; fchain=lazy-pairmap(v2)+vm2; chain-ab[B32]=zs4424,ov4372,oz4597,op5001,os4429,pf4872 ns/vol pick=ov(inc); fch-ab=cz6887,cv6894,v16321,v26310,v46304 pick=v2(inc)
+   L13_rader                Rader-13 CRT (93 FP/chunk) lanes=lines + paired lazy-map chain (L13_direct r4 machinery: 1 sqrt+rcp14 ladder/8pt, staged pair units d1-pipelined, xstep-ov, in-place), 512-bit; exec=ov chain=cv fch-ab[B32]=cv:5857,cz:5915,uf:8112
+   L17_matrixsimd           nested cyclic/negacyclic 17-pt/axis, merged-reordered, 512-bit+ymm tail, pinned, X-first, deferred-Z, addr-safe t1, pf=0, pw=0, pt=0, b1dec[yz/kyz/x/kx]=7.25/6.73/3.28/3.20, clk512/256=3.30/3.50 GHz, d256=3.50, chain=v2 map=s6 volmajor-inplace sf1
+   L17_rader                Rader-17 cyclic/negacyclic (kernel from L17_winograd), plane-fused; tuned: xl 512t sp dy pin, pf=0, pfw=0, clk256=3.50 clk512=3.30, xrace xl/xfs=15.84/17.20, probe ph/xp/fu=11.48/4.81/16.75 us/vol, chain ch=msr 15.14 nm=15.53 msr=15.14 msnm=11.77 msok=1 us/step
+   L17_winograd             17-pt cyclic+negacyclic module (296 FP instr), 3 rotating passes, sched=0, var=h8, pf=0, pfw=0, cw=0, clk256=3.50GHz, clk512=3.30GHz, p1=5.23 f23=7.47 fu=12.79 fu4=13.59, chain=msp8, mch[nv=4,m=16]: mh8=15.93 mx8=15.17 mc8=16.13 mh4=18.05 mi4=18.09 mxc8=15.08 msp8=14.71 mspc8=14.82
+   L23_matrixsimd           dense 23x23/axis conj-folded, 512-bit, pinned, X-first, pipelined, za, pf=0, pw=0, chain[vol-res inplace zst map@store pcmp mapv=1], tune[ch pick=40.97 inc=41.97 us/t nv=16], clk512/256=3.30/3.50 GHz
+   L23_rader                rader23 folded pair, 512-bit, pinned two-sweep, X-first, pf=0 pw=0, zmap=nr, ch=e, tuner pick=33.51 inc=33.51 us/t nv=8
+   L36_mixedradix           PFA 4x9 2-sweep chain (per-vol in-place, arena hp=2); pick=v1+nF-pf1 prot=p2map-cperm pinD=2112 B=8 mQ-pf1=106.5 mQ2-pf1=106.1 nF-pf1=103.3 nF2-pf1=103.8 nE-pf1=102.9 nF-pf0=103.2 mQ-pf0=108.6 mH-pf1=110.1 mB-pf1=110.7 mA-pf1=115.5
+   L36_pencilfused          L=36 PFA4x9; fchain pw=4 volres inplace lazymap2-rgi rsqrt14+2NR+vdiv; exec tuner pw=4 mode=bcst+vr (B=8); chain probe us ip4=122.4 cs4=122.2 is04=128.5 bc4=113.5 xv4=125.9 xr4=124.0 vr4=111.6 nt4=122.4 nv4=120.0
+   L36_pfa                  GT-PFA 4x9 (n1_9 DAG) two-sweep +fused lazy-map chain (ch=1 chm=0 mix=2 sp=0 pcc=121.2); tuner pick: pw=4 mode=inplace pf=0 tr=1 (B=8, nv=8, nc=21); probe us p1=72.4 p1t=69.1 p1z=32.6 p1y=23.2 p2w=23.7 fu=92.9
+   L45_mixedradix           PFA 9x5 2-sweep; pick=v1-tr-pf1-pfw (B=4, arena=4, stream=0, 10 cand); chain=xfirst-ym ms0 mp1 cpf1/1 d1 w1 n0 k0 v1; nv1 us fu=218.1 p1=176.9 p1z=86.2 p1y=86.3 p1t=167.1 p1zt=64.8 p1yt=95.1 p2w=60.7; fe=na(open:13)
+   L45_pfa                  GT-PFA 9x5 2-sweep +tr(bcast-gather p1); pick pw4-tr0 302.7 us/vol (tr0=302.7 ip0=340.4 il0=355.7) B=4 nv=4 clk=2.90 | ch=vt-pf 315.1us/step ms0 (vt=329.7 vtpf=315.1 vm=330.3 uf=342.0)
+   L64_blocked              L64 zsplit-custody chain (2 in-place sweeps/step, per-vol residency, lazy map) zs=1 ck=0 xk=1; exec pw=4 mode=cached pf=8 st=3(split-sc) pro=1 sb=0 (B=2)
+   L64_radix8               radix-8^2/axis split-cplx AVX-512; ice_r5 fused chain (splitseq states ckind=1, map@z-store, all-FMA recip) ck=1; pick[B=2]=fused-pfw+slabpf1+pro1+p10+sc0
+   L6_pfa                   Good-Thomas PFA 2x3 per axis, no twiddles, zmm/ymm mixed, chain-pingpong-raced; variant=z512x ch=fsep cst=0.346us clkS256=2.90 clkD256=2.90 clkS512=2.90 kclk=2.90GHz bf=195.4 bsp=194.5 bx=56.2 byz=136.9ns
+   L6_unrolled              L=6: unrolled PFA 2x3 codelet (48 flop/36 instr, no twiddles), zmm-x/ymm-yz zxf incumbent, fused fft3d_chain (pair-interleaved vol-major chains, fused in-place map pass, pair-shared exact ladder+Heron); variant=zxf cmap=p2div kclk=2.90GHz ab1=y190.3,z176.5ns zwd=-3.2% xod=+2.6%
+   L8_batchsimd             radix-8 split; VOLUME-MAJOR fused-map fft3d_chain (ice_r5: per-volume L1-resident, split inter-step state 384 shuf/step, rsqrt14+2N+1div map); pick[B=64]: mode=FUSEDAA3 nt=0 pf=s0 chain{vm,sig=48,perm=0} alloc=r8(a64,si512) chv{s48=0.632,s32=0.621,s16=0.628,s8=0.632,r0=0.632,nat=0.634,r1=0.633,oe=0.635}
+   L8_fusedaxes             8^3 fused/AA/AA2 c52 + vm3 rot-chain[sig=24,so=1,go=1,gs=0;fb=slot+pfs]; B=64 pick=fusedAA2+pfs (chain-tuned) chain-arena{fused+pfs=0.496,fusedAA2=0.507,fusedAA2+pfs=0.493,fusedAA2b=0.510,fusedAA2b+pfs=0.497} vm-arena{s0=0.688,s8=0.676,s16=0.663,s24=0.663,s40=0.664,s48=0.663,s56=0.672|nn=0.666,dn=0.663,nr=0.665,dr=0.663,gn=0.664,gd=0.663} pmc=na
+   L8_radix8                radix-8 52-instr codelet; 2p/1f/3p; fused chain(vol-major L1, map=rsqrt14+2NR+div, ch=2); pick[B=64]=avx512-1faa-pfs (default) arena{1faa-pfs=0.445 1f-pfs=0.443 1faa=0.454 3p-pfs*=0.461}
+   baseline_matrix          row-column dense DFT matrix, O(L^4)/volume/axis
+   ducc0_c2c                ducc0 0.41 c2c, no planning, 1 thread
+   fftw3_estimate           FFTW 3.3.10 plan_many_dft, fftw3_estimate
+   fftw3_measure            FFTW 3.3.10 plan_many_dft, fftw3_measure
+   fftw3_patient            FFTW 3.3.10 plan_many_dft, fftw3_patient
+   mkl2026_dfti             oneMKL 2026.1 (pip wheel) DFTI, sequential, batched
+   mkl_dfti                 oneMKL 2022.0.2 DFTI, sequential, batched
+```
