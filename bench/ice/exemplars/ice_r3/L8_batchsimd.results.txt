@@ -1,0 +1,2 @@
+   L8_batchsimd                   0.547 us 90026.995 us    42.13       2.9%    0.178s  ok 2.3e-16       1.00x
+   L8_batchsimd             radix-8 split; pick[B=64]: mode=FUSEDAA3 nt=0 pf=s0 alloc=r8(a64,si512) chain{FUSEDAA3/s0=0.555,FUSEDAA3/none=0.569,FUSEDAA2/s0=0.553,FUSED/s0=0.562}

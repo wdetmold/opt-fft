@@ -1,0 +1,2 @@
+   L36_mixedradix               117.417 us 60117.752 us    30.81       0.9%    0.520s  ok 3.6e-16       1.07x
+   L36_mixedradix           PFA 4x9 2-sweep, lanes=lines, n1_9 DFT9, chain-tuned; pick=v1-pf1 (B=8, arena=8 vol, stream=0, 6 cand, pinD=2112) ex us/vol pf0=114.3 pfw=112.0 ppw=113.4 l1w=109.7

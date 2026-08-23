@@ -1,0 +1,2 @@
+   L6_unrolled                    0.213 us 66120.551 us    39.37      13.9%    0.342s  ok 2.4e-16       1.00x
+   L6_unrolled              L=6: unrolled PFA 2x3 codelet (48 flop/36 instr, no twiddles), zmm-x/ymm-yz zxf incumbent, chain-replace; variant=zxf kclk=2.90GHz ab1=y189.1,z176.4ns zwd=-2.9% xod=+3.5%

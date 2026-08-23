@@ -1,0 +1,2 @@
+   L36_pencilfused              109.619 us 56124.891 us    33.01       1.0%    0.752s  ok 3.6e-16       1.00x
+   L36_pencilfused          L=36 plane-fused y+z then strided x, PFA4x9 interleaved lanes, rev order; chain-shaped tuner picked pw=4 mode=bcst+vr (B=8); chain probe us ip4=121.4 cs4=121.2 is04=126.7 bc4=112.1 xv4=124.1 xr4=122.2 vr4=110.3 nt4=120.7 nv4=118.6

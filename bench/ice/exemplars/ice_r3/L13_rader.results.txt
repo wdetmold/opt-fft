@@ -1,0 +1,2 @@
+   L13_rader                      4.619 us 188884.124 us    26.40       0.8%    0.153s  ok 3.0e-16       1.00x
+   L13_rader                Rader-13 CRT (93 FP/chunk) in L13_direct's lanes=lines pipeline +ov cross-volume X overlap, 512-bit, zsolidY+xmm-tail X-first; pick=ov chain-ab[B32]=ov:3657,zs:3748,y2:3750,t1:4109
