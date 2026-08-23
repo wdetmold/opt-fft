@@ -111,3 +111,16 @@ hardcoded constants here may differ from the exact shipped bytes. The generator
 is identical and the kernel structure/approach is faithful; this is the same
 provenance caveat the problem statement and project notes flag for
 generator-emitted C.
+
+## AUDIT ADDENDUM (2026-08-23, post-collection)
+
+The recorded 0.99 is an over-grade caused by a baseline-subtraction artifact, not by
+this solution. Opt walls were [3.895, 4.088, **2.019**]; the 2.019 s best-of-shots
+winner is below the binary's physical floor (bare-metal rebuild: 0.857 s/1× ⇒ ≥2.57 s
+for the 3× graded workload; the VM's honest shots imply ~1.3 s/1×). A CPU-steal burst
+in shot 3's zero-work baseline (~1.9 s, within the observed per-process ~1 s overhead
+budget and the ref-wall spread 53.2–56.7 s in the same window) explains the number
+exactly. Honest score from the 3.895 s shot: **≈ 0.851** (r = 0.280, ≈3.6× MKL).
+Integrity audit: clean — no FFT library or thread references in any shipped engine
+(self-audited by the attempt and re-verified), prebuilt .so shipped (no grade-time
+compile), no output memoization, no writes outside /workdir and /tmp/dev.
