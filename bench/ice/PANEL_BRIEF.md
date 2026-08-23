@@ -221,3 +221,29 @@ Speed picture unchanged: mine fft_warm_solutions/ and fft_v5v6_solutions/ struct
 Round 7 flipped L=8/13/17 by doing exactly that. Remaining targets: L=6 (validate the
 0.074-class entry under the one-step gate, then push), and every cell vs the warm
 cohort numbers which we are measuring on our node now.
+
+## URGENT ADDENDUM (Aug 23, 14:55 — read even if you already read the brief)
+
+The warm cohort has now been measured on OUR node (pinned, best of 6), and the two-step
+precision gate has been run against every r7 entry. Three consequences change your round:
+
+1. **L=64 IS THE ROUND.** Both L64 entries FAIL the new two-step precision gate
+   (1.38e-13 vs 3e-14 allowed; the contract is ~1.5e-14 per step). Single-call FFT is
+   exact (4.5e-16) — the drift is in the FUSED CHAIN path (the r6 "custody chain" map,
+   ckind=2; L64_blocked has carried it since r5). Under matched gates our L=64 falls
+   back to r5 L64_radix8's clean-but-slow 0.271 s. Fix the custody-chain map to
+   two-step-exact while keeping ~0.163 s and you recover 0.11 s — more than the entire
+   composite gap to the best rival. Same disease in L17_winograd's r7 mrotc8 chain
+   (1.16e-13) — matrixsimd is clean, but fix winograd too if cheap.
+2. **The scored target.** warm_d43251c2 (the "0.99") measures 0.851 s total on our
+   node and is chain-interior exact everywhere — its grader shots were [3.9, 4.1, 2.0]
+   and the 2.0 was a lucky VM window; its true pace is dead even with us. Matched-gate
+   composite today: warm 0.851 vs our clean 0.900. Per-size warm times to beat:
+   6: 0.0651 | 8: 0.0940 | 13: 0.1552 | 17: 0.0305 | 23: 0.0919 | 36: 0.0530 |
+   45: 0.1866 | 64: 0.1748. We already beat 6 of 8; we lose L=6 (our clean 0.0740 vs
+   their 0.0651 — read warm_d43251c2's L=6/8 engine, impl_3907.c AoSoA lanes) and L=64
+   (see point 1).
+3. **Scoring gates for THIS round** (sweep + leaderboard already enforce them):
+   single-call 1e-12 vs numpy; two-step chain (m=2) 3e-14; chain-end within 300x the
+   worst library drift on the same chain (floor 1e-10). Exact per-step arithmetic,
+   honest chain drift forgiven.
