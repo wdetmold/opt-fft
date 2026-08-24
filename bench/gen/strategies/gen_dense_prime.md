@@ -189,3 +189,148 @@ dense entries spent rounds 2-8 closing; their levers are the menu).
    adopt: the race for the map variant + BC/tile knobs, the twiddle layer
    for tables (mine are long-double sinl/cosl — adequate but theirs is
    the campaign standard), layout for the padded-arena allocation.
+
+## Round gen_r2
+
+### Where this round started
+
+Shipped r1: 175.6 us/step at the graded cell (L=31 B=16 m=140) on the r1
+leaderboard; gen_rader at 94.2 owns the crossover.  Their gen_r1 record
+diagnosed my gap precisely and generously: ~25-30 us of it was their fully
+in-place L2-resident chain, the rest their arithmetic edge (~430 vs ~555 zmm
+ops per 4 pencils, durable ~20%).  This round is engine engineering: same
+folded-dense arithmetic, much better issue/feed/locality.
+
+**Result: 176.5 -> 124.6 us/step (-29%), typical windows 124.2-125.9, best
+123.7; B=1 131.2.  MKL same cell 849.7 => 6.8x.  vs gen_rader's r1 94.2:
+gap now 1.32x, almost exactly their predicted durable arithmetic ratio.**
+
+### The ladder, all same-core node measurements (min us/step, L=31 B=16 m=140)
+
+| change | us/step |
+|---|---|
+| r1 shipped, re-measured this round | 176.5 |
+| 1. fully in-place chain (t1 deleted, state+c = 953 KB, L2-resident) | 170.5 |
+| 2. fold31: L=31-specialized x/y GEMM, U/V/Cblk rows padded to 64 doubles, all hot loads aligned full vectors, masks compile-time | 145.7 |
+| 3. V stored PRE-SWAPPED at fold time (combine's 120 vpermilpd/block leave the drain path for the port-5-idle fold) | 142.5 |
+| 4. fold31zx: z-pass FUSED into the x-pass (see below), first try with masked tail stores | 145.7 (regression!) |
+| 5. + full-tail z stores to the padded stack rows + always_inline z kernels | 136.9 |
+| 6. padded chain state: state/c in 31x31x32 volumes, row stride 32 complex, everything 64B-aligned and mask-free, strided copies at volume boundaries | 125.1 |
+| 7. S-GEMM tail quad (13,14,15,15-clamp) replaced by a lean 12-acc triple | 124.6 |
+
+### The two structural ideas of the round
+
+**z-into-x fusion (fold31zx).**  The x-pass's column block y0 spans exactly
+the 31 z-pencils (j, y0, 0..30) -- block width = one whole z-row.  So each
+block z-transforms its rows PAIRWISE (the r1 pair kernel, now pointer-form
+and always_inline) into two aligned padded stack rows and folds U/V straight
+from there.  The separate z volume sweep -- 952 KB of L2 write+read per
+step, every row store a misaligned line-split -- disappears; z outputs only
+ever feed x0buf/U/V, never the volume.  CAUTION that cost me 9 us before I
+found it: the z kernel's masked tail store (6 of 8 doubles) immediately
+followed by a full 64B load of the same stack row defeats store-to-load
+forwarding (~15 cyc stall per row).  Full-tail stores into the padded stack
+rows (junk pad lanes, masked away downstream) fixed it: 145.7 -> 136.9.
+
+**Padded chain state (31x31x32).**  The r1 plan's "za-padding" done
+properly: state and c live in padded volumes owned by the plan, row stride
+32 complex, so EVERY volume access in the chain is 64B-aligned and every
+masked store becomes a full store.  Pad lanes carry finite junk; the map is
+a contraction (|out| < 1), so pads stay bounded forever -- no Inf/NaN/denormal
+risk, verified over m=140.  Strided memcpy in/out per volume per chain call
+amortizes to ~7 KB/step.  Working set sp+cp = 984 KB, still L2-resident.
+-11.8 us, the round's biggest single step after the fusion.
+
+### Measured on the node (a80n0 leased cores via tryout.sh)
+
+- Graded cell: **124.6 us/step** (windows 124.2 / 124.6 / 125.5 / 125.9,
+  sd 0.04-4%; best 123.7).  MKL same window 849.7 (sd 0.00%) => **6.8x**.
+- B=1: **131.2** (volume-major chain; the residual elevation over B=16 is
+  the documented schedutil ramp on short units -- one mid-round window read
+  156 pre-padding, do not be alarmed by B=1 wobble).
+- Correctness: single rel_l2 3.914e-16 (B=16) / 3.898e-16 (B=1);
+  **two-step gate 1.710e-15** (tol 3e-14, 17x margin); map-chain m=140
+  rel_l2 2.590e-14 (anchor 2.312e-14, tol 1e-10); bit-identical across
+  processes (manual cmp; tryout's remote map-check still dies on its
+  unexpanded '$W/c.bin' -- run check.py by hand).
+- Small sizes (generic path, now also in-place; PFA owners' floor):
+  L=10 B=64: 8.29; L=12 B=64: 14.30; L=15 B=32: 31.41; L=20 B=32:
+  79.5-83.8 (window noise straddles r1's 80.2).  All PASS.
+- AVX-512 clock sanity (fmabench, 16 independent chains): 2 zmm FMA/cyc at
+  2.88 GHz sustained, no license downclock.  NOTE: a first fmabench with 16
+  IDENTICAL chains got CSE'd to one chain by gcc and read "5.8 GHz" --
+  initialize accumulators distinctly.
+- Per-pass split (private prof.c harness, relative shares): fused z+x ~54%,
+  y ~29%, map ~17%.  FMA port floor for the three passes is ~61 us; the
+  engine now runs ~1.6x that, roughly gen_rader's issue efficiency.
+
+### What did NOT work, with the number that killed it
+
+- **Full unroll of the 15-iteration GEMM j-loops (#pragma GCC unroll 15):
+  181.6 vs 145.7.**  The x2-unrolled loop lives in the uop cache; full
+  unroll spills to MITE.  Kept behind -DGDP_UNROLL15 as the negative.
+- **Map fused per y-plane, unpadded state: 152.1 vs 145.7.**  The map
+  re-reads chunks the fold just stored at different alignments ->
+  store-forward stalls.  **Retried on the padded state (aligned exact-
+  overlap, forwarding fine): still loses, 136.0 vs 125.1** -- injecting the
+  map's divide/ladder between fold31_p instances breaks their OoO overlap,
+  and ~250 in-flight stores exceed the store buffer.  gen_rader's r1 wash
+  on this is now a settled negative for this engine class.  -DGDP_PLANEMAP.
+- **rcp14+2NR divider-free map, re-raced on the fast build: 132.3 vs 125.9**
+  (r1 had it at -1.5%; the faster the FFT gets, the more the ladder's extra
+  uops cost vs the one hidden vdivpd).  -DGDP_MAP_RCP stays a loser.
+- **Software prefetch of the next block's row pair in fold31zx: a wash**
+  (123.9/129.6 on vs 124.2/125.5 off, alternating same-core; MKL wobble
+  849-862 shows ~1.5% window noise).  Kept behind -DGDP_PREFETCH, off.
+- The objdump vmovapd histogram scare (146 vmovapd) was a false alarm:
+  mostly memory-form loads/stores, the unrolled j-body is nearly all clean
+  231-form FMAs.  Check the loop body, not the histogram.
+
+### Borrowed this round, named
+
+- **gen_rader gen_r1**: the fully in-place chain (their item 3, -16 us on
+  their engine; they explicitly predicted my passes were in-place safe --
+  they were, the x-pass GEMM included, since every src read of a column
+  block is buffered before any store).  Also their "do not retry fused map
+  without freeing registers" warning, which steered me to plane-level
+  (still lost) instead of register-level fusion.
+- **gen_rader gen_r1 z-quad idea** (z through the block kernel instead of a
+  separate row sweep) inspired fold31zx, though my realization is dense:
+  z-pairs into stack rows feeding the fold, not a transposed chunk.
+- **ice L23_matrixsimd r5 item 3**: the pin-race-everything discipline
+  (rcp re-race, plane-map re-race on the padded state).
+- **ice L17_matrixsimd r4 / L23 r7**: objdump-histogram check.
+
+### Operation count (shipped state, L=31)
+
+Unchanged arithmetic: 4h^2-FMA folded dense, ~115K zmm FMA z + 119K x +
+118K y (S tail triple shaves 7.4K) ~= 352K zmm FMA/step + map (3724 groups
+x ~21 ops + 1 vdivpd).  Every GEMM load is a full aligned 64B vector from
+padded L1 buffers; every chain volume access is 64B-aligned; the only
+masked stores left are in the flat (execute/out-of-place) instantiations.
+PAD is a compile-time flag on always_inline cores (fold31_core,
+fold31zx_core), so flat execute() and padded chain share one source body.
+
+### Next round
+
+1. **The remaining 1.32x vs gen_rader is arithmetic, not engineering** --
+   dense has ~555 zmm per 4 pencils vs their ~430.  If the crossover cell
+   must be won outright, the dense arm cannot; its round-3 value is (a) the
+   honest crossover data point, (b) generality for any prime p <= 31 with
+   ZERO plan-time table search, (c) the 5/7-point modules.
+2. **Round 3 requires ANY size in class**: generalize fold31/fold31zx's
+   padded-chain machinery to runtime p (the PAD trick works for any p:
+   pad rows to next multiple of 8 complex... for p=29 pad to 32, p=23->24,
+   etc.).  The cores are already parameterized; make BW/inner/quad counts
+   runtime-or-generated.  Budget: the z-pair kernel's k-in-4-zmm layout is
+   p=31-specific (16 outputs); smaller p wastes lanes -- acceptable.
+3. **y-pass residual (~29% of step)**: its fold reads the volume rows the
+   x-pass wrote in a different block order -- a y-block-major x-store order
+   (write x outputs plane-transposed into a scratch the y-pass consumes
+   linearly) might fuse x and y the way z fused into x.  Nontrivial.
+4. If the twiddle/layout layers ship usable pieces (aligned padded arenas
+   are now central here), adopt; my tables remain long-double sinl/cosl.
+5. Harness: tryout's line-38 CH quoting still sends literal '$W/c.bin' to
+   the remote check.py (the r1 W= bug is FIXED, map-check quoting is not)
+   -- run check.py manually.  fmabench + prof.c live in
+   build/tryout/gen_dense_prime/ for reuse.

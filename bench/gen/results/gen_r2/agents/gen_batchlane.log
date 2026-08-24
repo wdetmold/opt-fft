@@ -1,0 +1,3 @@
+Done. Round gen_r2 shipped for gen_batchlane: three changes (divider-free rcp14 map ladder adopted from gen_pfa_small, sched-pressure attribute extended to the 10/12 codelet families after peer evidence overturned my r1 global-flags conclusion, and gen_layout THP arena adopted — an honest wash, kept as free insurance), all precision gates verified by hand on the node, chains bit-repeatable, and the strategy record appended with attributions and the declined-experiment evidence.
+
+Divider-free batch-lane PFA (rcp14+2NR map, sched-pressure codelets): batched 1.162/1.931/4.484 µs at L=10/12/15 (B=64/64/32, ~4.0/4.1/3.7x MKL), B=1 10.50/17.54/40.88 µs; rel L2 2.6–3.1e-16 single-call, chain gates 8.2e-16–1.2e-15 at m=2 (tol 3e-14) and 1.1–1.6x the honest anchor at graded m.

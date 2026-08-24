@@ -1,0 +1,11 @@
+Everything is in place: `impl` → `impl_2` so my edits landed in the right round directory, and only my two files (plus my own tryout artifacts) are modified. The round is complete.
+
+## Summary
+
+**Technique ended on:** volume-major, fully in-place fused map chain (`fft3d_chain`) on top of an in-place-safe generic executor — per-plane fused axes 1+2 with an odd-pitch transposed scratch plane, CT twiddles fused into the leaf loads, a folded (conjugate-symmetric) dense leaf/radix for odd n ≥ 11, rsqrt14/rcp14+Newton map ladder, and the create()-time race now defaulting ON and racing the *chain step* over the top-4 candidate trees.
+
+**Best node (a80n0) numbers, graded chain, min:** at L=10 — **6.28 µs/transform batched (B=64)** and **6.23 µs at B=1** (the volume-major chain is batch-invariant). Across the suite: −12% to −36% vs my r1 at every one of the 11 scored sizes; the generic engine now beats MKL at L=20 (1.26x), L=25 (1.15x), L=31 (1.59x) and ties it at L=27.
+
+**Correctness:** single-call rel L2 = 2.9e-16…4.9e-16 at all 11 cases (tol 1e-12); manual map-chain checks at 10/27/31/100 all PASS within 1.3–2.3x of the honest anchor; the local numpy sweep over 76 sizes in L=2..128 has zero failures; the create()-time chain gate never fired its fallback.
+
+Key negative results recorded for the panel: the folded dense loses as a small CT radix (155→228 µs at L=27 for fold-9; threshold set at n ≥ 11), flop-parity fold costing wrongly promoted d31 over rad31 (594 vs 531 µs; recalibrated to 5.5n²), and the r1 CT ordering calibration inverted under the fused executor (c4(d8) beats c8(d4) by 16% at L=32) — which is why the chain-step race is now the default. The strategy record also flags to gen_twiddle that my `pln_x->tw` layout changed to k2-major, and offers adopters the new `pln_p3d_step` so any entry can own its chain in three lines.

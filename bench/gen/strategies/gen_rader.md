@@ -159,3 +159,142 @@ quoting bug).
    /opt/software/slurm-19.05.8.1/bin on PATH from this dev host; tryout
    regenerates in.bin/c.bin at the batch you pass (keep per-batch copies for
    manual A/Bs — in16/c16, in1/c1 under build/tryout/gen_rader/).
+
+## Round gen_r2
+
+### Where this round started
+
+r1 leaderboard: **94.17 us/step** at the graded cell (L=31 B=16 m=140), leading
+the crossover fight (gen_dense_prime 175.6, MKL 848-860).  This window's
+control re-read of the r1 binary: 95.95 / 96.44 us (slightly warm window; all
+deltas below are same-window A/Bs).  My own r1 next-steps list said the x-pass
+"latency/AGU behavior" was the most likely residue; the cumulative context
+supplied the missing mechanism.
+
+### The diagnosis: the natural 31^3 layout is a 4K-aliasing and line-split trap
+
+Two facts about the in-place chain nobody had put together in r1, both pure
+address arithmetic:
+
+1. **Exact 4K store->load aliasing in the x-pass.**  Row stride = plane =
+   961 complex = 15376 B == 3088 mod 4096, and 4 x 3088 == 64 mod 4096.  So the
+   chunk at column d stores row j+4 at EXACTLY the low-12 address bits of the
+   next chunk's load of row j (at column d+64B).  With ~31 stores in flight at
+   every chunk boundary and ~27 of the next chunk's 61 loads landing on
+   stored-row+4 addresses, that is thousands of memory-disambiguation replays
+   per pass, every step.  This is the L23_rader ice "+27% alias hole" mechanism
+   (gen_pfa_large used the same rule to move L=100 13.4 -> 12.0 ms in r1).
+2. **Line splits everywhere.**  15376 mod 64 = 16 and 496 mod 64 = 48: every
+   x-pass access and 3 of 4 y/z-pass row accesses straddled a cache line.
+
+### What was built: the chain state moved to a fully padded, fully aligned private arena
+
+- z-rows padded 31 -> 32 complex (R31_ZP, 512 B: all y/z row bases 64B-aligned),
+  planes padded to 1148 complex (R31_PP; == 124 mod 256, chosen so the x-pass
+  row stride is 31*64 B mod 4096: with 31 = 31^-1 mod 64, a store and a later
+  load first share low-12 bits at row distance 33 / 2-chunks-retired -- outside
+  the 31-row system).  State + padded c mirror = 2 x 570 KB = 1.14 MB, still
+  L2-resident (the r1 in-place-chain win is kept).
+- Pad slots zeroed once at create() and PROVABLY stay zero (no pass mixes
+  columns; DFT(0)=0; map(0+0)=0) -- no NaN/denormal assists, and the passes
+  become tail-free: z = 8 uniform quads per plane (the 32nd "row" is the zero
+  pad row), y = 8 full chunks (32 cols), x = 248 full chunks (992 cols, no
+  masked tail instantiation in the hot path at all), map = 124 exact vector
+  groups (992 = 124 x 8; the per-plane scalar tail point is gone too).
+- Step 0's z-pass reads the flat x0 directly into the arena (7 flat->padded
+  quads + a strided 3-row tail; the old full-volume memcpy is deleted); the
+  last step's map stays in the arena and 961 rows are memcpy'd out flat
+  (1 of 140 steps, negligible).  c is copied into a padded mirror once per
+  volume (466 KB per 140 steps, negligible).
+- create() self-check EXTENDED: it now also runs one padded chain step against
+  dense-reference + exact scalar map at 1e-13, so a pad/stride bug falls back
+  to the slow correct path instead of shipping a fast wrong answer.
+- Cost of the padding: 31 zero pad columns ride through the x-pass and map
+  (+3.2% lanes), bought back several times over by alignment + no tails.
+
+### Measured on the node (a80n0 leased cores via tryout.sh, graded cell, same-window A/Bs)
+
+| configuration | us/step |
+|---|---|
+| r1 binary, this round's windows (control) | 95.95 / 96.44 |
+| + plane pad only (planes -> 1148, rows still 31): x-pass aliases+splits gone | 91.30-91.64 (**-5.0%**) |
+| + z-row pad -> 32 (full alignment, tail-free passes, shipped) | **86.61 / 87.06 / 87.30, sd 0.14%** |
+| gen_dense_prime (r1 leaderboard, same cell) | 175.6 |
+| MKL 2022 (same window, same core) | 848.6 |
+| **B=1** | **99.7** (sd 0.21%) |
+
+B=1 note: the identical batch-invariant code path read 93.1-93.6 in r1's
+windows; 99.7 here is the documented B=1 short-unit core-ramp signature
+(~12 ms units under schedutil -- gen_dense_prime ice_r8 diagnosis, also seen
+by gen_layout r2 at +20%).  Expect the quiet scoring window to read lower.
+
+Correctness (shipped binary, all checked on the node by hand -- tryout's
+check.py chain leg still dies on the unexpanded `$W`): single rel_l2
+**4.059e-16** (B=16) / 4.073e-16 (B=1); map-chain m=140 **2.559e-14** (B=16,
+anchor 2.312e-14) / 1.923e-14 (B=1, anchor 1.178e-14), tol 1e-10; **two-step
+gate 1.633e-15** (tol 3e-14, 18x margin); chain outputs bit-identical across
+independent node processes.  objdump audit of the shipped x-pass chunk: 410
+arith (220 FMA-class), 41 broadcasts, 15 vpermil, 17 spill stores -- compiled
+to design, no pathology.
+
+### What did NOT work, with the number that killed it
+
+- **sched-pressure as a function attribute on the pass instantiators
+  (-DR31_SCHEDP): 131.6 vs 91.3 us/step -- +44%, the round's biggest loss.**
+  gen_batchlane r2 / gen_powp r1 measured it paying on THEIR spill-bound
+  codelets; on this monolithic ~500-op chunk the pressure scheduler serializes
+  the four independent C5 block products.  gen_pfa_small r2 saw the same
+  non-transfer on their new engine.  Lesson sharpened: the attribute pays on
+  SMALL pressure-bound codelets, not on large software-pipelined bodies with
+  deliberate parallel accumulator structure.  Knob left in for cross-arch.
+- **Fused map (R31_FUSEMAP) not retried**, on my own r1 numbers (121.9/127.3
+  vs 111.3): padding does not free the registers that killed it, and the
+  per-plane map is now L1-hot so the prize shrank.  The flat-chain arm
+  (-DR31_FLATCHAIN) keeps both old paths raceable.
+- The old in-place map_volume(state, c, state) call was a latent `restrict`
+  violation (UB that happened to compile right in r1); the r2 map drops
+  restrict on the aliasing pointers.  Recorded so nobody reintroduces it.
+
+### Borrowed this round, named
+
+- **gen_pfa_large gen_r1** (transitively ice L23_rader): the odd-pitch /
+  mod-4096 anti-aliasing rule and their 13.4 -> 12.0 ms confirmation that it
+  is worth real time -- this round's central lever.  The exact-pitch analysis
+  (124 mod 256 so 31^-1 mod 64 pushes the first collision to row 33) is mine;
+  gen_layout r2's gl_pick_pitch4k would have found a pitch by measurement --
+  I solved this one closed-form but their audit API is the right tool the
+  moment the class goes any-prime (r3).
+- **gen_batchlane r2 / gen_powp r1**: the sched-pressure-as-attribute recipe
+  (measured; lost here -- negative result contributed back above).
+- **gen_dense_prime r1**: the "za-style padding 31 -> 32" next-step idea from
+  their record (their item 2), realized here on the Rader engine first.
+- **gen_layout r2 / gen_pfa_small r2**: harness notes (tryout's $W bug now
+  fixed; the remote check.py chain leg still broken -- run map-check by hand).
+
+### Operation count (shipped, per chain step per volume)
+
+z: 248 quads (8/plane) x ~500 zmm ops; x: 248 full chunks x ~475; y: 248 full
+chunks x ~475; map: 3844 groups x (~21 ops + 1 vdivpd).  All accesses
+64B-aligned, zero masked-tail work in steps >= 1, zero scalar map points.
+~240k zmm FMA-class + ~90k adds per volume vs r1's same arithmetic on worse
+addresses.  Port floor still ~65-70 us; shipped 86.6 => ~1.27x above floor
+(was 1.4x).
+
+### What I would do next
+
+1. **The remaining ~17-20 us over floor**: with addresses clean the residue is
+   issue/feed shape inside the chunk -- the two r1 candidates stand: write Y
+   over S in wino15 (cuts the 45-live-value plateau), and software-pipelining
+   the E-fold of chunk n+1 under the O-combine of chunk n.
+2. **Fused map, only after registers are freed** (two half-passes of the
+   combine loop); the padded layout makes the c operand aligned now, which
+   removes one of the r1 objections.
+3. **Any-prime generalization (round 3)**: p-1 = 2h; h odd -> cyclic-h +-
+   twist; the pitch rule generalizes (pick plane pitch with (h+1)^-1-style
+   closed form or gl_pick_pitch4k / gl_stream_audit4k at plan time -- adopt
+   gen_layout there).  The index/sign table generator and per-h conv plan are
+   the work items; the extended create() self-check already gates any p.
+4. **For gen_dense_prime**: the diagnosis transfers verbatim -- their x/y
+   fold_pass GEMM streams the same 15376 B rows in place; their planned
+   31->32 row pad should use plane pitch == 124 mod 256 complex (not just
+   row-rounding) or the x-pass store->load aliases survive at row distance 4.

@@ -1,0 +1,9 @@
+Done. The requested one-liner:
+
+**Technique: round-6 trunk composition — gen_planner trees raced by gr_pick on the graded chain step with per-host wisdom (fused chain, cached gate); best node numbers: B=1 11.86 µs/xform (L=12, was 111.8), batched 10.50 µs/xform (L=12 B=64, was 93.2; 6.6–41x faster across all 11 cases, beats MKL at L=31); rel L2 = 2.9–5.2e-16 single-call, all chain gates pass.**
+
+Supporting detail:
+
+- **Demo entry rebuilt**: replaced the deliberately-slow O(L⁴) dense demo with the assembled-library shape — `pln_enumerate` (adopting gen_planner's library, as their record invites) → `gr_pick` races the top 8 candidate trees on the graded chain step, winner persisted per (L, B-bucket, host). It exports the fused `fft3d_chain` via `pln_p3d_step`, gated at create() with the verdict cached through the new string-wisdom API. Warm create at L=100 is 2 ms (vs 726 ms cold, 50 ms budget). The race demonstrably beats the planner's model pick where their own record predicted misses: +15.9% at L=10, +3.7% at L=100.
+- **Library (the adoption score)**: added `gr_wisdom_get_str/put_str` (gen_planner's requested "raced-winner default" hook), and fixed a real latent bug — 64-byte winner-name buffers vs gen_planner's 96-char tree names would have made wisdom silently miss forever for exactly the adopters I'm courting. API is otherwise unchanged and `-Wall -Wextra` clean under `GEN_RACE_LIB_ONLY`.
+- **Verification**: all 11 acceptance cases pass single-call (≤5.2e-16), hand-run map-chain checks at 12/31/100 pass (3.5–5.5e-14 vs 1e-10 tol), two-step m=2 gate 2.2–2.9e-15 vs 3e-14 tol, two-process repeatability identical (wisdom pins the tree), plus an unlisted-size spot check at L=17. Strategy record updated with the full r2 section, borrowings named plainly.

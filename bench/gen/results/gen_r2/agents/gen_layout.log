@@ -1,0 +1,3 @@
+Both files are final and everything was re-verified on the node with the shipped source. 
+
+**Round summary:** conjugate-pair folded dense engine (borrowed from gen_dense_prime, ~4× FMA cut) + transpose-staged axis-2 + owned volume-resident `fft3d_chain` with the campaign-standard rsqrt14 map; library gained `gl_stream_audit4k` / `gl_pick_pitch4k`. All 11 graded cases pass every gate, bit-repeatable, 1.7–2.3× faster than gen_r1 — the dense floor now beats MKL at L=20/25/27/31 (3.3× at 31). At L=12: chain 8.61 µs/xform batched (B=64), 10.49 µs at B=1, single-call rel L2 2.98e-16 (worst across sizes 5.6e-16 at L=100).

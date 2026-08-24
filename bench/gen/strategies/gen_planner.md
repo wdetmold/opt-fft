@@ -151,3 +151,142 @@ run-to-run spread. That is what the default deterministic pick ships on.
    process; once gen_race lands results/wisdom_<host>.json, read it keyed by
    my candidate names and the default pick becomes the raced winner without
    losing determinism.
+
+## Round gen_r2 -- own the chain, run everything in place, race what is graded
+
+### What changed (all in impl/gen_planner.c; library API unchanged)
+
+1. **The executor is now unconditionally in-place safe at any root** (every
+   node kind reads all of src before writing dst): dense leaves stage their
+   rows through the arena (which also replaces p strided sweeps over a
+   far-strided source with one), Rader stashes x0 before writing X[0], and
+   CT/PFA/Bluestein already consumed src into the arena first. This is the
+   enabling property for everything below.
+2. **Per-plane fused axes 1+2, tmp volume deleted.** pln_p3d_exec is now:
+   axis 0 streams in -> out once; then each x-plane gets axis 1 in place, a
+   transpose into ONE scratch plane with an odd-cache-line row pitch (the
+   gen_pfa_large / L23_rader anti-4K-alias pitch, applied to my axis-2 row
+   stride), axis 2 in place there, transpose back. The plane stays
+   cache-resident across both passes; the gen_r1 structure paid a full extra
+   volume write+read (axis1 -> tmp) plus a second scratch plane.
+3. **CT twiddles fused into the leaf loads.** Twiddle tables moved to k2-major
+   consumption order and each hard leaf (2/3/4/5/8) gained a _tw variant that
+   multiplies row j1 by w^(j1*k2) while loading. Kills the separate rowscale
+   read+modify+write pass over the CT buffer per node. (Dense radixes keep the
+   two-phase path.) NOTE for gen_twiddle: pln_x->tw layout changed from
+   j1-major [(j1-1)*m + k2] to k2-major [(k2-1)*(r-1) + (j1-1)], k2 >= 1 only.
+4. **fft3d_chain exported -- the round's biggest win.** The graded m-step map
+   chain now runs VOLUME-MAJOR (volumes are independent, the map is pointwise):
+   each volume is copied once into final_out and its whole m-step chain runs
+   fully IN PLACE there -- state and c are the only volume-sized streams, and
+   at L<=27 both stay L2-resident across all m steps. The map
+   z/(1+|z|) is fused per x-plane right after that plane's axis-2 pass while
+   the plane is hot, computed with rsqrt14/rcp14 + 2 Newton steps each
+   (~1e-16 rel; the campaign-standard ladder -- plain vsqrtpd/vdivpd measured
+   ~4x slower at this op mix, worth ~40 us of the old 137 at L=25). The
+   driver fallback previously charged me execute (with the tmp round trip) +
+   a full-volume sqrt/div map + ping-pong traffic every step. A create()-time
+   gate (ice L17_rader r5 discipline) checks the owned step against execute +
+   the driver's exact scalar map over two steps on a random volume (tol 1e-12)
+   and falls back to execute + scalar map per step if it ever disagrees.
+5. **Folded odd dense leaf/radix (n >= 11)**: conjugate fold s_j = x_j+x_{n-j},
+   d_j = x_j-x_{n-j}; X_k = E_k -+ iO_k with E/O from REAL (h x h) cos/sin
+   matrices, 2n^2 flops instead of 8n^2 -- the gen_rader / gen_dense_prime
+   half-system, generalized to any odd length and usable as a CT radix.
+   d31 went 1376 -> 594 us (2.3x) -- still loses to rad31 (below), but every
+   odd prime 11..63 leaf and Rader/Bluestein dense sub-block gets it free.
+6. **The create()-time race is ON by default and races the CHAIN STEP**
+   (gen_pfa_large's "race what is graded" lesson), top 4 candidates, min of 3,
+   2% simplest-first hysteresis. GEN_PLANNER_RACE=0 restores the deterministic
+   model pick; GEN_PLANNER_VERBOSE=1 prints the pick; GEN_PLANNER_TILE
+   overrides the row width. Setup stays trivial: worst 0.29 s at L=100
+   (cold budget 60 s; the 50 ms warm target still wants gen_race's wisdom).
+
+### Measured on the node (a80n0, graded chain, min over samples; final binary)
+
+| case | gen_r1 | gen_r2 | delta | MKL 2022 | vs MKL | picked (node race) |
+|---|---|---|---|---|---|---|
+| L=10  B=64 m=1000 | 8.59  | **6.28**  | -27% | 4.55  | 0.72x | c2(d5) |
+| L=12  B=64 m=600  | 14.15 | **10.72** | -24% | 7.74  | 0.72x | c4(d3) |
+| L=15  B=32 m=600  | 29.26 | **21.70** | -26% | 16.49 | 0.76x | c5(d3) |
+| L=20  B=32 m=256  | 62.12 | **46.58** | -25% | 58.83 | **1.26x** | c5(d4) |
+| L=25  B=16 m=256  | 137.5 | **105.6** | -23% | 121.1 | **1.15x** | c5(d5) |
+| L=27  B=16 m=200  | 216.9 | **155.0** | -29% | 149.7 | 0.97x | c3(c3(d3)) |
+| L=31  B=16 m=140  | 606.8 | **533.6** | -12% | 850.7 | **1.59x** | rad31(c3(c5(d2))) |
+| L=32  B=8  m=250  | 306.0 | **236.9** | -23% | 176.2 | 0.74x | c4(d8) |
+| L=40  B=8  m=128  | 666.3 | **503.5** | -24% | 412.9 | 0.82x | (race; c8(d5) family) |
+| L=50  B=4  m=128  | 1535.4| **1222.3**| -20% | 954.0 | 0.78x | c5(c5(d2)) |
+| L=100 B=1  m=64   | 15044.6| **9607.6**| -36% | 7901.2| 0.82x | c4(c5(d5)) |
+
+The generic engine now BEATS MKL at 20, 25, 31 and ties it at 27 -- gen_r1
+beat it only at 31-by-default (everything beat MKL at 31). B=1 == batched per
+transform (the volume-major chain never pays a batch remainder): 6.23 (10),
+105.2 (25), 234.6 (32), 1174.9 (50).
+
+Gates, final binary on the node: single-call rel L2 2.9e-16..4.9e-16 at all
+11 cases; map chains 1.4e-13 (10, anchor 1.1e-13), 3.1e-14 (27, anchor
+2.6e-14), 3.5e-14 (31, anchor 2.3e-14), 5.5e-14 (100, anchor 2.4e-14) -- all
+within 1.3-2.3x of the honest anchor, tol 1e-10. Local numpy sweep L=2..128
+(76 sizes incl. every odd prime and odd-radix CT): ALL PASS. The create()
+chain gate passed at every size tried (it has never fired the fallback).
+
+### What did NOT work / went wrong, with the number
+
+- **Folded dense as a small CT radix**: fold-9 inside c9(d3) at L=27 took the
+  chain 155 -> 228 us. At h=4 the stage pass + per-k accumulator setup costs
+  more than the 81 -> ~40 flop saving. Fold now requires n >= 11. Between the
+  same builds d31 folded was 2.3x faster than plain d31 -- the fold is a
+  large-n device.
+- **Fold model cost at flop parity (2n^2) promoted d31 over rad31**: measured
+  d31 594 vs rad31 531/533. Calibrated to 5.5n^2 + 8n, which keeps rad31
+  first at 31 AND keeps the dense->Rader crossover at p=17 (r1's measured
+  boundary). Raw op counts keep failing to order candidates on this machine
+  -- same lesson as gen_r1, now including my own new kernel.
+- **The r1-calibrated CT ordering inverted under the fused executor**: model
+  cand[0] c8(d4) at 32 measured 282 vs raced c4(d8) 236 (-16%); model
+  c5(c5(d4)) at 100 measured 10185 vs raced c4(c5(d5)) 9574 (-6%). I did not
+  re-fit the CT constants; the chain-step race is the fix and is now the
+  default. The model's remaining job is candidate ORDER (the race sees top 4).
+- **ssh sessions land in $HOME** (gen_powp warned; I lost one round trip
+  anyway): cd explicitly in every remote command. The tryout map-check c.bin
+  quoting bug is still there; all map-checks above were run manually on the
+  shared FS.
+
+### Borrowed this round, named
+
+- **gen_pfa_large / gen_rader / gen_powp**: the whole "own the chain" program
+  -- in-place passes, volume-resident chain, map fused where residency allows,
+  race the chain step not execute, create()-time chain gate. My numbers above
+  are substantially their r1 lessons applied to a generic engine.
+- **gen_rader + gen_dense_prime**: the conjugate fold arithmetic (their
+  half-system form), generalized into pln_dense_fold_apply.
+- **gen_pfa_large (via L23_rader)**: odd-cache-line plane pitch for the
+  transposed axis-2 scratch.
+- **The campaign-standard NR map ladder** (everyone's records): rsqrt14/rcp14
+  + 2 Newton each, 1e-300 clamp.
+
+### Notes for adopters
+
+- pln_enumerate / pln_p3d_build / pln_p3d_exec unchanged. NEW:
+  pln_p3d_step(p3, state, cfield) = one full in-place graded chain step
+  (FFT + c + map) on one volume -- adopt it and fft3d_chain is three lines.
+- pln_x->tw is now k2-major (see item 3) -- gen_twiddle's drop-in comment
+  refers to the old layout.
+- The executor is in-place safe at every node; class owners can call it
+  src==dst on any pencil set.
+
+### Next round, in order of expected value
+
+1. **L=100 is still 18% behind MKL and axis 0 + transposes are the residue**:
+   stage far-strided axis-0 pencils through the arena (the dense-leaf staging
+   generalized -- one strided pass + contiguous tree instead of a strided
+   tree), and vectorize the transposes (AVX-512 4x4 complex blocks).
+2. **Small-L batch lanes**: at L=10/12/15 the executor's per-call overhead
+   dominates (batchlane is 5x faster). Composing the candidate trees with an
+   SoA 8-volume engine at B >= 8 is the seam gen_batchlane's record already
+   flags; the volume-major chain makes the pack/unpack once-per-chain.
+3. **Sub-tree diversity in enumeration** (unchanged from r1): race
+   rad31(c2(c3(d5))) vs rad31(gt(d5,c3(d2))) etc.
+4. **Wisdom persistence**: hand the race result to gen_race's per-host cache
+   keyed by cand.name; create() then meets the 50 ms warm budget with the
+   raced pick instead of re-racing.

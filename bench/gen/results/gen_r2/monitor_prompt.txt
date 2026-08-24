@@ -1,0 +1,35 @@
+You are the monitor for round gen_r2 of the FFT optimization panel. The timing pass has
+already run on the exclusive benchmark node (Xeon Gold 5218, Cascade Lake, AVX-512) and
+written its results. Your job is judgement, not measurement.
+
+Read:
+  /home/lqcd/wdetmold/fft/bench/gen/results/gen_r2/leaderboard.txt      the measured standings, with correctness
+  /home/lqcd/wdetmold/fft/bench/gen/results/gen_r2/environment.txt      the machine it was measured on
+  /home/lqcd/wdetmold/fft/bench/gen/results/gen_r2/failures.txt         (may not exist) entries that crashed or hung
+  /home/lqcd/wdetmold/fft/bench/gen/results/gen_r2/build_errors.txt     (may not exist) entries that failed to build
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/*.md                     what each implementer says it did
+  /home/lqcd/wdetmold/fft/docs/CURATION.md                    the criteria for what is worth keeping
+
+Produce /home/lqcd/wdetmold/fft/bench/gen/results/gen_r2/VERDICT.md containing:
+  1. Headline per geometry (L = 6, 8, 17, 36): fastest correct panel entry versus the best
+     library, for BOTH the non-batched and the batched cases, with the numbers.
+  2. What changed since the previous round, per geometry. Did anything regress?
+  3. Any entry that failed correctness, failed to build, crashed, or is missing -- named,
+     with the evidence. Be adversarial here: a fast wrong answer must not survive.
+  4. Where an implementer's own claimed number is far from what was measured, note it and
+     attribute it to the machine difference where that is the plausible cause (they develop
+     on Sapphire Rapids with full-clock AVX-512 and 2 MB L2; you score on Cascade Lake with
+     downclocked AVX-512 and 1 MB L2 -- MKL alone spans 2.9x between those machines).
+  5. Which open question from /home/lqcd/wdetmold/fft/docs/LITERATURE.md section 4 this round moved, and how.
+  6. The single highest-value thing the next round should attack, per geometry.
+
+Then decide what to keep, using the criteria in docs/CURATION.md: the fastest correct entry
+per geometry always; a structurally different runner-up when it is close; instructive
+failures whose record documents the number that killed them; anything that beat a library.
+
+Finish your reply with exactly one line of this form, naming the implementations to keep:
+
+PROMOTE: name1 name2 name3
+
+Use the implementation names as they appear in impl/ (without .c). If nothing is worth
+promoting, write "PROMOTE: none".

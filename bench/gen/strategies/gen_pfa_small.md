@@ -139,3 +139,117 @@ Map: 15 FMA-class ops per 8 points (no divider).
   margin. Take it.
 * Do not put prefetch uops in an issue-bound pass; two campaigns have now measured
   it at +14% and +20%.
+
+## Round gen_r2
+
+### Headline
+Adopted gen_batchlane's engine structure wholesale (they beat me at 10/12/15 in r1
+with the same PFA math), extended it to L=20 (which they do not cover), and added a
+huge-page arena. Best chain numbers on a80n0 (leased core, min over runs):
+
+| case | r1 shipped | gen_r2 now | vs batchlane r1 |
+|---|---|---|---|
+| L=10 B=64 m=1000 | 1.426 | **1.22–1.29** | 1.163 (still 5% ahead of me) |
+| L=12 B=64 m=600  | 2.500 | **1.99**      | 1.995 (tied) |
+| L=15 B=32 m=600  | 6.178 | **4.47–4.49** | 4.643 (now behind me) |
+| L=20 B=32 m=256  | 16.92 | **13.39**     | (not covered by them) |
+
+Gates: single call 2.6–3.2e-16; two-step m=2 gate 0.8–1.2e-15 (tol 3e-14); full
+graded chains 1.2–1.8x the honest anchor (tol 300x/1e-10); B=1, B=9, B=12 mixed
+group+remainder chains verified; bit-repeatable across processes. All measured by
+hand-run check.py on the node (see harness notes).
+
+### What changed (and what each piece was worth)
+I A/B-ed my way to the rival design rather than transplanting blind; the deltas:
+
+1. **Two-sweep step alone** (zy plane sweep + x pass instead of my three
+   full-volume passes), on my old split-array engine: L=15 6.34 -> 6.15 (-3%),
+   L=20 ~nil. NOT the main lever on its own.
+2. **Map ladder swap** (my rcp14+2NR reciprocal -> batchlane's single vdivpd on
+   the idle divider): L=15 6.15 -> 6.04, L=20 16.9 -> 16.6. Small alone.
+   Diagnostic that mattered: **disabling the map entirely** measured the r1
+   map-as-a-separate-reload-loop at 1.2 us/vol (L=15) and 5.4 us/vol (L=20) —
+   20–32% of the whole step. The map's cost is placement, not arithmetic.
+3. **In-register map fusion into x-pencil stores on the OLD split-array layout**:
+   L=15 nil, L=20 +4% (c stream scattered into 20 extra L3 streams). The fusion
+   only pays combined with the interleaved site layout below.
+4. **The full engine rewrite** (all of: one interleaved site arena re[8]|im[8],
+   128 B/site; padded plane stride PL=130/162/226/418 so plane bytes == 256 mod
+   4096; in-place slot modules instead of tr[]/ti[] whole-pencil buffers;
+   (C-S) == 2048 mod 4096; 34-instr Winograd DFT5 f +- (sqrt5/4)q; map8 fused
+   in-register into the x-pass stage-2 stores): 1.22 / 2.25 / 4.61 / 14.06.
+   This is where the round's gain lives. Note my r1 plane strides at L=12 and
+   L=20 were == 2048 mod 4096 — the x-pass column loads stacked into TWO L1
+   sets (L=20: 10+ lines vs 12 ways); the pad alone plausibly explains why
+   L=20 improved 17% when 15 only matched batchlane.
+5. **Huge-page arena** (2 MiB-aligned anon mmap + MADV_HUGEPAGE, node THP is
+   madvise mode; faulted in by the create-time memset): L=12 2.25 -> 1.99,
+   L=20 14.06 -> 13.39, and it removes physical page-coloring luck (see noise
+   note). Plan-time cost ~zero; freed with munmap.
+
+### The L=20 extension: in-place safety rule, written down
+Stage-2 group c of a P-then-Q PFA reads slots {(Qc+Pb) mod L} and writes the CRT
+slots; both sets are the full residue class {m == c mod P} iff **Q == 1 mod P**.
+Then groups are mutually disjoint and every module is load-all-then-store-all:
+fully in-place safe with no fusion. Holds for 10=2x5, 12 as 3-then-4, 20=4x5.
+Fails for 15 (5 == 2 mod 3): groups c=1,2 read/write EQUAL slot sets and must be
+one fused load-both-store-both codelet (batchlane's DFT5X2, taken verbatim, same
+hazard). L=20 slot lists: stage 1 DFT4 on (0,5,10,15)+4b in place; stage 2 DFT5
+reads (5c+4b), writes (5c+16d) — my r1 IN20/OUT20 tables, reused. This rule makes
+round-3 generalization mechanical for any coprime P*Q.
+
+### What did NOT work, with the number that killed it
+* `optimize("schedule-insns","sched-pressure")` — batchlane's -13% at L=15 does
+  NOT transfer to this engine: on my r1 engine L=15 +5.5%; on the new engine
+  L=15 4.61 with vs 4.47–4.50 without, L=20 14.77–14.83 with vs 13.4–14.1
+  without. Their gain is specific to their codelet's register structure.
+  Default scheduler everywhere here. Do not re-litigate without a structural
+  change to the codelets.
+* In-register map fusion on a SPLIT-ARRAY (qr/qi) layout at L=20: +4% (above).
+  Fusion requires the interleaved site layout to pay.
+* Software prefetch: not re-tested (r1: +14%; ice: +20%). Standing rule.
+
+### Borrowed, plainly
+Nearly the whole SoA engine is **gen_batchlane gen_r1's** (transitively ice bl8,
+rivals v5_cb7847fb / 8dc1a96d): interleaved site layout, plane-stride pad rule,
+in-place slot algebra and the 10/12/15 slot lists verbatim, the DFT5X2 fusion and
+its hazard analysis, the 34-instr Winograd DFT5, the map8 ladder and its in-x-pass
+in-register placement, the (C-S) == 2048 mod 4096 offset. New and mine: the L=20
+extension + the Q == 1 mod P safety rule, the huge-page arena (gen_layout's
+territory — take it, it is 10 lines), the A/B numbers above showing which pieces
+carry the win, and keeping the r1 split path for B%8/B=1.
+
+### Operation count (per pencil per 8 volumes, FMA-contracted vector FP)
+L=10: 5xDFT2(4) + 2xDFT5(34) = 88; L=12: 4xDFT3(12) + 3xDFT4(16) = 96;
+L=15: 5xDFT3 + 3xDFT5 = 162; L=20: 5xDFT4 + 4xDFT5 = 216. Plus 4L ld + 4L st
+per pencil (2 stages x L sites in-place). Map: 13 FMA-class + 1 vdivpd per site,
+in-register at the x-pass stores. Two volume sweeps per step.
+
+### Harness / measurement notes
+* tryout.sh's $W bug is fixed, but its check.py chain leg still passes a
+  LITERALLY-quoted `'$W/c.bin'` to the remote shell -> `--cin /c.bin` ->
+  FileNotFoundError, and the `&&` chain then skips the repeatability check.
+  The single-call gate and the timing are fine. I ran map-check and
+  repeatability by hand over ssh with a slot lease (slot_lease.sh directly).
+* wallaby still has no squeue; same PATH-shim workaround as r1 for
+  reserve.sh --status.
+* Run-to-run bimodality on the leased core (L=15: 4.47 vs 5.1–5.9, in-run sd
+  0.05%): partially physical page coloring (huge pages fixed L=12/20),
+  partially neighbor implementers' LLC/mesh traffic — other tryouts run
+  concurrently. Trust the min; the scoring window is quiet.
+
+### What I would do next (ranked)
+1. **L=10 residual 5%** vs batchlane (1.22–1.29 vs 1.163): their remaining edge
+   at the smallest size is likely loop/call overhead per tiny pencil; try
+   unrolling two x-pass columns per iteration (their own "column pairing" idea)
+   and a fully unrolled zy sweep at L=10.
+2. **B=1 / B%8 split path**: untouched this round, still loses 2.5x to MKL at
+   10/12/15 B=1. Unscored in cases.txt but round 6 may draw any batch. The
+   lane-spatial plan from r1 stands.
+3. **L=20 c-stream**: S+C = 2.3 MB > L2; c streams from L3 every step. Try
+   interleaving c INTO the site (site = re|im|cre|cim, 256 B) so the x pass has
+   one stream instead of two — measure, do not assume.
+4. **Round-3 any-L**: the Q == 1 mod P rule + module set {2,3,4,5} covers
+   any coprime pair with factors in {2,3,4,5} (14,21,30,33,35... need DFT7/11);
+   coordinate with gen_planner on who serves what, and hand gen_layout the
+   huge-page allocator.

@@ -172,3 +172,121 @@ Correctness, final shipped build, all on the node:
 5. Cross-arch guard rounds: the custody scheme has no NT stores and no
    Ice-Lake-specific constants; expect it to transfer, but re-race
    GP2_PREMAP on SPR (the wash may break either way).
+
+## Round gen_r2 — two combination wins the single-knob races missed
+
+Standings into the round: led L=32 at 63.68 us (2.69x MKL 2022, r1
+leaderboard).  Same architecture as r1; this round changed the map's FORM +
+PLACEMENT as one move, and the z/y phase SCHEDULING.  Everything below was
+raced on a80n0 via tryout.sh (leased core; the `$W` bug is FIXED this round,
+tryout runs chains unaided — but its remote check.py leg still gets a
+literal `'$W/c.bin'`, so all map-gates below were run by hand with check.py
+on wallaby over the shared FS, exactly as gen_layout r2 describes).
+
+### What changed (ships as the new defaults)
+
+1. **GP2_MAPDIV=1 + GP2_PREMAP=0 (xmap), adopted as a PAIR.**  The map's
+   1/(1+sqrt) tail is now ONE vdivpd (rsqrt14 + 2 quadratic Newtons still
+   produce the sqrt; the rcp14 + 2-Newton reciprocal ladder is deleted:
+   16 -> 12 FMA-port ops + 1 divider op per 8 points), and the map is fused
+   into each step's x-pass stores (vfft32m), deleting the r1 map prepass's
+   1.16 MB/step L2 round trip.  The reasoning that found it: my r1 profile
+   plus this round's div-vs-ladder wash showed the prepass is
+   L2-TRAFFIC-bound, not port-bound — so the div map alone did nothing
+   (60419 vs 65143 map cyc across two windows whose OTHER phases moved by
+   the same 7%: a pure window artifact, map/z ratio identical at 1.20), and
+   r1's xmap-with-ladder was a wash because the ladder's 20 ops clogged the
+   FMA-saturated x-pass.  Combined, the traffic saving survives and the
+   1/den rides the otherwise-idle Ice Lake divider (~8 cyc/zmm, 2x faster
+   than SKX): **63.9/64.3/65.4 -> 60.5/62.1/62.5 us** interleaved
+   same-day pairs, ~-4%.
+2. **GP2_ZYIL=1: skewed z/y plane pipeline.**  z-pairs are port-5-bound
+   (1 shuffle/point: TR8 + slot re-form; port floor ~86 cyc/pair with FMA
+   rebalanced), y-lines are pure-FMA; running them as separate per-plane
+   phases leaves each phase's idle port dark.  The step now interleaves at
+   CODELET granularity — 4 z-pairs of plane x, then one y-slot vfft32 of
+   plane x-1 — so every ~350-uop OOO window spans a shuffle-heavy/FMA-heavy
+   boundary.  Bit-identical output (same per-line arithmetic and order).
+   Raced: **59.4/59.4/59.8 vs 60.3/61.1 us**, ~-2%.  Profile: fused z+y
+   82.6K cyc/step vs 52.0K + 37.5K = 89.5K split.
+3. Comment/knob hygiene: all r1 knobs kept compilable (GP2_PREMAP=1 is the
+   raced control, MAPDIV=0 the all-FMA fallback for a divider-poor host —
+   the cross-arch race can flip them per host).
+
+### Shipped numbers (a80n0, leased core, graded case L=32 B=8 m=250)
+
+| config | us/step-vol (min, quiet windows) | same-window MKL 2022 | ratio |
+|---|---|---|---|
+| r1 ship (prepass + ladder) | 63.6-65.4 this round | 171-187 | 0.372 (r1) |
+| + xmap + div map | 60.5-62.5 | 176-187 | ~0.34 |
+| + z/y skew (SHIPS) | **58.4-59.8** (best 58.39, B=1 58.84 sd 0.3%) | 171-187 | **~0.33** |
+
+Phase profile (rdtsc, shipped build): z+y fused 82.6K cyc/step, x-pass (now
+carries the map) 97.9K, total ~180K cyc/step-vol.  Op count per step-volume:
+z 55.3K FMA + 32.8K shuffles; y 53.8K FMA; x 128 cols x (420 + 32x14) =
+111.1K FMA-port + 4096 vdivpd + 4096 rsqrt14 seeds.  Port floor
+(220K+33K)/2 = 126.5K cyc = ~44 us — shipped is ~75% port efficiency, and
+the x-pass (97.9K vs ~58K floor) is now the single dominant phase.
+
+Gates (final build, node, all by-hand check.py): single call 2.876e-16
+(B=8) / 2.863e-16 (B=1) vs numpy, tol 1e-12; two-step fused m=2 gate
+**1.334e-15 / 1.284e-15** (tol 3e-14, 22x margin — the vdivpd tail is
+exactly rounded, strictly more accurate than the rcp ladder it replaced);
+chain end m=250 2.914e-14 / 2.330e-14 (tol 1e-10); chain output
+bit-identical across independent runs AND bit-identical to the r1-arithmetic
+xmap build (the skew is pure reordering).  16/64/128 generic path untouched,
+re-verified PASS (2.5e-16 / 3.5e-16).
+
+### What did NOT work, with the number that killed it
+
+* **Div map ALONE (in the r1 prepass)**: a wash — see the window-artifact
+  analysis above.  Placement had to move with it; neither knob wins alone.
+* **GP2_SCHED=1** (`optimize("schedule-insns","sched-pressure")` on the step
+  bodies, gen_batchlane's SCHED15 / gen_powp's 25-family trick): **84.4 vs
+  64.2 us, +31%** — y-pass 35.9K -> 65.8K cyc, x-pass 38.5K -> 64.3K.  The
+  vfft32 line buffer is a deliberate 4-KB stack round trip, and pre-RA
+  scheduling across it explodes live ranges into spills.  Their rule
+  ("pays only on spill-bound bodies") holds; my bodies are
+  spill-STRUCTURED, not spill-bound.  Knob kept for cross-arch evidence.
+* **GP2_PF=1 re-race under xmap** (z-rows now L2-cold since the prepass is
+  gone — the one scenario where r1's prefetch verdict might flip): 61.7/62.5
+  vs 61.4 — still a wash-to-loss.
+* **GP2_PFXC=1** (NEW: T0-prefetch the x-pass's own-column c rows in pass 1,
+  motivated by c's XS = 18.5 KB stride defeating the L2 streamer and S+C
+  riding the 1.25 MB L2 edge): **64.0 vs 61.5 us, +4%** in adjacent quiet
+  windows.  That is FIVE independent software-prefetch losses across this
+  campaign's records (bl8, gen_pfa_small, gen_pow2 r1 x2, this) — issue
+  slots are always worth more than the latency hidden.  Closed permanently
+  for L2-resident working sets.
+
+### Borrowed / attribution (gen_r2)
+
+* **gen_dense_prime r1**: the div-map shape (their standalone-map-pass
+  measurement was the pointer; the twist here is that it only pays FUSED).
+* **gen_batchlane r2 / gen_powp r1**: the sched-pressure attribute pattern
+  (tested honestly, lost big here — their spill-bound precondition is the
+  operative clause, now with a +31% counterexample from a spill-structured
+  body).
+* **gen_layout r2 harness notes**: the exact by-hand check.py invocation.
+* The z/y codelet-granularity skew: this entry (new; generalizes
+  gen_batchlane's divider-hiding idea from within-column to across-phases).
+
+### What I would do next
+
+1. **The x-pass is now the whole game**: 97.9K cyc vs ~58K floor.  The 64
+   stack-buffer stores + 64 reloads per column and the pass-1/pass-2 join
+   are the slack; a k1-blocked two-column software pipeline died once
+   (vfft32x2, r1) but a 3/4-column STORE-side skew (start column n+1's
+   pass 1 loads between column n's pass-2 store groups) has the same port
+   logic as GP2_ZYIL and none of the register pressure.  Try that first.
+2. **Generalize the custody engine over G = L/8** (round-3 any-2^k rule,
+   round-6 library): unchanged plan from r1 — G=8 is the ice codelet
+   verbatim, G=2 packs 4 rows/TR8, G=16 needs an L2-blocked x-pass.  The
+   z/y skew and the fused div map carry over unchanged.
+3. Adopt gen_planner/gen_race routing when it lands; expose GP2_PREMAP /
+   GP2_MAPDIV / GP2_ZYIL as the race's candidate axes on CLX/SPR (the div
+   map in particular is an Ice-Lake-divider bet — SKX-class hosts should
+   re-race MAPDIV=0).
+4. gen_layout adoption for the custody block stays deferred: 1.16 MB = 145
+   4K pages sits in the STLB, and batchlane's r2 THP A/B on an L2-resident
+   set measured a null; re-evaluate at G=16 (4.6 MB/volume).

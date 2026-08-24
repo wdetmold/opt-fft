@@ -172,3 +172,122 @@ variants exist to give the race genuinely different shapes to choose among.
    60 s budget the expensive part may become candidate GENERATION (planner) —
    coordinate with gen_planner on caching the chosen factorization string in
    the same file (the format has room: it's a JSON object per key).
+
+## Round gen_r2
+
+### What changed
+
+**1. Library (the adoption surface) — additive only, nothing an r1 adopter
+sees breaks:**
+
+* **`GR_NAME_MAX` 64 → 128, fixing a real latent bug**: `gr_pick` and
+  `gr_pick_plan` used 64-byte winner-name buffers, but `gr_wisdom_lookup`
+  REJECTS a stored name that does not fit (returns miss). gen_planner's
+  canonical tree names run to 96 chars, so any adopter keying on them would
+  have re-raced every single create() forever while the wisdom file looked
+  perfectly healthy — a silent, permanent cache miss. Found while wiring the
+  new demo (below); fixed before it ever bit anyone.
+* **String-valued wisdom**: `gr_wisdom_get_str(key, out, cap)` /
+  `gr_wisdom_put_str(key, val)` — cache an arbitrary short string (no
+  quotes/spaces/braces, <= 127 chars) under your own key, same file, same
+  flock+rename atomicity, honors `GEN_RACE_NO_WISDOM` / `GEN_RACE_REFRESH`.
+  This is gen_planner's requested "default pick = last raced winner" hook
+  (their r1 next-list #5) and my r1 next-list #4 (plan-string cache), in two
+  calls. Validated: 91-char value round-trips and survives merges with other
+  keys; `-Wall -Wextra` clean under `GEN_RACE_LIB_ONLY` (gcc 11).
+  Namespace note: gr_pick keys always end in `#<8 hex>`, so raw string keys
+  cannot collide with race keys.
+
+**2. Demo entry — rebuilt as the round-6 trunk in miniature.** The r1 demo
+was a deliberately-slow O(L^4) dense test bench (last on every leaderboard
+row, 30-80x behind winners). It is now the composition the campaign is
+building: **gen_planner's library enumerates candidate trees for L
+(`GEN_PLANNER_LIB` include, exactly as their record invites), and `gr_pick`
+races the top <= 8 trees ON THE GRADED CHAIN STEP** (`pln_p3d_step`, one
+volume in place), persisting the winner per (L, B-bucket, host). Execute and
+the fused `fft3d_chain` run through the winner's `pln_p3d` engine; the
+two-step chain-ownership gate (fused vs execute + exact scalar map, 1e-12) is
+run once cold and its verdict cached through the new string-wisdom API, so
+warm create() never re-runs it. Race buffers and engines are built lazily in
+setup(): a wisdom hit builds NOTHING except the winning engine.
+
+### Measured on the node (a80n0 Ice Lake, leased core via tryout.sh, graded chain, min us/xform)
+
+| case | r1 | r2 | speedup | setup cold -> warm |
+|---|---|---|---|---|
+| L=10  B=64 m=1000 | 48.6 | **6.26** | 7.8x | 0.007 s |
+| L=12  B=64 m=600  | 93.2 | **10.50** | 8.9x | 0.015 s |
+| L=12  B=1  m=600  | 111.8 | **11.86** | 9.4x | 0.010 s |
+| L=15  B=32 m=600  | 223.1 | **21.49** | 10.4x | 0.118 s |
+| L=20  B=32 m=256  | 633.1 | **46.17** | 13.7x | 0.015 s |
+| L=25  B=16 m=256  | 1569.6 | **105.19** | 14.9x | 0.010 s |
+| L=27  B=16 m=200  | 2094.4 | **154.52** | 13.6x | 0.011 s |
+| L=31  B=16 m=140  | 3545.4 | **533.38** | 6.6x | 0.017 s |
+| L=32  B=8  m=250  | 3888.1 | **238.04** | 16.3x | 0.021 s |
+| L=40  B=8  m=128  | 9325.9 | **507.06** | 18.4x | 0.047 s |
+| L=50  B=4  m=128  | 23750.8 | **1187.39** | 20.0x | 0.052 s |
+| L=100 B=1  m=64   | 391379.6 | **9538.88** | 41.0x | 0.726 s -> **0.002 s** |
+
+Beats MKL at L=31 (533 vs 849). Gates: single call rel L2 2.9-5.2e-16
+everywhere; map-chain m=600/140/64 checked by hand (tryout's map-check leg
+still has the `$W` quoting bug): 5.0e-14 / 3.5e-14 / 5.5e-14 vs anchors
+3.9/2.3/2.4e-14, tol 1e-10 — PASS; two-step m=2 gate 2.2-2.9e-15 vs tol
+3e-14 — PASS; repeatability cmp identical across processes (wisdom pins run 2
+to run 1's tree, which matters MORE now: different trees round differently).
+
+**The race earns its keep over the model pick** (wisdom file receipts):
+L=10 picked `c2(d5)` = cand[1], 15.9% over the model-best — exactly the L=10
+model miss gen_planner's r1 record owned up to; L=100 picked `c4(c5(d5))` =
+cand[1], 3.7% (their record predicted this flip too); L=31 model and race
+agree on `rad31(c3(c5(d2)))` with 10.7% margin; L=12 is a genuine tie (0.6%)
+and the tie doctrine keeps the model pick — stability, not noise-encoding.
+
+### Operation count
+
+Library: still zero instructions in any hot path — everything at plan time.
+Demo: whatever the winning planner tree costs (mixed-radix/Rader/PFA class,
+O(L^3 log L)-flavored), not my arithmetic to count — the demo's contribution
+is CHOOSING it per host and pinning it. Warm create() = one wisdom read (ms)
++ one engine build (~ms) + one cached gate read; 2 ms measured at L=100
+against the 50 ms budget (was 726 ms cold, vs the 60 s cold budget).
+
+### What did NOT work (with the number that killed it)
+
+* The r1 wname[64] buffers vs 96-char planner names (above): not a
+  measurement, a discovered landmine — the failure mode is a wisdom file that
+  LOOKS populated while every create() silently re-races (cold-cost forever,
+  and worse, a noise flip between the driver's two processes would show NOT
+  REPEATABLE). If your adopted layer keys on long names, update to r2.
+* tryout.sh's reservation check needs `~/bin_shim/squeue` on PATH (documented
+  by gen_dense_prime in r1, still true) and the remote map-check leg still
+  dies on the unexpanded `'$W/c.bin'` — same manual workaround as r1.
+
+### Borrowed, plainly
+
+* **gen_planner (this round, the big one)**: the entire execution engine —
+  `pln_enumerate` candidate trees + `pln_p3d_build/exec/step` — adopted via
+  their `GEN_PLANNER_LIB` include exactly as their record invites; also their
+  create()-gate shape (fused chain vs execute + exact scalar map) and the
+  volume-major `fft3d_chain` structure, copied from their entry section.
+  Credit where due: most of the raw speedup above is their engine; my layer's
+  contribution is the measured pick (+3.7-15.9% where the model missed), the
+  per-host persistence that makes warm create 2 ms and repeatability
+  structural, and the cached gate.
+* **gen_pfa_large r1**: "race the CHAIN STEP, not raw execute — the two order
+  candidates differently." The demo races `pln_p3d_step`, not `pln_p3d_exec`.
+* **gen_pfa_small/gen_batchlane r1**: harness workarounds reconfirmed.
+
+### What I would do next (gen_r3)
+
+1. **Adoption handshake with gen_pfa_large** (their #1 next item, deferred
+   twice): their pf-id pool + 0.37-6.5 s re-race per process is exactly
+   `gr_pick` + lazy setup(); offer a worked patch in their record's terms.
+2. **gen_planner wisdom hook**: now that string wisdom exists, their
+   standalone entry can persist `picked` under their own key and skip their
+   in-process re-race — coordinate so the two entries' keys stay disjoint.
+3. **Sub-tree diversity racing**: when planner emits top-2 sub-candidates per
+   composite child (their #3), the candidate count grows past 8 — raise
+   NK_MAX and let the budget/deadline logic prune, or race hierarchically.
+4. **Cross-arch wisdom table**: when the monitor's Cascade Lake / Sapphire
+   Rapids reruns land, capture per-host winner divergence here (the layer's
+   whole justification); verify rankings, expect rad31-vs-bs and c2/c5 flips.

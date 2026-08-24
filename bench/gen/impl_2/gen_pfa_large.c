@@ -1,0 +1,1306 @@
+/* gen_pfa_large -- PFA of coprime pairs, large: L = 40, 50, 100.
+ *
+ * ROUND gen_r2 changes (on top of the r1 design described below):
+ *   1. DFT25 stage-B stores fused straight through the PFA wrappers' ST
+ *      (macro DFT25M replaces the dft25v function): deletes the R_[25]
+ *      L1 round-trip per DFT25 call -- 50 vector L1 accesses per line at
+ *      L=50, 200 at L=100 -- and cuts peak live vectors in stage B (the
+ *      old shape kept U[25] + R_[25] in flight; now each stage-B DFT5's
+ *      five outputs go straight to memory).  gen_powp's r1 record queued
+ *      the same item.
+ *   2. NEW chain family ipf* (BORROWED from gen_powp gen_r1, who built it
+ *      on this entry's engine): in place AND the map fused into phase 2's
+ *      stores -- no mid volume, no separate map pass.  Their node race
+ *      picked it at L=50 (473 us vs this entry's 481 with ip*): it
+ *      deletes the map pass's read-state + read-c + write-state traffic
+ *      while keeping stores on the lines phase 2 just read (no fresh RFO
+ *      stream, unlike the out-of-place fused f*).
+ *   3. NEW chain families ipnt and ipfnt (GENL % 4 == 0 sizes only): phase
+ *      1's y-subpass stores through vmovntpd -- at L=40/100 the y-pass
+ *      writes every output line in full at 64B alignment, so NT deletes
+ *      the RFO read of the state volume; one sfence per volume before
+ *      phase 2.  Aimed at L=100, which is DRAM-bound (~112 MB traffic
+ *      per chain step at ~21 GB/s accounts for the whole 5.25 ms; the
+ *      ipfnt accounting is ~64 MB).  64B base alignment is checked at
+ *      runtime, falling back to the ordinary in-place body.
+ *   All candidates remain gated + raced per (size, host) in create();
+ *   every family computes bit-identical results (same op order, same NR
+ *   map ladder), so a per-host pick flip cannot break repeatability.
+ *
+ * ROUND gen_r1 (first real round; the previous file was the dense O(L^4)
+ * validation stub).  Technique, seeded directly from the fixed-size winner
+ * L45_pfa (panel_r11) and generalized to this class's three sizes:
+ *
+ *   Row-column 3D DFT, two sweeps per volume (the structure that won L=36
+ *   and L=45 on the node):
+ *     phase 1, per x-plane:
+ *       z transform: lanes = 4 y-rows, 4x4 complex-granule register
+ *                    transposes on load and store, into plane scratch
+ *                    pl[y][kz] (row pitch an ODD number of cache lines,
+ *                    the L23_rader / corpus anti-aliasing rule);
+ *       y transform: lanes = 4 kz (contiguous in pl), store to out[x][ky][kz].
+ *     phase 2:
+ *       x transform in place in `out`, lanes = 4 kz, tiled over the FLAT
+ *       (y,z) index -- L*L is divisible by 4 for all three sizes, so there
+ *       is NO tail here.  The codelet reads all L inputs before its first
+ *       store, so in-place is safe.
+ *
+ *   Every L-point line is a Good-Thomas prime-factor codelet on interleaved
+ *   complex vectors (lanes = a spectator axis), maps folded at compile time:
+ *     L =  40 = 8 x 5:   n = (5 n1 + 8 n2) % 40,  k = (25 k1 + 16 k2) % 40
+ *                        stage 1: 8 x DFT5 (FFTW n1_5 FMA form, 16 ops),
+ *                        stage 2: 5 x DFT8 (radix-2 DIT, 26 ops + 6 swaps)
+ *                        storing straight through ST (the r11 stage-order
+ *                        lesson: short-live-range module first, long module
+ *                        reads contiguous hot slots and stores directly).
+ *                        278 FMA-port ops / line.
+ *     L =  50 = 25 x 2:  n = (2 n1 + 25 n2) % 50,  k = (26 k1 + 25 k2) % 50
+ *                        stage 1: 25 x DFT2, stage 2: 2 x DFT25.
+ *                        434 FMA-port ops / line.
+ *     L = 100 = 25 x 4:  n = (4 n1 + 25 n2) % 100, k = (76 k1 + 25 k2) % 100
+ *                        stage 1: 25 x DFT4 (8 ops + 1 swap),
+ *                        stage 2: 4 x DFT25.  968 FMA-port ops / line.
+ *
+ *   DFT25 is where this class meets the campaign's twiddle problem: 25 is a
+ *   prime power, so it is a 5x5 Cooley-Tukey INSIDE the PFA --
+ *   X[k1+5k2] = DFT5_{n2}( W25^{n2 k1} * DFT5_m( x[n2+5m] )[k1] ), 16
+ *   nontrivial twiddles per call, each 2 FMA-port ops + 1 swap.  Twiddles
+ *   are compile-time literals computed in long double (cosl/sinl of
+ *   2*pi*j/25, ~19 correct digits, exact-to-0.5ulp doubles), laid out in a
+ *   16-entry-indexed const table the unrolled loops fold.
+ *   192 FMA-port ops + 36 swaps per DFT25.
+ *
+ *   Tails: 40 and 100 are multiples of 4 -- NO tails anywhere.  50 = 12*4+2:
+ *   phase 1's z and y subpasses run 12 full groups plus ONE overlapping
+ *   group at yb/zb = 46 (recomputes 2 lanes; idempotent because every store
+ *   site writes values that do not depend on prior contents of the target).
+ *
+ *   pl row pitches (complex): 44 (40), 52 (50), 108 (100) = 11/13/27 cache
+ *   lines, all odd and 64B-aligned rows.
+ *
+ * ATTRIBUTION (this file is deliberately cumulative):
+ *   - Two-sweep plane-fused structure, spectator lanes, TRNC granule
+ *     transpose, opaque-base asm barrier in the y-subloop, heap (not stack)
+ *     plane scratch, create()-time scalar-reference gate + interleaved
+ *     min-of-rounds race with simplest-first hysteresis: L45_pfa (seed).
+ *   - DFT5 = FFTW n1_5 FMA form, verbatim from L45_pfa's PFA45 stage 1.
+ *   - Store-direct stage order (short module first): L45_pfa r11 /
+ *     L45_mixedradix ST1G/ST2G.
+ *   - Odd-cache-line scratch pitch: L23_rader r6/r7 via L45_pfa.
+ *   - Flat phase-2 tiling: L45_mixedradix r7 via L45_pfa.
+ *
+ * OPERATION COUNT (vector FMA-port ops per volume, lanes of 4):
+ *   L=40:  3 * 400 * 278  =   333,600     (plus 2 granule transposes/elt)
+ *   L=50:  3 * 625 * 434  =   813,750 + overlap recompute ~8%
+ *   L=100: 3 * 2500 * 968 = 7,260,000
+ *
+ * OWNED CHAIN (fft3d_chain, strong symbol): the graded workload is a chain
+ * z = FFT3(x) + c; x <- z/(1+|z|), and the driver's fallback pays a separate
+ * full-volume map pass (read z + read c + write state) plus an initial
+ * memcpy per unit.  This entry owns the chain, and create() RACES two chain
+ * step families (the winner differs by size -- both are kept):
+ *   ip*: everything in place.  p1 is in-place safe per plane (each plane is
+ *        fully consumed into the plane scratch before being rewritten), p2
+ *        is in-place safe per line, then a SEQUENTIAL vectorized map pass
+ *        in place.  The state buffer is the only volume-sized object
+ *        touched besides c, so it stays cache-resident: wins at L=100
+ *        (5.25 ms vs 8.24 unfused vs 12.0 for the fused variant, whose
+ *        map-in-the-x-pass doubles the miss-stream count to 100 reads +
+ *        100 RFO writes with one fresh line each per tile) and at 50 and
+ *        40 too on the node.
+ *   f*:  map fused into phase 2's stores, M (padded planes: MPLND odd in
+ *        cache lines, base 2368 B off the page) -> state out of place.
+ *        Kept in the pool: on cache-resident cases on other hosts the
+ *        deleted map pass can win (it did on wallaby-local small batches
+ *        before the ip variants existed).
+ * |z| and 1/(1+|z|) via rsqrt14/rcp14 + two Newton steps each (~1e-16 rel,
+ * inside the 1.5e-14/step contract) -- zmm vsqrtpd/vdivpd are not pipelined
+ * and would cost ~2x the map's FMA count.  The chain state stays in `out`
+ * the whole time (cur == dst is safe as above): no ping-pong buffer.
+ * Measured on the node (graded chain m, min over samples):
+ *   L=40  B=8: 354 -> 207 us/xform   B=1: 377 -> 236
+ *   L=50  B=4: 798 -> 497            B=1: 757 -> 558
+ *   L=100 B=1: 8244 -> 5248          (raw execute, no chain: 4563)
+ * create() gates the picked chain step against execute + the driver's
+ * scalar map and silently falls back to that exact path if it disagrees.
+ *
+ * ACCURACY: gate at create() vs an independent scalar O(L^2)-per-line
+ * reference at 1e-13 rel L2 (first AND last arena volume).  Measured via
+ * check.py: ~1e-15 rel L2 vs numpy at all three sizes.
+ *
+ * Falls back to the dense O(L^4) matrix path if AVX-512 is unavailable or
+ * (never observed) a candidate fails the gate.
+ */
+#include <complex.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <time.h>
+
+#include "../fft3d_api.h"
+
+#ifndef GEN_PFA_LARGE_ONCE          /* ============ COMMON, first pass ===== */
+#define GEN_PFA_LARGE_ONCE
+
+#ifdef __AVX512F__
+#include <immintrin.h>
+
+/* ---- one vector layer: 4 interleaved complex per zmm ------------------- */
+typedef double    vec  __attribute__((vector_size(64)));
+typedef double    uvec __attribute__((vector_size(64), aligned(8)));
+typedef long long veci __attribute__((vector_size(64)));
+
+#ifdef __clang__
+# define VSH(a,b,...) __builtin_shufflevector(a, b, __VA_ARGS__)
+#else
+# define VSH(a,b,...) __builtin_shuffle(a, b, (veci){__VA_ARGS__})
+#endif
+#define LDU(p)      ((vec)*(const uvec *)(p))
+#define STU(p, v)   (*(uvec *)(p) = (uvec)(v))
+#define STNT(p, v)  _mm512_stream_pd((double *)(p), (__m512d)(v))  /* 64B-aligned */
+#define VSPLAT(a)   ((vec){(a),(a),(a),(a),(a),(a),(a),(a)})
+#define VPAIR(a,b)  ((vec){(a),(b),(a),(b),(a),(b),(a),(b)})
+#define SWAP(v)     VSH((v),(v), 1,0,3,2,5,4,7,6)
+#define VFMA(a,b,c)  ((vec)_mm512_fmadd_pd((__m512d)(a),(__m512d)(b),(__m512d)(c)))
+#define VFNMA(a,b,c) ((vec)_mm512_fnmadd_pd((__m512d)(a),(__m512d)(b),(__m512d)(c)))
+
+/* 4x4 transpose of 128-bit complex granules (involution) -- L45_pfa's TRNC */
+#define TRNC(r, c) do {                                                      \
+    vec u0_ = VSH((r)[0], (r)[1], 0,1,8,9,4,5,12,13);                        \
+    vec u1_ = VSH((r)[0], (r)[1], 2,3,10,11,6,7,14,15);                      \
+    vec u2_ = VSH((r)[2], (r)[3], 0,1,8,9,4,5,12,13);                        \
+    vec u3_ = VSH((r)[2], (r)[3], 2,3,10,11,6,7,14,15);                      \
+    (c)[0] = VSH(u0_, u2_, 0,1,2,3,8,9,10,11);                               \
+    (c)[2] = VSH(u0_, u2_, 4,5,6,7,12,13,14,15);                             \
+    (c)[1] = VSH(u1_, u3_, 0,1,2,3,8,9,10,11);                               \
+    (c)[3] = VSH(u1_, u3_, 4,5,6,7,12,13,14,15);                             \
+} while (0)
+
+/* ---- module constants --------------------------------------------------- */
+/* 5-point (FFTW n1_5 FMA form, from L45_pfa) */
+#define K59  0.55901699437494742410229341718282   /* sqrt(5)/4               */
+#define KIG  0.61803398874989484820458683436564   /* sin(4pi/5)/sin(2pi/5)   */
+#define KS5  0.95105651629515357211665325776975   /* sin(2pi/5)              */
+/* 8-point */
+#define KR2  0.70710678118654752440084436210485   /* sqrt(1/2)               */
+
+/* W25^j = cos(2 pi j / 25) - i sin(2 pi j / 25), j = n2*k1 for n2,k1 in
+ * 1..4 -> j in {1,2,3,4,6,8,9,12,16}.  Literals from long-double cosl/sinl
+ * (~19 correct digits).  Indexed by the compile-time product, so every
+ * access folds to a constant after unrolling. */
+static const double C25T[17] = {
+    [1]  =  9.685831611286311195e-01, [2]  =  8.763066800438635873e-01,
+    [3]  =  7.289686274214115231e-01, [4]  =  5.358267949789966183e-01,
+    [6]  =  6.279051952931337601e-02, [8]  = -4.257792915650726488e-01,
+    [9]  = -6.374239897486897102e-01, [12] = -9.921147013144778311e-01,
+    [16] = -6.374239897486897102e-01,
+};
+static const double S25T[17] = {
+    [1]  =  2.486898871648547882e-01, [2]  =  4.817536741017152750e-01,
+    [3]  =  6.845471059286886738e-01, [4]  =  8.443279255020150785e-01,
+    [6]  =  9.980267284282715619e-01, [8]  =  9.048270524660195277e-01,
+    [9]  =  7.705132427757892308e-01, [12] =  1.253332335643042452e-01,
+    [16] = -7.705132427757892307e-01,
+};
+
+/* v * (C - iS): 2 FMA-port ops + 1 swap */
+#define CMULC(v, C, S) VFMA(SWAP(v), VPAIR((S), -(S)), (v) * VSPLAT(C))
+
+/* One step of the graded chain map on a vector of 4 complex:
+ *     z -> z / (1 + |z|)
+ * |z| and the reciprocal via rsqrt14/rcp14 + TWO Newton steps each (final
+ * relative error ~1e-16, comfortably inside the 1.5e-14/step contract),
+ * instead of vsqrtpd+vdivpd whose zmm throughput is not pipelined.  ~18
+ * FMA-port ops per vector.  The max() guard keeps z = 0 exact (rsqrt(0)
+ * would make 0 * inf = NaN); 1e-300 shifts the result by ~1e-150. */
+static inline __attribute__((always_inline))
+vec map_step_v(vec z)
+{
+    vec q  = z * z;
+    vec ms = q + SWAP(q);                        /* |z|^2 in both lanes */
+    ms = (vec)_mm512_max_pd((__m512d)ms, (__m512d)VSPLAT(1e-300));
+    vec y = (vec)_mm512_rsqrt14_pd((__m512d)ms);
+    vec t_ = ms * y;
+    y = (y * VSPLAT(0.5)) * VFNMA(t_, y, VSPLAT(3.0));
+    t_ = ms * y;
+    y = (y * VSPLAT(0.5)) * VFNMA(t_, y, VSPLAT(3.0));
+    vec d = VFMA(ms, y, VSPLAT(1.0));            /* 1 + |z|             */
+    vec r = (vec)_mm512_rcp14_pd((__m512d)d);
+    r = r * VFNMA(d, r, VSPLAT(2.0));
+    r = r * VFNMA(d, r, VSPLAT(2.0));
+    return z * r;
+}
+
+/* sequential vectorized map over one contiguous span: o = (z+c)/(1+|z+c|).
+ * 2-3 perfectly sequential streams (in-place z==o legal): the chain variant
+ * for sizes where the volume does NOT stay cache-resident and folding the
+ * map into the 100-stream x-pass would double the miss-stream count. */
+static void map_vec(const double *z, const double *c, double *o, size_t nvec)
+{
+    for (size_t i = 0; i < nvec; ++i) {
+        vec v = LDU(z + 8 * i) + LDU(c + 8 * i);
+        STU(o + 8 * i, map_step_v(v));
+    }
+}
+
+/* DFT5, FFTW n1_5 FMA form: 16 FMA-port ops + 2 swaps.  Outputs are
+ * lvalues; temps block-scoped so the macro can be used repeatedly. */
+#define DFT5M(x0,x1,x2,x3,x4, o0,o1,o2,o3,o4) do {                           \
+    vec t1_ = (x1) + (x4), t4_ = (x1) - (x4);                                \
+    vec t2_ = (x2) + (x3), t7_ = (x2) - (x3);                                \
+    vec te_ = t1_ + t2_,   ta_ = t1_ - t2_;                                  \
+    (o0) = (x0) + te_;                                                       \
+    vec tm_ = VFNMA(te_, VSPLAT(0.25), (x0));                                \
+    vec tp_ = VFMA (ta_, VSPLAT(K59), tm_);                                  \
+    vec tq_ = VFNMA(ta_, VSPLAT(K59), tm_);                                  \
+    vec tv_ = VFMA (t7_, VSPLAT(KIG), t4_);                                  \
+    vec tw_ = VFNMA(t4_, VSPLAT(KIG), t7_);                                  \
+    vec sv_ = SWAP(tv_), sw_ = SWAP(tw_);                                    \
+    (o1) = VFMA (sv_, VPAIR(KS5, -KS5), tp_);                                \
+    (o2) = VFNMA(sw_, VPAIR(KS5, -KS5), tq_);                                \
+    (o3) = VFMA (sw_, VPAIR(KS5, -KS5), tq_);                                \
+    (o4) = VFNMA(sv_, VPAIR(KS5, -KS5), tp_);                                \
+} while (0)
+
+/* DFT4: 8 FMA-port ops + 1 swap */
+#define DFT4M(x0,x1,x2,x3, o0,o1,o2,o3) do {                                 \
+    vec c0_ = (x0) + (x2), c1_ = (x0) - (x2);                                \
+    vec c2_ = (x1) + (x3), c3_ = (x1) - (x3);                                \
+    vec cm_ = SWAP(c3_);                                                     \
+    (o0) = c0_ + c2_;                                                        \
+    (o2) = c0_ - c2_;                                                        \
+    (o1) = VFMA (cm_, VPAIR(1.0, -1.0), c1_);                                \
+    (o3) = VFNMA(cm_, VPAIR(1.0, -1.0), c1_);                                \
+} while (0)
+
+/* DFT25 = 5x5 Cooley-Tukey with exact twiddles, stage-B outputs handed
+ * STRAIGHT to the caller's store macro (r2 change: was a function writing
+ * r[25], which every PFA wrapper then re-read to route through the CRT
+ * map -- a 25-store + 25-load L1 round-trip per call).  LDX(n) yields
+ * input n (stride 1 in n), STO(k, v) consumes natural-order output k;
+ * KMAP is applied by the caller inside STO.  Stage A stores U_[5*k1 + n2]
+ * so stage B reads 5 contiguous hot slots.  192 FMA-port ops + 36 swaps. */
+#define DFT25M(LDX, STO, KMAP) do {                                          \
+    vec U_[25];                                                              \
+    _Pragma("GCC unroll 5")                                                  \
+    for (int c5_ = 0; c5_ < 5; ++c5_) {                                      \
+        vec y0_, y1_, y2_, y3_, y4_;                                         \
+        DFT5M(LDX(c5_), LDX(c5_ + 5), LDX(c5_ + 10), LDX(c5_ + 15),          \
+              LDX(c5_ + 20), y0_, y1_, y2_, y3_, y4_);                       \
+        U_[c5_]      = y0_;                                                  \
+        U_[5 + c5_]  = c5_ ? CMULC(y1_, C25T[c5_],     S25T[c5_])     : y1_; \
+        U_[10 + c5_] = c5_ ? CMULC(y2_, C25T[2 * c5_], S25T[2 * c5_]) : y2_; \
+        U_[15 + c5_] = c5_ ? CMULC(y3_, C25T[3 * c5_], S25T[3 * c5_]) : y3_; \
+        U_[20 + c5_] = c5_ ? CMULC(y4_, C25T[4 * c5_], S25T[4 * c5_]) : y4_; \
+    }                                                                        \
+    _Pragma("GCC unroll 5")                                                  \
+    for (int k1_ = 0; k1_ < 5; ++k1_) {                                      \
+        vec r0_, r1_, r2_, r3_, r4_;                                         \
+        DFT5M(U_[5 * k1_], U_[5 * k1_ + 1], U_[5 * k1_ + 2],                 \
+              U_[5 * k1_ + 3], U_[5 * k1_ + 4],                              \
+              r0_, r1_, r2_, r3_, r4_);                                      \
+        STO(KMAP(k1_),      r0_);                                            \
+        STO(KMAP(k1_ + 5),  r1_);                                            \
+        STO(KMAP(k1_ + 10), r2_);                                            \
+        STO(KMAP(k1_ + 15), r3_);                                            \
+        STO(KMAP(k1_ + 20), r4_);                                            \
+    }                                                                        \
+} while (0)
+
+/* stage-A input and CRT output-index helpers for the two DFT25 users;
+ * expanded inside the PFA wrappers where T_ and k2_ are in scope (the
+ * store macro itself is passed through as DFT25M's STO parameter so the
+ * PFA wrapper's ST argument reaches it) */
+#define LDT25(n)   T_[25 * k2_ + (n)]
+#define K50MAP(k)  ((26 * (k) + 25 * k2_) % 50)
+#define K100MAP(k) ((76 * (k) + 25 * k2_) % 100)
+
+/* ---- per-size Good-Thomas line codelets, LD/ST as macro parameters ------ */
+
+/* L=40 = 8x5.  Stage 1: 8 x DFT5 into T_[8*k2 + n1]; stage 2: 5 x DFT8
+ * (radix-2 DIT, W8 twiddles folded into the output butterflies) reading 8
+ * contiguous slots and handing every output straight to ST. */
+#define PFA40C(LD, ST) do {                                                  \
+    vec T_[40];                                                              \
+    _Pragma("GCC unroll 8")                                                  \
+    for (int n1_ = 0; n1_ < 8; ++n1_) {                                      \
+        vec a0_ = LD((5 * n1_     ) % 40);                                   \
+        vec a1_ = LD((5 * n1_ +  8) % 40);                                   \
+        vec a2_ = LD((5 * n1_ + 16) % 40);                                   \
+        vec a3_ = LD((5 * n1_ + 24) % 40);                                   \
+        vec a4_ = LD((5 * n1_ + 32) % 40);                                   \
+        DFT5M(a0_, a1_, a2_, a3_, a4_,                                       \
+              T_[n1_], T_[8 + n1_], T_[16 + n1_], T_[24 + n1_],              \
+              T_[32 + n1_]);                                                 \
+    }                                                                        \
+    _Pragma("GCC unroll 5")                                                  \
+    for (int k2_ = 0; k2_ < 5; ++k2_) {                                      \
+        const vec *f_ = T_ + 8 * k2_;                                        \
+        vec t0_ = f_[0] + f_[4], t1_ = f_[0] - f_[4];                        \
+        vec t2_ = f_[2] + f_[6], t3_ = f_[2] - f_[6];                        \
+        vec s0_ = f_[1] + f_[5], s1_ = f_[1] - f_[5];                        \
+        vec s2_ = f_[3] + f_[7], s3_ = f_[3] - f_[7];                        \
+        vec E0_ = t0_ + t2_, E2_ = t0_ - t2_;                                \
+        vec m1_ = SWAP(t3_);                                                 \
+        vec E1_ = VFMA (m1_, VPAIR(1.0, -1.0), t1_);                         \
+        vec E3_ = VFNMA(m1_, VPAIR(1.0, -1.0), t1_);                         \
+        vec O0_ = s0_ + s2_, O2_ = s0_ - s2_;                                \
+        vec m2_ = SWAP(s3_);                                                 \
+        vec O1_ = VFMA (m2_, VPAIR(1.0, -1.0), s1_);                         \
+        vec O3_ = VFNMA(m2_, VPAIR(1.0, -1.0), s1_);                         \
+        vec w1_ = VFMA(SWAP(O1_), VPAIR(1.0, -1.0), O1_);   /* O1*(1-i)  */  \
+        vec w3_ = VFMA(SWAP(O3_), VPAIR(1.0, -1.0), O3_);   /* O3*(1-i)  */  \
+        vec sw3_ = SWAP(w3_);                                                \
+        vec sO2_ = SWAP(O2_);                                                \
+        ST((         16 * k2_) % 40, E0_ + O0_);                             \
+        ST((25 * 4 + 16 * k2_) % 40, E0_ - O0_);                             \
+        ST((25     + 16 * k2_) % 40, VFMA (w1_, VSPLAT(KR2), E1_));          \
+        ST((25 * 5 + 16 * k2_) % 40, VFNMA(w1_, VSPLAT(KR2), E1_));          \
+        ST((25 * 2 + 16 * k2_) % 40, VFMA (sO2_, VPAIR(1.0, -1.0), E2_));    \
+        ST((25 * 6 + 16 * k2_) % 40, VFNMA(sO2_, VPAIR(1.0, -1.0), E2_));    \
+        ST((25 * 3 + 16 * k2_) % 40, VFMA (sw3_, VPAIR(KR2, -KR2), E3_));    \
+        ST((25 * 7 + 16 * k2_) % 40, VFNMA(sw3_, VPAIR(KR2, -KR2), E3_));    \
+    }                                                                        \
+} while (0)
+
+/* L=50 = 25x2.  Stage 1: 25 x DFT2 into T_[25*k2 + n1]; stage 2: 2 x DFT25
+ * on contiguous slots, stage-B outputs stored straight through ST via the
+ * CRT map (r2: no R_[25] round-trip). */
+#define PFA50C(LD, ST) do {                                                  \
+    vec T_[50];                                                              \
+    _Pragma("GCC unroll 25")                                                 \
+    for (int n1_ = 0; n1_ < 25; ++n1_) {                                     \
+        vec a_ = LD((2 * n1_     ) % 50);                                    \
+        vec b_ = LD((2 * n1_ + 25) % 50);                                    \
+        T_[n1_]      = a_ + b_;                                              \
+        T_[25 + n1_] = a_ - b_;                                              \
+    }                                                                        \
+    _Pragma("GCC unroll 2")                                                  \
+    for (int k2_ = 0; k2_ < 2; ++k2_)                                        \
+        DFT25M(LDT25, ST, K50MAP);                                           \
+} while (0)
+
+/* L=100 = 25x4.  Stage 1: 25 x DFT4 into T_[25*k2 + n1]; stage 2: 4 x DFT25,
+ * stage-B outputs stored straight through ST via the CRT map (r2). */
+#define PFA100C(LD, ST) do {                                                 \
+    vec T_[100];                                                             \
+    _Pragma("GCC unroll 25")                                                 \
+    for (int n1_ = 0; n1_ < 25; ++n1_) {                                     \
+        vec a0_ = LD((4 * n1_     ) % 100);                                  \
+        vec a1_ = LD((4 * n1_ + 25) % 100);                                  \
+        vec a2_ = LD((4 * n1_ + 50) % 100);                                  \
+        vec a3_ = LD((4 * n1_ + 75) % 100);                                  \
+        DFT4M(a0_, a1_, a2_, a3_,                                            \
+              T_[n1_], T_[25 + n1_], T_[50 + n1_], T_[75 + n1_]);            \
+    }                                                                        \
+    _Pragma("GCC unroll 4")                                                  \
+    for (int k2_ = 0; k2_ < 4; ++k2_)                                        \
+        DFT25M(LDT25, ST, K100MAP);                                          \
+} while (0)
+
+#define GCAT_(a,b) a##b
+#define GCAT(a,b)  GCAT_(a,b)
+
+/* instantiate the engine for the three sizes.
+ * (r2 A/B, killed: pre-RA scheduling via optimize("schedule-insns",
+ * "sched-pressure") on the L=50 family -- gen_powp's -5% at their L=25 --
+ * measured 662 vs 472 us/xform at L=50 B=4 on the node, +40%.  Do not
+ * rediscover.) */
+#define GENL 40
+#define GPP  44                       /* pl row pitch: 704 B = 11 lines, odd */
+#define PFAL PFA40C
+#include __FILE__
+#undef GENL
+#undef GPP
+#undef PFAL
+
+#define GENL 50
+#define GPP  52                       /* 832 B = 13 lines, odd               */
+#define PFAL PFA50C
+#include __FILE__
+#undef GENL
+#undef GPP
+#undef PFAL
+
+#define GENL 100
+#define GPP  108                      /* 1728 B = 27 lines, odd              */
+#define PFAL PFA100C
+#include __FILE__
+#undef GENL
+#undef GPP
+#undef PFAL
+
+#endif /* __AVX512F__ */
+
+/* ---- plan, gate, race, API ---------------------------------------------- */
+
+typedef void (*execpl_fn)(const double *in, double *out, long nvol, double *P);
+typedef void (*chainpl_fn)(const double *cur, double *dst, const double *cf,
+                           long nvol, double *M, double *P);
+
+struct fft3d_plan {
+    int L, batch;
+    execpl_fn  fn;                /* NULL -> dense fallback                  */
+    chainpl_fn cfn;               /* NULL -> execute + scalar map            */
+    double *P;                    /* plane scratch (heap: stack 4K-aliases)  */
+    double *M;                    /* one mid volume for the fused chain      */
+    double *X;                    /* batch state volumes for chain ping-pong */
+    void   *rawP, *rawM, *rawX;
+    double _Complex *w, *tmp;     /* dense fallback state                    */
+};
+
+/* the driver's MAP_STEP, verbatim semantics: z -> (z+c)/(1+|z+c|) */
+static void map_scalar(const double *z, const double *c, double *o, size_t npts)
+{
+    for (size_t i = 0; i < npts; ++i) {
+        double re = z[2 * i]     + c[2 * i];
+        double im = z[2 * i + 1] + c[2 * i + 1];
+        double sc = 1.0 / (1.0 + sqrt(re * re + im * im));
+        o[2 * i]     = re * sc;
+        o[2 * i + 1] = im * sc;
+    }
+}
+
+const char *fft3d_name(void) { return "gen_pfa_large"; }
+
+static char g_desc[224];
+const char *fft3d_description(void)
+{
+    return g_desc[0] ? g_desc
+        : "PFA coprime pairs, large: OWN 40,50,100; GT-PFA 8x5 / 25x2 / 25x4 "
+          "(DFT25 = 5x5 CT, exact twiddles), two-sweep zmm lanes, "
+          "gate+race in create()";
+}
+int fft3d_supports(int L) { return L == 40 || L == 50 || L == 100; }
+
+/* scalar O(L^2)-per-line reference (L45_pfa's ref3d, generalized in L):
+ * independent ground truth for the create()-time gate */
+static void refnd(int L, const double _Complex *in, double _Complex *out)
+{
+    const size_t NP = (size_t)L * L;
+    double _Complex Wt[128], buf[128];
+    for (int k = 0; k < L; ++k)
+        Wt[k] = cexp(-2.0 * M_PI * I * (double)k / (double)L);
+    for (int x = 0; x < L; ++x)                       /* z axis: in -> out  */
+        for (int y = 0; y < L; ++y) {
+            const double _Complex *r = in  + ((size_t)x * L + y) * L;
+            double _Complex       *w = out + ((size_t)x * L + y) * L;
+            for (int k = 0; k < L; ++k) {
+                double _Complex s = 0;
+                for (int j = 0; j < L; ++j) s += r[j] * Wt[(j * k) % L];
+                w[k] = s;
+            }
+        }
+    for (int x = 0; x < L; ++x)                       /* y axis, in place   */
+        for (int z = 0; z < L; ++z) {
+            double _Complex *base = out + (size_t)x * NP + z;
+            for (int j = 0; j < L; ++j) buf[j] = base[(size_t)j * L];
+            for (int k = 0; k < L; ++k) {
+                double _Complex s = 0;
+                for (int j = 0; j < L; ++j) s += buf[j] * Wt[(j * k) % L];
+                base[(size_t)k * L] = s;
+            }
+        }
+    for (int y = 0; y < L; ++y)                       /* x axis, in place   */
+        for (int z = 0; z < L; ++z) {
+            double _Complex *base = out + (size_t)y * L + z;
+            for (int j = 0; j < L; ++j) buf[j] = base[(size_t)j * NP];
+            for (int k = 0; k < L; ++k) {
+                double _Complex s = 0;
+                for (int j = 0; j < L; ++j) s += buf[j] * Wt[(j * k) % L];
+                base[(size_t)k * NP] = s;
+            }
+        }
+}
+
+/* dense fallback (the old stub): floor of last resort, known correct */
+static void dense_contract(const double _Complex *w, int L,
+                           const double _Complex *in, double _Complex *out,
+                           int inner)
+{
+    for (int k = 0; k < L; ++k)
+        for (int c = 0; c < inner; ++c) {
+            double _Complex acc = 0.0;
+            for (int j = 0; j < L; ++j)
+                acc += w[(size_t)k * L + j] * in[(size_t)j * inner + c];
+            out[(size_t)k * inner + c] = acc;
+        }
+}
+
+static void dense_exec(const fft3d_plan *p, const double _Complex *in,
+                       double _Complex *out)
+{
+    const int L = p->L;
+    const size_t volume = (size_t)L * L * L;
+    for (int b = 0; b < p->batch; ++b) {
+        const double _Complex *src = in + (size_t)b * volume;
+        double _Complex *dst = out + (size_t)b * volume;
+        dense_contract(p->w, L, src, dst, L * L);
+        for (int x = 0; x < L; ++x)
+            dense_contract(p->w, L, dst + (size_t)x * L * L,
+                           p->tmp + (size_t)x * L * L, L);
+        for (size_t row = 0; row < volume / (size_t)L; ++row)
+            dense_contract(p->w, L, p->tmp + row * (size_t)L,
+                           dst + row * (size_t)L, 1);
+    }
+}
+
+static int dense_setup(fft3d_plan *p)
+{
+    const int L = p->L;
+    p->w   = malloc((size_t)L * L * sizeof *p->w);
+    p->tmp = malloc((size_t)L * L * L * sizeof *p->tmp);
+    if (!p->w || !p->tmp) return 0;
+    for (int k = 0; k < L; ++k)
+        for (int j = 0; j < L; ++j) {
+            double phase = -2.0 * M_PI * (double)((k * j) % L) / (double)L;
+            p->w[(size_t)k * L + j] = cos(phase) + I * sin(phase);
+        }
+    return 1;
+}
+
+#ifdef __AVX512F__
+
+static double now_s(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec;
+}
+
+static int rel_ok(const double *got, const double *ref, size_t n)
+{
+    double num = 0.0, den = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+        double d = got[i] - ref[i];
+        num += d * d; den += ref[i] * ref[i];
+    }
+    return num <= den * 1e-26;                        /* rel L2 < 1e-13 */
+}
+
+struct candpl { execpl_fn fn; chainpl_fn cfn; int pf, rank; const char *nm; };
+
+/* candidates are raced on the CHAIN step (the graded workload) when the mid
+ * volume exists; the exec fn rides along with the chain winner.  Two chain
+ * families: ip* keeps everything in place (one volume-sized working set +
+ * c; wins when the volume does not fit near caches and miss streams are the
+ * bottleneck -- L=100), fused f* folds the map into phase 2's stores (wins
+ * when the volume is cache-resident and the map's extra pass is pure cost
+ * -- L=40/50). */
+/* pf ids (GENPFL_PF forcing): 0 ip0, 1 ip1, 2 f0, 3 fr, 4 frw, 5 ipf0,
+ * 6 ipf1, 7 ipnt, 8 ipfnt, 9 ipe0, 10 ipe1.  rank = simplest-first tie
+ * preference within the 3% hysteresis band, set PER SIZE from the r2 node
+ * race tables (ip pair and ipe pair lead everywhere measured; ipf loses
+ * outright at 100, NT loses ~10% there -- kept for the cross-arch hosts). */
+static const struct candpl g_c40[]  = {
+    { x_pf0_40,  xc_ip0_40,   0, 0, "l40-ip0"   },
+    { x_pf1_40,  xc_ip1_40,   1, 1, "l40-ip1"   },
+    { x_pf0_40,  xc_ipe0_40,  9, 2, "l40-ipe0"  },
+    { x_pf1_40,  xc_ipe1_40, 10, 3, "l40-ipe1"  },
+    { x_pf0_40,  xc_ipf0_40,  5, 4, "l40-ipf0"  },
+    { x_pf1_40,  xc_ipf1_40,  6, 5, "l40-ipf1"  },
+    { x_pf0_40,  xc_pf0_40,   2, 6, "l40-f0"    },
+    { x_pf1_40,  xc_pfr_40,   3, 7, "l40-fr"    },
+    { x_pf1_40,  xc_pfrw_40,  4, 8, "l40-frw"   },
+    { x_pf1_40,  xc_ipnt_40,  7, 9, "l40-ipnt"  },
+    { x_pf1_40,  xc_ipfnt_40, 8, 10, "l40-ipfnt" } };
+static const struct candpl g_c50[]  = {
+    { x_pf1_50,  xc_ip1_50,   1, 0, "l50-ip1"   },
+    { x_pf0_50,  xc_ip0_50,   0, 1, "l50-ip0"   },
+    { x_pf1_50,  xc_ipe1_50, 10, 2, "l50-ipe1"  },
+    { x_pf0_50,  xc_ipe0_50,  9, 3, "l50-ipe0"  },
+    { x_pf0_50,  xc_ipf0_50,  5, 4, "l50-ipf0"  },
+    { x_pf1_50,  xc_ipf1_50,  6, 5, "l50-ipf1"  },
+    { x_pf0_50,  xc_pf0_50,   2, 6, "l50-f0"    },
+    { x_pf1_50,  xc_pfr_50,   3, 7, "l50-fr"    },
+    { x_pf1_50,  xc_pfrw_50,  4, 8, "l50-frw"   } };
+static const struct candpl g_c100[] = {
+    { x_pf1_100, xc_ip1_100,  1, 0, "l100-ip1"  },
+    { x_pf0_100, xc_ip0_100,  0, 1, "l100-ip0"  },
+    { x_pf1_100, xc_ipe1_100,10, 2, "l100-ipe1" },
+    { x_pf0_100, xc_ipe0_100, 9, 3, "l100-ipe0" },
+    { x_pf1_100, xc_ipnt_100, 7, 4, "l100-ipnt" },
+    { x_pf1_100, xc_ipfnt_100,8, 5, "l100-ipfnt"},
+    { x_pf1_100, xc_ipf1_100, 6, 6, "l100-ipf1" },
+    { x_pf0_100, xc_ipf0_100, 5, 7, "l100-ipf0" },
+    { x_pf0_100, xc_pf0_100,  2, 8, "l100-f0"   },
+    { x_pf1_100, xc_pfr_100,  3, 9, "l100-fr"   },
+    { x_pf1_100, xc_pfrw_100, 4, 10, "l100-frw" } };
+#define NCMAX 11
+
+/* gate + race; installs p->fn (or leaves it NULL for the dense fallback) */
+static void tune(fft3d_plan *p)
+{
+    const int L = p->L;
+    const size_t VD = (size_t)2 * L * L * L;
+    const struct candpl *cd = (L == 40) ? g_c40 : (L == 50) ? g_c50 : g_c100;
+    const int nc = (L == 40) ? (int)(sizeof g_c40  / sizeof g_c40[0])
+                 : (L == 50) ? (int)(sizeof g_c50  / sizeof g_c50[0])
+                 :             (int)(sizeof g_c100 / sizeof g_c100[0]);
+
+    int    live[NCMAX];
+    double tc[NCMAX];
+    for (int c = 0; c < nc; ++c) { live[c] = 1; tc[c] = 1e300; }
+
+    { const char *e = getenv("GENPFL_PF");            /* monitor forcing */
+      if (e) { int v = atoi(e);
+               for (int c = 0; c < nc; ++c) if (cd[c].pf != v) live[c] = 0;
+               int any = 0;
+               for (int c = 0; c < nc; ++c) any |= live[c];
+               if (!any) for (int c = 0; c < nc; ++c) live[c] = 1; } }
+
+    /* arena: stream realistically at large batch, cap the footprint */
+    const int cap = (int)(1 + (size_t)32 * 1024 * 1024 / (VD * 8));
+    const int nv  = p->batch < cap ? p->batch : cap;
+    void *ri = NULL, *ro = NULL, *r0 = NULL, *r1 = NULL;
+    if (posix_memalign(&ri, 64, (size_t)nv * VD * sizeof(double)) ||
+        posix_memalign(&ro, 64, (size_t)nv * VD * sizeof(double)) ||
+        posix_memalign(&r0, 64, VD * sizeof(double)) ||
+        (nv > 1 && posix_memalign(&r1, 64, VD * sizeof(double)))) {
+        free(ri); free(ro); free(r0);
+        return;                                       /* dense fallback */
+    }
+    double *tin = ri, *tout = ro, *ref0 = r0, *refN = r1;
+    unsigned long long s = 0x9E3779B97F4A7C15ull;
+    for (size_t i = 0; i < (size_t)nv * VD; ++i) {
+        s = s * 6364136223846793005ull + 1442695040888963407ull;
+        tin[i] = (double)(long long)(s >> 11) * 0x1p-53;
+    }
+    refnd(L, (const double _Complex *)tin, (double _Complex *)ref0);
+    if (nv > 1)          /* gate the LAST volume too: P-reuse bugs cannot hide */
+        refnd(L, (const double _Complex *)(tin + (size_t)(nv - 1) * VD),
+              (double _Complex *)refN);
+
+    for (int c = 0; c < nc; ++c) {
+        if (!live[c]) continue;
+        memset(tout, 0, (size_t)nv * VD * sizeof(double));
+        cd[c].fn(tin, tout, nv, p->P);
+        if (!rel_ok(tout, ref0, VD)) live[c] = 0;
+        if (nv > 1 && live[c] &&
+            !rel_ok(tout + (size_t)(nv - 1) * VD, refN, VD)) live[c] = 0;
+    }
+    /* min over interleaved rounds (wallaby's fast/slow toggle, L45 lesson).
+     * Race the CHAIN step when the mid volume exists -- every graded case is
+     * chained, and the poke policy that wins in-place execute is not the one
+     * that wins the out-of-place fused step (measured: l40 B=8 chain pf0
+     * 340 vs pf1 274 us/xform while the execute arena preferred them within
+     * 6%).  tin doubles as the c field: read-only in both roles. */
+    const int R  = (nv >= 8) ? 1 : (nv >= 2 ? 3 : 6);
+    const int NR = (nv >= 16) ? 4 : (nv >= 4 ? 6 : 8);
+    for (int round = 0; round < NR; ++round)
+        for (int c = 0; c < nc; ++c) {
+            if (!live[c]) continue;
+#define TRIAL(c_) do {                                                        \
+    if (p->M) cd[c_].cfn(tin, tout, tin, nv, p->M, p->P);                     \
+    else      cd[c_].fn(tin, tout, nv, p->P);                                 \
+} while (0)
+            TRIAL(c);                                 /* self-warm */
+            double t0 = now_s();
+            for (int r = 0; r < R; ++r)
+                TRIAL(c);
+            double t = (now_s() - t0) / R;
+            if (t < tc[c]) tc[c] = t;
+#undef TRIAL
+        }
+    int best = -1;
+    for (int c = 0; c < nc; ++c)
+        if (live[c] && (best < 0 || tc[c] < tc[best])) best = c;
+    if (best >= 0) {
+        int pick = best;                              /* 3% simplest-first */
+        for (int c = 0; c < nc; ++c)
+            if (live[c] && tc[c] <= tc[best] * 1.03 &&
+                cd[c].rank < cd[pick].rank) pick = c;
+        p->fn = cd[pick].fn;
+        /* gate the fused-map chain step against execute + the driver's own
+         * scalar map on volume 0 (tin doubles as the c field); on any
+         * mismatch fall back to the always-correct execute+scalar path */
+        if (p->M && !getenv("GENPFL_NOFUSE")) {
+            void *e1 = NULL, *e2 = NULL;
+            if (!posix_memalign(&e1, 64, VD * sizeof(double)) &&
+                !posix_memalign(&e2, 64, VD * sizeof(double))) {
+                double *zed = e1, *exp_ = e2;
+                p->fn(tin, zed, 1, p->P);
+                map_scalar(zed, tin, exp_, VD / 2);
+                cd[pick].cfn(tin, tout, tin, 1, p->M, p->P);
+                if (rel_ok(tout, exp_, VD)) p->cfn = cd[pick].cfn;
+            }
+            free(e1); free(e2);
+        }
+        snprintf(g_desc, sizeof g_desc,
+                 "GT-PFA %s two-sweep (DFT25=5x5 CT exact tw)%s; pick: %s (B=%d)",
+                 L == 40 ? "8x5" : L == 50 ? "25x2" : "25x4",
+                 p->cfn ? " + owned chain (NR map)" : "",
+                 cd[pick].nm, p->batch);
+    }
+    if (getenv("GENPFL_VERBOSE")) {
+        for (int c = 0; c < nc; ++c)
+            fprintf(stderr, "gen_pfa_large L=%d: %-9s %s %.1f us/vol\n",
+                    L, cd[c].nm, live[c] ? "ok " : "OUT",
+                    live[c] ? tc[c] * 1e6 / nv : 0.0);
+    }
+    free(ri); free(ro); free(r0); free(r1);
+}
+#endif /* __AVX512F__ */
+
+fft3d_plan *fft3d_create(int L, int batch)
+{
+    if (!fft3d_supports(L) || batch < 1) return NULL;
+    fft3d_plan *p = calloc(1, sizeof *p);
+    if (!p) return NULL;
+    p->L = L;
+    p->batch = batch;
+    const size_t VD = (size_t)2 * L * L * L;
+    /* chain ping-pong state for the non-fused fallback path */
+    if (posix_memalign(&p->rawX, 4096,
+                       (size_t)batch * VD * sizeof(double)) != 0) {
+        free(p);
+        return NULL;
+    }
+    p->X = (double *)p->rawX;
+#ifdef __AVX512F__
+    const int pp = (L == 40) ? 44 : (L == 50) ? 52 : 108;
+    if (posix_memalign(&p->rawP, 4096,
+                       (size_t)L * pp * 2 * sizeof(double)) == 0) {
+        p->P = (double *)p->rawP;
+        memset(p->P, 0, (size_t)L * pp * 2 * sizeof(double));
+        if (posix_memalign(&p->rawM, 4096,
+                           ((size_t)(2 * L * L + 8) * L + 296)
+                               * sizeof(double)) == 0)
+            p->M = (double *)p->rawM + 296;       /* fused chain mid volume:
+                                                     padded planes, base
+                                                     2368 B off the page   */
+        tune(p);
+    }
+#endif
+    if (!p->fn && !dense_setup(p)) {                  /* fallback of last resort */
+        free(p->rawP); free(p->w); free(p->tmp); free(p);
+        return NULL;
+    }
+    return p;
+}
+
+void fft3d_execute(fft3d_plan *p, const double _Complex *in, double _Complex *out)
+{
+    if (p->fn) p->fn((const double *)in, (double *)out, p->batch, p->P);
+    else       dense_exec(p, in, out);
+}
+
+/* the whole graded m-step chain: state <- (FFT(state)+c)/(1+|FFT(state)+c|).
+ *
+ * Fused path: the state lives in `out` for the whole chain (the engine
+ * consumes each input volume completely -- into the plane scratch, then into
+ * the mid volume M -- before writing the matching output volume, so
+ * cur == dst is safe per volume).  One state buffer instead of a ping-pong
+ * pair keeps the chain working set at state+M+c volumes, which matters at
+ * L=100 where that is already the size of the node's L3.
+ *
+ * Fallback path (no fused kernel): fft3d_execute needs distinct buffers, so
+ * steps alternate between `out` and the plan's X, ending in `out`. */
+void fft3d_chain(fft3d_plan *p, const double _Complex *x0,
+                 const double _Complex *c, double _Complex *out, int m)
+{
+    const size_t VD = (size_t)2 * p->L * p->L * p->L * (size_t)p->batch;
+    if (m < 1) { memmove(out, x0, VD * sizeof(double)); return; }
+    if (p->cfn) {
+        const double *cur = (const double *)x0;
+        for (int s = 0; s < m; ++s) {
+            p->cfn(cur, (double *)out, (const double *)c,
+                   p->batch, p->M, p->P);
+            cur = (const double *)out;
+        }
+        return;
+    }
+    const double _Complex *cur = x0;
+    for (int s = 0; s < m; ++s) {
+        double _Complex *dst = (((m - 1 - s) & 1) == 0) ? out
+                             : (double _Complex *)p->X;
+        fft3d_execute(p, cur, dst);
+        map_scalar((const double *)dst, (const double *)c, (double *)dst,
+                   VD / 2);
+        cur = dst;
+    }
+}
+
+void fft3d_destroy(fft3d_plan *p)
+{
+    if (!p) return;
+    free(p->rawP);
+    free(p->rawM);
+    free(p->rawX);
+    free(p->w);
+    free(p->tmp);
+    free(p);
+}
+
+#else /* ================ ENGINE TEMPLATE, one size (GENL) ================== */
+
+#define NPL   (GENL * GENL)
+#define PLNDL (2 * GENL * GENL)          /* doubles per x-plane              */
+#define MPLND (PLNDL + 8)                /* mid volume plane pitch: +64 B ->
+                                            an ODD cache-line count, no fixed
+                                            mod-4096 relation to in/out      */
+#define VDL   ((size_t)2 * GENL * NPL)   /* doubles per volume               */
+#define NFULL (GENL / 4)                 /* full 4-lane groups per subpass   */
+#define NYG   (NFULL + (GENL % 4 ? 1 : 0))
+#define FN(n) GCAT(n, GCAT(_, GENL))
+
+/* phase 1, ONE x-plane: z transform (lanes = 4 y-rows, granule transposes)
+ * into plane scratch pl[y][kz], then y transform (lanes = 4 kz, contiguous)
+ * into out[x][ky][kz].  GENL % 4 == 2 (L=50) adds one OVERLAPPING group per
+ * subpass (recompute of 2 lanes; every store is idempotent). */
+static inline __attribute__((always_inline))
+void FN(p1)(const double *restrict in, double *restrict out,
+            double *restrict pld, int x, const long mpln)
+{
+    const double *px = in  + (size_t)x * PLNDL;
+    double       *mx = out + (size_t)x * mpln;
+
+    for (int yg = 0; yg < NYG; ++yg) {
+        const int yb = (yg == NFULL) ? (GENL - 4) : 4 * yg;
+        /* one runtime base per block (the L45 r7 single-base fix) */
+        const double *rows = px  + (size_t)yb * (2 * GENL);
+        double       *prow = pld + (size_t)yb * (2 * GPP);
+        vec Zv[GENL], Wv[GENL];
+        _Pragma("GCC unroll 25")
+        for (int zg = 0; zg < NFULL; ++zg) {
+            vec r_[4];
+            _Pragma("GCC unroll 4")
+            for (int j = 0; j < 4; ++j)
+                r_[j] = LDU(rows + (size_t)j * (2 * GENL) + 8 * zg);
+            TRNC(r_, &Zv[4 * zg]);
+        }
+#if GENL % 4
+        {   /* overlapping last z-granule: columns GENL-4 .. GENL-1 */
+            vec r_[4];
+            _Pragma("GCC unroll 4")
+            for (int j = 0; j < 4; ++j)
+                r_[j] = LDU(rows + (size_t)j * (2 * GENL) + 2 * (GENL - 4));
+            TRNC(r_, &Zv[GENL - 4]);
+        }
+#endif
+#define LD1(n)    Zv[n]
+#define ST1(k, v) (Wv[k] = (v))
+        PFAL(LD1, ST1);
+#undef LD1
+#undef ST1
+        _Pragma("GCC unroll 25")
+        for (int zg = 0; zg < NFULL; ++zg) {
+            vec r_[4];
+            TRNC(&Wv[4 * zg], r_);
+            _Pragma("GCC unroll 4")
+            for (int j = 0; j < 4; ++j)
+                STU(prow + (size_t)j * (2 * GPP) + 8 * zg, r_[j]);
+        }
+#if GENL % 4
+        {   vec r_[4];
+            TRNC(&Wv[GENL - 4], r_);
+            _Pragma("GCC unroll 4")
+            for (int j = 0; j < 4; ++j)
+                STU(prow + (size_t)j * (2 * GPP) + 2 * (GENL - 4), r_[j]);
+        }
+#endif
+    }
+
+    for (int zg = 0; zg < NYG; ++zg) {
+        const int zb = (zg == NFULL) ? (GENL - 4) : 4 * zg;
+        const double *pcol = pld + 2 * zb;
+        double       *mcol = mx  + 2 * zb;
+        /* opaque-base barrier: stops gcc hoisting+spilling GENL row leas
+         * (the L45 r6 offset-table pathology) */
+        __asm__("" : "+r"(pcol), "+r"(mcol));
+#define LD2(n)    LDU(pcol + (size_t)(n) * (2 * GPP))
+#define ST2(k, v) STU(mcol + (size_t)(k) * (2 * GENL), (v))
+        PFAL(LD2, ST2);
+#undef LD2
+#undef ST2
+    }
+}
+
+/* phase 2: x transform in place, tiled over the FLAT (y,z) index (NPL is a
+ * multiple of 4 for all three sizes: no tail).  The codelet reads all GENL
+ * inputs before its first store.  pf=1 pokes the GENL read streams one
+ * cache line ahead (more streams than the L2 prefetcher tracks). */
+static inline __attribute__((always_inline))
+void FN(p2)(double *io, const long pln, const int pf)
+{
+    for (int t = 0; t < NPL / 4; ++t) {
+        double *s_ = io + (size_t)t * 8;
+        if (pf) {
+            _Pragma("GCC unroll 100")
+            for (int n_ = 0; n_ < GENL; ++n_)
+                __builtin_prefetch(s_ + (size_t)n_ * pln + 8, 0, 3);
+        }
+#define LD3(n)    LDU(s_ + (size_t)(n) * pln)
+#define ST3(k, v) STU(s_ + (size_t)(k) * pln, (v))
+        PFAL(LD3, ST3);
+#undef LD3
+#undef ST3
+    }
+}
+
+/* phase 2 for the fused chain: x transform OUT of place, mid -> dst, with
+ * z = v + c and the map z/(1+|z|) applied at every store -- deletes the
+ * driver's separate full-volume map pass (read z + read c + write state).
+ * The mid volume M is read at the PADDED plane pitch MPLND (odd cache-line
+ * count, +64 B/plane): with M at out's exact layout and a page-aligned
+ * base, every M load was page-offset-congruent with an in-flight out store
+ * (and every p1 M-store with an out read) -- systematic 4K false
+ * dependencies, measured 11-13 ms/step at L=100 vs 8.2 for the UNFUSED
+ * path.  pf pokes the mid read streams / dst write streams (RFO) one line
+ * ahead; c and the tile bases advance contiguously (hardware-prefetchable). */
+static inline __attribute__((always_inline))
+void FN(p2c)(const double *restrict mid, double *restrict dst,
+             const double *restrict cf, const int pfr, const int pfw)
+{
+    for (int t = 0; t < NPL / 4; ++t) {
+        const double *s_ = mid + (size_t)t * 8;
+        double       *d_ = dst + (size_t)t * 8;
+        const double *g_ = cf  + (size_t)t * 8;
+        if (pfr) {
+            _Pragma("GCC unroll 100")
+            for (int n_ = 0; n_ < GENL; ++n_)
+                __builtin_prefetch(s_ + (size_t)n_ * MPLND + 8, 0, 3);
+        }
+        if (pfw) {
+            _Pragma("GCC unroll 100")
+            for (int n_ = 0; n_ < GENL; ++n_)
+                __builtin_prefetch(d_ + (size_t)n_ * PLNDL + 8, 1, 3);
+        }
+#define LD3(n)    LDU(s_ + (size_t)(n) * MPLND)
+#define ST3(k, v) do {                                                       \
+    vec z_ = (v) + LDU(g_ + (size_t)(k) * PLNDL);                            \
+    STU(d_ + (size_t)(k) * PLNDL, map_step_v(z_));                           \
+} while (0)
+        PFAL(LD3, ST3);
+#undef LD3
+#undef ST3
+    }
+}
+
+/* phase 2 IN PLACE with the chain map fused into the stores (r2, BORROWED
+ * from gen_powp gen_r1's ipf family, which they built on this engine): no
+ * mid volume, no separate map pass.  Stores land on the lines the tile
+ * just read (no fresh RFO stream, unlike the out-of-place fused p2c); c
+ * is the only extra read set.  In-place safe: the codelet reads all GENL
+ * inputs (stage 1 into T_) before its first store.  pf pokes the
+ * read+write lines with WRITE intent one line ahead. */
+static inline __attribute__((always_inline))
+void FN(p2ipf)(double *io, const double *restrict cf, const int pf)
+{
+    for (int t = 0; t < NPL / 4; ++t) {
+        double       *s_ = io + (size_t)t * 8;
+        const double *g_ = cf + (size_t)t * 8;
+        if (pf) {
+            _Pragma("GCC unroll 100")
+            for (int n_ = 0; n_ < GENL; ++n_)
+                __builtin_prefetch(s_ + (size_t)n_ * PLNDL + 8, 1, 3);
+        }
+#define LD3(n)    LDU(s_ + (size_t)(n) * PLNDL)
+#define ST3(k, v) do {                                                       \
+    vec z_ = (v) + LDU(g_ + (size_t)(k) * PLNDL);                            \
+    STU(s_ + (size_t)(k) * PLNDL, map_step_v(z_));                           \
+} while (0)
+        PFAL(LD3, ST3);
+#undef LD3
+#undef ST3
+    }
+}
+
+/* phase 2 in place with a MAP EPILOGUE per tile (r2, new): the FFT stores
+ * stay plain (no map ladder gating the DAG's stores -- the measured
+ * failure of ipf at L=100, where each store waiting on a ~40-cycle
+ * rsqrt/rcp NR chain collapses the x-pass's memory-level parallelism),
+ * then the GENL just-written L1-hot lines are immediately re-read, mapped
+ * with c, and re-stored in an independent-iteration loop the OoO window
+ * can pipeline.  Deletes the separate map pass's full-volume DRAM round
+ * trip (read z + read c + write state).  pf pokes next tile's state lines
+ * (write intent) and THIS tile's c lines (the epilogue needs them ~1k
+ * cycles after tile start). */
+static inline __attribute__((always_inline))
+void FN(p2ipe)(double *io, const double *restrict cf, const int pf)
+{
+    for (int t = 0; t < NPL / 4; ++t) {
+        double       *s_ = io + (size_t)t * 8;
+        const double *g_ = cf + (size_t)t * 8;
+        if (pf) {
+            _Pragma("GCC unroll 100")
+            for (int n_ = 0; n_ < GENL; ++n_) {
+                __builtin_prefetch(s_ + (size_t)n_ * PLNDL + 8, 1, 3);
+                __builtin_prefetch(g_ + (size_t)n_ * PLNDL, 0, 3);
+            }
+        }
+#define LD3(n)    LDU(s_ + (size_t)(n) * PLNDL)
+#define ST3(k, v) STU(s_ + (size_t)(k) * PLNDL, (v))
+        PFAL(LD3, ST3);
+#undef LD3
+#undef ST3
+        _Pragma("GCC unroll 100")
+        for (int n_ = 0; n_ < GENL; ++n_) {
+            vec z_ = LDU(s_ + (size_t)n_ * PLNDL) +
+                     LDU(g_ + (size_t)n_ * PLNDL);
+            STU(s_ + (size_t)n_ * PLNDL, map_step_v(z_));
+        }
+    }
+}
+
+#if GENL % 4 == 0
+/* p1 with the y-subpass stores NON-TEMPORAL (vmovntpd), r2.  Legal only
+ * when GENL % 4 == 0 (row stride 2*GENL*8 B is then a whole number of
+ * lines, so every ST2 is a full aligned 64B line) and the volume base is
+ * 64B-aligned (the caller checks and falls back).  The y-pass writes
+ * every output line of the state in full, so NT deletes the RFO read of
+ * the state volume -- 16 MB per chain step at L=100, where the step is
+ * DRAM-bandwidth-bound.  Callers MUST sfence before reading `out`. */
+static inline __attribute__((always_inline))
+void FN(p1nt)(const double *restrict in, double *restrict out,
+              double *restrict pld, int x, const long mpln)
+{
+    const double *px = in  + (size_t)x * PLNDL;
+    double       *mx = out + (size_t)x * mpln;
+
+    for (int yg = 0; yg < NFULL; ++yg) {
+        const int yb = 4 * yg;
+        const double *rows = px  + (size_t)yb * (2 * GENL);
+        double       *prow = pld + (size_t)yb * (2 * GPP);
+        vec Zv[GENL], Wv[GENL];
+        _Pragma("GCC unroll 25")
+        for (int zg = 0; zg < NFULL; ++zg) {
+            vec r_[4];
+            _Pragma("GCC unroll 4")
+            for (int j = 0; j < 4; ++j)
+                r_[j] = LDU(rows + (size_t)j * (2 * GENL) + 8 * zg);
+            TRNC(r_, &Zv[4 * zg]);
+        }
+#define LD1(n)    Zv[n]
+#define ST1(k, v) (Wv[k] = (v))
+        PFAL(LD1, ST1);
+#undef LD1
+#undef ST1
+        _Pragma("GCC unroll 25")
+        for (int zg = 0; zg < NFULL; ++zg) {
+            vec r_[4];
+            TRNC(&Wv[4 * zg], r_);
+            _Pragma("GCC unroll 4")
+            for (int j = 0; j < 4; ++j)
+                STU(prow + (size_t)j * (2 * GPP) + 8 * zg, r_[j]);
+        }
+    }
+
+    for (int zg = 0; zg < NFULL; ++zg) {
+        const int zb = 4 * zg;
+        const double *pcol = pld + 2 * zb;
+        double       *mcol = mx  + 2 * zb;
+        __asm__("" : "+r"(pcol), "+r"(mcol));
+#define LD2(n)    LDU(pcol + (size_t)(n) * (2 * GPP))
+#define ST2(k, v) STNT(mcol + (size_t)(k) * (2 * GENL), (v))
+        PFAL(LD2, ST2);
+#undef LD2
+#undef ST2
+    }
+}
+#endif /* GENL % 4 == 0 */
+
+/* one full chain step for the whole batch: state cur -> state dst.
+ * Per volume: phase 1 into the plan's single mid volume M (stays hot),
+ * then the fused map phase 2 into dst. */
+static void FN(xc_pf0)(const double *cur, double *dst, const double *cf,
+                       long nvol, double *M, double *P)
+{
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = cur + (size_t)b * VDL;
+        for (int x = 0; x < GENL; ++x)
+            FN(p1)(i, M, P, x, MPLND);
+        FN(p2c)(M, dst + (size_t)b * VDL, cf + (size_t)b * VDL, 0, 0);
+    }
+}
+
+static void FN(xc_pfr)(const double *cur, double *dst, const double *cf,
+                       long nvol, double *M, double *P)
+{
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = cur + (size_t)b * VDL;
+        for (int x = 0; x < GENL; ++x)
+            FN(p1)(i, M, P, x, MPLND);
+        FN(p2c)(M, dst + (size_t)b * VDL, cf + (size_t)b * VDL, 1, 0);
+    }
+}
+
+static void FN(xc_pfrw)(const double *cur, double *dst, const double *cf,
+                        long nvol, double *M, double *P)
+{
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = cur + (size_t)b * VDL;
+        for (int x = 0; x < GENL; ++x)
+            FN(p1)(i, M, P, x, MPLND);
+        FN(p2c)(M, dst + (size_t)b * VDL, cf + (size_t)b * VDL, 1, 1);
+    }
+}
+
+/* in-place chain step: p1 in place (each plane is fully consumed into the
+ * plane scratch before being rewritten), p2 in place, then the sequential
+ * vectorized map in place -- the state buffer is the ONLY volume-sized
+ * object touched besides c, so at L=100 it stays L3-resident across all
+ * three phases instead of ping-ponging 3 volume sets through DRAM.  The
+ * mid volume M is not used at all. */
+static void FN(xc_ip0)(const double *cur, double *dst, const double *cf,
+                       long nvol, double *M, double *P)
+{
+    (void)M;
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = cur + (size_t)b * VDL;
+        double       *d = dst + (size_t)b * VDL;
+        for (int x = 0; x < GENL; ++x)
+            FN(p1)(i, d, P, x, PLNDL);
+        FN(p2)(d, PLNDL, 0);
+        map_vec(d, cf + (size_t)b * VDL, d, VDL / 8);
+    }
+}
+
+static void FN(xc_ip1)(const double *cur, double *dst, const double *cf,
+                       long nvol, double *M, double *P)
+{
+    (void)M;
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = cur + (size_t)b * VDL;
+        double       *d = dst + (size_t)b * VDL;
+        for (int x = 0; x < GENL; ++x)
+            FN(p1)(i, d, P, x, PLNDL);
+        FN(p2)(d, PLNDL, 1);
+        map_vec(d, cf + (size_t)b * VDL, d, VDL / 8);
+    }
+}
+
+/* in-place chain step with the map fused into phase 2's stores (r2, the
+ * gen_powp ipf family): the map pass disappears entirely.  ipf0/ipf1
+ * differ only in the p2 write-intent pokes. */
+static void FN(xc_ipf0)(const double *cur, double *dst, const double *cf,
+                        long nvol, double *M, double *P)
+{
+    (void)M;
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = cur + (size_t)b * VDL;
+        double       *d = dst + (size_t)b * VDL;
+        for (int x = 0; x < GENL; ++x)
+            FN(p1)(i, d, P, x, PLNDL);
+        FN(p2ipf)(d, cf + (size_t)b * VDL, 0);
+    }
+}
+
+static void FN(xc_ipf1)(const double *cur, double *dst, const double *cf,
+                        long nvol, double *M, double *P)
+{
+    (void)M;
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = cur + (size_t)b * VDL;
+        double       *d = dst + (size_t)b * VDL;
+        for (int x = 0; x < GENL; ++x)
+            FN(p1)(i, d, P, x, PLNDL);
+        FN(p2ipf)(d, cf + (size_t)b * VDL, 1);
+    }
+}
+
+/* in-place chain step with the per-tile map epilogue (r2, new family). */
+static void FN(xc_ipe0)(const double *cur, double *dst, const double *cf,
+                        long nvol, double *M, double *P)
+{
+    (void)M;
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = cur + (size_t)b * VDL;
+        double       *d = dst + (size_t)b * VDL;
+        for (int x = 0; x < GENL; ++x)
+            FN(p1)(i, d, P, x, PLNDL);
+        FN(p2ipe)(d, cf + (size_t)b * VDL, 0);
+    }
+}
+
+static void FN(xc_ipe1)(const double *cur, double *dst, const double *cf,
+                        long nvol, double *M, double *P)
+{
+    (void)M;
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = cur + (size_t)b * VDL;
+        double       *d = dst + (size_t)b * VDL;
+        for (int x = 0; x < GENL; ++x)
+            FN(p1)(i, d, P, x, PLNDL);
+        FN(p2ipe)(d, cf + (size_t)b * VDL, 1);
+    }
+}
+
+#if GENL % 4 == 0
+/* NT-store variants (r2): p1's y-subpass streams the state out with
+ * vmovntpd (no RFO read of the state volume), sfence, then either the
+ * plain in-place p2 + sequential map (ipnt) or the fused-map in-place p2
+ * (ipfnt).  Falls back to the ordinary p1 when the volume base is not
+ * 64B-aligned (never observed; the arena and driver buffers are). */
+static void FN(xc_ipnt)(const double *cur, double *dst, const double *cf,
+                        long nvol, double *M, double *P)
+{
+    (void)M;
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = cur + (size_t)b * VDL;
+        double       *d = dst + (size_t)b * VDL;
+        if (((uintptr_t)d & 63) == 0) {
+            for (int x = 0; x < GENL; ++x)
+                FN(p1nt)(i, d, P, x, PLNDL);
+            _mm_sfence();
+        } else {
+            for (int x = 0; x < GENL; ++x)
+                FN(p1)(i, d, P, x, PLNDL);
+        }
+        FN(p2)(d, PLNDL, 1);
+        map_vec(d, cf + (size_t)b * VDL, d, VDL / 8);
+    }
+}
+
+static void FN(xc_ipfnt)(const double *cur, double *dst, const double *cf,
+                         long nvol, double *M, double *P)
+{
+    (void)M;
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = cur + (size_t)b * VDL;
+        double       *d = dst + (size_t)b * VDL;
+        if (((uintptr_t)d & 63) == 0) {
+            for (int x = 0; x < GENL; ++x)
+                FN(p1nt)(i, d, P, x, PLNDL);
+            _mm_sfence();
+        } else {
+            for (int x = 0; x < GENL; ++x)
+                FN(p1)(i, d, P, x, PLNDL);
+        }
+        FN(p2ipf)(d, cf + (size_t)b * VDL, 1);
+    }
+}
+#endif /* GENL % 4 == 0 */
+
+static void FN(x_pf0)(const double *in, double *out, long nvol, double *P)
+{
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = in  + (size_t)b * VDL;
+        double       *o = out + (size_t)b * VDL;
+        for (int x = 0; x < GENL; ++x)
+            FN(p1)(i, o, P, x, PLNDL);
+        FN(p2)(o, PLNDL, 0);
+    }
+}
+
+static void FN(x_pf1)(const double *in, double *out, long nvol, double *P)
+{
+    for (long b = 0; b < nvol; ++b) {
+        const double *i = in  + (size_t)b * VDL;
+        double       *o = out + (size_t)b * VDL;
+        for (int x = 0; x < GENL; ++x)
+            FN(p1)(i, o, P, x, PLNDL);
+        FN(p2)(o, PLNDL, 1);
+    }
+}
+
+#undef FN
+#undef NYG
+#undef NFULL
+#undef VDL
+#undef PLNDL
+#undef NPL
+
+#endif /* template */

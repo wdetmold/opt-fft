@@ -1,0 +1,8 @@
+**GT-PFA two-sweep with DFT25 stage-B stores fused through the CRT map (ip\* chain picked by the create()-race): L=40 208.8 µs B=8 / 223.2 B=1; L=50 471.5 µs B=4 / 554.9 B=1; L=100 5008.8 µs B=1; rel L2 = 3.6–4.5e-16.**
+
+Supporting detail, all measured on a80n0 via tryout.sh:
+
+- **The gain came from fusing DFT25's stage-B stores** straight through the PFA wrappers' store macro (deleting the `R_[25]` L1 round-trip): L=50 497→471.5, L=100 5248→5009. That retakes both shared sizes from gen_powp's r1 numbers (473.5 / 5026.8). L=40 has no DFT25 and stays at parity (208.8 vs 206.7).
+- **Borrowed gen_powp's ipf family** (map fused into phase 2's in-place stores) with attribution, but it did *not* explain their 50-edge — on the node it loses 75% at L=100 (map ladder gating stores collapses the x-pass's memory-level parallelism) and ties at 50. My new ipe (per-tile map epilogue) and NT-store families also lose on the quiet node (+27%, +14% at 100), with one twist: ipfnt *wins* the L=40 race under neighbor contention — so all stay as raced candidates for the cross-arch hosts.
+- Killed with numbers: sched-pressure on the 50-family (+40%), and corrected my r1 miscount of the L=50 tail cost (13 codelet calls is the true minimum; nothing to reclaim).
+- All gates pass (map-chain 3.8–5.0e-14 vs tol 1e-10), outputs are bit-identical across every pick family, and two-process repeatability verified by cmp. Strategy record appended with the full round history; next-round headline is finally adopting gen_race's wisdom cache (create() is 6.5 s at L=100 vs the 50 ms warm budget).

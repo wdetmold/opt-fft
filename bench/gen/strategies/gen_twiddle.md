@@ -193,3 +193,136 @@ design.
 4. Demo speed is NOT a priority (it is a test bench), but if idle: hoist the
    pencil gather into gen_layout's `gl_pack8` and stop re-gathering axis 1
    per plane.
+
+## Round gen_r2
+
+### Adoption status (the score)
+
+- **gen_bluestein ADOPTED the layer this round**: `tw_chirp` for their chirp
+  table and `tw_fill_ct_int_colmajor` + `tw_audit_ct_int_colmajor` for every
+  per-stage twiddle table, forward and (conjugated) inverse, asserted ≤ 0.51
+  ulp in their create() (impl/gen_bluestein.c:523–548). Exactly the drop-in
+  their r1 record asked for. API kept 100% backward compatible this round so
+  their include keeps compiling (verified: `gcc -c impl/gen_bluestein.c` clean
+  against the new file).
+- **gen_planner changed their CT twiddle layout in their r2** (their record,
+  "Notes for adopters": `pln_x->tw` is now k2-major
+  `[(k2-1)*(r-1) + (j1-1)]`, k2 ≥ 1 only — my r1 rowmajor filler documented
+  their OLD layout). Answered with a new filler this round (below).
+
+### What changed in the library (all additive; nothing existing moved)
+
+1. **`tw_fill_ct_int_k2major` / `tw_audit_ct_int_k2major`** — exactly
+   gen_planner's gen_r2 fused-leaf consumption order (verified against their
+   fill loop at gen_planner.c:712–720: same index formula, k2 = 1..m-1 outer,
+   j1 = 1..r-1 inner, interleaved pairs, no k2 = 0 block). Their `pln_omegal`
+   is ±π-fold long double (fine at den ≤ 16384); adopting buys the octant
+   fold, bit-exact quarter turns and the audit, as a two-line diff.
+2. **Rader helpers** (my r1 next-steps item 2, built for gen_rader's round-3
+   any-prime mandate and gen_planner's rad-p nodes):
+   - `tw_modpow(b, e, p)` — exact for p < 2³¹;
+   - `tw_primroot(p)` — smallest primitive root, trial-factors p−1, returns 0
+     on composite input (fatal-signal, not a guess);
+   - `tw_fill_rader_seq(w, p, g, dir)` + `tw_audit_rader_seq` — the roots
+     w_p^(g^q) (dir ≥ 0, input-gather order) or w_p^(g^−q) (dir < 0, the b
+     kernel) as interleaved pairs in generator = consumption order;
+   - `tw_fill_rader_fft(V, p, g, scale_inv)` — DFT_{p−1} of the b-sequence
+     computed END-TO-END in long double (octant-exact roots + `tw_ld_dft`),
+     ONE rounding to double, optional 1/(p−1) folded in. This is the
+     plan-time kernel table a Rader convolution multiplies by; gen_rader's
+     generalization beyond p=31 is one call plus their index tables.
+3. **`tw_selftest` extended** (still the thing you assert once in create()):
+   primitive-root orbit checks (g^q visits all p−1 residues and closes) at
+   p ∈ {3,5,7,13,17,31,101,127} + composite rejection; Rader table identities
+   at p=13 (seq audit ≤ 0.51 ulp both directions; kernel V[0] = Σ nontrivial
+   roots = −1 to 1e-14; Parseval Σ|V|² = (p−1)² to 1e-12; scaled variant
+   V[0] = −1/(p−1)); a k2-major fill/audit round trip. Cost added: ~150 extra
+   tw_cisl calls — negligible next to the existing chirp sweep.
+
+### The demo: zmm lanes via GNU vector extensions (−25% to −49% on the node)
+
+The r1 demo's 8-pencil split-complex loops (`double [8]` + q-loops) were
+auto-vectorized by gcc to **ymm only**. gen_bluestein's r1 record called this
+exactly ("gcc targets 256-bit even when it does vectorize; explicit 512-bit
+is the only reliable path under the fixed harness flags"). Rewrote the hot
+paths as explicit 64-byte GNU vector types — `tw_v8` (8 doubles, may_alias),
+one vector per lane-row:
+
+- butterflies r=2/3/4/5 and the dense 4-row-unrolled combine: same arithmetic,
+  same evaluation order, one zmm op per line (scalar constants broadcast);
+- twiddle multiply in the combine sweep: broadcast-FMA on whole lane-rows;
+- `twd_gather_i`/`twd_scatter_i` full groups: 2 unaligned loads + 2 two-source
+  `__builtin_shuffle` (vpermt2pd) de/interleave per row — was 16 scalar moves;
+- `twd_gather_z`/`twd_scatter_z` full groups: in-register 8×8 double transpose
+  (`tw_tr8x8`, 24 shuffles per 4 elements — gen_bluestein's tr8x8 idea,
+  reimplemented with `__builtin_shuffle`); scalar tail lanes/elements kept.
+
+No intrinsics headers, no #ifdef forest: GNU vector extensions lower to
+scalar code on any non-AVX-512 target, so the file stays portable and the
+node build gets full zmm. Operation COUNT is unchanged from r1 (same
+radix-4-first factorization, same tables); only lane width and the
+gather/scatter instruction economy changed.
+
+Measured on the node (a80n0, leased core via tryout.sh, graded chain, min;
+sd ≤ 0.7% every run):
+
+| L | B | gen_r1 | gen_r2 | delta | rel L2 |
+|---|---|---|---|---|---|
+| 10 | 64 | 18.13 | **13.09** | −28% | — |
+| 12 | 64 | 27.07 | **19.30** | −29% | 2.96e-16 |
+| 12 | 1  | 26.68 | **21.49** | −19% | 2.99e-16 |
+| 25 | 16 | 260.7 | **181.9** | −30% | 3.70e-16 |
+| 27 | 16 | 431.8 | **299.5** | −30% | 3.88e-16 |
+| 31 | 16 | 1125.6 | **566.2** | −49% | 4.63e-16 |
+| 50 | 4  | 2828.7 | **2098.3** | −25% | 4.52e-16 |
+| 100 | 1 | 26786 | **18938** | −29% | 4.82e-16 |
+
+L=31's dense-leaf −49% is the cleanest read of the ymm→zmm effect (pure
+broadcast-FMA). Chain timings still include the driver's scalar map (the demo
+does not own fft3d_chain — it is a test bench, not a contender).
+
+Gates, all rechecked manually (tryout's remote map-check still dies on the
+`'$W/c.bin'` quoting bug): two-step 9.5e-16 (L=12) / 1.6e-15 (L=27) /
+2.9e-15 (L=100) vs tol 3e-14; full chain m=600 at L=12 5.19e-14 (anchor
+3.89e-14, tol 1e-10); bit-repeatable across runs (manual cmp); local numpy
+sweep of 32 sizes L ∈ {2..32 all, 45, 50, 64, 100, 101, 108, 125, 127, 128}
+ALL PASS, worst 1.02e-15 (L=101), typical 3–5e-16. setup ≤ 5 ms at L=100.
+
+### What did not work / superseded negatives
+
+- Nothing tried this round regressed — but the r1 negative
+  "`-mprefer-vector-width=512` loses (30.2 vs 27.1 µs at L=12)" is now
+  SUPERSEDED and should not deter anyone: explicit vector types measure 19.3
+  µs on the same case. The flag's loss was the autovectorizer's zmm codegen
+  (masked epilogues, gather choices), not 512-bit itself. If your kernel is
+  already 8-lane-shaped, write the vectors explicitly; do not conclude "zmm
+  loses on Ice Lake" from the flag experiment.
+- `tw_primroot` subtlety worth recording for adopters: the factor test alone
+  (`g^((p-1)/q) != 1`) does NOT reject composite p — it can return a bogus
+  "root". The shipped version also requires `g^(p-1) = 1` (Fermat), which
+  makes composite input return 0, and the selftest asserts exactly that at
+  p = 9 and 15. A nonzero return is trustworthy only because of that check;
+  do not strip it for speed (it is plan-time).
+
+### Borrowed this round, named
+
+- **gen_bluestein**: the explicit-512-bit lesson (their r1 item 3) — the
+  whole demo speedup is that lesson applied; and the 8×8 in-register
+  transpose idea (their `tr8x8`) for my z-axis gather/scatter.
+- **gen_planner**: the k2-major layout spec straight from their r2 record's
+  adopter note — the new filler exists because they documented the change.
+
+### What I would do next (gen_r3)
+
+1. **gen_rader adoption**: their record plans exactly what
+   `tw_primroot`/`tw_fill_rader_seq`/`tw_fill_rader_fft` provide ("needs a
+   small generator for the index/sign tables"); a worked example in their
+   prompt (p=41: primroot, seq both directions, kernel FFT, audit) is the
+   cheapest adoption of the round.
+2. **gen_powp / gen_pfa_large refnd**: still building their create()-gate
+   reference W with double cexp (250 ulp); `tw_fill_dft_cplx` remains the
+   one-line fix. Re-pitch with the r1 audit-table numbers.
+3. Per-stage error-budget helper (unchanged from r1 item 3).
+4. Demo if idle: own fft3d_chain (volume-major in-place + NR-ladder map — the
+   panel-standard scheme; the driver's scalar map is most of the gap to
+   gen_planner at small L), and stop re-gathering axis 1 per plane.
