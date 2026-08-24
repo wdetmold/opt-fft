@@ -1,0 +1,10 @@
+Both deliverables are in place — `impl/gen_rader.c` and the appended `strategies/gen_rader.md` round section. Summary of the round:
+
+**What changed:**
+1. **Round-3 class duty**: `gen_rader` now supports every odd prime 3 ≤ p ≤ 127. Non-31 primes run a new generic folded half-system engine (runtime k-quad column-chunk kernel, transpose z-quads, in-place chain, per-plane map), gated by the existing create()-time self-check. Primes 37–127 previously had only Bluestein coverage in the library: measured 3.7× MKL at p=37, 5.2× at p=61, parity at p=127, all setups ≤ 2.9 s (60 s budget).
+2. **L=31 scored cell**: chain state + c mirror moved into one 2 MiB huge-page arena with the c mirror at a +2048 B page phase (adopted gen_layout's `gl_map_huge`; gen_dense_prime's r3 same-phase-alloc alias diagnosis) — **85.5 vs 86.6–86.9 us/step for the r2 control, 3/3 interleaved (−1.4%)**.
+3. **Negative result recorded**: fused y-pass map on the generic engine loses 2/2 at both probe sizes (+2.3% at 37, +5–9% at 13) — third engine on the panel where eager map fusion loses; knob kept for cross-arch.
+
+All gates pass on the node: single 4.059e-16, two-step 1.784e-15 (tol 3e-14), map-chain m=140 2.559e-14, bit-repeatable; generic primes pass every gate including chains at 29 and 37.
+
+Final line: **Winograd-Rader-31 on a phase-split huge-page arena + a new any-prime folded half-system engine (3 ≤ p ≤ 127); best node timing at the graded cell 85.50 us/transform batched (B=16, m=140) and 85.34 us at B=1; rel L2 4.06e-16 single / 2.56e-14 graded chain.**

@@ -334,3 +334,177 @@ fold31zx_core), so flat execute() and padded chain share one source body.
    the remote check.py (the r1 W= bug is FIXED, map-check quoting is not)
    -- run check.py manually.  fmabench + prof.c live in
    build/tryout/gen_dense_prime/ for reuse.
+
+## Round gen_r3
+
+### Where this round started
+
+r2 leaderboard: **124.281 us/step** at the graded cell (L=31 B=16 m=140);
+gen_rader leads the crossover at 86.913 (their arithmetic edge, as both our
+records predicted).  gen_rader's r2 record closes with an item addressed to
+me by name: my padded chain still has systematic 4K store->load aliasing
+(plane pitch 992 -> collisions at row distance d = 1, 9, 17, 25 for my
+512 B block advance) and prescribes a mod-256 plane pitch.  Round-3 rule:
+the class must accept ANY size in class (any prime p <= 31).
+
+### The 4K-anti-alias pitch: built, raced, and REJECTED with numbers
+
+I implemented the full fix as compile-time knobs (-DGDP_PP plane pitch,
+-DGDP_BG permuted x-block visit order; blocks are independent columns so any
+order is legal).  Collision model (gl_alias_pairs4k, gen_layout): 992/1
+scores 240 weighted in-flight store/load pairs; 1148 (gen_rader's pitch)
+26.5+30; 1108/4 **4.35**; 1004/4 8.6.  Node races, many windows, mins:
+
+| layout | mins across windows (us/step) |
+|---|---|
+| 992/1 (r2 layout) | 123.0 / 123.7 / 123.9 / 124.0 / 129.9 / 130.9 / 132.7 |
+| 1108/1 | 129.1 |
+| 1108/4 (model best) | 129.5 / 130.3 |
+| 1004/1 | 125.3 / 126.6 / 127.9 |
+| 1004/4 | 124.1 / 126.8 / 130.0 |
+
+**The model's best candidates never beat the r2 layout; pitches past ~1100
+lose ~4% outright** (footprint 0.96 -> 1.07 MB against the 1.25 MB L2).
+Mechanism, and why gen_rader won 9.5% from the same fix while I get
+nothing: their x-chunks run back-to-back, so chunk n's ~30 stores are still
+in flight when chunk n+1's loads issue; my fused z+x block starts with a
+~450-op z-transform phase (15 zpair GEMMs) between the previous block's
+GEMM drain and the next fold's loads -- the stores retire behind it.  The
+alias replays exist but never bind.  Defaults reverted to 992/1; knobs kept
+for the cross-arch rounds.  DO NOT re-derive this: pitch fixes pay on
+engines whose store drain directly abuts the next chunk's loads.
+
+### The node is 5% bimodal this round -- measure accordingly
+
+Identical binaries read min 123.6-130.4 us across process instances with
+WITHIN-run sd 0.03-0.08% (six back-to-back runs, same core, same binary).
+The r2 control (impl_2 source, rebuilt) read 123.0 / 123.7 / 129.9 the same
+way.  Same-window single A/Bs are no longer sufficient at the +-2% scale --
+interleave 3+ process instances per arm and compare the sets.  (Likely
+co-tenants: 12 implementers now share the leased-core pool; r2's windows
+were 124.2-125.9 tight.)  MKL same cell, this round's windows: 849-868.
+
+### What shipped
+
+1. **z-combine fused into the U/V fold** (zpair31_uv replaces zpair31_p +
+   re-load fold inside fold31zx_core).  The old drain stored both z-spectra
+   to stack rows and re-read them to build U = zA + zB, V = swap(zA - zB).
+   The fold commutes with the combine: sum/dif the GEMM accumulators first
+   (Csum/Cdif/Ssum/Sdif), then ONE combine per U/V vector:
+   U1st = Csum + SG*swap(Ssum), U2nd = rev(Csum - SG*swap(Ssum));
+   V1st = swap(Cdif) - SG*Sdif, V2nd = rev(swap(Cdif) + SG*Sdif)
+   (swap/rev commute; swap(SG*swap(x)) = -SG*x).  Deletes 16 stores + 16
+   loads + a store->forward chain per row-pair, ~15k memory ops per z+x
+   pass.  A/B vs the r2 control: a WASH inside this round's noise (best
+   mins 123.1 vs 123.0) -- kept because it is strictly less work and the
+   quiet scoring window may resolve it.
+2. **Deterministic 2 MiB-huge-page arena for the whole L=31 chain** (create
+   now mmaps one MADV_HUGEPAGE region; sp, cp, U, V, Cb, ctd, std_, ct, st
+   at FIXED offsets; heap fallback if mmap fails).  cp sits at page phase
+   +2048 from sp -- in r2 the two separate ~500 KB aligned_allocs landed at
+   the SAME page phase, so the map's c loads 4K-aliased the state stores
+   every 32 vector groups.  The small buffers stagger by 320 B (5 lines,
+   gcd(5,64)=1).  This did NOT collapse the bimodality (so that variance is
+   co-tenant/frequency, not my layout) but makes the layout luck
+   deterministic, removes the map's systematic alias, and puts the whole
+   1 MB working set on one TLB entry.  Adopted from **gen_layout**
+   (gl_map_huge / gl_arena / the collision model; THP is madvise-mode on
+   a80n0, verified).
+3. **Generic VECTORIZED z-pass for every non-31 size** (the r1/r2 scalar
+   z-rows were ~40% of small-size steps).  The zpair31 shape generalized:
+   k lives in KQ = ceil((hc+1)/4) zmm, tables in duplicated-pair layout
+   with zeroed pad slots, rows in pairs sharing table loads (2KQ+4 loads /
+   4KQ FMAs per j), per-plan store masks + reversed-half offsets; even L
+   falls out free (middle row = one extra +-1-cos row; X_{L/2} = C because
+   the sin table's k=L/2 slot is exactly 0); odd row counts alias the pair
+   kernel to the same row (reads-before-stores makes the duplicate store
+   idempotent).  Four instantiations KQ=1..4, dispatched at plan time.
+4. **Any-prime class duty**: supports() = any prime 2 <= p <= 31, plus the
+   roster composites 10/12/15/20.  L=2 edge (hs=0) handled in the table
+   builder; everything else was already size-generic.
+
+### Measured on the node (a80n0 leased cores; graded cells, min us/step)
+
+| cell | r2 leaderboard | gen_r3 | delta | nearest refs (r2 board) |
+|---|---|---|---|---|
+| L=10 B=64 m=1000 | 8.296 | **5.838** | -30% | mkl 4.56, ducc0 9.75 |
+| L=12 B=64 m=600 | 14.290 | **8.205** | -43% | mkl 7.73, fftw3_m 8.85 |
+| L=15 B=32 m=600 | 30.189 | **16.177** | -46% | mkl 16.46, fftw3_m 19.5 |
+| L=20 B=32 m=256 | 79.313 | **43.691** | -45% | mkl 58.3, ducc0 73.2 |
+| L=31 B=16 m=140 | 124.281 | **~123-127 (windows 123.5-135)** | ~0 | gen_rader 86.9, MKL 849-868 |
+
+The dense floor now BEATS MKL at 15 and 20 and is within 1.3x at 10/12 --
+at 12/15/20 it also passes gen_layout's vectorized demo (8.54/18.8/41.9).
+Primes at B=4 m=8 (first-ever numbers, r6 reference): 13: 11.65, 17: 33.42,
+19: 46.23, 23: 73.95, 29: 156.7 us/step.  B=1 at 31: 128.8/132.3 in warm
+windows (the documented short-unit ramp signature; batch-invariant path).
+
+Correctness, all on the shipped binary: single rel_l2 2.8e-16..4.0e-16 at
+ALL 15 supported sizes (tol 1e-12); graded map-chains PASS at 1.05-2.1x
+their honest anchors (tol 1e-10); **two-step gate 8.6e-16..1.7e-15 at every
+size** (tol 3e-14, 17-35x margin); m=8 chains at every prime PASS; single
+AND chain outputs bit-identical across independent node processes; the
+non-AVX-512 scalar build verified end-to-end at L=7 and L=31 (chain gates
+included) on the AVX2 login host.
+
+### What did NOT work, with the number that killed it
+
+- **The whole anti-alias pitch program** (table above): model-clean layouts
+  1108/4 and 1004/4 never beat 992/1; +4% at pitch 1108.  Negative result
+  contributed: the collision model needs an "are the stores still in
+  flight" term -- ops between drain and next loads matter.
+- 1004/g4 vs 1004/g1: the permuted block order alone bought nothing
+  measurable either (126.8/130.0/124.1 vs 125.3/126.6/127.9 -- overlapping
+  sets), consistent with the same mechanism.
+- The THP arena did not collapse the per-process bimodality (123.6-130.1
+  before AND after) -- the variance is external (co-tenants/frequency), not
+  allocation luck.  Kept for determinism, the cp phase fix, and TLB.
+
+### Borrowed this round, named
+
+- **gen_rader gen_r2**: the pitch prescription addressed to me (item 4 of
+  their next-steps) -- executed faithfully, rejected on measurement (their
+  engine's win did not transfer; mechanism above).  Also their bimodality
+  vocabulary ("windows", same-core A/B discipline) throughout.
+- **gen_pfa_large gen_r1 / ice L23_rader** (transitively): the mod-4096
+  collision arithmetic used in my pitch search.
+- **gen_layout r1/r2**: gl_map_huge / gl_arena (THP arena, prefault at
+  create, phase stagger) adopted into create(); their gl_alias_pairs4k
+  model reimplemented closed-form for the pitch search; their r2 offer to
+  do my pitch first ("a measurable afternoon") -- it measured, and the
+  answer was no, which their own demo nulls foreshadowed for staged
+  engines.
+- **gen_batchlane** (bl8 lineage, transitively L13_rader soa8): the
+  k-in-vector + duplicated-pair-table z-row shape my generic z-pass
+  generalizes (via my own r1 zpair31).
+
+### Operation count (shipped, L=31 chain step)
+
+Arithmetic unchanged from r2 (~352K zmm FMA + map); the z+x pass drops
+~15k stack memory ops (fused combine) and the map's c stream is alias-free.
+Small sizes: z-pass now 4*KQ FMA per row-pair per j (KQ = ceil((hc+1)/4))
++ 2KQ+4 loads, ~8x fewer instruction slots than the scalar rows it
+replaced; x/y passes unchanged (register-tiled masked GEMM).
+
+### What I would do next
+
+1. **The L=31 gap to gen_rader (1.4x) is arithmetic; the gap to my own
+   floor (~1.6x over ~65 us) is issue shape.**  The remaining candidates:
+   software-pipeline two blocks (start block n+1's z-GEMM under block n's
+   S-drain), and the x->y fused store order (still unsolved: x-block y0
+   emits one y-row per PLANE -- needs a full-volume reorder, probably a
+   dead end; write it off unless someone finds the trick).
+2. **Quiet-window re-A/B of the fused z-combine** (this round's noise
+   swallowed a ~2 us expected win).
+3. **r6 insurance**: the padded arena chain is still 31-only; the generic
+   sizes chain via flat in-place volumes.  If a surprise prime (17-29)
+   matters, port the padded-row chain + zpass_vec into a runtime-p arena
+   (rows pad to mult-of-8 complex; the machinery is already parameterized
+   by PAD/BW).
+4. **Cross-arch**: re-race GDP_PP/GDP_BG on Cascade Lake / Sapphire Rapids
+   -- the L2 sizes and store-buffer depths differ; the pitch conclusion may
+   flip where L2 is 1 MB (CLX) or larger (SPR).
+5. Harness (verified this round): tryout's remote map-check still dies on
+   the unexpanded '$W/c.bin' -- run check.py by hand; the leased-core pool
+   is BUSY (12 implementers), interleave 3+ process instances per arm and
+   compare min-sets, not single windows.

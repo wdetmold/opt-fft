@@ -326,3 +326,150 @@ ALL PASS, worst 1.02e-15 (L=101), typical 3–5e-16. setup ≤ 5 ms at L=100.
 4. Demo if idle: own fft3d_chain (volume-major in-place + NR-ladder map — the
    panel-standard scheme; the driver's scalar map is most of the gap to
    gen_planner at small L), and stop re-gathering axis 1 per plane.
+
+## Round gen_r3
+
+### Adoption status (the score)
+
+- **gen_bluestein's r2 adoption stands** (tw_chirp + colmajor filler/audit in
+  their create()); API kept 100% backward compatible again — `gcc -c
+  impl/gen_bluestein.c` verified clean against this round's file.
+- **gen_planner rewrote their executor in intrinsics this round and grew two
+  NEW table layouts**; both now have exact fillers + audits in the layer,
+  **verified slot-for-slot against their own builders** (a test TU included
+  both files and compared every slot at n = 7, 11, 13, 31: MATCH):
+  - `tw_fill_dense_simd` / `tw_audit_dense_simd` = their `pln_dense_matrix`
+    PLN_SIMD layout (WR[np][n] k-major real parts, then (−wi,+wi)
+    broadcast_f64x2 pairs at np·n, zero pad rows k ≥ n — the audit also
+    checks the pads ARE zero, since the tiled kernel multiplies them).
+  - `tw_fill_fold_half` / `tw_audit_fold_half` = their `pln_fold_matrix`
+    (folded odd-n half-system: C[k][j] = cos(2πkj/n) rows 1..h padded to hp,
+    then S[k][j] = sin(2πkj/n); also the gen_dense_prime / gen_rader /
+    gen_layout-demo fold shape). Their `pln_omegal` is ±π-fold long double —
+    fine at their dens — so the pitch is the audit + bit-exact quarter turns
+    + one less private table builder, as a two-line diff each.
+- **NEW for gen_rader's round-3 any-prime mandate**: `tw_fill_rader_half` /
+  `tw_audit_rader_half` — the FOLDED Rader form's split real kernels over the
+  quotient group Z_p^× mod {±1} (cyclic of order h = (p−1)/2; any primitive
+  root of p generates it, g^h = −1 so q = 0..h−1 hits each class {e, p−e}
+  exactly once). Emits cos(2π g^{±q}/p) and sin(2π g^{±q}/p) split, in
+  generator = consumption order: cw feeds their cyclic-h correlation (E), sw
+  the negacyclic one (O); the (−1)^q twist/sign tables stay theirs (engine
+  index tables, not trig). With `tw_primroot` + this + `tw_fill_rader_fft`,
+  the any-prime plan-time table work is three calls.
+- `tw_selftest` extended with fill/audit round trips for all three new
+  fillers (including a fold spot value at n=15, k·j = n: cos exactly 1, sin
+  exactly 0) and a quotient-orbit coverage check at p=13. Everything
+  additive; nothing existing moved (adopters recompile unchanged).
+
+### The demo: owned fft3d_chain — in place, volume-major, map fused (−18% to −40%)
+
+My r2 next-steps item 4, and the last panel-standard chain lesson the demo
+had not cashed (gen_planner r2's "own the chain" + gen_rader r1's in-place
+insight, applied to this engine): the driver fallback charged the demo
+execute (src → T → dst, a full intermediate volume T) + ping-pong between two
+volumes + a full-volume scalar-ish map pass per step. The demo's
+gather-to-lanes structure makes every axis in-place safe FOR FREE (each
+8-pencil group is copied into the lane buffers before anything stores), so
+the owned chain runs all three axes in place on the state volume — T is
+never touched, the ping-pong is gone — and the map z/(1+|z|) is fused into
+the axis-2 scatter: z-pencils are contiguous rows, so c is read interleaved
+with NO transpose, and the map runs on the tr8x8 outputs while they are in
+registers. Map arithmetic: rsqrt14 + 2 Newton for |z| (~5e-17 rel), then ONE
+well-rounded vdivpd (raced against the rcp14+2NR ladder — see below);
+1e-300 clamp; exact scalar sqrt/div on tail lanes.
+
+create() gains a CHAIN GATE (ice L17_rader r5 discipline, everyone's
+pattern): two owned steps vs execute + the driver's exact scalar map on a
+deterministic volume, rel L2 ≤ 1e-12 or the chain silently uses the exact
+fallback path (execute src==dst is safe in this engine, so the fallback
+needs no extra buffer). The gate has never fired; a malloc failure also
+falls back. Setup at L=100 grew 6 → 90 ms (gate = 4 volume transforms) —
+still 3 orders under the 60 s budget.
+
+Measured on the node (a80n0, leased core via tryout.sh, graded chain, min;
+sd ≤ 0.2% except where noted):
+
+| L | B | gen_r2 | gen_r3 | delta | rel L2 (single) |
+|---|---|---|---|---|---|
+| 10 | 64 | 13.09 | **10.62** | −19% | 2.9e-16 |
+| 12 | 64 | 19.30 | **14.70** (14.7–15.3 across windows) | −24% | 3.0e-16 |
+| 12 | 1  | 21.49 | **17.50** | −19% | 3.0e-16 |
+| 15 | 32 | 39.12 | **30.08** | −23% | 3.4e-16 |
+| 20 | 32 | 79.37 | **59.30** | −25% | 3.3e-16 |
+| 25 | 16 | 181.9 | **124.7** | −31% | 3.7e-16 |
+| 27 | 16 | 299.5 | **239.0** | −20% | 3.9e-16 |
+| 31 | 16 | 566.2 | **463.9** | −18% | 4.6e-16 |
+| 32 | 8  | 451.7 | **365.0** | −19% | 3.2e-16 |
+| 40 | 8  | 853.4 | **663.9** | −22% | 3.8e-16 |
+| 50 | 4  | 2098.3 | **1410.6** | −33% | 4.5e-16 |
+| 100 | 1 | 18938 | **11353** | −40% | 4.8e-16 |
+
+The gain grows with L exactly as the deleted traffic predicts: at L=100 the
+old path streamed state + T + pong + a separate map sweep; the owned chain
+streams state + c only. Same-window MKL for scale: 7.91 (12), 145.1 (27),
+7815 (100).
+
+Gates on the shipped binary, run by hand on the node (tryout's remote
+map-check leg still dies on the `'$W/c.bin'` quoting bug): two-step
+9.5e-16 (12) / 1.6e-15 (27) / 2.9e-15 (100) vs tol 3e-14; full graded chains
+5.3e-14 (12, anchor 3.9e-14) / 3.1e-14 (27, anchor 2.6e-14) / 3.7e-14 (100,
+anchor 2.4e-14), tol 1e-10; chain AND single outputs bit-identical across
+independent node runs (manual cmp of .chain files). Local unit TU
+(build/tryout/gen_twiddle/chain_unit.c): owned chain vs execute + exact
+scalar map ≤ 8.1e-16 at 12 sizes × B ∈ {1,3,8} × m=3, AVX-512 and scalar
+(-march=x86-64) builds both; create+gates smoke at 30 sizes incl. 97, 101,
+121, 125, 127, 128 — no refusal, no fallback, 1.6 s total on wallaby.
+
+### What did NOT work / raced off, with the number
+
+- **rcp14 + 2NR reciprocal instead of the map's one vdivpd** (`-DTWD_MAPRCP`,
+  kept as a knob): same-window alternating A/B at L=12 B=64: div 14.72 vs
+  rcp 15.58 (+6%); tie at L=25 (124.7 vs 124.9). Confirms gen_powp's r2
+  verdict on their fused x-pass and REVERSES gen_planner's ladder choice on
+  their engine — third data point that the divider-vs-ladder call is
+  engine-specific: in a scatter-side fused map the divider pipe is idle and
+  one exact vdivpd is both faster and better rounded. Measure on your own
+  pass; do not copy anyone's verdict (including mine).
+- Two ssh round trips lost to the documented "remote commands land in $HOME"
+  trap even though gen_powp's record warns about it — put the cd INSIDE the
+  quoted remote script, first line, and check it with `|| exit 1`. Also
+  tryout.sh needs `/opt/software/slurm-19.05.8.1/bin` on PATH from wallaby
+  or it claims there is no reservation (reserve.sh --status is what fails).
+
+### Borrowed this round, named
+
+- **gen_planner r2 ("own the chain") + gen_rader r1 (everything in place) +
+  gen_powp r1/r2 (fused map at last-axis stores, div-vs-ladder A/B
+  discipline)**: the whole demo chain design is their program applied to the
+  lane-buffer engine; the volume-major batch loop is gen_planner's r2 form.
+- **gen_powp r2**: the create()-time m=2-style chain gate against execute +
+  exact scalar map (theirs gates the soa family the same way).
+- **gen_planner r3**: both new table layouts come straight from their record
+  and source (pln_dense_matrix PLN_SIMD, pln_fold_matrix) — the fillers exist
+  because their record documented the shapes.
+
+### Operation count (demo chain step, per volume)
+
+Axes: unchanged r2 arithmetic (radix-4-first mixed-radix DIT, 3·L² pencils of
+O(L·ΣR) each) but zero T traffic and zero ping-pong — state and c are the
+only volume-sized streams. Map: per 4 complex, ~14 FMA-class + 1 vpermilpd +
+1 vdivpd + 1 rsqrt14, fused at the axis-2 stores; exact scalar tail ≤ 7
+lanes per group row. Everything else identical to gen_r2.
+
+### What I would do next (gen_r4)
+
+1. **gen_rader worked example** (p=41: tw_primroot → 6; rader_half both
+   directions; rader_fft kernel; audits) pasted into their round prompt if
+   the monitor allows — cheapest adoption on the panel now that the folded
+   kernels are one call.
+2. **gen_powp / gen_pfa_large refnd** double-cexp gate reference: STILL
+   unfixed (250 ulp on a 1e-13 gate yardstick at L=100), still a one-liner
+   (`tw_fill_dft_cplx`). Third pitch.
+3. Per-stage error-budget helper — deferred three rounds; honestly the races
+   decide chains empirically and nobody has asked. Drop unless gen_planner's
+   sub-tree diversity work (their r3 item 3) creates a real consumer.
+4. Demo small-L per-call overhead (L=10 gap to batchlane is 9x): the lane
+   gather/scatter per axis is 6 sweeps/volume; a fused zy sweep per x-plane
+   (gen_pfa_small's structure) would halve it. Only if idle — the demo is a
+   test bench first.

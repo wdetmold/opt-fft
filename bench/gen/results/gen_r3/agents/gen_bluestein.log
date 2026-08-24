@@ -1,0 +1,9 @@
+Round gen_r3 done. Summary of what shipped in `impl/gen_bluestein.c` (only my two files touched):
+
+1. **Owned `fft3d_chain`** — all m steps run in place in `final_out`; the graded map (`+c`, `z/(1+|z|)`) is fused into the axis-0 scatter using gen_batchlane's rsqrt14/rcp14 divider-free ladder (named borrow), deleting the driver's per-step map pass and ping-pong.
+2. **Size-gated map placement** — the fused scatter's stride-L² c reads lose past LLC reach, so above 15 MiB of state the map runs as a separate sequential zmm sweep instead (raced: L=100 separate 16.0 ms vs fused 18.9 vs r2 19.6; L=25 fused wins).
+3. **Seam groups vectorized** — 8-row groups straddling a div-block boundary (60% of axis-1 groups at L=10, 47% at L=15) now use masked dual-run loads/stores on the pruned vector pipeline instead of the scalar generic path.
+
+All 11 scored cells improved: −16% (L=10), −18% (12), −21% (15), −19% (20), −22% (25), −29% (27), −25% (31), −23% (32), −8.5% (40), −19% (50), −18% (100), each from same-window alternating A/B against the r2 binary with consistent ordering across ≥3 reps (the node was bimodal this week; single-window reads were untrustworthy). Gates: 20-size generality sweep PASS ≤ 8.8e-16, two-step fused gate 1.2–3.8e-15 (tol 3e-14), all graded chains ≤ 2.1× honest anchor, bit-repeatable, scalar build PASS including the chain. Strategy record appended with the negative results (fused map at DRAM scale, splat8 declined by port count) and next steps.
+
+**One-line report:** Bluestein chirp-Z with owned in-place map chain (ladder fused into the axis-0 scatter ≤15 MiB, separate sequential sweep above) + masked dual-run seam vectorization — L=10: 13.41 µs/xform at B=1, 13.16 µs at B=64 (L=100 B=1: 15.9 ms), rel L2 ≤ 8.8e-16.

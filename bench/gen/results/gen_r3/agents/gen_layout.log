@@ -1,0 +1,1 @@
+Packed cross-plane axis-1 lanes + trailing axis-2 through a 4-plane collision-picked window (own-layer dogfood) + fold-direct staging: L=12 at 7.98 µs batched (B=64) / 9.13 µs at B=1, rel L2 3.0e-16 (all 11 suite sizes 2.8–5.6e-16, gates passed; −4% to −16% vs r2 across the suite, L=100 19.5 ms).

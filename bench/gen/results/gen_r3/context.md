@@ -1,0 +1,224 @@
+# What previous generations produced (round gen_r3 is the current one)
+
+## Leaderboards from earlier rounds
+  /home/lqcd/wdetmold/fft/bench/gen/results/gen_r1/leaderboard.txt
+  /home/lqcd/wdetmold/fft/bench/gen/results/gen_r2/leaderboard.txt
+
+## Strategy records -- every implementation's own account of what it tried
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_batchlane.md 243 lines
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_bluestein.md 257 lines
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_dense_prime.md 336 lines
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_layout.md 333 lines
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_pfa_large.md 268 lines
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_pfa_small.md 255 lines
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_planner.md 292 lines
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_pow2.md 292 lines
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_powp.md 348 lines
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_race.md 293 lines
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_rader.md 300 lines
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_twiddle.md 328 lines
+
+## Promoted exemplars -- code kept from earlier rounds because it was worth keeping
+  (none yet)
+
+## Current standings (most recent leaderboard)
+=== round gen_r2 ===
+# round gen_r2
+host: a80n0.lqcd.mit   date: 2026-08-24T06:00:13-04:00   slurm_job: 438682
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512bw avx512cd avx512dq avx512f avx512ifma avx512_vbmi avx512vbmi avx512vl avx512_vnni avx512_vpopcntdq fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+
+-- L=10 (batched B=64, chain m=1000), volume 1000, working set 1.95 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   gen_batchlane                  1.162 us 74339.197 us    42.90       0.1%    0.000s  ok ch=1.1e-13/1e-10 1s=8e-16 1.00x
+   gen_pfa_small                  1.162 us 74366.540 us    42.88       0.2%    0.000s  ok ch=1.2e-13/1e-10 1s=8e-16 1.00x
+   mkl_dfti                       4.560 us 291832.510 us    10.93       0.3%    0.001s  ok ch=1.2e-13/1e-10 1s=9e-16 3.93x
+   mkl2026_dfti                   4.624 us 295921.974 us    10.78       2.6%    0.001s  ok ch=1.6e-13/1e-10 1s=1e-15 3.98x
+   fftw3_patient                  5.012 us 320756.334 us     9.94       7.9%    0.022s  ok ch=1.4e-13/1e-10 1s=8e-16 4.31x
+   fftw3_measure                  5.142 us 329061.833 us     9.69       2.1%    0.013s  ok ch=1.2e-13/1e-10 1s=8e-16 4.43x
+   gen_layout                     5.307 us 339678.034 us     9.39       1.6%    0.000s  ok ch=1.4e-13/1e-10 1s=9e-16 4.57x
+   gen_planner                    6.230 us 398727.343 us     8.00       0.5%    0.000s  ok ch=1.2e-13/1e-10 1s=9e-16 5.36x
+   gen_race                       6.302 us 403325.316 us     7.91       0.1%    0.002s  ok ch=1.2e-13/1e-10 1s=9e-16 5.43x
+   fftw3_estimate                 7.313 us 468063.478 us     6.81       0.3%    0.001s  ok ch=1.2e-13/1e-10 1s=8e-16 6.30x
+   gen_dense_prime                8.296 us 530927.906 us     6.01       2.6%    0.000s  ok ch=1.1e-13/1e-10 1s=9e-16 7.14x
+   ducc0_c2c                      9.753 us 624165.896 us     5.11       1.1%    0.000s  ok ch=9.7e-14/1e-10 1s=7e-16 8.40x
+   gen_twiddle                   12.937 us 827960.709 us     3.85       2.3%    0.002s  ok ch=1.4e-13/1e-10 1s=9e-16 11.14x
+   gen_bluestein                 15.730 us 1006708.420 us     3.17       0.5%    0.000s  ok ch=1.9e-13/1e-10 1s=1e-15 13.54x
+   baseline_matrix               54.687 us 3499982.870 us     0.91       0.1%    0.000s  ok ch=3.5e-13/1e-10 1s=1e-15 47.08x
+
+-- L=12 (batched B=64, chain m=600), volume 1728, working set 3.38 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   gen_batchlane                  1.933 us 74212.408 us    48.08      13.9%    0.000s  ok ch=4.8e-14/1e-10 1s=9e-16 1.00x
+   gen_pfa_small                  1.979 us 76005.147 us    46.95      13.8%    0.001s  ok ch=4.8e-14/1e-10 1s=9e-16 1.02x
+   mkl_dfti                       7.732 us 296890.004 us    12.02       0.1%    0.001s  ok ch=4.9e-14/1e-10 1s=9e-16 4.00x
+   mkl2026_dfti                   7.765 us 298164.802 us    11.97       2.4%    0.002s  ok ch=5.4e-14/1e-10 1s=9e-16 4.02x
+   gen_layout                     8.544 us 328102.072 us    10.88       1.2%    0.000s  ok ch=5.2e-14/1e-10 1s=1e-15 4.42x
+   fftw3_measure                  8.846 us 339669.873 us    10.50       0.1%    0.014s  ok ch=4.9e-14/1e-10 1s=9e-16 4.58x
+   fftw3_patient                  8.903 us 341891.096 us    10.44       1.0%    0.024s  ok ch=4.9e-14/1e-10 1s=9e-16 4.61x
+   gen_race                      10.460 us 401679.615 us     8.88       1.3%    0.002s  ok ch=5.5e-14/1e-10 1s=1e-15 5.41x
+   gen_planner                   10.579 us 406224.225 us     8.78       0.3%    0.000s  ok ch=5.5e-14/1e-10 1s=1e-15 5.47x
+   gen_dense_prime               14.290 us 548753.354 us     6.50       1.2%    0.000s  ok ch=5.1e-14/1e-10 1s=9e-16 7.39x
+   ducc0_c2c                     15.998 us 614335.573 us     5.81       2.1%    0.000s  ok ch=4.2e-14/1e-10 1s=7e-16 8.28x
+   fftw3_estimate                19.301 us 741145.805 us     4.81       0.2%    0.001s  ok ch=5.7e-14/1e-10 1s=9e-16 9.99x
+   gen_twiddle                   19.507 us 749068.580 us     4.76       1.8%    0.002s  ok ch=5.8e-14/1e-10 1s=1e-15 10.09x
+   gen_bluestein                 23.636 us 907631.414 us     3.93       0.3%    0.000s  ok ch=9.3e-14/1e-10 1s=1e-15 12.23x
+   baseline_matrix              112.102 us 4304710.720 us     0.83       0.0%    0.000s  ok ch=2.9e-13/1e-10 1s=2e-15 58.01x
+
+-- L=15 (batched B=32, chain m=600), volume 3375, working set 3.30 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   gen_pfa_small                  4.466 us 85738.881 us    44.29       0.1%    0.000s  ok ch=5.3e-14/1e-10 1s=1e-15 1.00x
+   gen_batchlane                  4.478 us 85980.813 us    44.17       0.4%    0.000s  ok ch=5.5e-14/1e-10 1s=1e-15 1.00x
+   mkl_dfti                      16.457 us 315976.960 us    12.02       0.2%    0.002s  ok ch=6.2e-14/1e-10 1s=1e-15 3.69x
+   mkl2026_dfti                  16.668 us 320025.830 us    11.87       1.4%    0.003s  ok ch=7.8e-14/1e-10 1s=1e-15 3.73x
+   gen_layout                    18.830 us 361535.697 us    10.50       4.9%    0.000s  ok ch=5.6e-14/1e-10 1s=1e-15 4.22x
+   fftw3_measure                 19.541 us 375187.535 us    10.12       3.1%    0.010s  ok ch=6.2e-14/1e-10 1s=1e-15 4.38x
+   fftw3_patient                 19.688 us 378002.918 us    10.05       1.3%    0.019s  ok ch=6.2e-14/1e-10 1s=1e-15 4.41x
+   fftw3_estimate                20.693 us 397298.788 us     9.56       0.8%    0.001s  ok ch=6.2e-14/1e-10 1s=1e-15 4.63x
+   gen_race                      21.425 us 411364.519 us     9.23       0.9%    0.004s  ok ch=6.3e-14/1e-10 1s=1e-15 4.80x
+   gen_planner                   21.707 us 416771.414 us     9.11       0.1%    0.001s  ok ch=6.3e-14/1e-10 1s=1e-15 4.86x
+   gen_dense_prime               30.189 us 579627.040 us     6.55      10.7%    0.000s  ok ch=5.5e-14/1e-10 1s=1e-15 6.76x
+   ducc0_c2c                     33.024 us 634062.980 us     5.99       1.9%    0.000s  ok ch=3.8e-14/1e-10 1s=1e-15 7.40x
+   gen_twiddle                   39.116 us 751022.003 us     5.06       1.1%    0.002s  ok ch=7.5e-14/1e-10 1s=1e-15 8.76x
+   gen_bluestein                 43.140 us 828282.435 us     4.58       0.6%    0.000s  ok ch=1.0e-13/1e-10 1s=2e-15 9.66x
+   baseline_matrix              272.412 us 5230309.830 us     0.73       0.0%    0.000s  ok ch=3.0e-13/1e-10 1s=2e-15 61.00x
+
+-- L=20 (batched B=32, chain m=256), volume 8000, working set 7.81 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   gen_pfa_small                 13.213 us 108242.439 us    39.25       4.4%    0.001s  ok ch=2.7e-14/1e-10 1s=1e-15 1.00x
+   gen_layout                    41.899 us 343240.596 us    12.38       2.2%    0.000s  ok ch=3.2e-14/1e-10 1s=1e-15 3.17x
+   fftw3_patient                 45.160 us 369949.292 us    11.48       1.3%    0.299s  ok ch=3.5e-14/1e-10 1s=1e-15 3.42x
+   fftw3_measure                 45.260 us 370773.486 us    11.46       0.8%    0.082s  ok ch=3.5e-14/1e-10 1s=1e-15 3.43x
+   gen_race                      45.883 us 375875.609 us    11.30       0.7%    0.003s  ok ch=3.5e-14/1e-10 1s=1e-15 3.47x
+   gen_planner                   46.341 us 379628.620 us    11.19       0.5%    0.002s  ok ch=3.5e-14/1e-10 1s=1e-15 3.51x
+   mkl2026_dfti                  57.465 us 470752.642 us     9.03       0.6%    0.051s  ok ch=3.4e-14/1e-10 1s=1e-15 4.35x
+   mkl_dfti                      58.320 us 477761.245 us     8.89       6.6%    0.052s  ok ch=3.5e-14/1e-10 1s=1e-15 4.41x
+   ducc0_c2c                     73.167 us 599383.525 us     7.09       0.7%    0.000s  ok ch=2.8e-14/1e-10 1s=1e-15 5.54x
+   gen_dense_prime               79.313 us 649732.447 us     6.54       1.6%    0.000s  ok ch=3.0e-14/1e-10 1s=1e-15 6.00x
+   gen_twiddle                   79.372 us 650217.337 us     6.53       1.5%    0.002s  ok ch=3.0e-14/1e-10 1s=1e-15 6.01x
+   fftw3_estimate                91.953 us 753277.163 us     5.64       0.4%    0.001s  ok ch=3.5e-14/1e-10 1s=1e-15 6.96x
+   gen_bluestein                124.962 us 1023686.860 us     4.15       0.0%    0.000s  ok ch=4.4e-14/1e-10 1s=2e-15 9.46x
+   baseline_matrix              850.314 us 6965770.560 us     0.61       0.0%    0.000s  ok ch=9.8e-14/1e-10 1s=2e-15 64.35x
+
+-- L=25 (batched B=16, chain m=256), volume 15625, working set 7.63 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   gen_powp                      32.001 us 131074.293 us    34.01       6.7%    0.005s  ok ch=3.3e-14/1e-10 1s=1e-15 1.00x
+   gen_layout                    99.809 us 408817.679 us    10.90       2.0%    0.000s  ok ch=3.7e-14/1e-10 1s=2e-15 3.12x
+   gen_race                     104.917 us 429740.351 us    10.37       0.1%    0.002s  ok ch=3.4e-14/1e-10 1s=2e-15 3.28x
+   gen_planner                  105.236 us 431048.073 us    10.34       0.4%    0.004s  ok ch=3.4e-14/1e-10 1s=2e-15 3.29x
+   fftw3_measure                109.056 us 446694.282 us     9.98      23.7%    0.029s  ok ch=3.5e-14/1e-10 1s=2e-15 3.41x
+   fftw3_patient                110.702 us 453435.445 us     9.83       1.6%    0.108s  ok ch=3.5e-14/1e-10 1s=2e-15 3.46x
+   mkl_dfti                     120.523 us 493660.871 us     9.03       0.6%    0.047s  ok ch=3.6e-14/1e-10 1s=2e-15 3.77x
+   mkl2026_dfti                 124.013 us 507956.577 us     8.78       0.6%    0.052s  ok ch=3.9e-14/1e-10 1s=2e-15 3.88x
+   fftw3_estimate               130.083 us 532819.771 us     8.37       6.4%    0.001s  ok ch=3.5e-14/1e-10 1s=2e-15 4.07x
+   ducc0_c2c                    144.813 us 593155.831 us     7.52       0.8%    0.000s  ok ch=2.9e-14/1e-10 1s=1e-15 4.53x
+   gen_twiddle                  174.933 us 716526.314 us     6.22       2.5%    0.002s  ok ch=3.4e-14/1e-10 1s=2e-15 5.47x
+   gen_bluestein                225.612 us 924105.226 us     4.82       2.2%    0.000s  ok ch=5.7e-14/1e-10 1s=2e-15 7.05x
+   baseline_matrix             2061.251 us 8442883.040 us     0.53       0.0%    0.000s  ok ch=1.3e-13/1e-10 1s=3e-15 64.41x
+
+-- L=27 (batched B=16, chain m=200), volume 19683, working set 9.61 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   gen_powp                      44.970 us 143902.582 us    31.22       6.1%    0.004s  ok ch=2.8e-14/1e-10 1s=2e-15 1.00x
+   gen_layout                   136.486 us 436754.335 us    10.29       4.0%    0.000s  ok ch=3.2e-14/1e-10 1s=2e-15 3.04x
+   mkl_dfti                     144.494 us 462381.243 us     9.72       0.1%    0.049s  ok ch=3.2e-14/1e-10 1s=2e-15 3.21x
+   mkl2026_dfti                 148.071 us 473825.819 us     9.48       0.3%    0.048s  ok ch=3.2e-14/1e-10 1s=2e-15 3.29x
+   gen_race                     153.744 us 491981.308 us     9.13       0.7%    0.002s  ok ch=2.9e-14/1e-10 1s=2e-15 3.42x
+   gen_planner                  154.557 us 494583.898 us     9.08       0.1%    0.007s  ok ch=2.9e-14/1e-10 1s=2e-15 3.44x
+   ducc0_c2c                    190.556 us 609779.339 us     7.37       2.9%    0.000s  ok ch=2.7e-14/1e-10 1s=1e-15 4.24x
+   fftw3_patient                204.040 us 652929.240 us     6.88       3.5%    0.153s  ok ch=2.8e-14/1e-10 1s=2e-15 4.54x
+   fftw3_measure                223.103 us 713928.235 us     6.29       2.3%    0.034s  ok ch=2.8e-14/1e-10 1s=2e-15 4.96x
+   fftw3_estimate               256.728 us 821529.529 us     5.47       1.0%    0.003s  ok ch=3.0e-14/1e-10 1s=2e-15 5.71x
+   gen_bluestein                267.929 us 857374.386 us     5.24       0.9%    0.000s  ok ch=4.7e-14/1e-10 1s=2e-15 5.96x
+   gen_twiddle                  293.344 us 938701.210 us     4.79       2.4%    0.002s  ok ch=2.9e-14/1e-10 1s=2e-15 6.52x
+   baseline_matrix             2799.064 us 8957005.690 us     0.50       0.0%    0.000s  ok ch=1.1e-13/1e-10 1s=3e-15 62.24x
+
+-- L=31 (batched B=16, chain m=140), volume 29791, working set 14.55 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   gen_rader                     86.913 us 194684.781 us    25.47       0.8%    0.009s  ok ch=2.7e-14/1e-10 1s=2e-15 1.00x
+   gen_dense_prime              124.281 us 278389.081 us    17.81       5.2%    0.001s  ok ch=2.5e-14/1e-10 1s=2e-15 1.43x
+   gen_layout                   249.675 us 559272.933 us     8.87       4.2%    0.000s  ok ch=2.7e-14/1e-10 1s=2e-15 2.87x
+   gen_bluestein                379.842 us 850846.046 us     5.83       0.9%    0.000s  ok ch=4.6e-14/1e-10 1s=3e-15 4.37x
+   gen_race                     530.955 us 1189338.690 us     4.17       0.1%    0.006s  ok ch=3.9e-14/1e-10 1s=2e-15 6.11x
+   gen_planner                  531.051 us 1189554.250 us     4.17       0.4%    0.016s  ok ch=3.9e-14/1e-10 1s=2e-15 6.11x
+   gen_twiddle                  563.970 us 1263293.510 us     3.93       0.6%    0.002s  ok ch=2.9e-14/1e-10 1s=2e-15 6.49x
+   ducc0_c2c                    714.517 us 1600517.690 us     3.10       3.4%    0.000s  ok ch=2.2e-14/1e-10 1s=1e-15 8.22x
+   mkl_dfti                     848.786 us 1901281.320 us     2.61       0.0%    0.047s  ok ch=3.4e-14/1e-10 1s=2e-15 9.77x
+   fftw3_measure                859.667 us 1925653.040 us     2.58       0.4%    0.085s  ok ch=2.7e-14/1e-10 1s=2e-15 9.89x
+   fftw3_estimate               859.687 us 1925698.220 us     2.58       0.0%    0.002s  ok ch=2.7e-14/1e-10 1s=2e-15 9.89x
+   fftw3_patient                859.872 us 1926114.190 us     2.57       0.2%    0.225s  ok ch=2.7e-14/1e-10 1s=2e-15 9.89x
+   mkl2026_dfti                 883.400 us 1978816.900 us     2.51       0.0%    0.048s  ok ch=3.4e-14/1e-10 1s=2e-15 10.16x
+   baseline_matrix             4851.834 us 10868109.200 us     0.46       0.0%    0.000s  ok ch=7.7e-14/1e-10 1s=3e-15 55.82x
+
+-- L=32 (batched B=8, chain m=250), volume 32768, working set 8.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   gen_pow2                      58.130 us 116259.887 us    42.28       0.4%    0.000s  ok ch=3.2e-14/1e-10 1s=1e-15 1.00x
+   mkl_dfti                     171.572 us 343143.953 us    14.32       0.9%    0.001s  ok ch=3.9e-14/1e-10 1s=1e-15 2.95x
+   mkl2026_dfti                 187.356 us 374712.088 us    13.12       0.9%    0.002s  ok ch=3.8e-14/1e-10 1s=1e-15 3.22x
+   fftw3_patient                209.504 us 419008.083 us    11.73       0.8%    0.490s  ok ch=3.4e-14/1e-10 1s=1e-15 3.60x
+   fftw3_measure                209.775 us 419550.373 us    11.72       0.3%    0.082s  ok ch=3.4e-14/1e-10 1s=1e-15 3.61x
+   gen_race                     234.470 us 468940.551 us    10.48       0.5%    0.003s  ok ch=3.8e-14/1e-10 1s=2e-15 4.03x
+   gen_planner                  236.671 us 473342.593 us    10.38       0.2%    0.011s  ok ch=3.8e-14/1e-10 1s=2e-15 4.07x
+   gen_layout                   244.443 us 488885.861 us    10.05       1.8%    0.000s  ok ch=3.6e-14/1e-10 1s=2e-15 4.21x
+   ducc0_c2c                    309.496 us 618991.721 us     7.94       0.9%    0.000s  ok ch=3.0e-14/1e-10 1s=1e-15 5.32x
+   gen_bluestein                400.109 us 800218.145 us     6.14       5.6%    0.000s  ok ch=5.0e-14/1e-10 1s=2e-15 6.88x
+   fftw3_estimate               407.584 us 815168.943 us     6.03       0.3%    0.001s  ok ch=3.3e-14/1e-10 1s=1e-15 7.01x
+   gen_twiddle                  451.658 us 903315.829 us     5.44       2.3%    0.002s  ok ch=3.4e-14/1e-10 1s=1e-15 7.77x
+   baseline_matrix             5751.624 us 11503249.000 us     0.43       0.0%    0.000s  ok ch=1.2e-13/1e-10 1s=3e-15 98.94x
+
+-- L=40 (batched B=8, chain m=128), volume 64000, working set 15.62 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   gen_pfa_large                201.049 us 205874.660 us    25.41       3.5%    0.488s  ok ch=2.7e-14/1e-10 1s=2e-15 1.00x
+   mkl2026_dfti                 403.335 us 413015.099 us    12.67       0.7%    0.002s  ok ch=4.1e-14/1e-10 1s=2e-15 2.01x
+   mkl_dfti                     406.365 us 416117.374 us    12.57       0.2%    0.003s  ok ch=4.4e-14/1e-10 1s=2e-15 2.02x
+   gen_race                     500.094 us 512096.292 us    10.22       1.3%    0.003s  ok ch=4.2e-14/1e-10 1s=2e-15 2.49x
+   gen_planner                  504.428 us 516534.047 us    10.13       0.5%    0.018s  ok ch=4.2e-14/1e-10 1s=2e-15 2.51x
+   fftw3_patient                526.216 us 538845.383 us     9.71       1.8%    1.408s  ok ch=2.6e-14/1e-10 1s=2e-15 2.62x
+   gen_layout                   543.455 us 556497.607 us     9.40       0.6%    0.001s  ok ch=4.9e-14/1e-10 1s=2e-15 2.70x
+   fftw3_measure                552.802 us 566069.632 us     9.24       4.0%    0.154s  ok ch=2.7e-14/1e-10 1s=2e-15 2.75x
+   ducc0_c2c                    594.079 us 608336.673 us     8.60       1.5%    0.000s  ok ch=2.2e-14/1e-10 1s=2e-15 2.95x
+   gen_twiddle                  853.386 us 873867.630 us     5.99       2.2%    0.002s  ok ch=3.4e-14/1e-10 1s=2e-15 4.24x
+   gen_bluestein               1259.664 us 1289895.690 us     4.06       0.6%    0.000s  ok ch=5.5e-14/1e-10 1s=2e-15 6.27x
+   fftw3_estimate              1607.062 us 1645631.870 us     3.18       0.8%    0.002s  ok ch=3.4e-14/1e-10 1s=2e-15 7.99x
+   baseline_matrix            13443.222 us 13765859.500 us     0.38       0.4%    0.000s  ok ch=7.5e-14/1e-10 1s=3e-15 66.87x
+
+-- L=50 (batched B=4, chain m=128), volume 125000, working set 15.26 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   gen_pfa_large                473.024 us 242188.291 us    22.37       1.2%    0.662s  ok ch=3.3e-14/1e-10 1s=2e-15 1.00x
+   gen_powp                     474.028 us 242702.213 us    22.32       0.9%    0.002s  ok ch=3.3e-14/1e-10 1s=2e-15 1.00x
+   mkl_dfti                     946.682 us 484701.087 us    11.18       0.3%    0.050s  ok ch=3.1e-14/1e-10 1s=2e-15 2.00x
+   mkl2026_dfti                 961.417 us 492245.609 us    11.01       0.2%    0.050s  ok ch=3.7e-14/1e-10 1s=2e-15 2.03x
+   gen_race                    1171.626 us 599872.387 us     9.03       1.1%    0.003s  ok ch=3.4e-14/1e-10 1s=2e-15 2.48x
+   fftw3_patient               1175.868 us 602044.301 us     9.00       2.6%    1.321s  ok ch=3.5e-14/1e-10 1s=2e-15 2.49x
+   gen_planner                 1184.431 us 606428.593 us     8.93       3.2%    0.045s  ok ch=3.0e-14/1e-10 1s=2e-15 2.50x
+   fftw3_measure               1189.280 us 608911.118 us     8.90       3.8%    0.091s  ok ch=3.5e-14/1e-10 1s=2e-15 2.51x
+   ducc0_c2c                   1262.437 us 646367.823 us     8.38       0.8%    0.000s  ok ch=2.7e-14/1e-10 1s=2e-15 2.67x
+   gen_layout                  1283.994 us 657404.985 us     8.24       0.5%    0.001s  ok ch=3.6e-14/1e-10 1s=2e-15 2.71x
+   fftw3_estimate              1554.523 us 795915.990 us     6.81       5.2%    0.002s  ok ch=3.4e-14/1e-10 1s=2e-15 3.29x
+   gen_twiddle                 1831.066 us 937505.794 us     5.78       0.6%    0.003s  ok ch=3.1e-14/1e-10 1s=2e-15 3.87x
+   gen_bluestein               2181.945 us 1117156.080 us     4.85       0.5%    0.000s  ok ch=5.2e-14/1e-10 1s=3e-15 4.61x
+   baseline_matrix            34322.458 us 17573098.300 us     0.31       1.1%    0.000s  ok ch=7.7e-14/1e-10 1s=4e-15 72.56x
+
+-- L=100 (non-batched, chain m=64), volume 1000000, working set 30.52 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   gen_pfa_large               4947.503 us 316640.207 us    20.14       2.9%    6.339s  ok ch=2.4e-14/1e-10 1s=3e-15 1.00x
+   gen_powp                    5031.324 us 322004.705 us    19.81       0.1%    0.006s  ok ch=2.4e-14/1e-10 1s=3e-15 1.02x
+   mkl_dfti                    7796.570 us 498980.492 us    12.78       0.4%    0.030s  ok ch=3.1e-14/1e-10 1s=3e-15 1.58x
+   mkl2026_dfti                7799.107 us 499142.859 us    12.78       0.5%    0.051s  ok ch=2.8e-14/1e-10 1s=3e-15 1.58x
+   gen_race                    9501.649 us 608105.547 us    10.49       0.4%    0.005s  ok ch=2.7e-14/1e-10 1s=3e-15 1.92x
+   gen_planner                 9514.709 us 608941.396 us    10.47       0.2%    0.364s  ok ch=2.7e-14/1e-10 1s=3e-15 1.92x
+   fftw3_patient              10034.629 us 642216.240 us     9.93       0.3%   17.456s  ok ch=2.5e-14/1e-10 1s=3e-15 2.03x
+   ducc0_c2c                  11891.790 us 761074.543 us     8.38       1.3%    0.000s  ok ch=2.0e-14/1e-10 1s=2e-15 2.40x
+   fftw3_measure              12017.885 us 769144.655 us     8.29       1.4%    0.315s  ok ch=2.6e-14/1e-10 1s=3e-15 2.43x
+   gen_twiddle                17734.507 us 1135008.450 us     5.62       0.9%    0.006s  ok ch=3.0e-14/1e-10 1s=3e-15 3.58x
+   gen_bluestein              19242.306 us 1231507.610 us     5.18       0.9%    0.000s  ok ch=3.0e-14/1e-10 1s=4e-15 3.89x
+   fftw3_estimate             20626.958 us 1320125.320 us     4.83       0.4%    0.002s  ok ch=2.2e-14/1e-10 1s=3e-15 4.17x
+   gen_layout                 22773.387 us 1457496.760 us     4.38       1.7%    0.010s  ok ch=2.6e-14/1e-10 1s=3e-15 4.60x
+
+backends:
+   baseline_matrix          row-column dense DFT matrix, O(L^4)/volume/axis
+   ducc0_c2c                ducc0 0.41 c2c, no planning, 1 thread
+   fftw3_estimate           FFTW 3.3.10 plan_many_dft, fftw3_estimate
+   fftw3_measure            FFTW 3.3.10 plan_many_dft, fftw3_measure
+   fftw3_patient            FFTW 3.3.10 plan_many_dft, fftw3_patient
+   gen_batchlane            SoA 8-vol/zmm batch-lane (bl8 lineage): twiddle-free 2-stage PFA pencils (10=2x5,12=3x4,15=3x5), L1 zy-sweep + x-pass, fused chain in SoA with eager divider-free rsqrt14/rcp14 map, sched-pressure codelets, THP arena (gen_layout), plane stride 256 mod 4096

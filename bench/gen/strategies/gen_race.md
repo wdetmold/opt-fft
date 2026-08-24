@@ -291,3 +291,148 @@ against the 50 ms budget (was 726 ms cold, vs the 60 s cold budget).
 4. **Cross-arch wisdom table**: when the monitor's Cascade Lake / Sapphire
    Rapids reruns land, capture per-host winner divergence here (the layer's
    whole justification); verify rankings, expect rad31-vs-bs and c2/c5 flips.
+
+## Round gen_r3
+
+### What changed
+
+**1. Library API: FROZEN.** No adopter's r2 record asked for a new primitive,
+and three entries now `#include` this file (`gen_powp` since r2;
+`gen_planner` and `gen_pfa_large` adopted in r3 — see below), so churn is
+now a cost I charge to others. Zero changes to any `gr_*` signature or to
+the wisdom file format. (Doctrine borrowed from gen_layout's r3 section,
+who articulated it first: "churn in a layer others include is its own
+cost".)
+
+**2. Demo entry, change 1 — engine-generation SALT on the wisdom tags**
+(`chain` → `chain3`, `chaingate` → `chaingate3`, new `tile3`). This is the
+round's most important lesson for every wisdom adopter: gen_planner's r3
+engine (AVX-512 leaves, register-tiled folded dense) reordered the candidate
+trees, but the candidate NAMES did not change, so `gr_sig` alone could not
+invalidate the r2 verdicts. The receipt that proves the hazard: the node's
+r2 wisdom pinned L=31 to `rad31(c3(c5(d2)))`; the fresh r3 race picks **d31
+at an 84% margin** (their register-tiled fold made dense-31 the winner —
+their own r2 record predicted the d31/rad31 crossover was kernel-dependent).
+Replaying stale wisdom would have silently cost ~2x at a scored size while
+the wisdom file looked perfectly healthy. Rule now in the header comment:
+**if your engine generation changes and your candidate names don't, salt
+your key tag.** Also flipped: L=12 `c4(d3)` → `c3(d4)`, L=40 kept `c5(d8)`
+but with a fresh 7.1% margin.
+
+**3. Demo entry, change 2 — second-stage TILE race.** After the tree race,
+a second `gr_pick` races the winning tree's scratch-row width {32, 16, 64}
+(names `t32`/`t16`/`t64`, per (L, B-bucket, host), primary = engine default
+32 per the tie doctrine), built through gen_planner's documented
+`GEN_PLANNER_TILE` env hook in setup() (deliberately NOT a copy of
+pln_p3d_build's body — the env hook survives their internal changes; the
+set/restore is create()-time single-threaded). Planner's r3 hardcodes 32
+("the r2 crossover vanished") — and the race CONFIRMS 32 at 9 of 11 sizes,
+but found two real, non-tie wins: **t16 at L=31 (+3.9%)** and **t64 at L=50
+(+2.3%)**. Exactly the knob class the cross-arch guard exists for; now it
+is measured and persisted per host instead of trusted. Cold cost: two extra
+engine builds + timings (~5-10 ms at small L); warm cost: one wisdom read.
+`picked[]` widened to GR_NAME_MAX+8 so `name@t<w>` never truncates a
+96-char planner name.
+
+### Measured on the node (a80n0 Ice Lake, leased core via tryout.sh, graded chain, min us/xform)
+
+| case | r2 | r3 | vs r2 | MKL 2022 | vs MKL |
+|---|---|---|---|---|---|
+| L=10  B=64 m=1000 | 6.30  | **4.74**  | -25% | 4.69  | 0.99x |
+| L=12  B=64 m=600  | 10.46 | **6.70**  | -36% | 7.91  | **1.18x** |
+| L=15  B=32 m=600  | 21.43 | **14.97** | -30% | 16.73 | **1.12x** |
+| L=20  B=32 m=256  | 45.88 | **27.97** | -39% | 58.58 | **2.09x** |
+| L=25  B=16 m=256  | 104.9 | **69.50** | -34% | 121.1 | **1.74x** |
+| L=27  B=16 m=200  | 153.7 | **105.6** | -31% | 144.7 | **1.37x** |
+| L=31  B=16 m=140  | 531.0 | **200.8** | -62% | 849.7 | **4.23x** |
+| L=32  B=8  m=250  | 234.5 | **128.6** | -45% | 176.9 | **1.38x** |
+| L=40  B=8  m=128  | 500.1 | **281.3** | -44% | 412.3 | **1.47x** |
+| L=50  B=4  m=128  | 1171.6| **790.3** | -33% | 956.6 | **1.21x** |
+| L=100 B=1  m=64   | 9501.6| **6279.3**| -34% | 7921.8| **1.26x** |
+
+Beats MKL at 10 of 11 cases now (ties at L=10, 4.74 vs 4.69). B=1 ==
+batched per transform (volume-major chain, no remainder): 5.42 (10), 69.30
+(25), 196.6 (31), 764.2 (50). Setup: cold worst 0.43 s at L=100 (budget
+60 s); warm 5-7 ms measured at L=12/L=100 (budget 50 ms) = three wisdom
+reads + one engine build.
+
+Gates, shipped binary, run on the node: single-call rel L2 2.9e-16..5.2e-16
+at all 11 cases + all four B=1 cases; map-chain at graded m PASS at
+12/25/31/100 (4.9e-14 / 3.4e-14 / 2.5e-14 / 5.5e-14 vs anchors
+3.9/2.8/2.3/2.4e-14, tol 1e-10); two-step m=2 gate PASS at the same four
+(9.5e-16..3.0e-15 vs tol 3e-14); out.bin bit-identical across two node
+processes at all four (wisdom pins run 2 to run 1's tree+tile — with trees
+AND tiles both raced this is now doubly load-bearing).
+
+### Operation count
+
+Library: unchanged, zero instructions in any hot path. Demo: the winning
+planner tree's cost on gen_planner's r3 engine; my contribution is the
+measured (tree, tile) pick per (L, B-bucket, host) and the persistence that
+makes warm create ~6 ms and repeatability structural.
+
+### What did NOT work / friction (with numbers)
+
+* **The tile race is 9/11 confirmation, 2/11 win** — t32 everywhere except
+  L=31 (t16 +3.9%) and L=50 (t64 +2.3%), and two of the t32 verdicts are
+  ties with NEGATIVE margin recorded (-1.3% at L=10, -1.4% at L=40: the
+  default won on the tie doctrine, not the stopwatch). If you copy this
+  pattern, expect mostly-confirmation; the value is the exceptions plus the
+  cross-arch insurance, and the cold cost (~2 engine builds) is only worth
+  it because the verdict persists.
+* **GEN_RACE_FORCE spans stages awkwardly**: with two chained gr_picks,
+  FORCE=d31 pins the tree but the tile race still runs (tile names don't
+  match), and FORCE=t16 pins the tile but not the tree. Fine for dev,
+  documented here; a compound force syntax is API churn I'm not spending
+  during a freeze.
+* **tryout.sh's check.py leg still dies on the unexpanded `'$W/c.bin'`**
+  (line 48; the `$W` build bug from r1 is fixed, this one is not) — and
+  because the ssh command is &&-chained, its failure also SKIPS the
+  repeatability cmp. All map-checks, two-step gates and cmp runs above were
+  run manually over ssh; the harness PASS line only covers the single-call
+  gate. Budget one extra manual pass for this until it's fixed.
+* `reserve.sh --status` still needs `~/bin_shim/squeue` on PATH on wallaby
+  (gen_dense_prime r1, still true in r3).
+
+### Borrowed, plainly
+
+* **gen_planner r3 (again the big one)**: their AVX-512 engine is most of
+  the raw speedup in the table above — same honest split as r2: their
+  kernels, my measured pick + persistence. Also their `GEN_PLANNER_TILE`
+  dev knob, promoted here into a raced-and-persisted plan parameter.
+* **gen_layout r3**: the API-freeze doctrine, adopted verbatim.
+* **gen_pfa_small r3**: "the div-vs-rcp choice is a property of the
+  SURROUNDING CODELET... A/B it in place, never adopt on faith" — their
+  lesson is this round's tile receipts in miniature, and the reason the
+  demo races the default before trusting it.
+
+### Adoption status (the score)
+
+* **gen_planner r3**: entry now persists its raced tree per (host, L) via
+  `gr_wisdom_get_str/put_str` (key `gen_planner/tree/L<L>`), storing only
+  gate-passed picks. Their warm create skips the race on a file read.
+* **gen_pfa_large r3**: adopted (their r2 next-list #1, third time's the
+  charm) — tune() verdict cached via string wisdom, `GEN_RACE_*` pins pass
+  through.
+* **gen_powp r2**: still on gr_keyf/gr_sig/gr_wisdom_lookup/store for the
+  soa-variant race.
+* Key namespaces verified disjoint: my keys are `gen_race/*`; theirs carry
+  their own entry prefix; gr_pick keys always end `#<8 hex>`.
+
+### What I would do next (gen_r4)
+
+1. **Salt audit for adopters**: gen_planner's `gen_planner/tree/L<L>` key
+   has the same stale-wisdom hazard my chain keys had (engine changes, names
+   don't). Offer them a one-line fix (version their key or value) before the
+   r4 engine changes bite them the way r2→r3 would have bitten me.
+2. **Cross-arch wisdom table** (carried again): when the every-second-round
+   CLX/SPR reruns land, capture the per-host winner divergence here.
+   `tile3/L31=t16` and `chain3/L31=d31` are my predicted flip candidates.
+3. **Race across class ENGINES**: the round-6 trunk should race
+   planner-trees vs gen_batchlane/gen_powp/gen_pfa_* engines per (L,B) via
+   gr_pick_plan — blocked only on class entries exposing `*_LIB_ONLY`
+   includes (none do yet; this is an open invitation, the vtable API is
+   already shipped as gr_plan_cand).
+4. **Hierarchical sub-tree racing** if planner ships enumeration diversity
+   (their carried #3): race sub-decompositions within the winning root
+   instead of raising NK_MAX.

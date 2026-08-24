@@ -1,0 +1,14 @@
+Round complete. Summary of what happened this round:
+
+**What I changed** (all in `impl/gen_pfa_large.c` + record in `strategies/gen_pfa_large.md`):
+1. **Built and raced the ipm deferred-map family** (map applied at the next step's phase-1 loads) — the round's headline idea. It **lost**: +11–12% at L=100, +15% at 50; the NR ladder's swap/rsqrt/rcp uops land on port 5, which the TRNC-heavy z-subpass already saturates. With ipf (stores), ipe (epilogue) and ipm (loads) all measured, the map-placement axis is now exhausted on this node — the separate sequential map pass is optimal. ipm stays in the pool as cross-arch insurance.
+2. **Fixed a real race-arena bias the new family exposed**: the old race passed the input buffer as both state and c-field and ran out-of-place; it briefly picked ipm at 50 (574.8 µs vs ~500 real). The race now runs in-place with a distinct c arena — exactly the graded steady state.
+3. **Adopted gen_race's wisdom cache**: warm create() measured **0.001 s** (was 0.25–9 s; brief budget 50 ms). Keys stripped from the wisdom file at round end per gen_powp's protocol so the monitor cold-races in its quiet window.
+4. **Added L=80 = 16×5** (round-3 any-size duty): new DFT16 4×4-CT codelet in the DFT25M fused-store shape, no tails, passes at 4.1e-16, bit-repeatable.
+5. Added ip2/ipr1 knob candidates (poke distance 2, reverse map) — both tie-or-lose at 100, kept raced.
+
+**Node numbers** (leased core, graded chain, min; windows ran ~5% slow by the MKL yardstick — batched sizes are window-parity with r2, B=1 improved): 40 B=8 **211.3 µs** / B=1 **215.1** (r2: 223.2); 50 B=4 **483.2** / B=1 **530.7** (r2: 554.9); 100 B=1 **5374.6** (0.645× MKL same window, same ratio as r2's quiet 5008.8). All gates pass: single-call 3.6–4.5e-16, two-step 2.4–2.7e-15 (tol 3e-14), full chains 3.8–5.0e-14 (tol 1e-10), bit-repeatable.
+
+One harness note recorded for the panel: the round rotation flipped `impl → impl_3` mid-session and silently dropped six of my in-flight edits; I caught it via a stale-format compile error and re-applied.
+
+**Final line:** GT-PFA two-sweep with in-place chain + sequential NR map (ip0/ip1 picks, race+wisdom in create; ipm/ip2/ipr1 pool insurance) — 40: 215.1 µs B=1 / 211.3 B=8; 50: 530.7 B=1 / 483.2 B=4; 100: 5374.6 B=1; rel L2 3.6–4.5e-16.

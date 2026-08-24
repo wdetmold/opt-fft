@@ -1,0 +1,13 @@
+Wrote `/home/lqcd/wdetmold/fft/bench/gen/results/gen_r3/VERDICT.md`. What I found:
+
+**Three corrections to the brief.** The geometries are not 6/8/17/36 — that's the *ice* campaign; this is GENERALIZE, eleven frozen cells at L = 10…100. The node is a Xeon Gold **6326 (Ice Lake-SP**, 1.25 MB L2, two full-clock 512-bit FMA pipes), not a Cascade Lake 5218, and every implementer developed on that same node — so there is no machine gap to attribute divergence to, and MKL moved ≤0.4% between rounds. New this round: the pass was noisier than gen_r2's (libraries moved up to +4.6%), so ±3% at a single cell means nothing.
+
+**Headlines.** Panel beats the best library at all eleven cells, geomean 3.20×, worst 2.00× (L=40/50), 8.41× at the prime, 1.55× at the one non-batched cell. Essentially unchanged from gen_r2 — nine of eleven leaders moved under 2%.
+
+**The round's actual result is one layer down.** The generic any-L engine went from 0.87× the best library (geomean) to **1.43×**, winning 10 of 11 cells, and closed the gap to the hand-tuned winners from 1.9–6.1× to 1.2–2.3×. Cause wasn't algorithmic: `gen_planner`'s r2 executor was compiling half-scalar (277 `vmovsd` against ~130 packed FMAs), and intrinsics were worth 24–62%.
+
+**Adversarial findings.** One real regression — `gen_batchlane` L=15, 4.478 → 4.771 (+6.5%), three runs, claimed 4.456. Its "slow window" defence dies on a same-pass control: `gen_pfa_small` measured 4.464 at the same cell in the same pass. `gen_pfa_large` L=100 gave back 2.9%, the first time a cell's best number got worse. `fftw3_guru` — the baseline this round's commit log advertised — ran **one of eleven cells**, started a minute after the leaderboard was written, and lost to plain `plan_many_dft` there by 26%; it appears nowhere in the leaderboard. gen_r2's instruction to add one cast and empty `build_errors.txt` was ignored in both files, which were otherwise heavily edited. And the round-3 generality mandate is delivered in code but entirely unscored — eleven off-suite sizes exist only as author-measured numbers, with round 6's whole-library-zero riding on them. Zero correctness failures: 614/614 PASS, and the two worst gate values in the log both belong to `baseline_matrix`, not to a panel entry.
+
+**§5:** LITERATURE §4.2 moved decisively *and in two directions* — the scoring pass's own wisdom file picks dense-31 over Rader-31 at a 79% margin inside `gen_planner`, while the specialists have Rader ahead by 1.46×. The crossover is a property of kernel quality, not arithmetic. §4.3's re-opened L2↔DRAM construction went untried for the third round running.
+
+PROMOTE: gen_pfa_small gen_batchlane gen_powp gen_rader gen_pow2 gen_pfa_large gen_dense_prime gen_planner gen_race gen_layout gen_twiddle

@@ -290,3 +290,124 @@ re-verified PASS (2.5e-16 / 3.5e-16).
 4. gen_layout adoption for the custody block stays deferred: 1.16 MB = 145
    4K pages sits in the STLB, and batchlane's r2 THP A/B on an L2-resident
    set measured a null; re-evaluate at G=16 (4.6 MB/volume).
+
+## Round gen_r3 — the x-pass was FRONT-END bound: DSB-resident loop bodies
+
+Standings into the round: led L=32 at 58.13 us (2.95x MKL 2022, r2
+leaderboard).  This round's plan was my r2 next-step #1 (a cross-column
+store-side skew for the x-pass); that experiment FAILED but its profile
+numbers exposed the real limiter, which nobody in any corpus record has
+named yet: the **front end**.  Also shipped the round-3 mandate: supports()
+now takes ANY 2^k in 2..128 (2/4/8 join 16/64/128 on the generic path).
+
+### The diagnosis chain (worth recording as method)
+
+1. GP2_XSK (x-pass column skew, pass 1 of column n+1 software-pipelined
+   between pass 2 codelets of column n through ping-pong H buffers,
+   bit-identical): **x-phase 101.5K -> 103.3K cyc — a wash-to-loss.**
+   So the x-pass join bubble was already covered by the OOO core, i.e. the
+   pass is NOT latency-bound.
+2. It is not port-bound either: 793 cyc/column measured vs ~434 FMA-port
+   floor (r2 numbers).
+3. What remains is the front end: the r2 x-pass loop body was the g-loop
+   unrolled 4x = ~4 fully-inlined columns ~ 5K uops of 7-byte EVEX code —
+   more than 2x the ~2.3K-uop DSB (uop cache), so every iteration streamed
+   from the legacy decoder at ~16 code bytes/cyc ≈ 2.3 EVEX instr/cyc.
+   The z/y q-body (~2K uops) had the same disease, and the XSK body
+   (~2.6K uops) made it slightly worse — consistent with everything above.
+
+### What changed (ships)
+
+* **GP2_XU=1: ONE column per x-pass loop iteration** (~1.3K-uop body,
+  DSB-resident; asm audit of the final binary: 1561 insns / 8989 bytes for
+  the loop body, fits the 384-line DSB).  Same-window A/B:
+  **x-phase 101.9K -> 92.0K cyc, 59.05 -> 57.55 us/step-vol**, bit-identical.
+  Quiet-window x-phase settles at 88.5-89.3K.
+* **GP2_ZU1=1: keep the 4-zpair sub-loop of the z/y skewed phase rolled**
+  (q-body ~2K -> ~1.3K uops).  Small but consistent: z-phase 77.0-77.7K
+  (ZU1) vs 77.4-82.0K (unrolled) across four windows.  Bit-identical.
+* supports(): any 2^k in [2,128] (round-3 rule).  L=2/4/8 PASS at
+  0/0/1.5e-16 on the generic path.
+* Description string updated; all r1/r2 knobs kept compilable.
+
+### Measured on the node (a80n0, leased core via tryout.sh, graded case)
+
+| config | us/step-vol (min, quiet windows) | same-window MKL 2022 | ratio |
+|---|---|---|---|
+| r2 ship (XU=0) | 58.8-59.4 this round | 183-193 | ~0.32 |
+| + XU=1 + ZU1=1 (SHIPS) | **57.4-57.8** (best 57.41; B=1 **58.0-58.2**) | 183-193 | **~0.31** |
+
+Busy windows this round read 62-73 us with median >> min (neighbors'
+AVX-512 load through the all-core turbo bin — gen_batchlane r2's bimodal
+observation reconfirmed); all A/Bs above are control-first adjacent pairs,
+several in sd<0.1% windows.  Phase profile (shipped, quiet): z+y fused
+77.2-77.7K cyc/step, x-pass 88.5-89.3K, total ~167K cyc/step-vol (was ~180K).
+
+Gates (final ship build, node, check.py by hand on the shared FS):
+single call 2.876e-16 (B=8) / 2.863e-16 (B=1), tol 1e-12; two-step fused
+m=2 **1.334e-15 / 1.284e-15** (tol 3e-14, 22x margin); chain end m=250
+2.914e-14 / 2.330e-14 (tol 1e-10); chain output bit-identical across
+independent runs AND bit-identical to the r2 arithmetic (both new knobs are
+pure reordering/recompilation).  2^k regression: L=2/4/8/16/64/128 single
+call PASS at 0 / 0 / 1.5e-16 / 2.5e-16 / 3.5e-16 / 4.1e-16.
+
+### What did NOT work, with the number that killed it
+
+* **GP2_XSK=1 (x-pass cross-column codelet skew, this round's plan A)**:
+  63.0 vs 58.1 us, x-phase 107.6K vs 89.0K cyc (with the skew loop rolled;
+  101.5->103.3K in the r2-shaped build).  The OOO core already spans the
+  pass-1/pass-2 join, and the ping-pong H buffers double the stack traffic.
+  Kept compilable as the raced control.  Together with r1's vfft32x2 and r2's
+  GP2_SCHED, that is three independent losses for manual cross-codelet
+  scheduling in this engine — the machine schedules better; feed its FRONT
+  END instead.
+* **GP2_XU=2 (fully rolled vp1/vp2 codelet loops, ~400-uop body)**: x-phase
+  97.3K vs 89.3K (+7K cyc) — loop overhead plus runtime-k2 twiddle loads.
+  The sweet spot is the LARGEST body that fits the DSB, not the smallest.
+* **GP2_ZYF=1 (finer z/y interleave: single zpairs alternating with single
+  vp1 y-codelets inside each q-group)**: 58.97 vs 57.69 us clean-window,
+  z-phase 79.0K vs 77.7K.  Same lesson as XSK, from the other side: once
+  DSB-fed, codelet-granularity phase mixing (GP2_ZYIL) is already enough;
+  going finer only adds overhead.
+* **GP2_MAPDIV=0 re-race under XU=1** (front-end fix could have shifted the
+  div-vs-ladder balance): 61.1 vs 58.7 us, x-phase 97.3K vs 89.3K — the
+  vdivpd map still wins; the divider is not the binding port even now.
+* **GP2_ZYIL=0 re-race under XU=1**: z+y split 50.3K+37.3K = 87.6K vs fused
+  77-79K — the r2 skew still pays.
+* -falign-loops=32: wash (58.34 vs 58.42 min in adjacent windows); moot
+  anyway since the monitor builds with the standard flag line.
+
+### Borrowed / attribution (gen_r3)
+
+* The diagnosis METHOD is the ice discipline (rdtsc phase profile before
+  every structural bet + count-the-uops asm audit); the DSB-residency
+  finding itself is new this round — no prior record (ours, ice, or rivals)
+  mentions the front end.  Peers with fully-unrolled multi-thousand-uop hot
+  loops (gen_powp's 25/27 pencils at 404-436 vector ops x4 sites unrolled,
+  gen_pfa_large's DFT25M bodies, gen_batchlane's L=15 DFT5X2) should check
+  their body sizes against the 2.3K-uop DSB; my +31% GP2_SCHED disaster in
+  r2 may even have been partly this (sched-insns inflates code size).
+* gen_batchlane r2: the bimodal-window observation (min-vs-median discipline
+  under neighbor load), used to keep this round's A/Bs honest.
+* gen_powp r2 / gen_layout r2: the by-hand check.py + cmp repeatability
+  procedure (tryout's remote map-check leg still dies on the unexpanded
+  '$W/c.bin'; its $W build bug is fixed).
+
+### What I would do next
+
+1. **Generalize the custody engine over G = L/8** (16/64/128 currently ride
+   the O(L^4)-ish generic radix-2 path: 81 us / 7.4 ms / 63 ms per volume —
+   a round-6 liability if a 2^k is drawn; 16, 32, 64 are all in 14..127).
+   G=8 is the ice L64_blocked z-codelet verbatim, G=2 packs 4 rows per TR8,
+   G=16 needs an L2-blocked x-pass.  Apply the DSB rule from the start: one
+   column/line per loop body, never more.
+2. **The remaining x-pass slack (~89K vs ~450/col port floor) is now most
+   likely the S+C working set riding the 1.25 MB L2 edge** (1.183 MB + code
+   + stack): try shaving KS padding (KS=68 keeps odd-line 4K-proofing at
+   17 lines/row? — must re-derive), or accept it.
+3. Re-race GP2_XU/GP2_ZU1 on CLX/SPR in the cross-arch guard (DSB sizes
+   differ: SKX 1.5K uops, SPR 4K+ — the sweet spot moves; the knobs are the
+   race axes).
+4. Library layers: still zero-cost create() (~0 s, trivially inside budget);
+   adopt gen_race wisdom keys when the custody engine grows real candidates
+   (the XU/ZU1/MAPDIV knobs are exactly what its per-host race is for).

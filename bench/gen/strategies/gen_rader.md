@@ -298,3 +298,124 @@ addresses.  Port floor still ~65-70 us; shipped 86.6 => ~1.27x above floor
    fold_pass GEMM streams the same 15376 B rows in place; their planned
    31->32 row pad should use plane pitch == 124 mod 256 complex (not just
    row-rounding) or the x-pass store->load aliases survive at row distance 4.
+
+## Round gen_r3
+
+### Where this round started
+
+r2 leaderboard: **86.913 us/step** at the graded cell (L=31 B=16 m=140), leading
+the crossover (gen_dense_prime 124.3, MKL 849-883).  The round-3 rule activates:
+the class must accept ANY size in class — for this entry, any odd prime.  This
+round's control re-measure of the r2 binary: 86.61 / 86.84 / 86.93 (interleaved
+with the new build; the node is ~5% bimodal this round per gen_dense_prime's r3
+protocol — all A/Bs below are 2-3 interleaved process instances per arm).
+
+### What was built
+
+1. **Any-prime class duty: supports() = every odd prime 3 <= p <= 127.**
+   Primes != 31 run a NEW generic engine (rp_*): the conjugate-folded half
+   system (C_k = x0 + sum_j cos(2pi jk/p) u_j, S_k = sum_j sin v_j, X_k =
+   C_k -+ iS_k — folded dense, the settled ~2h^2-FMA count; NOT the Winograd
+   nesting, which is 15-specific) in a runtime-(p,h) column-chunk kernel:
+   all p rows loaded ONCE into stack u/v arrays (loads-all-then-stores => in-
+   place safe for any dst==src), then k in QUADS of 4 (C,S) accumulator pairs
+   sharing each u_j/v_j reload — per j per quad, 2 stack loads + 8 broadcast
+   constants feeding 8 FMAs, all-real constants on interleaved zmm.  z axis
+   through the r31_tp4 4x4-complex transpose quad generalized to runtime p and
+   1..4 rows (zero-padded missing rows; garbage lanes only ever cross shuffles
+   and die in masked stores).  Chain fully in place on the out volume (my r1
+   form), map per plane while the plane is cache-hot.  Tables k-major exact
+   long-double sincos.  The existing create() self-check (execute + one chain
+   step vs dense reference at 1e-13) gates every p; the dense-matrix fallback
+   ships if it fails.
+2. **L=31: st + cpad moved into ONE 2MiB huge-page arena, c mirror at page
+   phase +2048 B** (gl_map_huge recipe from gen_layout, verbatim; heap
+   fallback kept).  gen_dense_prime's r3 found two same-phase ~500 KB
+   aligned_allocs make the map's c loads 4K-alias the y-pass state stores —
+   my r2 had exactly that layout.  Also puts the 1.14 MB chain working set on
+   one TLB entry and makes layout luck deterministic.
+
+### Measured on the node (a80n0 leased cores; graded cell L=31 B=16 m=140)
+
+| configuration | us/step |
+|---|---|
+| r2 binary, this round (control, interleaved) | 86.61 / 86.84 / 86.93 |
+| r3 arena build, same windows | **85.50 / 85.57 / 85.62 (-1.4%, 3/3)** |
+| **B=1** | **85.34 (sd 0.09%)** — r2's window read 99.7; this window is quiet, so part of the delta is the documented B=1 ramp signature, but B=1 now reads BELOW B=16 |
+| MKL 2022 same case/core | 849.6 |
+
+Correctness at 31 (shipped binary, all by hand on the node — tryout's remote
+map-check still dies on its unexpanded '$W/c.bin'): single rel_l2 4.059e-16
+(B=16) / 4.073e-16 (B=1); map-chain m=140 2.559e-14 (B=16, anchor 2.312e-14) /
+1.923e-14 (B=1); **two-step gate 1.784e-15** (tol 3e-14, 17x margin); outputs
+bit-identical across independent runs.
+
+Generic primes (execute() B=2 unless noted; MKL same core where measured):
+
+| p | us/xform | MKL | setup |
+|---|---|---|---|
+| 3 / 5 / 7 / 11 | 0.19 / 0.72 / 1.6 / 6.6 | — | ~0 |
+| 13 (B=4) | 10.96 | 6.02 | ~0 |
+| 17 / 23 | 25.5 / 84.3 | — | ~0 |
+| 29 (chain m=8) | 177.5/step | — | 0.005 s |
+| 37 (chain m=8, B=2) | 418-472/step (window-dependent) | 1599 (execute) => **3.7x** | 0.014 s |
+| 43 | 839 | — | 0.03 s |
+| 61 | 3067 | 16004 => **5.2x** | 0.11 s |
+| 101 | 24158 | — | 1.24 s |
+| 127 | 48668 | 49748 => **1.02x** | 2.92 s |
+
+All pass single rel_l2 at 1e-12 (worst 1.04e-15 rel_max at 127); chains at 29
+and 37 pass map-chain AND the m=2 two-step gate (1.84e-15 at 29); repeatable.
+Every setup is far under the 60 s cold budget.  Primes 37..127 previously had
+ONLY Bluestein coverage in the library — that is the r6 insurance this buys.
+
+### What did NOT work, with the number that killed it
+
+- **-DRP_YMAPFUSE (map fused into the generic y-pass stores): LOSES 2/2 at
+  both probe sizes — L=37: 480.2/482.0 vs 469.7/471.6 (+2.3%); L=13: 13.8/14.5
+  vs 13.1/13.2 (+5-9%).**  Third engine on this panel where eager map fusion
+  into a pass loses (my r31 r1 numbers, gen_dense_prime's r2 plane-map, now
+  the lean generic kernel too).  gen_pfa_small's r3 lesson confirmed again:
+  the div-vs-ladder/fusion choice is a property of the surrounding codelet —
+  A/B in place, never adopt on faith.  Knob kept for cross-arch.
+
+### Borrowed this round, named
+
+- **gen_layout r1/r2**: gl_map_huge (2MiB THP arena, align-trim-madvise-
+  prefault) adopted verbatim into create(); their phase-stagger doctrine.
+- **gen_dense_prime gen_r3**: the same-phase-aligned_alloc 4K-alias diagnosis
+  (their cp/sp finding transferred cleanly — my engine's map DOES abut the
+  y-pass store drain, which is exactly the geometry their record says the fix
+  pays on), and the bimodal-node measurement protocol (interleave 3+ process
+  instances per arm, compare min-sets).
+- **gen_pfa_small gen_r3**: the shape of the round-3 duty — a generic
+  runtime-table engine beside the tuned paths, gated by the same self-check.
+
+### Operation count
+
+31: unchanged from r2 (~240k zmm FMA-class + ~90k adds per volume step; all
+accesses 64B-aligned, tail-free).  Generic p: ~2h^2 zmm FMA per 4-complex
+chunk per axis (k-quads at 10 loads / 8 FMAs — mildly load-bound), z via
+transpose quads (+16 shuffles/4 pencils), chain adds one in-place map sweep
+per plane.  Flat layout: line-splits and (at some p) 4K aliases are UNPAID
+DEBT at the generic sizes — see next.
+
+### What I would do next
+
+1. **True generalized Rader for 3|h** (p in {7,19,43,67,79,103,127}): the
+   Winograd-C3-over-dense-cyclic machinery generalizes (4 block products of
+   (h/3)^2 FMA vs h^2 dense — ~45% FMA cut at 127, where the engine is only
+   at MKL parity).  Needs a runtime index/sign table generator for the
+   quotient-group reindexing; the self-check already gates any p.
+2. **Padded arena chain for generic primes** (rows -> mult-of-4 complex,
+   anti-alias plane pitch = the r2 closed form generalized, or
+   gl_pick_pitch4k at plan time): the r2 win at 31 was 9.5%; the generic
+   sizes still run the r1-era flat layout.
+3. **Large p (>= 61) chain is DRAM-resident** (127^3 = 32 MB volume): the
+   in-place full-volume passes stream it 4x per step.  A plane-blocked step
+   order (z+x on a plane band, y+map behind it) could cut that ~2x.
+4. 31 residue unchanged: wino15 spill cut and two-chunk software pipelining
+   still untried (gcc lotteries; this round's noise budget went to the A/Bs
+   above).
+5. Harness: tryout's remote map-check still needs the by-hand run; keep
+   in16/c16, in1/c1, in37/c37 etc. under build/tryout/gen_rader/ current.

@@ -1,0 +1,10 @@
+Done. All work is committed to my two files (`impl/gen_dense_prime.c`, `strategies/gen_dense_prime.md`), every gate passes at all 15 supported sizes, and the record documents the round including the negative results.
+
+**Fused-z-combine folded-dense engine + THP arena + generic vectorized z-pass (any prime ≤ 31): L=31 best 123.5 µs/step batched (B=16), 128.8 µs at B=1; rel L2 = 3.9e-16 single / 2.6e-14 on the m=140 chain (tol 1e-10).**
+
+Supporting detail for the monitor:
+
+- **L=31 (graded cell)**: ~flat vs r2 (windows 123.5–130; the node is 5% bimodal this round from co-tenant load — identical binaries spread 123.6→130.4 across processes with 0.05% within-run sd). Shipped: the z-combine now fuses directly into the U/V fold (deletes ~15k stack memory ops per z+x pass), and the whole chain lives in one deterministic 2 MiB-huge-page arena with the c mirror at page phase +2048 (the r2 layout had sp/cp at identical page phase, so the map's c loads 4K-aliased the state stores).
+- **Negative result, recorded with numbers**: gen_rader's prescribed 4K-anti-alias plane pitch (their r2 item addressed to me) was fully built and raced — collision score 240→4.4 in the model, but 0 to −4% on the node. My fused block structure retires stores behind the z-phase, so the replays never bind, while the bigger footprint costs real L2. Knobs (`-DGDP_PP`, `-DGDP_BG`) kept for cross-arch re-racing.
+- **Big wins at the other cells** from the new vectorized any-L z-pass: L=10: 8.30→5.84, L=12: 14.29→8.21, L=15: 30.19→16.18, L=20: 79.31→43.69 µs/step (−30…−46%); the dense floor now beats MKL at 15 and 20.
+- **Round-3 class duty**: `supports()` takes any prime 2…31 plus 10/12/15/20; all sizes pass single (≤4e-16), two-step (≤1.7e-15 vs 3e-14), and chain gates; bit-identical across processes; scalar fallback build verified end-to-end.

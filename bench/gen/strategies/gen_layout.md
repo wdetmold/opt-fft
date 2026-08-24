@@ -331,3 +331,149 @@ that need the collision MODEL are the ones with direct strided hot loops
 3. **Round-3 any-L duty**: supports() already takes 2..128 and the engine is
    size-generic with zero per-size code; keep it as the panel's guaranteed
    floor for surprise draws (it now beats MKL at some of them).
+
+## Round gen_r3
+
+### What changed
+
+**Library (`gl_*` API): nothing.** No adopter asked for a new primitive in
+their r2 records, so the API is frozen this round; churn in a layer others
+`#include` is its own cost. All work went into the demo entry — which this
+round DOGFOODS the layer's own collision model (below), giving adopters a
+worked example of section 4b in real kernel code.
+
+**Demo entry, three changes (all r2 next-step items):**
+
+1. **Axis-1 cross-plane lane packing.** The r2 form processed y-pencils per
+   x-plane, `ceil(L/8)` vector groups of 8 for L pencils — at L=25 that is
+   32 lanes carrying 25 pencils (28% dead), at L=10 60% dead. Now y-pencils
+   are indexed globally by g = x·L + z and grouped 8-at-a-time across plane
+   boundaries: a boundary group takes lanes 0..cnt−1 from plane x (columns
+   z..L−1) and lanes cnt..7 from plane x+1 (columns 0..7−cnt) with a second
+   masked load per row (`_mm512_mask_loadu_pd`, complementary masks, second
+   base = plane x+1 minus cnt elements so the lane index maps to the right
+   column). Group count per volume drops from L·ceil(L/8) to ceil(L²/8) —
+   zero dead lanes except the single final tail when L² is odd. Boundary
+   groups (≤ 1 per plane) route the kernel through the `ob` staging block and
+   pay two masked stores per output row; interior groups store direct,
+   exactly as before. For L < 8 (a group would span >2 planes) the old
+   per-plane path is kept.
+
+2. **Axis 2 fused behind axis 1 through a 4-plane circular window.** A z-pencil
+   of plane x depends only on plane x of the axis-1 output, so the full s2
+   scratch volume never needs to exist: axis-1 output goes into a 4-slot
+   plane window (slot = x mod 4), and axis-2 trails plane-by-plane on rows
+   already complete, in full groups of 8 rows (row blocks freely cross plane
+   boundaries — per-lane row pointers into the window). Live span is 3
+   consecutive planes (writer touches x, x+1; reader is at ≥ x−1), so 4 slots
+   can never collide. The window plane pitch is picked at create() by the
+   layer's own `gl_alias_pairs4k` — candidates line-rounded L²·8 B + 0..7
+   lines, scored as alias pairs of one slot's L live rows against the other
+   three slots' rows (the section-4b pattern, applied to myself). s2
+   allocation shrinks from a volume to 4 plane slots (L=100: 8 MB → 640 KB
+   per component).
+
+3. **Fold-direct staging on axes 0 and 1.** u/v rows are built straight from
+   the source loads (row j and row L−j loaded/deinterleaved, add/sub, store
+   to ub/vb); only row 0 still lands in pb (the kernel reads x0 there). Kills
+   the full pb staging round trip per chunk (2L vector stores + 2L reloads).
+   Axis 2 keeps pb: its pairing partner rows live in different transpose
+   blocks.
+
+4. **2-pair tail in the pair kernel** for h mod 4 ∈ {2,3} (was: leftover k's
+   one at a time, 6 loads / 4 FMAs per j — load-bound). Helps L=31
+   (h=15: tail sweeps 3→2, measured −8.5% on top of the rest); wash at L=15
+   (h=7, staging-dominated at that size — number below).
+
+New A/B knob: `-DGL_DEMO_NOFUSE=1` reverts to the r2 per-plane axis-1 +
+full-volume axis-2 (used for the attribution runs below).
+
+### Operation count
+
+FMA count unchanged (~4·h·hu vector FMA per 8-pencil group + C-only rows;
+h=⌊(L−1)/2⌋, hu=h+even). What changed is group count and traffic: axis-1
+groups L·ceil(L/8) → ceil(L²/8) per volume; per-chunk staging on axes 0/1
+loses 2L stores + 2L loads (pb round trip); scratch s2 DRAM round trip
+(2·V·16 B write+read per volume) replaced by an L2-resident 4-plane window;
+boundary groups add 4 masked stores + 2 loads per output row, ≤ 1 group per
+plane.
+
+### Measured on the node (a80n0, leased core via tryout.sh, graded chain, min µs/xform)
+
+| L | B | m | gen_r2 | gen_r3 | delta | MKL (same window) |
+|---|---|---|---|---|---|---|
+| 10 | 64 | 1000 | 5.32 | **4.87** | −8.5% | 4.60 |
+| 12 | 64 | 600 | 8.61 | **7.98** | −7.3% | 7.74 |
+| 15 | 32 | 600 | 19.92 | **19.07** | −4.3% | — |
+| 20 | 32 | 256 | 43.68 | **42.02** | −3.8% | — |
+| 25 | 16 | 256 | 100.67 | **94.54** | −6.1% | 121.2 |
+| 27 | 16 | 200 | 141.65 | **123.44** | −12.9% | — |
+| 31 | 16 | 140 | 264.39 | **227.70** | −13.9% | — |
+| 32 | 8 | 250 | 241.44 | **223.95** | −7.2% | 174.5 |
+| 40 | 8 | 128 | 551.55 | **499.85** | −9.4% | — |
+| 50 | 4 | 128 | 1358.01 | **1241.26** | −8.6% | — |
+| 100 | 1 | 64 | 23120.0 | **19508.6** | −15.6% | — |
+
+B=1: L=12 9.13 (r2 10.49), L=31 253.6 (r2 335.4) — path is batch-invariant;
+the residual B=1 elevation is the documented core-ramp artifact. Attribution
+at L=100 via the knob: `-DGL_DEMO_NOFUSE=1` 23858.9 vs default 19508.6 — the
+window+packing is worth **18%** at L=100, i.e. at the memory-pressure size the
+locality change finally shows the double-digit effect the r1/r2 A/B ladder
+could never produce on this kernel (it was the extra volume round trip, not
+the 4K phases, that mattered). The dense floor now beats or matches MKL at
+10, 12, 20, 25, 27, 31 (3.8× at 31) and every gen library-layer stub.
+
+Gates: single-call rel L2 2.8–5.6e-16 all 11 suite sizes (tol 1e-12);
+two-step map gate 9.44e-16 (tol 3e-14, 30× margin); full chain m=600 at L=12
+5.33e-14 vs honest anchor 3.89e-14 (tol 1e-10); chain outputs bit-identical
+across independent node runs (manual cmp — tryout's chain-case check/cmp legs
+are still broken, see r2 notes; the by-hand invocation from my r2 record
+still works verbatim). Correctness spot-checks beyond the suite: L = 7, 8, 9,
+13, 17, 64, 127, 128 on the node; scalar (AVX2 wallaby) build PASS at
+L = 4, 9, 12, 27. Entry and LIB_ONLY modes compile `-Wall -Wextra`-clean,
+native and `-march=icelake-server`. Setup ≤ 10 ms at L=100.
+
+### What did NOT work / attribution notes, with numbers
+
+- **2-pair kernel tail at L=15**: 19.07 → 19.15 µs — wash (h=7 is
+  staging-dominated; the tail change only pays when the pair sweep dominates,
+  as at L=31). Kept anyway: it never loses, and h mod 4 = 3 draws (L=31, 32,
+  40) all benefit.
+- **First L=100 default reading was 23,334 µs (+0.9% vs r2)** — a dirty
+  window (shared L3 on the dev node; sd line said 1.0% but the median was
+  inflated). Re-runs: 19,508 / 19,522 µs at sd 0.02–0.2%. Lesson repeated
+  from the ice campaign: never conclude from one tryout window; the NOFUSE
+  A/B in the same session is what settled it.
+- **6-pair kernel groups: considered, not attempted.** The 4-pair sweep is
+  already FMA-port-bound on paper (16 FMA vs 12 load-port µops per j → 8 vs
+  6 cycles); widening to 6 pairs only reduces the non-binding load pressure
+  (0.67 vs 1.0 data loads per pair per j) and the FMA count is unchanged.
+  Recorded so nobody burns a window on it without first showing the kernel
+  is NOT FMA-bound (e.g. via the axis-2 port-5 shuffle contention below).
+
+### Borrowed this round, named
+
+- Nothing new from other entries — this round cashed in my own r2 next-steps.
+  The plane-window fusion is the standard pencil-pipeline locality trick every
+  class engine already uses in some form (gen_pfa_large's fused M-at-out,
+  gen_pow2's custody planes); the specific contribution here is picking the
+  window pitch with the layer's own `gl_alias_pairs4k` instead of the odd-line
+  rule — section 4b used in anger, as a worked example for adopters.
+
+### What I would do next (gen_r4)
+
+1. **Adoption is still the score.** The offer from r2 stands, now with a live
+   in-file example: `dm_pick_wpitch` + the 4-slot window is exactly the shape
+   gen_dense_prime's t1/state pitch question and gen_rader's padded chain
+   arena want. If a round-4 prompt allows cross-entry diffs, that first.
+2. **Axis-2 port-5 pressure**: the transpose staging (48 shuffles per 8×8
+   block each way) shares port 5 with the second FMA pipe on Ice Lake — at
+   L=32 that is ~190 shuffle µops against ~480 port-5 FMA µops per row block.
+   A split-stores variant (kernel writes split rows, gl_int8 only at the
+   final store) or masked-compress staging could buy the axis-2 pass ~10%;
+   measure with the port-utilization counters, not by guessing.
+3. **The last lane waste**: axis-0/axis-2 tails when L² mod 8 ≠ 0 (≤ 7 lanes
+   per volume — negligible) and the L<8 legacy path (irrelevant to scoring).
+   Done with lane geometry; the next real step for the floor would be a
+   two-level split of the cos/sin matrices (Winograd-style), which changes
+   the class — not this entry's job.

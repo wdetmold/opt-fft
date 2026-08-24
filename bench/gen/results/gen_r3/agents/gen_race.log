@@ -1,0 +1,1 @@
+Technique: planner-tree + tile-width two-stage race on the graded chain step with engine-generation-salted per-host wisdom (library API frozen, 3 adopters) — best at L=10: 5.42 µs/xform B=1, 4.74 µs batched B=64 (beats MKL at 10 of 11 cases, e.g. L=31 200.8 µs vs MKL 849.7), rel L2 2.9–5.2e-16 with all map-chain and two-step gates passing.

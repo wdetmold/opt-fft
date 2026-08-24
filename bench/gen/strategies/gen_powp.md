@@ -346,3 +346,159 @@ r1 (DFT25M moves L1 traffic, not FMA ops).
 5. If the xarch guard flags the soa picks on CLX/SPR: the wisdom race
    already re-decides per host — verify the margins there before touching
    code.
+
+## Round gen_r3
+
+Standings into the round: led 25/27 outright (soa picks, 32.6/45.6), tied 50
+(469.9 vs gen_pfa_large 473.0 r2 board), trailed 100 by 1.7% (5072 vs 5009).
+Round-3 rule now in force: supports() must take ANY size in class.  This
+round: adopt gen_pfa_large's brand-new r3 ipm chain family + their two race
+fixes, and ship the odd-p^k class (49/81/121/125) for round 6.
+
+### What was built (three things, plus two A/Bs that died)
+
+**1. ipm* deferred-map chain family (ADOPTED from gen_pfa_large gen_r3 -- read
+out of their impl_3 source mid-round; their record was not yet written).**
+The map z/(1+|z|) is applied to the NEXT step's phase-1 z-subpass LOADS
+(map(z' + c) right after the granule load, before TRNC); the state buffer
+holds raw FFT output between steps; fft3d_chain runs step 1 = plain execute,
+steps 2..m = p1m+p2ip, one trailing map_span.  Bit-identical to ip* op order.
+Raced as ipm0/ipm1 at 50/100 and ipm0 at the new sizes; dm picks gate the
+full m=2 chain COMPOSITION at create() (their shape).  Their two race fixes
+came along, both mandatory for honest ipm times: a DISTINCT tcf c-buffer
+(tin-as-c let ipm's state+c loads share lines and halved its apparent
+traffic -- their measured mis-pick), and trials now run IN PLACE on tout
+(cfn(tout,tout,tcf), the graded steady state) instead of tin->tout.
+
+**2. Round-3 class duty: the odd-p^k sizes 49 (7x7), 81 (9x9), 121 (11x11),
+125 (5x25).**  Same engine template, four new line codelets: DFT7K/DFT11K
+conjugate-pair-fold modules (33/75 FMA-port ops; full mod-n cos/sin tables
+carry the sine signs), DFT9K = 3x3 CT reusing the compile-time W9 tables,
+DFT49C/81C/121C = two-stage p x p CT, DFT125C = 5x25 with stage B through
+DFT25M.  New-size twiddles are RUNTIME tables computed once at create() in
+long double (gen_pfa_small r3's precedent for the exactness rule), stored as
+{cos} + {sin,-sin} 16 B pairs so a twiddle costs VSPLAT + one
+_mm512_broadcast_f64x2 (no per-use sign build).  Lite template instantiation
+(GENLITE: ip0/ipf/f0/ipm0 only) keeps the added compile tolerable (whole
+file: 61 s).  Preprocessor trap for the record: DFT25M declares U_[25]
+internally, so DFT125C's stage array must be T_ (the PFA50C rule) -- caught
+at desk-check, worth stating for the next codelet author.
+
+**3. ipm execute-pairing bug, found and fixed on the node.**  I first paired
+ipm candidates with the x_pf* (through-M) executes, copying gen_pfa_large's
+table shape.  At L=81 the race rightly picked the ipm0 CHAIN (3596 us/vol vs
+ip0 3870) -- and every m=1 execute then rode x_pf0 at 8383 us vs 6060 for
+x_ip0 (f* executes crater at streaming sizes: f0 12798 vs ip0 4924 at 100).
+All ipm rows now ride x_ip0/x_ip1.  Lesson: the execute fn rides the CHAIN
+winner, so pair every chain candidate with the best execute of its working
+set, not its phase structure.
+
+### Measured on the node (a80n0, leased core via tryout.sh + hand runs, min)
+
+| case | r2 | gen_r3 | same-window MKL 2022 | pick |
+|---|---|---|---|---|
+| L=25 B=16 m=256 | 32.6 | **32.40** (34.2-34.3 in later, busier windows) | 121.0-122.6 | soa |
+| L=27 B=16 m=200 | 45.6 | **45.03** (47.5-47.8 busier) | 144.4-144.7 | soa |
+| L=50 B=4 m=128  | 469.9 | **482.8-486.6** (window-bound; race ip1 580.7 vs ipm1 588.6 in the same elevated window) | 951.9 | ip1 |
+| L=100 B=1 m=64  | 5072 | **5070-5123** | 7857 (sd 11.6%, busy) | ip0 |
+
+Scored sizes are r2-level: the picks did not change, and the windows this
+session ran 3-6% hot (MKL steady, our numbers wobbling together with peers').
+B=1 chains (ungraded): 25: 42.93, 27: 59.71, 50: 484.5 -- vs r1/r2's
+48.7 / 68.1 / 615.  The B=1 gains are the race fixes, not new kernels: the
+old out-of-place tin->tout trial arena mis-ranked the in-place families at
+B=1; the steady-state in-place trial ranks them as graded.
+
+New sizes (node): L=49 B=8 execute 600-602 us (MKL 606 -- parity), chain
+m=32 588 us/xform; L=81 B=8 execute 6060 (MKL 3770 -- 1.6x behind at plain
+execute) but B=2 chain 3283 us/xform (ipm0; MKL execute alone is 3770 -- in
+the graded chain shape we lead); L=121 B=1 execute 12909 (MKL 11721), chain
+m=8 14158; L=125 B=1 execute 14369 (MKL 14987 -- ahead), chain 15183.
+Wallaby (dev host, same source): graded chains 24.26 / 33.98 / 343.4 /
+3258.9; new-size executes 325 / 1743 / 7144 / 7744 us (wallaby is simply a
+faster machine at streaming sizes; per-host race REQUIRED).
+
+Gates, all eight sizes, node: single call 3.6-5.0e-16 (tol 1e-12); graded
+map-chains 3.1-5.0e-14 at 1.1-1.7x honest anchors; new-size chains
+5.6e-15-1.2e-14 at 1.05-1.3x anchors; ALL bit-repeatable across independent
+processes.  Setup: cold 0.13 s (25) to 7.2 s (125) [60 s budget]; warm
+wisdom 1-7 ms [50 ms budget].  Round-end: all 12 gen_powp wisdom entries
+STRIPPED from results/wisdom_a80n0.json (r2 practice -- monitor cold-races
+in its quiet window; absent entries are deliberate).
+
+### What did NOT work, with the number that killed it
+
+* **ipm at L=100 on the node**: ipm0 5708 / ipm1 5484 vs ip0 4924 / ip1 4939
+  us/vol (+11-16%), calm window, distinct-c race.  Mechanism: p1m's map is
+  ~21 FMA-port ops per loaded vector = ~52k extra ops/plane against p1's own
+  ~48k -- it DOUBLES phase-1 compute, and phase 1 at L=100 is only ~half
+  miss-bound, so the "free under the misses" argument does not close.  At
+  L=50 ipm ties ip (588.6 vs 580.7).  At L=81 it WINS (-7%): ~850-op line
+  against the same per-plane traffic leaves more miss headroom.  The family
+  stays in the pool -- the per-host, per-size race is the arbiter, and
+  wallaby/CLX/SPR may disagree with Ice Lake.  gen_pfa_large: your ipm
+  looks like a loser at 100 on my op counts too; check yours before
+  shipping it as a default.
+* **sched-pressure on the soa_step wrappers** (gen_batchlane r3 ships it at
+  -5.7..-10% on their register-explicit pencils): on MY soa engine it LOSES
+  32% at 25 (34.3 -> 45.4) and 22% at 27 (47.8 -> 58.3), control-first
+  same-window pairs, MKL steady at 121/144.  Their win is specific to
+  spill-heavy codelets.  Knob -DGENPWP_SOASCHED kept for cross-arch races.
+* **Dead-store audit of the soa pencils** (gen_batchlane r3's objdump
+  method): NOT a problem here -- gcc already forwards ~106 stage-1->stage-2
+  loads and DSEs ~61 stores per soa_step (244 loads / 239 stores emitted vs
+  350/300 naive).  No barrier surgery warranted; audit cost 10 minutes and
+  is worth repeating each round.
+* The x_pf* execute pairing (above): L=81 m=1 went 8383 -> 6060 us on the
+  repair.
+
+### Borrowed, plainly
+
+- **gen_pfa_large (gen_r3, their working source)**: the whole ipm idea and
+  p1m shape, the deferred-chain schedule, the m=2 composition gate, the
+  distinct-tcf race fix, and the in-place steady-state trial fix.
+- **gen_pfa_small (gen_r3)**: runtime long-double tables as the sanctioned
+  exactness route; their consumption-order-c negative result kept me from
+  reordering the new tables.
+- **gen_batchlane (gen_r3)**: the asm store-count audit method (applied,
+  clean verdict) and the warning that sched-pressure wins are
+  codelet-specific (confirmed, opposite sign here).
+- The {sin,-sin} pair-table + broadcast_f64x2 twiddle form and the GENLITE
+  reduced-template instantiation are new here.
+
+### Operation count (vector FMA-port ops per line, lanes of 4, new sizes)
+
+L=49: 14 x DFT7K(33) + 36 tw(2) = 534;  L=81: 18 x DFT9K(32) + 64 tw = 850;
+L=121: 22 x DFT11K(75) + 100 tw = 1850;  L=125: 25 x DFT5(16) + 96 tw +
+5 x DFT25M(192) = 1552.  Per volume x3 axes as ever.  Scored sizes unchanged
+from r2 (ipm moves the map's ~21 ops/vec from its own pass into p1's loads;
+FMA total identical).
+
+### What I would do next (ranked)
+
+1. **L=81 execute gap (1.6x behind MKL)**: try 81 = 27x3 reusing the tuned
+   DFT27C machinery (26 twiddles/stage vs 64) or a 3^4 four-stage form;
+   also give the lite sizes the ip1/pf1 poke variants -- the 81 chain
+   already leads MKL, so this only matters if round 6 draws 81 and scores
+   execute-heavy shapes.
+2. **Read gen_pfa_large's r3 record when it lands**: their ipm verdicts at
+   40/80 and any L=100 phase-1 traffic work supersede my guesses; take what
+   wins, as ever.
+3. **SoA-8 chain at 27, x-pass two-column pipelining**: still the one
+   untried item from r2 (register cliff at ~32 live vecs); 27 remains the
+   weakest scored ratio (3.2x vs 3.8x at 25).
+4. **B % 8 != 0 batches at 25/27**: lane-replicate remainder volumes
+   (gen_batchlane r1) would extend the soa engine to any B >= 8; matters if
+   round 6 draws a p^k with an awkward batch.
+5. **Planner handshake**: tell gen_planner supports() now takes
+   49/81/121/125 so the trunk routes p^k draws here instead of Bluestein
+   (we beat it 5-15x at these sizes).
+
+### Harness notes (unchanged bugs, one new script)
+
+tryout.sh's remote map-check leg still gets the unexpanded '$W/c.bin' and
+its && chain then skips the repeatability cmp; build/tryout/gen_powp/
+r3_final.sh runs the full graded + B=1 + new-size sweep with map-checks and
+two-process cmps by hand on a leased core (bash r3_final.sh <core>).  squeue
+on wallaby still needs the slurm PATH shim.  Off-case sizes: tryout accepts
+any L (m defaults to 1), which is how the new sizes were driven.

@@ -1,0 +1,34 @@
+impl/gen_dense_prime.c: In function ‘fft3d_chain’:
+impl/gen_dense_prime.c:1402:23: warning: iteration 1152921504606846976 invokes undefined behavior [-Waggressive-loop-optimizations]
+ 1402 |         double re = zp[2 * i] + cp[2 * i];
+      |                       ^
+impl/gen_dense_prime.c:1401:14: note: within this loop
+ 1401 |     for (; i < npts; ++i) {
+      |            ~~^~~~~~
+impl/gen_race.c: In function ‘fft3d_create’:
+impl/gen_race.c:887:60: warning: ‘__builtin___snprintf_chk’ output may be truncated before the last format character [-Wformat-truncation=]
+  887 |         snprintf(gk, sizeof gk, "gen_race/chaingate3/L%d/%s", L, p->picked);
+      |                                                            ^
+In file included from /usr/include/stdio.h:894,
+                 from impl/gen_race.c:113:
+/usr/include/x86_64-linux-gnu/bits/stdio2.h:71:10: note: ‘__builtin___snprintf_chk’ output between 24 and 161 bytes into a destination of size 160
+   71 |   return __builtin___snprintf_chk (__s, __n, __USE_FORTIFY_LEVEL - 1,
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   72 |                                    __glibc_objsize (__s), __fmt,
+      |                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   73 |                                    __va_arg_pack ());
+      |                                    ~~~~~~~~~~~~~~~~~
+impl/gen_rader.c: In function ‘fft3d_chain’:
+impl/gen_rader.c:917:23: warning: iteration 1152921504606846976 invokes undefined behavior [-Waggressive-loop-optimizations]
+  917 |         double re = zp[2 * i] + cp[2 * i];
+      |                       ^
+impl/gen_rader.c:916:14: note: within this loop
+  916 |     for (; i < npts; ++i) {
+      |            ~~^~~~~~
+impl/gen_rader.c: In function ‘fft3d_create’:
+impl/gen_rader.c:917:23: warning: iteration 1152921504606846976 invokes undefined behavior [-Waggressive-loop-optimizations]
+  917 |         double re = zp[2 * i] + cp[2 * i];
+      |                       ^
+impl/gen_rader.c:916:14: note: within this loop
+  916 |     for (; i < npts; ++i) {
+      |            ~~^~~~~~

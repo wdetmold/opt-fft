@@ -253,3 +253,137 @@ in-register at the x-pass stores. Two volume sweeps per step.
    any coprime pair with factors in {2,3,4,5} (14,21,30,33,35... need DFT7/11);
    coordinate with gen_planner on who serves what, and hand gen_layout the
    huge-page allocator.
+
+## Round gen_r3
+
+### Headline
+The two obvious cross-entry borrows both measured as NON-TRANSFERS on this engine
+(numbers below — the negative results are the round's cumulative contribution at the
+tuned sizes), so the round's work went into the round-3 class duty: a GENERIC
+runtime-table coprime-pair engine. supports() now also accepts 6, 14, 18, 21, 24,
+28, 35, 36, 45, 56, 63 (any P*Q, gcd=1, modules in {2,3,4,5,7,8,9}), correct
+through every gate, and 2.0x FASTER than MKL in the graded chain shape at L=14.
+Tuned sizes are unchanged structurally and measure at r2 level or a hair better.
+
+### Measured on the node (a80n0 leased core via tryout.sh, graded chains, min)
+
+| case | r2 shipped | gen_r3 | MKL same window |
+|---|---|---|---|
+| L=10 B=64 m=1000 | 1.162 | **1.157–1.194** (slow-state runs 1.32; window bimodal all day) | 4.56–4.69 |
+| L=12 B=64 m=600  | 1.931 | **1.970–1.975** | 7.93 |
+| L=15 B=32 m=600  | 4.484 | **4.469–4.480** | 16.74 |
+| L=20 B=32 m=256  | 13.39 | **13.24–13.53** | 58.1 |
+
+(The r2-vs-r3 deltas at 10/12 are window noise, not code: the binary differs only
+by the sched-pressure attribute (~0 at 10, −0.4% at 12) and dead-to-these-paths
+generic code. The 1.16-vs-1.32 bimodality at L=10 persisted through the whole
+session — batchlane r2's neighbor-turbo diagnosis; trust the min.)
+
+Gates, all four tuned sizes, shipped build, run by hand on the node: single call
+2.6–3.1e-16; two-step m=2 0.8–1.2e-15 (tol 3e-14); graded chains 4.6e-14–1.7e-13
+at 1.2–1.8x the honest anchors (tol 300x/1e-10); bit-repeatable across processes.
+
+### What did NOT transfer, with the numbers (same window, control second)
+
+* **gen_batchlane gen_r2's rcp14+2NR map reciprocal** (their −8.1/−8.8/−4.7%):
+  on THIS engine it LOSES everywhere — 10: 1.382 vs 1.325, 12: 2.042 vs 1.985,
+  15: 4.615 vs 4.469, 20: 14.187 vs 13.842 (+2.4–4.3%). My x-pass keeps the FMA
+  ports saturated (map8 sits between in-register stage-2 stores), so +5 FMA ops
+  per site cost more than the single unpipelined vdivpd on the otherwise-idle
+  divider. Ironic full circle: I taught them rcp14 in r1, adopted their vdivpd in
+  r2, and their r2 swap back does not fit my codelet. LESSON, now measured twice
+  in each direction: the div-vs-rcp choice is a property of the SURROUNDING
+  CODELET's port pressure, not of the ladder — A/B it in place, never adopt on
+  faith. `-DPS_RCPMAP` builds the ladder for the cross-arch reruns.
+* **sched-pressure per-function attribute on the 10/12 families** (their −4.7/
+  −6.4%): here ~0 at L=10 (fast-state runs 1.157 attr vs 1.162 without) and
+  −0.4% at L=12 (1.970/1.973 vs 1.979/1.981, 2 pairs). Kept (free, tiny gain at
+  12), `-DPS_NOSCHED1012` strips it. Their gain is specific to their codelet's
+  spill structure, as my r2 already found at 15/20.
+* **Consumption-order (column-major) c layout at L=20** (my own r2 next-step #3,
+  the ice "tables in consumption order" doctrine): 14.39–15.13 vs 13.65–13.84
+  control, +4–10%. WRONG ANALYSIS on my part: the natural plane-major c layout
+  already streams perfectly — consecutive x-pass columns read ADJACENT 128 B
+  blocks in each of the 20 planes, i.e. 20 concurrent sequential streams, which
+  beats 1 sequential stream plus a scatter-pack. The doctrine applies to
+  gathered tables, not to a layout that is already stream-linear per plane.
+  Do not rediscover.
+
+### NEW: the generic coprime-pair engine (round-3 class duty)
+
+Structure (all in gen_pfa_small.c, ~250 lines):
+* `gtabs_init` at create(): input map (Q*j1 + P*j2) mod L, CRT output map
+  (A*k1 + B*j2) mod L with A = Q*inv(Q mod P, P), B = P*inv(P mod Q, Q) — the
+  same algebra as the tuned slot lists (verified: reproduces the L=12 tables).
+* `gpencil_body`: two-stage GT-PFA pencil on the SAME padded SoA-8 arena,
+  BUFFERED through v8 temps — in-place safe for ANY pair, no Q ≡ 1 mod P
+  constraint, map fused into stage-2 stores like the tuned STM path.
+  always_inline, instantiated per (P,Q) with constant bounds (gcc unrolls all
+  loops, resolves the module switch): worth 1.3–2.4x over runtime loops
+  (14: 16.7→7.3, 24: 105.6→55.1, 63: 2611→2041 us B=8 execute).
+* Modules: exact-constant 2/4/8 (8 = two DFT4s + W8 combine, sqrt(1/2) exact);
+  ONE conjugate-pair-fold kernel for all odd n (3,5,7,9) with h*h cos/sin
+  tables computed in LONG DOUBLE at create() (the brief's twiddle-exactness
+  rule; h <= 4 so 16 doubles/table).
+* Remainder volumes (B%8, B=1) lane-replicate the last volume (BORROWED:
+  gen_batchlane gen_r1). Generic plane stride = L^2 padded to == 2 mod 32
+  sites (the tuned pad rule, now a formula).
+* Plan time ~0 (tables microseconds; same THP arena).
+
+Correctness, all 11 generic sizes at B=8: single call 2.0–4.6e-16 vs numpy.
+L=14: two-step 1.0e-15 (tol 3e-14), chain m=100 1.16e-14 vs anchor 1.24e-14,
+bit-repeatable. L=21 B=3 (remainder path) chain m=50 1.08e-14 vs anchor
+9.1e-15. B=1 and B=11 mixed groups verified at 14/21.
+
+Speed (B=8 plain execute, us/xform, vs MKL same core): 6: 0.58; 14: 7.32 (MKL
+4.90); 18: 22.1; 21: 40.3; 24: 55.1; 28: 96.3; 35: 206; 36: 252 (MKL 169);
+45: 563; 56: 1252; 63: 2041. In the GRADED chain shape the picture flips:
+L=14 B=8 m=100 chain 7.28 us/xform vs MKL 14.42 — 2.0x FASTER (chain owns
+state residency + fused map; MKL pays a separate map pass per step). For
+round 6: any coprime-pair draw in this set is covered at 2x-MKL chain speed,
+vs Bluestein's 107–1315x existence fallback.
+
+### Operation count
+Tuned pencils unchanged (88/96/162/216 vector FP per pencil per 8 vols).
+Generic pencil: stage-1 Q x DFT_P + stage-2 P x DFT_Q, buffered (2L v8 temp
+round-trip per pencil); odd module n: ~4h + h*(4h+2) FMA-class vector ops
+(h = n/2); map unchanged (13 FMA + 1 vdivpd per site).
+
+### Harness / shared-state notes (READ THIS, monitor and gen_pfa_large)
+* **Incident, resolved, flagged for gen_pfa_large**: at ~10:01 I ran `git stash`
+  for an A/B, not realizing the round's `impl -> impl_3` SYMLINK is an
+  uncommitted working-tree change — the stash reverted it to impl_2 for ~3
+  minutes. During that window gen_pfa_large's agent saved an edit through the
+  symlink and it landed on the FROZEN r2 file impl_2/gen_pfa_large.c (adds
+  L=80 + DFT16 + wisdom, 65424 bytes, 10:02). I restored impl_2 to HEAD, the
+  symlink to impl_3, and the monitor's logs/.rounds_state from the stash, and
+  parked their orphaned edit VERBATIM at
+  `impl_3/gen_pfa_large.c.RESCUED-see-pfa_small-r3-notes` — pfa_large: diff it
+  against your working file; it may be newer than what you have (your impl_3
+  file was last written 10:00). Standing rule for everyone: NEVER `git stash`
+  in this repo; A/B with a file copy.
+* tryout.sh works for chains now except the remote check.py leg (literal
+  `'$W/c.bin'` → FileNotFoundError) and the repeatability cmp behind it; run
+  both by hand (this round's gate numbers were). squeue PATH shim still needed
+  on wallaby: `export PATH=/opt/software/slurm-19.05.8.1/bin:$PATH`.
+* tryout.sh accepts any L (M defaults to 1 off-cases) — that is how the
+  generic sizes were validated; MKL reference builds exist in
+  build/a80n0/bin.
+
+### What I would do next (ranked)
+1. **Specialize the generic pencil harder for the round-6 favorites**: the
+   buffered gpencil still loses ~1.5x to MKL at plain execute (chain wins
+   2x). In-place slot codelets apply whenever Q ≡ 1 mod P (14=2x7 ✓, 18=2x9 ✓,
+   21: 7≡1 mod 3 ✓, 28: 7 no... 7≡3 mod 4 ✗, 36: 9≡1 mod 4 ✓...) — the r2
+   safety rule makes this mechanical; DFT5X2-style fusion covers the rest.
+2. **B=1 lane-spatial engine** (third round on the list): still 2.5x behind
+   MKL at 10/12/15 B=1. Coordinate with gen_batchlane — both records sketch
+   the same ice L6_pfa shape; build it once, in whichever entry, and share.
+3. **Planner handshake**: hand gen_planner the (P,Q) table + gpen_lookup so
+   the trunk can route coprime composites here without probing supports().
+4. **L=20 residual**: the only tuned size below 40 GF/s; C streams from L3 by
+   capacity (S+C = 2.1 MB > L2). Prefetch failed (r1 +14%), c-interleave
+   failed on split layout (r2 +4%), consumption-order failed (this round,
+   +4–10%). The remaining idea is shrinking the footprint itself (half-plane
+   c tiles processed twice per step = C L2-resident at 2x S re-reads) — an
+   afternoon with a real chance of another dead end; budget accordingly.

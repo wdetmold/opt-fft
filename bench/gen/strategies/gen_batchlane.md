@@ -241,3 +241,145 @@ site-vector, zero divider ops in the whole binary's hot path.
    hour, not a round.
 4. If the monitor's cross-arch rerun flags SPR/CLX: re-race the SCHED knobs
    there (the -DBL_NOSCHED* build flags exist for exactly that).
+
+## Round gen_r3 -- register-explicit pencils, L=20 adopted, per-size map tails
+
+Standings into the round: led or tied all three owned sizes (r2 board: 10 at
+1.162 tied with gen_pfa_small, 12 at 1.933 leading, 15 at 4.478 a hair behind
+their 4.466). gen_pfa_small had adopted this engine wholesale in their r2, so
+the tie is structural -- this round had to find something neither of us was
+doing.
+
+### The finding that drove the round: the compiler was wasting our stores
+
+An asm audit of the r2 binary (gcc 11, -O3 -march=icelake-server, the exact
+tryout flags) found two things the r1/r2 A/Bs never isolated:
+
+1. **The in-place slot macros compiled to dead stores.** Each pencil ran two
+   PFA stages through L1: gcc forwarded the stage-2 LOADS in registers (loads
+   per pencil were already the minimal 2L), but its DSE failed to kill most of
+   the stage-1 stores it had just made redundant: 27/39/60 zmm stores per
+   pencil at L=10/12/15 where 20/24/30 suffice. At L=15 that is 30 pure-waste
+   stores against 168 FP ops (2 stores/cycle on ICL: ~15 wasted cycles per
+   ~84-cycle pencil).
+2. **The sweep pencils were not inlined at all.** `dftN_pencil` carried the
+   r2 `optimize("schedule-insns","sched-pressure")` attribute; gcc out-lined
+   them as `dftN_pencil.constprop` and the zy sweeps paid call/ret per pencil
+   (the map pencils DID inline into chainsteps). So r1/r2's "sched attribute"
+   measurements were partly measuring inline-vs-call differences -- which is
+   also why gen_pfa_small could not reproduce the attribute's win on their
+   (fully inlined) build. Their r2 "does not transfer" note was the tell.
+
+### What shipped
+
+1. **Register-explicit pencils for 10/12/15** (R2L/R3L stage-1 macros read
+   memory and write NAMED registers xr<k>/xi<k>; R4ST/R5ST/R4STM/R5STM stage-2
+   macros read registers and store straight to memory, map fused). Exactly 2L
+   zmm loads + 2L zmm stores per pencil, no store-forward round trip, no
+   calls (`always_inline`, and the optimize attribute now lives ONLY on the
+   sweep/xpass/chainsteps wrappers, so inlined bodies schedule under the
+   caller's flags). Bonus: the L=15 stage-2 equal-slot-set hazard (r2's fused
+   DFT5X2 codelet) is GONE -- stage 2 never reads memory, so groups c=1/c=2
+   need no ordering. The chain outputs are bit-identical to r2 (same module
+   arithmetic order), so all r2 error numbers carry over exactly.
+2. **L=20 = 4x5 adopted** (from gen_pfa_small's r2 extension of this engine;
+   slot algebra re-derived: input n=(5a+4b)%20, stage-1 DFT4 over a in place
+   per b, stage-2 DFT5 over b reads (5c+4b) writes CRT (5c+16d); their
+   Q==1 mod P disjointness rule makes it plain in-place). 40 live site
+   registers will not fit, so L=20 keeps the r2 memory-round-trip form
+   (M4IP/M5ST/M5STM macros). PL2=418 sites, plane bytes == 256 mod 4096.
+3. **Per-size map tail** (re-raced on the new codelets): 10/12/15 keep the r2
+   rcp14+2NR ladder; L=20 takes ONE exact vdivpd (gen_powp r2's verdict on
+   their SoA x-pass transfers: the L=20 x-pass is memory-bound enough that
+   the idle divider is free, and dropping the ladder's 5 FMA-port ops pays).
+   Same-window pairs: 20: 13.72 div vs 14.35 ladder (-4.4%); 15: 4.92 div vs
+   4.46 ladder (+10% -- ladder stays); 10/12: wash. Knobs -DBL_MAPDIV /
+   -DBL_MAPRCP force one form everywhere for the cross-arch race.
+4. **Per-size sched-pressure**: still ON for the 10/12/15 families -- on the
+   new structure stripping it costs +5.7/+10/+5.3% (so the attribute's win was
+   NOT only the inline confound; on register-explicit codelets it is real and
+   bigger). OFF for L=20 (+4..8% when on, matching gen_pfa_small's r2 verdict
+   on this codelet shape). Knobs: -DBL_NOSCHED1012/-DBL_NOSCHED15/-DBL_SCHED20.
+
+### Measured on the node (a80n0 via tryout.sh, graded chains, control-first
+### same-window pairs; quiet-window minima quoted)
+
+| case | r2 shipped | gen_r3 now | same-window pair | MKL 2022 | ratio |
+|---|---|---|---|---|---|
+| L=10 B=64 m=1000 | 1.162 | **1.156** | 1.167 -> 1.156 (quiet); 1.328 -> 1.157 (slow-state ctl) | 4.55-4.67 | 4.0x |
+| L=12 B=64 m=600  | 1.931 | **1.919** | 1.936 -> 1.950 busy pair, 1.919-1.920 quiet | 7.79-7.92 | 4.1x |
+| L=15 B=32 m=600  | 4.484 | **4.456** | 4.529 -> 4.456 | 16.7 | 3.75x |
+| L=20 B=32 m=256  | (new) | **12.99-13.17** | vs gen_pfa_small r2 13.39 | 58.9-60.8 | 4.5x |
+
+Gates (final shipped build, run by hand on the node -- tryout's map-check leg
+still gets the unexpanded `'$W/c.bin'`): single call 2.6/2.9/3.1/3.0e-16;
+two-step m=2 gate 8.2e-16 / 9.2e-16 / 1.2e-15 / 1.2e-15 (tol 3e-14, ~25x
+margin); graded chains 1.687e-13 / 4.869e-14 / 5.249e-14 / 4.366e-14 vs honest
+anchors 1.081e-13 / 3.887e-14 / 4.784e-14 / 2.835e-14 (tol 1e-10); repeatable
+bit-identical at all four sizes; B=1 and mixed B=12 group+remainder single and
+m=2 chains PASS at all sizes (script: build/tryout/gen_batchlane/final_check.sh).
+B=1 chains: 10.52 / 17.42 / 44.2 / 119.2 us -- the remainder-lane gap is
+unchanged (see next steps).
+
+Window health note for the monitor: this round the leased cores spent long
+stretches in a slow all-core-turbo state (every compute-bound number +8..20%
+with in-run sd < 0.1% while MKL moved < 1%: L=15 read 4.78/4.82/5.44 across
+adjacent invocations of the SAME binary, L=12 read 2.19). All A/Bs above were
+control-first adjacent pairs; the quiet-state minima are the honest numbers
+and reproduce whenever the node calms down.
+
+### What did NOT work, with the number that killed it
+
+* **Interleaving c INTO the site at L=20** (site = re8|im8|cre8|cim8, 256 B,
+  one x-pass stream instead of two; the fix gen_pfa_small's r2 record queued
+  for the S+C = 2.05 MiB > L2 residency problem): **18.39 vs 13.17 control
+  (+40%)** in a window only ~4% busier by MKL. Mechanism, best reading: the
+  zy sweep's working span doubles (state lines interleave with c lines it
+  never touches, 2.05 MiB span vs 1.02 MiB dense), thrashing L2 far worse
+  than the second x-pass stream ever did. The idea is now measured and dead
+  for this engine shape -- gen_pfa_small, do not build it.
+* **vdivpd map tail at 15** (+10%) and **sched-pressure at 20** (+4..8%):
+  numbers above, both per-size defaults set accordingly.
+* Register-explicit form at L=20 was not attempted: 40 live site registers
+  against 32 zmm is a guaranteed heavy spill; the memory-round-trip form's
+  "dead stores" are not dead there (stage 2 genuinely reloads).
+
+### Borrowed, plainly
+
+- **gen_pfa_small r2**: the L=20 size itself, the Q == 1 mod P in-place
+  disjointness rule, PL2=418, and their sched-doesn't-transfer observation
+  (which is what made me audit the asm and find the out-lining).
+- **gen_powp r2**: the map div-vs-ladder is engine-specific and must be
+  re-raced per x-pass -- their verdict transfers to my L=20, not to 10/12/15.
+- **gen_pow2 r1** (method): always_inline + count-the-stores asm audit before
+  structural bets. The audit WAS this round's headline; do it every round.
+
+### Operation count
+
+Per pencil per 8 volumes (vector FP, FMA-contracted): 88 / 96 / 162 / 216 at
+L=10/12/15/20, now with exactly 2L zmm loads + 2L zmm stores at 10/12/15
+(L=15 spills a handful under pressure scheduling) and 4L + 4L at L=20.
+Map: ~19 FMA + 2 seeds per site at 10/12/15; ~14 FMA + 1 seed + 1 vdivpd at
+20. Zero shuffle-port ops inside the transform; pack/unpack unchanged.
+
+### What I would do next (ranked)
+
+1. **B=1 / small-batch lane-spatial engine** (third round on the list; still
+   2.3x behind MKL at B=1 and now also 119 us at L=20 B=1). Matters only if
+   round 6 draws small batches; coordinate with gen_pfa_small before building
+   it twice.
+2. **Round-3+ generality recipe** (not built this round, written down so the
+   next round can): the register-pencil generator is mechanical for any
+   coprime P*Q with P in {2,3,4} and Q in {5,7} up to ~28 sites (2 x 14 = 28
+   site registers at L=14=2x7, 21=3x7, 28=4x7 needs the L=20 memory form);
+   modules needed: DFT7 (Winograd, 36+16 form). Sizes 14/21/28/35 would then
+   cost one slot-table derivation each; the in-place rule decides fused vs
+   plain per size. Bluestein/planner cover existence meanwhile.
+3. **L=20 residency, the honest version**: c streaming from L3 is ~40% of the
+   step there. Interleaving is dead (above); the remaining candidates are a
+   c-plane software pipeline staged through the pack buffer (prefetch is
+   banned by five records, but a bulk 128B-granule copy of plane x+1's c into
+   an L2-resident bounce buffer during plane x's sweep is not a prefetch uop
+   tax, it is real work with real reuse) -- measure, do not assume.
+4. If the xarch guard flags SPR/CLX: race -DBL_MAPDIV/-DBL_MAPRCP and the
+   three sched knobs; the defaults encode Ice Lake verdicts only.

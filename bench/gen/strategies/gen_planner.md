@@ -290,3 +290,154 @@ chain gate passed at every size tried (it has never fired the fallback).
 4. **Wisdom persistence**: hand the race result to gen_race's per-host cache
    keyed by cand.name; create() then meets the 50 ms warm budget with the
    raced pick instead of re-racing.
+
+## Round gen_r3 -- the executor goes explicit AVX-512; the compiler was the bottleneck
+
+### The diagnosis that drove the round
+
+gen_layout's r2 record showed their O(L^4) DENSE demo beating this true FFT at
+L=10-31 (264 vs my 531 at 31). Same machine, worse algorithm, better code --
+so the deficit had to be vectorization quality, not decomposition. objdump on
+the node build confirmed it: pln_xexec (with the _tw leaves inlined) compiled
+to 277 vmovsd / 68 vmulsd / 63 vsubsd -- HALF SCALAR -- plus 240 shuffle-class
+ops against ~130 packed FMAs; pln_dense_fold_apply kept its E/O accumulators
+in stack arrays and emitted 295 vmovupd against 70 FMAs (4+ loads per FMA).
+gcc-11 -O3 -march=native cannot vectorize interleaved-complex butterflies.
+Everything below follows from replacing those loops with intrinsics.
+
+### What changed (all in impl/gen_planner.c; pln_* API unchanged)
+
+1. **Explicit AVX-512 complex-vector layer** (`pv` = 4 interleaved complex per
+   zmm): cmul by a scalar twiddle = 1 vpermilpd + vmul + vfmaddsub (broadcasts
+   hoisted out of the column loop); `a +- i*b` = 1 vpermilpd + 1
+   fmaddsub/fmsubadd; conj = 1 vxorpd. Every column loop is fully masked
+   (maskz loads / mask stores), so tails are exact, OOB-safe at buffer edges,
+   and there is NO scalar residue path anywhere in the executor.
+2. **All five hard leaves (2/3/4/5/8) rewritten once each** as always_inline
+   bodies with a compile-time HAS-twiddle flag -- the plain and _tw variants
+   are two instantiations of the same code, so the k2=0 column stays
+   twiddle-free for free.
+3. **Register-tiled matrix kernels** (gen_dense_prime's k-quad x wide-tile
+   shape, generalized): fold and plain-dense now accumulate 4 output rows x 2
+   zmm of columns = 16 accumulators in registers; per input row j: 4 row loads
+   + 8 broadcasts + 16 FMAs (was ~2 loads + 1 store per FMA). Matrix row
+   counts are padded to a multiple of 4 (PLN_HPAD, zero rows) so there is no
+   K-tail variant -- padded outputs are computed and not stored. Plain dense
+   gets a new plan-time layout: WR[np][n] real parts + 16-byte (-wi,+wi)
+   pairs for one broadcast_f64x2 straight into the alternating-sign FMA.
+   Rader's rowscale_conj, its X = x0 + conj(a) combine, and both Bluestein
+   chirp passes got the same treatment.
+4. **Transposes vectorized**: 4x4 complex blocks via 4 vpermutex2var + 4
+   vshuff64x2 (4 loads, 4 full-line stores, 8 shuffles per 16 complex instead
+   of 16 scalar 16-byte moves); scalar edges only at L%4 rows/columns.
+5. **Tile default is now 32 at every L** -- the r2 "64 for L>=40" crossover
+   vanished with the intrinsic kernels (100: 6869@32 vs 6955@64; 40/50 a
+   wash; 25: 70.3@32 vs 77.5@64). GEN_PLANNER_TILE still overrides.
+6. **gen_race string-wisdom adoption** (their r2 hook, written for this
+   entry): the raced tree name is persisted per (host, L) under
+   `gen_planner/tree/L<L>`; a wisdom hit builds that tree with no race, so
+   warm create() measured 4 ms (50 ms budget) and the driver's two-process
+   repeatability is STRUCTURAL (different trees round differently; r1/r2
+   relied on the race being quiet-stable). Stores only after the chain gate
+   passes (gen_powp's discipline); GEN_PLANNER_RACE=0 skips wisdom entirely
+   so the deterministic dev path stays file-free. At round end I stripped all
+   gen_planner/ keys from results/wisdom_a80n0.json (flock held, format
+   preserved) so the monitor's scoring run cold-races in its full-quiet
+   window -- gen_powp's precedent; absent entries are deliberate.
+
+### Measured on the node (a80n0, tryout.sh leased core, graded chain, min)
+
+| case | gen_r2 | gen_r3 | delta | MKL 2022 same window | vs MKL | picked |
+|---|---|---|---|---|---|---|
+| L=10  B=64 m=1000 | 6.28  | **4.72**  | -25% | ~4.6  | 0.97x | c2(d5) |
+| L=12  B=64 m=600  | 10.72 | **6.89**  | -36% | 7.7   | **1.12x** | c3(d4) |
+| L=15  B=32 m=600  | 21.70 | **14.96** | -31% | 16.5  | **1.10x** | c5(d3) |
+| L=20  B=32 m=256  | 46.58 | **27.92** | -40% | 58.8  | **2.11x** | c5(d4) |
+| L=25  B=16 m=256  | 105.6 | **69.5**  | -34% | 121   | **1.74x** | c5(d5) |
+| L=27  B=16 m=200  | 155.0 | **104.5** | -33% | 150   | **1.43x** | c3(c3(d3)) |
+| L=31  B=16 m=140  | 533.6 | **204.9** | -62% | 857.6 | **4.18x** | **d31** |
+| L=32  B=8  m=250  | 236.9 | **131.3** | -45% | 194.0 | **1.48x** | c4(d8) |
+| L=40  B=8  m=128  | 503.5 | **282.1** | -44% | 444.8 | **1.58x** | c5(d8) |
+| L=50  B=4  m=128  | 1222.3| **785.1** | -36% | 998.0 | **1.27x** | c5(c5(d2)) |
+| L=100 B=1  m=64   | 9607.6| **6655.8**| -31% | 8046.6| **1.21x** | c5(c5(d4)) |
+
+The generic engine now beats MKL at 10 of 11 acceptance cases (r2: 3). The
+headline flip: **the race now picks d31 -- the register-tiled FOLD -- over
+rad31 at L=31** (203 vs r2's rad31 533; rad31 also got faster but lost its
+own race). The dense->Rader crossover moved past p=31; leafF's fold constant
+recalibrated 5.5n^2 -> 3.0n^2 accordingly. B=1 (same code path, known ~10%
+short-unit core-ramp): 5.43 (10), 78.7 (25), 144.7 (32), 878.5 (50).
+
+Gates, final binary: single call 2.9-4.8e-16 at all 11 cases; two-step m=2
+gate 0.9-3.0e-15 at 10/25/31/100 (tol 3e-14, 10-30x margin); full graded
+chains 2.5e-14 (31, anchor 2.3e-14), 3.4e-14 (25, anchor 2.8e-14), 5.5e-14
+(100, anchor 2.4e-14), 1.6e-13 (10, anchor 1.1e-13) -- all 1.06-2.3x the
+honest anchor, tol 1e-10. Full local sweep L=2..128: ALL 127 PASS, worst
+1.07e-15 (L=113, Bluestein). Chain and single outputs bit-identical across
+two node processes (wisdom pins process 2; cmp verified). Setup: 0.23 s cold
+at L=100, 4 ms warm.
+
+### What did NOT work, with the numbers
+
+- **Software prefetch of the next axis-0 tile at L=100** (the volume's L=100
+  strided row streams defeat the HW prefetcher, so this looked right):
+  interleaved A/B on a leased core, pf-off 6182/6460 vs pf-on 6547/6812 --
+  a consistent ~5% LOSS. The axis-0 pass already saturates MLP with its own
+  demand misses; 800 extra load-port uops per tile only queue behind them.
+  Removed entirely. Same lesson as gen_pfa_small's "no prefetch in
+  issue-bound passes", now measured on a miss-bound pass too.
+- **Tile 64 at large L** (the r2 crossover): now loses or ties everywhere
+  (numbers in item 5). The wider tile's win was amortizing per-call SCALAR
+  overhead that no longer exists; 32 keeps the arena smaller and the plane
+  hotter. Tile 16 also loses (73.6 vs 70.3 at 25).
+- The r2 fold-cost constant 5.5n^2 kept d31 ranked behind rad31, which the
+  tiled kernel inverted on the node. Only 3 candidates enumerate at 31 so the
+  race caught it regardless -- but any size where a d-leaf must make a top-4
+  cut needed the recalibration (now 3.0n^2 + 8n).
+
+### Borrowed this round, named
+
+- **gen_dense_prime** (via gen_race's demo tile4x8 and gen_layout's r2 fold
+  engine): the k-quad x wide-tile register-blocking shape -- their measured
+  155->33 us axpy-vs-tile gap is exactly what pln_fold_applyv/pln_dense_applyv
+  fix; also the objdump spill/scalar-audit discipline that started the round.
+- **gen_layout r2**: the existence proof that split-lane broadcast-FMA code
+  beats my autovectorized executor at equal-or-worse algorithm -- their fold
+  demo numbers were the round's target line. (Their gl_ arena itself remains
+  unadopted here: my scratch is small and their own A/B ladder shows ~0 for
+  compute-staged kernels.)
+- **gen_race r2**: gr_wisdom_get_str/put_str, adopted exactly as their record
+  invites (they widened GR_NAME_MAX to 128 for my names in advance); the
+  "wisdom pins run 2 to run 1" repeatability rationale is now load-bearing in
+  my entry.
+- **gen_powp r2**: the store-only-gate-passed-picks wisdom discipline and the
+  round-end strip of my own keys from the shared wisdom file.
+
+### Operation counts (per pencil of w complex, vector ops, lanes of 4)
+
+Hard leaf r: r maskz loads + (r-1) cmul (3 ops) + butterfly (~r log r
+FMA-class) + r mask stores, zero scalar ops, zero gathers. Fold n (h=n/2):
+staging h*(2 loads+2 ALU+2 stores)/4 cols + tiled E/O: per 4 k-rows x 8 cols
+x j<=h: 4 loads + 8 broadcasts + 16 FMA (FMA:load-port = 16:12); combine 2
+shuffles + 2 fmaddsub per (k, 4 cols). Dense n: same tile, 2 cmul-FMAs per
+(k,j) per 4 cols. Transpose: 12 shuffle-class per 16 complex. Map unchanged
+(rsqrt14/rcp14 + 2NR).
+
+### What I would do next (ranked)
+
+1. **Small-L per-call overhead** (L=10 is the one case still behind MKL, and
+   batchlane is 4x ahead): the c2(d5) step at L=10 is ~34 pln_xexec root
+   calls per volume plus 20 plane transposes; a fused small-L path (whole
+   plane through registers, or the batch-lane SoA seam gen_batchlane's record
+   flags) is where the next factor lives. Coordinate with gen_batchlane.
+2. **L=100 axis-0 pass**: still the residue at 6.66 ms vs gen_pfa_large's
+   5.0. Prefetch measurably fails; the structural fixes are a z-split state
+   layout or plane-pair streaming (their r2 item 2). Watch their r3 record
+   first.
+3. **Sub-tree diversity in enumeration** (deferred three rounds now): with
+   wisdom in place the race can afford 8+ candidates; emit top-2
+   sub-candidates per composite child so rad31(gt(...)) vs rad31(c...) race.
+4. **xarch guard**: the intrinsic layer is guarded on AVX512F+DQ with the
+   full scalar executor as fallback; CLX/SPR have both, but the tile/fold
+   crossovers should be re-raced per host -- which the wisdom cache now does
+   by construction.

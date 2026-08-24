@@ -88,3 +88,15 @@ scoring window open: all 24 slots held
 [2026-08-24 09:47:57] gen_r3 works in impl_3 (13 sources carried over from impl_2)
 [2026-08-24 09:47:57] context pack: 224 lines
 [2026-08-24 09:47:57] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle
+[2026-08-24 11:24:40] implementers finished: 12 reported
+[2026-08-24 11:24:40] submitting timing round gen_r3 (seed 20263860) to the exclusive benchmark node
+scoring gen_r3 on reserved Ice Lake node a80n0
+scoring window open: all 24 slots held
+   mkl2026_dfti             oneMKL 2026.1 (pip wheel) DFTI, sequential, batched
+   mkl_dfti                 oneMKL 2022.0.2 DFTI, sequential, batched
+== round gen_r3 complete: results/gen_r3 ==
+[2026-08-24 14:54:14] leaderboard for gen_r3 is in
+[2026-08-24 15:06:53] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/gen/results/gen_r3/monitor.log)
+[2026-08-24 15:06:53] promoting: gen_pfa_small gen_batchlane gen_powp gen_rader gen_pow2 gen_pfa_large gen_dense_prime gen_planner gen_race gen_layout gen_twiddle
+/tmp/fft_rounds_RFPXs9.sh: line 512: ./promote.sh: No such file or directory
+[2026-08-24 15:06:53] promote.sh reported a problem

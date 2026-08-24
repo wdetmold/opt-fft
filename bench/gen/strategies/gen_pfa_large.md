@@ -266,3 +266,170 @@ below for why that is not nothing).
 4. **B=1 at 50/100 x-pass**: the race arena at nv=1 shows 10-15% wobble
    between pf0/pf1 pokes; a poke-distance knob (1 vs 2 lines) is a
    30-minute add via gr_pick_value once gen_race is adopted.
+
+## Round gen_r3
+
+Standings into the round: led all three owned sizes (40: 201.0; 50: 473.0 vs
+gen_powp's 474.0; 100: 4947.5 vs their 5031.3). This round's plan: delete the
+map pass's DRAM round trip at 100 (the one structural target left), adopt
+gen_race's wisdom cache (deferred twice, and the brief's 50 ms warm budget is
+a requirement this entry did not meet), and put down the round-3
+any-size-in-class payment.
+
+### What changed
+
+**1. NEW chain family ipm* (deferred map, map-on-NEXT-step's-loads) — built,
+raced, and it LOSES on this node (kept in the pool; see below).** The idea:
+ipf (map in p2's stores, +75% at 100) and ipe (per-tile epilogue, +27%) failed
+because the NR ladder sat in the miss-bound x-pass; a separate sequential map
+pass costs a full state read + RFO + write per step (~32 of ~112 MB at
+L=100). ipm instead leaves the state as the RAW FFT output z' and applies
+map(z' + c) inside the NEXT step's phase-1 z-subpass loads (every element is
+loaded there exactly once, before TRNC): the ladder gates LOADS feeding
+compute — thousands of independent chains the OoO window can run ahead of —
+not stores. fft3d_chain runs step 1 as plain execute, steps 2..m as p1m+p2,
+one trailing map_vec; same op order as map_vec, so outputs stay bit-identical
+to ip*. Measured (node race table, same window): l100-ipm1 6036.6-6107.6 vs
+l100-ip1 5458.9-5545.5 us/vol (+11-12%); at 50 the driver chain with a
+(wrongly) picked ipm0 ran 574.8 vs ~500 window-adjusted ip (+15%). Suspected
+mechanism (consistent, not PMU-verified): the ladder's SWAP + max + rsqrt14 +
+rcp14 uops land on port 5, which the z-subpass's TRNC (2 shuffles/vector) plus
+the codelet's swaps already saturate — the standalone map pass pays those same
+ops where NOTHING competes for port 5 and DRAM hides them. With stores (ipf),
+epilogue (ipe), and loads (ipm) all measured losers at 100, **the map
+placement axis on this node is exhausted: a separate, perfectly sequential
+map pass is optimal for this engine. Do not revisit.** ipm stays raced
+(rank behind ip*) as cross-arch insurance — SPR's second shuffle port could
+flip it.
+
+**2. The race arena had a bias that the new family exposed, now fixed: race
+IN PLACE with a DISTINCT c buffer.** The r1/r2 race passed tin as both the
+state and the c field, and ran cur -> dst out of place. For ip* that was a
+fair-enough proxy; for ipm it halved the apparent read traffic (its
+back-to-back state+c loads hit the SAME line), so the first r3 race picked
+l50-ipm0 while the real chain regressed 574.8 vs ~500. TRIAL now runs
+cfn(tout, tout, tcf, ...) — in place, separate 0.1-scaled c arena — exactly
+the graded steady state (fft3d_chain calls cfn(out, out, c)). With the fix
+the race re-picks ip* everywhere and its verdicts match the driver. Lesson
+recorded: **race the graded workload including its STREAMS — buffer aliasing
+in a race arena is a thumb on the scale.**
+
+**3. gen_race ADOPTED (their r2 "worked patch" offer, my #1 deferred item):**
+tune()'s verdict — winner name + chain-gate outcome, e.g. "l100-ip1.ch" — is
+persisted via gr_wisdom_get_str/put_str under
+gen_pfa_large/chain3/L<L>/B<bucket>#<gr_sig over candidate names>. Wisdom hit
+= install with no arena, no refnd, no race: **measured warm create() 0.001 s**
+(brief budget 50 ms; cold is 0.25-9.0 s). Only gate-passed verdicts are
+stored; all families are bit-identical so a pick pin can never break
+repeatability (it structurally guarantees it, per gen_race's rationale).
+GENPFL_PF/GENPFL_NOFUSE bypass wisdom both ways; GEN_RACE_NO_WISDOM/
+REFRESH/WISDOM honored by the layer. Following gen_powp's r2 protocol I
+STRIPPED all gen_pfa_large/ keys from results/wisdom_a80n0.json at round end
+(and kept it valid JSON): the monitor's process 1 cold-races in its full-quiet
+window and stores its own verdict; process 2 hits it. Absent entries are
+deliberate.
+
+**4. NEW size L=80 = 16x5 (round-3 any-size-in-class duty, unscored).** The
+clean candidate: 80%4==0 and 6400%4==0, so no tails anywhere. PFA80C = 16 x
+DFT5 into T_[16*k2+n1], then 5 x DFT16 storing straight through ST via
+k = (65 k1 + 16 k2) % 80 (65 = 1 mod 16, 0 mod 5). DFT16M = 4x4 CT in the
+DFT25M fused-store shape: 8 CMULC twiddles (products d*k1 in {1,2,3,6,9},
+long-double literals) + one exact -i (1 mul + swap), 81 FMA-port ops. pl
+pitch 84 complex = 21 lines, odd. Validated on the node: rel L2 4.078e-16,
+bit-repeatable, chain gate passes (pick l80-ip1). Raw m=1 B=8 execute is
+2871.5 us vs MKL 2437 — the un-chained streaming call is not this engine's
+shape (no graded case exists at 80; a round-6 draw would be chained, where
+the owned chain and the race do the work). supports() now returns
+40/50/80/100.
+
+**5. NEW knob candidates ip2 (p2 poke distance 2 lines) and ipr1 (map pass
+walking BACKWARD to reap p2's L3-hot tail).** p2's pf parameter is now a
+distance. Both lose-or-tie at 100: ip2 5480.0 vs ip1 5545.5 (+1.2%, inside
+the 3% tie band -> hysteresis keeps ip1), ipr1 5566.8 (wash — p2's own
+read+write cycle already turns the state over, so the tail-hot residue is
+worth ~nothing). Kept raced; the distance knob may matter on CLX/SPR.
+
+Pool is now 15 candidates per size (13 at 50: no NT). pf ids: +11 ipm0,
+12 ipm1, 13 ip2, 14 ipr1.
+
+### Operation count
+
+Unchanged at 40/50/100 (278/434/968 FMA-port vector ops per line; the ipm
+family moves the ~18-op/vector map from its own pass into p1, total per step
+identical). NEW L=80: 16x16 (DFT5) + 5x81 (DFT16) = 661 ops/line, 3 x 1600 x
+661 = 3,172,800 per volume.
+
+### Measured on the node (a80n0, leased core via tryout.sh, graded chain, min; same-window MKL 2022 alongside)
+
+| case | r2 | r3 | same-window MKL | pick |
+|---|---|---|---|---|
+| L=40 B=8 m=128 | 208.8 (quiet) | **211.3** | 458.2 | ip0 |
+| L=40 B=1 m=128 | 223.2 | **215.1** | 440.8 | ip0 |
+| L=50 B=4 m=128 | 471.5 (quiet), 483-487 typ | **483.2** | 950.1 | ip1 |
+| L=50 B=1 m=128 | 554.9 | **530.7** | 926.7 | ip1 |
+| L=100 B=1 m=64 | 5008.8 (quiet, MKL 7807) | **5374.6** (MKL 8330; same 0.64 ratio) | 8329.9 | ip1 |
+| L=80 B=8 m=1 (new, unscored) | — | 2871.5 execute | 2437.1 | ip1 |
+
+Batched 40/50/100 are window-parity with r2 (this round's windows ran 4-6%
+slow by the MKL yardstick); B=1 improved: 40 -3.6%, 50 -4.4% — the in-place
+race arena ranks candidates honestly at nv=1 where the old out-of-place
+arena wobbled 10-15%. Setup: cold 0.25-9.0 s (pool grew), warm 0.001 s
+(wisdom). Gates, all graded cases, manual (tryout's remote map-check leg
+still dies on the '$W/c.bin' quoting bug): single 3.6-4.5e-16 (tol 1e-12);
+two-step m=2 2.361e-15 (50) / 2.721e-15 (100) vs tol 3e-14; full chains
+3.804e-14 (40, anchor 2.612e-14) / 5.028e-14 (50, 2.922e-14) / 4.181e-14
+(100, 2.416e-14), tol 1e-10; bit-repeatable across processes everywhere.
+
+### What did NOT work, with the numbers that killed it
+
+1. **ipm at 100: 6036.6-6107.6 vs ip1's 5458.9-5545.5 us/vol (+11-12%); at
+   50: 574.8 vs ~500 us/xform (+15%).** See item 1 for the mechanism and the
+   axis-exhausted conclusion. The traffic model (delete 32 of 112 MB ->
+   -25%) was wrong because p1 at 100 is NOT purely DRAM-bound — its port-5 /
+   issue budget is where the ladder lands.
+2. **The race picked ipm before the arena fix** (l50-ipm0 stored, driver ran
+   574.8 vs the 513.3 the fixed race's ip0 pick ran minutes later in the
+   same window class). Do not race a chain step against an aliased c buffer.
+3. **ipr1 (reverse map): 5566.8 vs 5545.5 at 100** — the L3-tail-reap
+   hypothesis is worth ~0. **ip2 (poke 2): 5480.0 vs 5545.5** — real but
+   inside the tie band; hysteresis correctly refuses to encode it.
+4. Harness note for everyone: **the round rotation flipped impl -> impl_3
+   MID-SESSION** (10:02, while this entry was being edited); six edits landed
+   in a file that was rotated out from under the editor and silently
+   vanished from the new working copy. If your file looks half-edited at
+   round start, diff against impl_2/ before assuming you dreamed it.
+   tryout.sh: the '$W/c.bin' map-check quoting bug is still there (run
+   check.py yourself on the shared FS); reserve.sh --status still needs the
+   slurm PATH shim on wallaby.
+
+### Borrowed, plainly
+
+- **gen_race gen_r2**: gr_wisdom_get_str/put_str, gr_keyf/gr_bucket/gr_sig —
+  the whole warm-create path (their r2 next-list #1 was exactly this
+  handshake). Also the tie/noise doctrine language.
+- **gen_powp gen_r2**: the round-end wisdom-strip protocol (and its
+  monitor-facing rationale), and the reminder that wisdom can pin a
+  noisy-window pick (why the strip matters).
+- **gen_powp gen_r1 / gen_pfa_small**: the "measure the map variant on YOUR
+  engine" doctrine — applied in reverse here: the ladder that is optimal in
+  a bare pass is what kills it inside a port-5-saturated pass.
+- DFT16M reuses this entry's own DFT25M fused-store shape (gen_powp adopted
+  it in their r2; the 16-point specialization is new here).
+
+### What I would do next (ranked)
+
+1. **L=100 p1 is the only residue left** (~2.6 ms of the 5.0 ms quiet step
+   with p2 ~2.1 and map ~1.5 overlapping): the next real move is a PMU
+   session (port 5 vs DRAM attribution) before any more speculative
+   candidates — three families died on an unverified bottleneck model this
+   round.
+2. **Generality: 75 = 3x25 next** (needs a DFT3 module + gen_powp's
+   odd-L^2 stash tail in p2), then 7/9/11/13 modules unlock 56, 63, 72, 88,
+   99, 104, 112, 117 — DFT25M/DFT16M's (LDX, STO, KMAP) shape is the
+   generator interface; coordinate with gen_planner on who serves what at
+   round 6.
+3. **Chain-time execute for unscored raw calls at 80**: the m=1 streaming
+   execute loses to MKL; if round-6 grading ever times raw execute, add an
+   out-of-place p1 variant with NT stores raced on that path.
+4. **Cross-arch**: when the xarch report lands, check whether ipm/ip2 flip
+   on SPR (two shuffle ports) — that is what they are in the pool for.

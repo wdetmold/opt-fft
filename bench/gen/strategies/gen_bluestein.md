@@ -255,3 +255,143 @@ the remote shell sees literal $W → `--cin /c.bin`. Run check.py on the NODE
    ~0.66 ns per (row · M·log2 M / 8) on Ice Lake.
 5. Re-race BST_SCHED and BST_PF on Sapphire Rapids in the next cross-arch
    round before assuming these nulls transfer.
+
+## Round gen_r3
+
+### What changed (impl/gen_bluestein.c, two structural changes + one raced size gate)
+
+1. **Owned fft3d_chain** (my r2 next-step 3; last entry on the panel to own it).
+   Every axis pass was already in-place-safe (each row depends only on itself),
+   so the chain runs all m steps in place in final_out: step = axis2 (x0→out on
+   step 1, then in place), axis1, axis0 with the graded map fused into the
+   axis-0 scatter: after the output chirp the scatter adds c (loaded at the
+   same offsets, deinterleaved with the same permutex2var pair) and applies
+   `z/(1+|z|)` via the panel-standard ladder — rsqrt14 + 2 quadratic Newtons,
+   rcp14 + 2 residual Newtons, no divider op (BST_MAP8, taken VERBATIM from
+   gen_batchlane's map8, which is gen_pfa_small r1's ladder). Map placement is
+   EAGER at the scatter (gen_batchlane/bl8's "lazy loses 24%" prior, not
+   re-litigated). vs the driver fallback this deletes, per step, the whole
+   separate map pass (read z + read c + write state through the driver's
+   autovectorized ymm sqrt+div loop ≈ 2.4 ns/pt) and the ping-pong memcpy.
+   The map runs only in the mask-scatter variants + generic scalar tail; the
+   execute() paths are untouched (always_inline core + literal-NULL wrapper so
+   the no-map specialization has no map branch).
+
+2. **Size-gated map placement — the fused scatter LOSES past LLC reach.**
+   The axis-0 scatter reads c at stride L^2 (16-double rows, no hardware
+   prefetch), which is fine while the volume is cache-resident but
+   latency-bound once it is not. Above BST_MAPFUSE_MAX_MIB (default 15 MiB of
+   state) the chain instead runs axis 0 unfused and a SEPARATE sequential
+   in-place map sweep (map_pass_seq: 3 streams, all prefetchable, same ladder,
+   2+2 loads / 4 permutex2var / 2 stores per 8 points). Same-window race that
+   set the gate: L=100 B=1 (30.5 MiB), 4/4 reps ordered separate < fused < r2
+   — quiet reps 15.98/16.04 ms (separate) vs 18.86/19.25 (fused) vs
+   19.60/19.68 (r2). L=50 (15.26 MiB): 1851/2118/1877 (separate) vs
+   2460/2648/2125 (fused). L=25 (7.6 MiB): fused wins 180/183/182 vs
+   182/195/192. L=31 (14.55 MiB): a wash. Gate at 15 MiB splits the suite
+   exactly: 10..32 fused, 40/50/100 separate.
+
+3. **Seam groups vectorized** (was the r2 generic-path leak): an 8-row group
+   of axis 0/1 that straddles a div-block boundary went to the fully scalar
+   generic path — at L=10 that is 60% of axis-1 groups, L=15 47%, L=27 26%,
+   L=31 23%. New first_gather_seam / last_scatter_seam: lanes 0..k-1 live at
+   q1 (contiguous), lanes k..7 at q2 (contiguous, next block); loads are two
+   fault-suppressed masked loadu blended per zmm (4 masked loads + the same 2
+   permutex2var per element vs contig's 2+2), stores mirror through 4
+   group-constant masked storeu. Arithmetic (chirp, pruned first/last stage) is
+   op-for-op the contig path's. Gated on B==1 && nv==8 && div>=8 (one boundary
+   max); L<8 axes and tail groups still take the generic path. Run-2 loads are
+   anchored at q2 - 2k so no address ever runs past the array end (the masked
+   lanes make the q2-2k underhang and the +8 overhang architecturally safe —
+   q2 always has a full block behind it, and faults are suppressed on masked
+   lanes).
+
+Dev knobs added: -DBST_NOSEAM, -DBST_NOCHAIN (decomposition builds for the
+monitor), -DBST_MAPFUSE_MAX_MIB=n (0 = always separate, 4096 = always fused).
+
+### Operation count (deltas per step-volume vs r2 through the driver)
+Chain: removes 2V complex reads + 2V writes per step (map pass + ping-pong) and
+V scalar-ish sqrt+div; adds per 8 outputs either (fused) 2 c-loads + 2
+permutex2var + ~18 FMA-port ops + 2 seed ops, or (separate) one extra 3-stream
+sweep with the same ladder. Seam: per seam group replaces ~2L scalar complex
+multiplies + 2L scalar loads/stores per side with the vector pipeline (+2
+masked loads/stores per element over contig).
+
+### Measured on the node (a80n0, leased core, graded chain cells, min µs/xform,
+### same-window alternating A/B vs the r2 binary; window best in parens)
+
+| L | B | r2 | r3 | delta |    | L | B | r2 | r3 | delta |
+|---|---|-----|-----|----|----|---|---|------|------|----|
+| 10 | 64 | 15.73 | **13.21** (13.16) | -16% |  | 31 | 16 | 408.1 | **305.6** | -25% |
+| 10 | 1  | 16.05 | **13.41** | -16% |  | 32 | 8 | 411.6 | **318.1** | -23% |
+| 12 | 64 | 23.64 | **19.38** | -18% |  | 40 | 8 | 1238-1268 | **1134-1166** | -8.5% (5/5 quiet pairs) |
+| 15 | 32 | 42.62 | **33.74** | -21% |  | 50 | 4 | 2284 | **1851** | -19% |
+| 20 | 32 | 128.7 | **103.7** | -19% |  | 100 | 1 | 19322-19621 | **15866-16036** | -18% |
+| 25 | 16 | 231.0 | **179.6** | -22% |  | 27 | 16 | 310.3 | **220.0** | -29% |
+
+(The L=40 delta is smaller because 8 | 40: no axis-1 seams — that cell is the
+pure chain-ownership effect in its separate-map regime.)
+
+### Gates (shipped default build, on the node, all by-hand check.py)
+Generality sweep single call B=1: L ∈ {2,3,4,5,7,9,11,13,16,17,23,33,47,63,64,
+65,96,101,127,128} ALL PASS ≤ 8.8e-16 (tol 1e-12). Two-step fused-chain gate
+m=2: L=10 1.21e-15, L=31 2.57e-15, L=100 3.82e-15 (tol 3e-14 — the ladder is
+exact-tier, ~10-25x margin). Full graded chains: L=10 m=1000 2.30e-13 (anchor
+1.08e-13), L=10 B=1 1.70e-13 (anchor 1.78e-13 — BELOW the honest anchor),
+L=25 4.83e-14 (2.80e-14), L=31 4.61e-14 (2.31e-14), L=50 4.82e-14 (2.92e-14),
+L=100 5.10e-14 (2.42e-14) — all ≤ 2.1x honest drift, tol 1e-10. Chain and
+single outputs bit-identical across independent runs. Scalar -march=x86-64
+build: singles PASS at {3,10,25,31,100}, owned chain PASS (the generic path
+maps in its scalar scatter). create() still ~0 s.
+
+### What did NOT work / was decided by race, with the number that killed it
+- **Fused scatter map at DRAM-scale volumes**: the headline negative. L=100:
+  fused 18.86/19.25 ms vs separate sweep 15.98/16.04 in the same windows;
+  L=50: 2460/2648/2125 vs 1851/2118/1877. The strided c reads (stride L^2, no
+  prefetcher coverage) put a load-latency chain in front of every mapped
+  store. Fusion is a CACHE-RESIDENT technique; my r2 finding "the strided
+  axes are not latency-bound" stops holding once a second cold stream joins
+  the pass. Gate, don't choose.
+- **bh splat8 tables in conv_mid4** (my r2 next-step 2): declined without a
+  run — vbroadcastsd from memory and a full zmm load are both one load-port
+  uop on Ice Lake (gen_pow2's r2 record makes the same count), so there is no
+  port to free; splatting octuples the bh table footprint in a pass that is
+  L1-resident. Nothing to win.
+- This round's node windows were strongly BIMODAL (the gen_batchlane r2
+  cross-window note, worse this week): r2 itself read 1472 and 2001 µs at
+  L=40 in adjacent windows, sd < 0.1% inside each. Every keep/kill above used
+  alternating same-core pairs and required consistent ORDERING across >= 3
+  reps, not absolute numbers; the r1/r2 habit of quoting one window's min
+  would have called L=40 a regression (one window read r3 +4.6%; five clean
+  pairs read -8.5%).
+
+### Borrowed this round, named
+- **gen_batchlane**: BST_MAP8 is their map8 ladder verbatim (rsqrt14 + 2
+  quadratic Newtons, rcp14 + 2 residual Newtons, 1e-300 guard), plus the
+  eager-at-the-store map placement and the lazy-map-loses prior.
+- **gen_pfa_small r1**: the divider-free reciprocal (via gen_batchlane's r2
+  adoption of it).
+- **gen_pow2 r1/r2**: the weak-symbol fft3d_chain ownership pattern
+  (everyone's, but their record is the cleanest description of what the
+  driver fallback costs), the broadcast-vs-load port count that killed the
+  splat8 idea, and the same-window pairs discipline.
+- **gen_twiddle r2**: their record explicitly asked adopters for honest
+  nulls; the splat8 decline above is one.
+
+### What I would do next (gen_r4)
+1. **Axis-2's port-5 bill stands** (carried from r2): tr8x8 is ~2 ms of
+   L=100's 15.9. Absorbing the transpose into the first/last stages' quarter
+   stores is still the concrete plan.
+2. **Lazy map into the NEXT step's axis-2 gather for the separate-map
+   regime**: axis-2 group reads are 8 contiguous rows, so c would stream
+   SEQUENTIALLY there — it could delete the separate sweep's extra volume
+   read+write without the strided-c trap that killed scatter fusion. Needs a
+   final map-only pass after step m and care with the critical path
+   (batchlane's lazy-loses prior was L2-resident custody; this regime is
+   DRAM-bound, different trade).
+3. **Tail groups (nv < 8) through a masked contig path** — only matters for
+   odd L at B < 8; round 6 could draw one.
+4. **bluestein_cost(L) for gen_planner** (carried): ~0.66 ns per
+   (row · M·log2M / 8) on Ice Lake, now plus ~0.15 ns/pt/step of chain map.
+5. Re-race BST_MAPFUSE_MAX_MIB, BST_SCHED, BST_PF on SPR/CLX in the
+   cross-arch round; the 15 MiB gate is an Ice-Lake-LLC number.
