@@ -329,13 +329,21 @@ run_implementers() {
   local running=0
   for name in $roster; do
     stop_requested && break
-    local L
+    local L MISSION
     L=$(echo "$name" | sed -n 's/^L\([0-9]\+\)_.*/\1/p')
-    [ -n "$L" ] || { log "skipping $name: cannot infer L from the name"; continue; }
+    if [ -n "$L" ]; then
+      MISSION="Your geometry is L = $L (a cube ${L}^3 of complex doubles, batched)."
+    else
+      # Free-form roster (e.g. the generalize campaign): the entry name is a CLASS, not a
+      # size. The mission lives in the entry's own fft3d_description() and the brief.
+      MISSION="Your entry is class-scoped, not size-scoped: your mission statement is the
+fft3d_description() string inside $name.$SRC_EXT and the roster table in the brief. The
+acceptance sizes you own are the ones your fft3d_supports() accepts."
+    fi
 
     cat > "$pdir/$name.txt" <<PROMPT
 You are the implementer responsible for $name.c in the FFT optimization panel, working on
-round $round. Your geometry is L = $L (a cube ${L}^3 of complex doubles, batched).
+round $round. $MISSION
 
 Read first:
   $GEOM/PANEL_BRIEF.md            the rules, the contract, where to develop, how you are timed
