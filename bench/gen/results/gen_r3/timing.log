@@ -646,3 +646,4 @@ fftw3_guru               L=50  B=4     m=128   inner=1      min=  1676.565 us/xf
 fftw3_guru               L=50  B=4     m=128   inner=1      min=  1689.008 us/xform  median=  1690.669  sd=  0.12%      6.27 GF/s  setup=0.106 s
 fftw3_guru               L=100 B=1     m=64    inner=1      min= 14593.695 us/xform  median= 14620.596  sd=  0.11%      6.83 GF/s  setup=0.343 s
 fftw3_guru               L=100 B=1     m=64    inner=1      min= 14691.707 us/xform  median= 14703.458  sd=  0.08%      6.78 GF/s  setup=0.333 s
+fftw3_guru               L=100 B=1     m=64    inner=1      min= 14554.292 us/xform  median= 14582.872  sd=  0.08%      6.85 GF/s  setup=0.331 s

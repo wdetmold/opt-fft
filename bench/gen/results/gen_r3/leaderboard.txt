@@ -18,6 +18,7 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
    fftw3_patient                  5.172 us 330978.031 us     9.64       4.4%    0.022s  ok ch=1.0e-13/1e-10 1s=8e-16 4.47x
    fftw3_measure                  5.188 us 332029.328 us     9.60       0.4%    0.013s  ok ch=1.1e-13/1e-10 1s=8e-16 4.49x
    gen_dense_prime                5.414 us 346521.278 us     9.20       9.1%    0.000s  ok ch=1.4e-13/1e-10 1s=9e-16 4.68x
+   fftw3_guru                     6.540 us 418549.999 us     7.62       0.2%    0.010s  ok ch=1.3e-13/1e-10 1s=9e-16 5.66x
    fftw3_estimate                 7.309 us 467763.551 us     6.82       0.7%    0.001s  ok ch=1.1e-13/1e-10 1s=8e-16 6.32x
    ducc0_c2c                      9.701 us 620888.827 us     5.14       1.4%    0.000s  ok ch=1.1e-13/1e-10 1s=7e-16 8.39x
    gen_twiddle                   10.709 us 685381.790 us     4.65       1.8%    0.002s  ok ch=1.4e-13/1e-10 1s=9e-16 9.26x
@@ -36,6 +37,7 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
    gen_dense_prime                8.368 us 321337.125 us    11.10       5.1%    0.000s  ok ch=4.9e-14/1e-10 1s=9e-16 4.37x
    fftw3_measure                  8.697 us 333978.431 us    10.68       2.0%    0.014s  ok ch=4.7e-14/1e-10 1s=9e-16 4.54x
    fftw3_patient                  8.772 us 336862.895 us    10.59       2.1%    0.022s  ok ch=4.7e-14/1e-10 1s=9e-16 4.58x
+   fftw3_guru                    10.494 us 402951.470 us     8.86       1.1%    0.010s  ok ch=4.8e-14/1e-10 1s=9e-16 5.48x
    gen_twiddle                   14.958 us 574398.778 us     6.21       1.2%    0.002s  ok ch=4.7e-14/1e-10 1s=1e-15 7.81x
    ducc0_c2c                     15.967 us 613148.339 us     5.82       0.8%    0.000s  ok ch=3.2e-14/1e-10 1s=7e-16 8.34x
    fftw3_estimate                19.289 us 740705.400 us     4.82       0.2%    0.001s  ok ch=4.6e-14/1e-10 1s=9e-16 10.07x
@@ -55,6 +57,7 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
    fftw3_measure                 19.730 us 378815.413 us    10.02       1.5%    0.010s  ok ch=5.1e-14/1e-10 1s=1e-15 4.42x
    fftw3_patient                 19.849 us 381109.331 us     9.96       0.2%    0.019s  ok ch=5.5e-14/1e-10 1s=1e-15 4.45x
    fftw3_estimate                21.035 us 403869.184 us     9.40       0.1%    0.001s  ok ch=5.1e-14/1e-10 1s=1e-15 4.71x
+   fftw3_guru                    26.696 us 512571.408 us     7.41       1.8%    0.010s  ok ch=5.5e-14/1e-10 1s=1e-15 5.98x
    gen_twiddle                   29.567 us 567685.395 us     6.69       0.3%    0.002s  ok ch=5.8e-14/1e-10 1s=1e-15 6.62x
    ducc0_c2c                     32.376 us 621616.711 us     6.11       4.3%    0.000s  ok ch=4.8e-14/1e-10 1s=1e-15 7.25x
    gen_bluestein                 33.634 us 645769.622 us     5.88       0.6%    0.000s  ok ch=1.0e-13/1e-10 1s=2e-15 7.53x
@@ -73,6 +76,7 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
    gen_twiddle                   56.878 us 465944.253 us     9.12       4.2%    0.003s  ok ch=2.6e-14/1e-10 1s=1e-15 4.37x
    mkl2026_dfti                  57.440 us 470547.754 us     9.03       1.9%    0.049s  ok ch=3.3e-14/1e-10 1s=1e-15 4.41x
    mkl_dfti                      57.950 us 474724.360 us     8.95       0.4%    0.029s  ok ch=3.2e-14/1e-10 1s=1e-15 4.45x
+   fftw3_guru                    61.434 us 503264.801 us     8.44       0.1%    0.075s  ok ch=2.6e-14/1e-10 1s=1e-15 4.72x
    ducc0_c2c                     73.332 us 600732.559 us     7.07       1.2%    0.000s  ok ch=3.2e-14/1e-10 1s=1e-15 5.64x
    fftw3_estimate                91.865 us 752554.155 us     5.65       0.1%    0.001s  ok ch=2.7e-14/1e-10 1s=1e-15 7.06x
    gen_bluestein                103.798 us 850313.972 us     5.00       0.7%    0.000s  ok ch=4.4e-14/1e-10 1s=2e-15 7.98x
@@ -91,6 +95,7 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
    mkl2026_dfti                 123.073 us 504108.687 us     8.84       0.9%    0.032s  ok ch=3.6e-14/1e-10 1s=2e-15 3.82x
    fftw3_estimate               130.592 us 534903.983 us     8.33       5.6%    0.001s  ok ch=3.6e-14/1e-10 1s=2e-15 4.05x
    ducc0_c2c                    145.508 us 595999.278 us     7.48       0.9%    0.000s  ok ch=2.6e-14/1e-10 1s=1e-15 4.52x
+   fftw3_guru                   177.608 us 727481.380 us     6.13       2.0%    0.029s  ok ch=3.3e-14/1e-10 1s=2e-15 5.51x
    gen_bluestein                178.965 us 733040.777 us     6.08       1.9%    0.000s  ok ch=5.0e-14/1e-10 1s=2e-15 5.56x
    baseline_matrix             2061.229 us 8442795.900 us     0.53       0.0%    0.000s  ok ch=1.3e-13/1e-10 1s=3e-15 64.00x
 
@@ -108,6 +113,7 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
    fftw3_measure                224.149 us 717276.563 us     6.26       3.8%    0.033s  ok ch=3.1e-14/1e-10 1s=2e-15 5.00x
    gen_twiddle                  235.358 us 753144.944 us     5.96       1.7%    0.004s  ok ch=3.0e-14/1e-10 1s=2e-15 5.25x
    fftw3_estimate               255.072 us 816230.088 us     5.50       1.6%    0.002s  ok ch=3.2e-14/1e-10 1s=2e-15 5.69x
+   fftw3_guru                   263.850 us 844319.481 us     5.32       1.0%    0.041s  ok ch=2.8e-14/1e-10 1s=2e-15 5.89x
    baseline_matrix             2799.109 us 8957149.830 us     0.50       0.0%    0.000s  ok ch=1.1e-13/1e-10 1s=3e-15 62.47x
 
 -- L=31 (batched B=16, chain m=140), volume 29791, working set 14.55 MiB --
@@ -120,6 +126,7 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
    gen_bluestein                301.272 us 674849.183 us     7.35       0.6%    0.000s  ok ch=4.7e-14/1e-10 1s=2e-15 3.54x
    gen_twiddle                  462.532 us 1036070.750 us     4.79       1.6%    0.006s  ok ch=3.0e-14/1e-10 1s=2e-15 5.44x
    ducc0_c2c                    715.949 us 1603724.760 us     3.09       0.8%    0.000s  ok ch=2.5e-14/1e-10 1s=1e-15 8.41x
+   fftw3_guru                   836.924 us 1874710.260 us     2.65       0.5%    0.088s  ok ch=2.7e-14/1e-10 1s=2e-15 9.84x
    mkl_dfti                     848.597 us 1900856.820 us     2.61       0.1%    0.030s  ok ch=3.3e-14/1e-10 1s=2e-15 9.97x
    fftw3_estimate               859.565 us 1925424.530 us     2.58       0.1%    0.002s  ok ch=2.7e-14/1e-10 1s=2e-15 10.10x
    fftw3_measure                859.984 us 1926365.140 us     2.57       0.3%    0.089s  ok ch=2.7e-14/1e-10 1s=2e-15 10.11x
@@ -137,6 +144,7 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
    fftw3_patient                208.409 us 416817.491 us    11.79       2.2%    0.497s  ok ch=2.7e-14/1e-10 1s=1e-15 3.64x
    fftw3_measure                210.502 us 421003.123 us    11.67       0.8%    0.082s  ok ch=3.0e-14/1e-10 1s=1e-15 3.67x
    gen_layout                   226.091 us 452181.674 us    10.87       2.9%    0.001s  ok ch=3.2e-14/1e-10 1s=2e-15 3.94x
+   fftw3_guru                   301.246 us 602491.556 us     8.16       7.1%    0.070s  ok ch=3.1e-14/1e-10 1s=1e-15 5.26x
    ducc0_c2c                    308.990 us 617980.310 us     7.95       2.0%    0.000s  ok ch=2.2e-14/1e-10 1s=1e-15 5.39x
    gen_bluestein                314.375 us 628749.295 us     7.82       1.0%    0.000s  ok ch=4.5e-14/1e-10 1s=2e-15 5.48x
    gen_twiddle                  360.667 us 721334.715 us     6.81       0.2%    0.006s  ok ch=3.0e-14/1e-10 1s=1e-15 6.29x
@@ -155,6 +163,7 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
    fftw3_measure                552.616 us 565878.841 us     9.25       1.1%    0.154s  ok ch=2.3e-14/1e-10 1s=2e-15 2.73x
    ducc0_c2c                    597.449 us 611787.376 us     8.55       2.6%    0.000s  ok ch=1.8e-14/1e-10 1s=1e-15 2.95x
    gen_twiddle                  653.413 us 669094.977 us     7.82       2.1%    0.008s  ok ch=2.3e-14/1e-10 1s=2e-15 3.23x
+   fftw3_guru                   690.819 us 707398.453 us     7.40       0.3%    0.153s  ok ch=2.5e-14/1e-10 1s=2e-15 3.41x
    gen_bluestein               1150.441 us 1178051.660 us     4.44       1.2%    0.000s  ok ch=3.2e-14/1e-10 1s=2e-15 5.68x
    fftw3_estimate              1607.317 us 1645892.950 us     3.18       0.3%    0.002s  ok ch=2.3e-14/1e-10 1s=2e-15 7.94x
    baseline_matrix            13458.264 us 13781262.000 us     0.38       0.1%    0.000s  ok ch=5.9e-14/1e-10 1s=3e-15 66.50x
@@ -173,6 +182,7 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
    ducc0_c2c                   1269.447 us 649957.076 us     8.34       0.4%    0.000s  ok ch=4.4e-14/1e-10 1s=2e-15 2.68x
    gen_twiddle                 1382.591 us 707886.502 us     7.65       0.2%    0.012s  ok ch=4.4e-14/1e-10 1s=2e-15 2.92x
    fftw3_estimate              1626.369 us 832700.780 us     6.51       0.2%    0.003s  ok ch=4.3e-14/1e-10 1s=2e-15 3.43x
+   fftw3_guru                  1676.565 us 858401.204 us     6.31       1.4%    0.106s  ok ch=3.4e-14/1e-10 1s=2e-15 3.54x
    gen_bluestein               1931.920 us 989143.079 us     5.48       2.2%    0.000s  ok ch=6.1e-14/1e-10 1s=3e-15 4.08x
    baseline_matrix            34089.938 us 17454048.200 us     0.31       2.1%    0.000s  ok ch=1.1e-13/1e-10 1s=4e-15 71.97x
 
@@ -188,6 +198,7 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
    fftw3_measure              11058.705 us 707757.119 us     9.01       0.8%    0.278s  ok ch=3.8e-14/1e-10 1s=3e-15 2.20x
    gen_twiddle                11346.713 us 726189.654 us     8.78       0.7%    0.105s  ok ch=2.9e-14/1e-10 1s=3e-15 2.26x
    ducc0_c2c                  11827.305 us 756947.527 us     8.43       0.8%    0.000s  ok ch=2.3e-14/1e-10 1s=2e-15 2.36x
+   fftw3_guru                 14554.292 us 931474.659 us     6.85       0.9%    0.331s  ok ch=2.7e-14/1e-10 1s=3e-15 2.90x
    gen_bluestein              15741.831 us 1007477.210 us     6.33       0.3%    0.000s  ok ch=3.7e-14/1e-10 1s=4e-15 3.14x
    gen_layout                 18602.660 us 1190570.220 us     5.36       1.0%    0.007s  ok ch=3.1e-14/1e-10 1s=3e-15 3.70x
    fftw3_estimate             20607.121 us 1318855.740 us     4.84       0.7%    0.002s  ok ch=2.9e-14/1e-10 1s=3e-15 4.10x
@@ -196,6 +207,7 @@ backends:
    baseline_matrix          row-column dense DFT matrix, O(L^4)/volume/axis
    ducc0_c2c                ducc0 0.41 c2c, no planning, 1 thread
    fftw3_estimate           FFTW 3.3.10 plan_many_dft, fftw3_estimate
+   fftw3_guru               FFTW 3.3.10 guru split-array dft, FFTW_MEASURE, fused split chain
    fftw3_measure            FFTW 3.3.10 plan_many_dft, fftw3_measure
    fftw3_patient            FFTW 3.3.10 plan_many_dft, fftw3_patient
    gen_batchlane            SoA 8-vol/zmm batch-lane (bl8 lineage): twiddle-free 2-stage PFA register-explicit pencils (10=2x5,12=3x4,15=3x5,20=4x5; stage1 mem->regs, stage2 regs->mem, 2L ld + 2L st per pencil), L1 zy-sweep + x-pass, fused chain in SoA with eager rsqrt14 map (rcp14 ladder at 10/12/15, vdivpd at 20), per-size sched-pressure, THP arena (gen_layout), plane stride 256 mod 4096
