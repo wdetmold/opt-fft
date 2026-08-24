@@ -65,14 +65,16 @@ med={L:statistics.median([d[L] for d in persize.values() if L in d]) for L in AL
 for att,d in persize.items():
     filled=sum(d.get(L,med[L]) for L in ALL)
     ours[att]=(filled, len(d))
+MULT={'fft_v4_solutions':1.0}
 rows=[]
+corpus_of={}
 for corpus in ('fft_v4_solutions','fft_v5v6_solutions','fft_warm_solutions','fft_v7_solutions','fft_hot_solutions'):
     for d in sorted(glob.glob(os.path.join(FFT,corpus,'*','README.md'))):
-        att=os.path.basename(os.path.dirname(d))
+        att=os.path.basename(os.path.dirname(d)); corpus_of[att]=corpus
         rep=parse_readme(d)
         meas=ours.get(att)
         if not rep.get('c_opt'): continue
-        r1x=rep['c_opt']/3
+        r1x=rep['c_opt']/MULT.get(corpus,3.0)
         if meas and meas[0]>0:
             full = meas[1]>=8
             ratio=r1x/meas[0]
@@ -98,3 +100,16 @@ if good:
     print(f"\ncalibration: honest tier factor median {statistics.median(good):.2f}x over {len(good)} consistent attempts")
 imp=[r for r in rows if r[8].startswith('ANOMALOUS')]
 if imp: print(f"flagged as grader-flaky: {', '.join(r[0] for r in imp)}")
+
+if '--md' in sys.argv:
+    C={'fft_v4_solutions':'v4 (1x)','fft_v5v6_solutions':'v5/v6','fft_warm_solutions':'warm','fft_v7_solutions':'v7','fft_hot_solutions':'hot'}
+    print()
+    print("| attempt | cohort | score | reported C_opt | implied 1x | ours bare 1x | grader/bare | shots max/min | verdict |")
+    print("|---|---|---|---|---|---|---|---|---|")
+    print("| **our panel (ice_r8)** | ice | — | — | — | **0.7791** | — | — | fastest measured |")
+    order={'hot':0,'warm':1,'v7':2,'v5/v6':3,'v4 (1x)':4}
+    for att,sc,co,r1,ms,n,ra,sp,v in sorted(rows,key=lambda r:(order.get(C.get(corpus_of.get(r[0],''),''),9), r[4] if r[4] else 9)):
+        c=C.get(corpus_of.get(att,''),'?')
+        print(f"| {att} | {c} | {sc if sc else '—'} | {co:.3f} | {r1:.3f} | "
+              f"{(f'{ms:.4f}'+('~' if 0<n<8 else '')) if ms else '—'} | {(f'{ra:.2f}x' if ra else '—')} | "
+              f"{(f'{sp:.2f}x' if sp else '—')} | {v} |")
