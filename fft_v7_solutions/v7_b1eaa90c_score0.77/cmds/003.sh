@@ -1,0 +1,1 @@
+cd /tmp/bench && gcc -O2 -march=native -S fma.c -o fma.s && sed -n '/rdtscp/,/rdtscp/p' fma.s | head -50

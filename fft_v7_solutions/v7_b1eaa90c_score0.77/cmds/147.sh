@@ -1,0 +1,1 @@
+cd /workdir/dev && sed -n '480,500p' gen.py

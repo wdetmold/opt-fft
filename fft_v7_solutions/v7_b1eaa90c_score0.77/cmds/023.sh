@@ -1,0 +1,1 @@
+cd /workdir/dev && sed -i 's/void fft{N}_core(const V\*restrict xr, const V\*restrict xi, V\*restrict yr, V\*restrict yi/void fft{N}_core(const V* xr, const V* xi, V* yr, V* yi/' codelets.py && grep -n "fft{N}_core" codelets.py | head -3 && python3 gen.py

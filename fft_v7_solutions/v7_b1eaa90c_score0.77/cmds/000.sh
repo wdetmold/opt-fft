@@ -1,0 +1,1 @@
+ls /workdir/ /work/ 2>/dev/null; echo ---; cat /workdir/base.py; echo ---; python3 -c "import numpy; print(numpy.__version__, numpy.__file__)"; gcc --version | head -2

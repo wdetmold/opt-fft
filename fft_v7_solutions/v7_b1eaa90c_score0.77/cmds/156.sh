@@ -1,0 +1,1 @@
+cd /workdir/dev && rm -f *.o prof1 prof2 prof3 prof4 prof5 prof6 prof7 prof8 prof9 prof10 prof11 prof12a prof12b prof13 prof14 prof15 prof16 prof17 prof18 prof19 prof20 test_cores core64_test* impl_sqrtnr.c testin.bin zl_in.bin && rm -f /tmp/impl_*.so && du -sh /workdir && ls /workdir /workdir/dev

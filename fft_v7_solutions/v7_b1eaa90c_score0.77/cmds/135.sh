@@ -1,0 +1,1 @@
+cd /workdir/dev && python3 gen.py 2>&1 | head -3; grep -n "PAR" gen.py | head -20

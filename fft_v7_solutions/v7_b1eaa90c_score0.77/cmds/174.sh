@@ -1,0 +1,1 @@
+cd /workdir && python3 dev/check.py | tail -1 && python3 dev/check.py | tail -1

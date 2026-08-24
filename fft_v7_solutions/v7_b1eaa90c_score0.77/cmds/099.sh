@@ -1,0 +1,1 @@
+cd /workdir/dev && grep -n "slabts" gen.py | head -3 && sed -n '/elif cfg_scheme(L)/,+12p' gen.py

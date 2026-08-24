@@ -1,0 +1,1 @@
+cd /workdir/dev && grep -n "return twtabs" gen.py && sed -n '/def gen_sq(L, G):/,/twtabs/p' gen.py | head -20

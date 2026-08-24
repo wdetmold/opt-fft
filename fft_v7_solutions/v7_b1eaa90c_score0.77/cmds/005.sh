@@ -1,0 +1,1 @@
+cd /tmp/bench && gcc -O2 -march=native -S fma2.c -o fma2.s && grep -c vfmadd fma2.s; sed -n '/\.L2:/,/jne/p' fma2.s | head -40

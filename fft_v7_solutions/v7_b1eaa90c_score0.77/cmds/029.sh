@@ -1,0 +1,1 @@
+cd /workdir/dev && objdump -d core64_test.o | awk '{print $NF=="" ? "" : $0}' | grep -oE "\bv[a-z0-9]+pd?\b|\bvmovapd\b|\bvmovupd\b" | sort | uniq -c | sort -rn | head

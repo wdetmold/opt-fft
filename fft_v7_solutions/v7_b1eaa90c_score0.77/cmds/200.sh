@@ -1,0 +1,1 @@
+cd /workdir && objdump -d /tmp/impl_asan0.so --disassemble=f6_cb 2>/dev/null | grep -B5 -A2 "ae0:" | head -20; echo ===; gdb -batch -ex "set confirm off" -ex "file python3" 2>/dev/null | true; sed -n '100,112p' implementation.c

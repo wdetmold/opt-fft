@@ -1,0 +1,1 @@
+ls /usr/local/lib/python3.12/dist-packages/numpy/random/lib/ 2>/dev/null; nm /usr/local/lib/python3.12/dist-packages/numpy/random/lib/libnpyrandom.a 2>/dev/null | grep -i -E "standard_normal|wi_double|ki_double|fi_double" | head; echo ---; ar t /usr/local/lib/python3.12/dist-packages/numpy/random/lib/libnpyrandom.a 2>/dev/null

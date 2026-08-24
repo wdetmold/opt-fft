@@ -1,0 +1,1 @@
+cd /workdir && objdump -d implementation.so | awk '/<fft64_cols>:/,/ret/' | grep -cE "^\s+[0-9a-f]+:"; objdump -d implementation.so | awk '/<fft64_cols>:/,/ret/' | grep -oE "\bv[a-z0-9]+(pd|sd)\b" | sort | uniq -c | sort -rn | head -12; echo; objdump -d implementation.so | awk '/<fft64_cols>:/,/ret/' | sed -n '30,75p'

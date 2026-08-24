@@ -1,0 +1,1 @@
+cd /workdir && cat dev/README.md && echo ================ && wc -l implementation.c solution.py dev/*.py

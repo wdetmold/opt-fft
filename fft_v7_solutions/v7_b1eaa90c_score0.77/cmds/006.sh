@@ -1,0 +1,1 @@
+cd /tmp/bench && grep -n "vfmadd\|jne\|rdtscp\|\.L[0-9]" fma2.s | head -30

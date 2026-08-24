@@ -1,0 +1,1 @@
+cd /workdir/dev && grep -n "PAR = " gen.py | head; grep -n "def gen_apfa2_45" gen.py && sed -n "$(grep -n 'def gen_apfa2_45' gen.py | cut -d: -f1),+3p" gen.py | cat -A | head -5
