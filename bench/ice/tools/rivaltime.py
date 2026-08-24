@@ -16,6 +16,13 @@ Writes JSON next to results/rivals_icelake/. Pin externally with taskset.
 import importlib.util, json, os, resource, sys, threading, time
 import numpy as np
 
+# Every rival solution.py calls os.sched_setaffinity(0, {0}) at import ("pin to core 0
+# for timing fairness" on their 4-vCPU grader). Under our slot-lease pinning that would
+# silently move the benchmark onto the unleased OS core. Neutralize it: the external
+# taskset pin is authoritative here.
+_real_setaff = os.sched_setaffinity
+os.sched_setaffinity = lambda *a, **k: None
+
 POINTS = [(6,64,4856),(8,64,2572),(13,32,1278),(17,32,98),(23,16,165),(36,8,64),(45,4,177),(64,2,134)]
 REPS = 5
 
@@ -35,22 +42,34 @@ class ThreadPeak:
             except Exception: pass
             time.sleep(0.05)
 
-root=sys.argv[1]; only=sys.argv[2] if len(sys.argv)>2 else ''
+roots=[a for a in sys.argv[1:] if os.path.isdir(a)]
+only=next((a for a in sys.argv[1:] if not os.path.isdir(a)), '')
+CACHE='/home/lqcd/wdetmold/fft/bench/ice/tools/refchains.npz'
 data, ref, ref1 = {}, {}, {}
+cached = dict(np.load(CACHE)) if os.path.exists(CACHE) else {}
+dirty=False
 for L,B,m in POINTS:
     rx=np.random.default_rng(7+L)
     x0=np.ascontiguousarray(rx.standard_normal((B,L,L,L))+1j*rx.standard_normal((B,L,L,L)))
     rc=np.random.default_rng(1000+L)
     c=np.ascontiguousarray(0.1*(rc.standard_normal((B,L,L,L))+1j*rc.standard_normal((B,L,L,L))))
-    data[L]=(x0,c); st=x0.copy()
-    for _ in range(m):
-        z=np.fft.fftn(st,axes=(-3,-2,-1))+c; st=z/(1+np.abs(z))
-    ref[L]=st
-    z=np.fft.fftn(x0,axes=(-3,-2,-1))+c; ref1[L]=z/(1+np.abs(z))
+    data[L]=(x0,c)
+    key=f"ref_{L}_{B}_{m}"
+    if key in cached:
+        ref[L]=cached[key]; ref1[L]=cached['one_'+key]
+    else:
+        st=x0.copy()
+        for _ in range(m):
+            z=np.fft.fftn(st,axes=(-3,-2,-1))+c; st=z/(1+np.abs(z))
+        ref[L]=st
+        z=np.fft.fftn(x0,axes=(-3,-2,-1))+c; ref1[L]=z/(1+np.abs(z))
+        cached[key]=ref[L]; cached['one_'+key]=ref1[L]; dirty=True
     print(f"ref L={L} ready", flush=True)
+if dirty: np.savez(CACHE, **cached)
 
 out=[]
-for name in sorted(os.listdir(root)):
+todo=[(r,n) for r in roots for n in sorted(os.listdir(r))]
+for root,name in todo:
     d=os.path.join(root,name)
     if only and only not in name: continue
     sol=os.path.join(d,'solution.py')
