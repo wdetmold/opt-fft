@@ -62,7 +62,7 @@ for path in glob.glob(os.path.join(root, "o_*.json")):
 # anchor -- times 300 (30x for a solver legally at the 1e-14 one-step ceiling, 10x slop),
 # floored at 1e-10, rounded up onto a {1,3}x10^n grid. See docs/GRADER.md. The one-step
 # 1e-14 gate (o_*.json, when the sweep produced it) carries the precision contract.
-LIB_BACKENDS = ("mkl_dfti", "mkl2026_dfti", "fftw3_estimate", "fftw3_measure",
+LIB_BACKENDS = ("mkl_dfti", "mkl2026_dfti", "fftw3_estimate", "fftw3_measure", "fftw3_guru",
                 "fftw3_patient", "ducc0_c2c")
 def chain_gate(L, B):
     anchors = [checks[k].get("anchor_rel_l2", 0.0) or 0.0

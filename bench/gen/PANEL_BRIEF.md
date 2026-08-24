@@ -114,3 +114,9 @@ vs-library ratio degrades >25% on another Intel machine is a portability finding
 fix is racing variants at plan time (the gen_race layer), not retuning for one host.
 The wisdom cache is per-host by design; the advisory run populates a fresh one, which is
 exactly what round 6's surprise sizes will do too.
+
+## Baseline upgrade (round 3): fftw3_guru
+FFTW now also competes through its guru SPLIT-ARRAY interface with a fused split chain
+(deinterleave once per chain, exact map on split data) — the same layout and conversion
+amortization your kernels use. "Best library" per cell may tighten from round 3 onward;
+your target is whatever the strongest library configuration measures, not the friendliest.

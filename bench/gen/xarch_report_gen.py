@@ -6,7 +6,7 @@ usage: xarch_report_gen.py <icx_round> <xarch_round> [--md]
 """
 import glob, json, math, os, sys
 
-LIBS=('mkl_dfti','mkl2026_dfti','fftw3_estimate','fftw3_measure','fftw3_patient','ducc0_c2c','baseline_matrix')
+LIBS=('mkl_dfti','mkl2026_dfti','fftw3_estimate','fftw3_measure','fftw3_patient','fftw3_guru','ducc0_c2c','baseline_matrix')
 HERE=os.path.dirname(os.path.abspath(__file__))
 
 def load(rd):

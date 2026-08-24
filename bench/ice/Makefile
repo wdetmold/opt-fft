@@ -30,7 +30,7 @@ OBJ   := $(BUILD)/driver.o
 IMPL_SRC  := $(wildcard impl/*.c)
 IMPL_BIN  := $(patsubst impl/%.c,$(BIN)/%,$(IMPL_SRC))
 SOTA_BIN  := $(BIN)/fftw3_estimate $(BIN)/fftw3_measure $(BIN)/fftw3_patient \
-             $(BIN)/mkl_dfti $(BIN)/mkl2026_dfti $(BIN)/ducc0_c2c
+             $(BIN)/fftw3_guru $(BIN)/mkl_dfti $(BIN)/mkl2026_dfti $(BIN)/ducc0_c2c
 
 .PHONY: all impls sota clean list
 all: impls sota
@@ -62,6 +62,9 @@ $(BIN)/fftw3_measure: sota/fftw3.c $(OBJ) | $(BIN)
 $(BIN)/fftw3_patient: sota/fftw3.c $(OBJ) | $(BIN)
 	$(CC) $(CFLAGS) -I. $(FFTW_FLAGS) -DPLAN_FLAG=FFTW_PATIENT -DPLAN_NAME='"fftw3_patient"' \
 	  -o $@ $< $(OBJ) $(FFTW_LIBS) $(LDLIBS)
+
+$(BIN)/fftw3_guru: sota/fftw3_guru.c $(OBJ) | $(BIN)
+	$(CC) $(CFLAGS) -I. $(FFTW_FLAGS) -o $@ $< $(OBJ) $(FFTW_LIBS) $(LDLIBS)
 
 $(BIN)/mkl_dfti: sota/mkl_dfti.c $(OBJ) | $(BIN)
 	$(CC) $(CFLAGS) -I. -I$(MKLROOT)/include -o $@ $< $(OBJ) \
