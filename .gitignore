@@ -134,3 +134,4 @@ bench/ice/results/ice_smoke/
 
 # transient chain-state outputs from the driver
 *.bin.chain
+bench/ice/tools/refchains.npz
