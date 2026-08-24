@@ -934,3 +934,5 @@ on the machine rather than from a document.
   above is a literature-informed prior, not a result, and the first week of implementation work
   should be spent turning the three open questions in §4.1, §4.3 and §4.4 into measurements
   under §06 §8.5's protocol.
+
+| 11 | post-2020 algorithmic ideas untested in performant software | literature/11-post2020-untested-ideas.md | 6-vein agent sweep 2026-08-24; tiered actionability; staging/ has full reports |

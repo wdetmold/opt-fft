@@ -120,3 +120,12 @@ FFTW now also competes through its guru SPLIT-ARRAY interface with a fused split
 (deinterleave once per chain, exact map on split data) — the same layout and conversion
 amortization your kernels use. "Best library" per cell may tighten from round 3 onward;
 your target is whatever the strongest library configuration measures, not the friendliest.
+
+## New literature (rounds 5-6): docs/literature/11-post2020-untested-ideas.md
+A six-vein sweep of post-2020 ideas NEVER validated in fast software. Tier 1 is adoptable now:
+dual-select FMA twiddle tables (free accuracy), flap-count factorization ranking (2,8-split-radix
+is FMA-optimal), constant-per-site twiddle routing (compile-in ALL twiddles for a fixed L), and
+GT/Rader-as-vectorization-first. Tier 2 names the structural plays for the weak large-L cells
+(stage-as-matrix outer products, two-axes-per-pass fusion, transpose-free ordering). Being FIRST
+to make any of these work in performant code is the point — cite the section in your strategy
+record when you try one.
