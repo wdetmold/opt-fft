@@ -47,7 +47,8 @@
    "tier": "+perf",
    "curve": "0.1 parity -> 1.0 at ROOFLINE r<=0.137 (7.3x)",
    "workload": "3x chains",
-   "notes": "Measured-issue-cap roofline anchor. 3/8 env-failed on the C_opt guard (import-preamble timing floors)."
+   "notes": "Measured-issue-cap roofline anchor. 3/8 env-failed on the C_opt guard (import-preamble timing floors).",
+   "collected": "fft_v7_solutions/ (5 attempts; all walls stable, graded numbers trustworthy)"
   },
   "warm": {
    "date": "2026-08-23",
@@ -1092,7 +1093,7 @@
    "honest_score": "",
    "selfbench": "",
    "flag": "",
-   "code_dir": "(not collected)"
+   "code_dir": "fft_v7_solutions/v7_<short>_score<score>"
   },
   {
    "round": "v7",
@@ -1113,7 +1114,7 @@
    "honest_score": "",
    "selfbench": "",
    "flag": "",
-   "code_dir": "(not collected)"
+   "code_dir": "fft_v7_solutions/v7_<short>_score<score>"
   },
   {
    "round": "v7",
@@ -1134,7 +1135,7 @@
    "honest_score": "",
    "selfbench": "",
    "flag": "",
-   "code_dir": "(not collected)"
+   "code_dir": "fft_v7_solutions/v7_<short>_score<score>"
   },
   {
    "round": "v7",
@@ -1155,7 +1156,7 @@
    "honest_score": "",
    "selfbench": "",
    "flag": "",
-   "code_dir": "(not collected)"
+   "code_dir": "fft_v7_solutions/v7_<short>_score<score>"
   },
   {
    "round": "v7",
@@ -1176,7 +1177,7 @@
    "honest_score": "",
    "selfbench": "",
    "flag": "",
-   "code_dir": "(not collected)"
+   "code_dir": "fft_v7_solutions/v7_<short>_score<score>"
   },
   {
    "round": "v7",

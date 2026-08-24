@@ -5,7 +5,7 @@ every round of the single-core FFT code-opt study, with the grader-reported cost
 all per-shot walls, dispersion, guard events, and the forensic-audit corrections.
 Machine-readable copies: `TIMINGS.csv` (one row per run) and `fft_timing_ledger.json`
 (adds round metadata + truth anchors). Purpose: rebuild the collected kernels
-(`fft_v4_solutions/`, `fft_v5v6_solutions/`, `fft_warm_solutions/`, `fft_hot_solutions/`)
+(`fft_v4_solutions/`, `fft_v5v6_solutions/`, `fft_v7_solutions/`, `fft_warm_solutions/`, `fft_hot_solutions/`)
 on uncontended hardware and compare against these graded numbers to characterize the
 Taiga grader's timing behaviour.
 
