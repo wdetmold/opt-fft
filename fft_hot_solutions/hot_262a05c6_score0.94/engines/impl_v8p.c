@@ -126,8 +126,8 @@ static double* G_13 = 0;
 static double* G2_13 = 0;
 static double* CP_13 = 0;
 static double* CT_13 = 0;
-static const double KC_13[6] ALIGN64 = { 0x1.c55a7e00740e9p-1, 0x1.22d961ea71119p-1, 0x1.edb7debaa3ed5p-4, -0x1.6b1d8b2365d9ep-2, -0x1.7f3ccd0032e0dp-1, -0x1.f11f493053d00p-1 };
-static const double KS_13[6] ALIGN64 = { 0x1.dbe064267c47bp-2, 0x1.a55e242a4c3d2p-1, 0x1.fc44566966769p-1, 0x1.deba72ef20147p-1, 0x1.5384d024c2f84p-1, 0x1.ea1e54bc48dbcp-3 };
+static const double KC_13[6] ALIGN64 = { 0x1.c55a7e00740e9p-1, 0x1.22d961ea71119p-1, 0x1.edb7debaa3ed8p-4, -0x1.6b1d8b2365da1p-2, -0x1.7f3ccd0032e0cp-1, -0x1.f11f493053d00p-1 };
+static const double KS_13[6] ALIGN64 = { 0x1.dbe064267c47cp-2, 0x1.a55e242a4c3d2p-1, 0x1.fc44566966769p-1, 0x1.deba72ef20147p-1, 0x1.5384d024c2f84p-1, 0x1.ea1e54bc48dbfp-3 };
 
 static void __attribute__((noinline)) dz_13(double* restrict x){
     double dscr[12*8] ALIGN64;
@@ -906,8 +906,8 @@ static double* G_17 = 0;
 static double* G2_17 = 0;
 static double* CP_17 = 0;
 static double* CT_17 = 0;
-static const double KC_17[8] ALIGN64 = { 0x1.dd6d000370991p-1, 0x1.7a5f6075d4884p-1, 0x1.c86fa2b2883cep-2, 0x1.79ee63259b75fp-4, -0x1.183b1c61f0d01p-2, -0x1.348c86ed5f1bap-1, -0x1.b34fa910ea3b8p-1, -0x1.f7484007faef3p-1 };
-static const double KS_17[8] ALIGN64 = { 0x1.71e955d8e7cdcp-2, 0x1.58eea2a9d6da3p-1, 0x1.ca52d7c9e640bp-1, 0x1.fdd0deb564b22p-1, 0x1.ec746923c349fp-1, 0x1.9895b6c9a05f7p-1, 0x1.0d8884363dd82p-1, 0x1.7851aacd6c6b5p-3 };
+static const double KC_17[8] ALIGN64 = { 0x1.dd6d000370991p-1, 0x1.7a5f6075d4884p-1, 0x1.c86fa2b2883cdp-2, 0x1.79ee63259b75ep-4, -0x1.183b1c61f0d01p-2, -0x1.348c86ed5f1bbp-1, -0x1.b34fa910ea3b9p-1, -0x1.f7484007faef3p-1 };
+static const double KS_17[8] ALIGN64 = { 0x1.71e955d8e7cdcp-2, 0x1.58eea2a9d6da3p-1, 0x1.ca52d7c9e640bp-1, 0x1.fdd0deb564b22p-1, 0x1.ec746923c349fp-1, 0x1.9895b6c9a05f6p-1, 0x1.0d8884363dd80p-1, 0x1.7851aacd6c6b4p-3 };
 
 static void __attribute__((noinline)) dz_17(double* restrict x){
     double sscr[16*8] ALIGN64;
@@ -2353,8 +2353,8 @@ static double* G_23 = 0;
 static double* G2_23 = 0;
 static double* CP_23 = 0;
 static double* CT_23 = 0;
-static const double KC_23[11] ALIGN64 = { 0x1.ed037ea3d2dbcp-1, 0x1.b57675cf309eep-1, 0x1.5d779b07cfef7p-1, 0x1.d71b4a0c5a6c9p-2, 0x1.a0ad8bd1e2881p-3, -0x1.17855b599f3b2p-4, -0x1.56eaae597c776p-2, -0x1.2742a4a775cfap-1, -0x1.8d2a07c16d46ep-1, -0x1.d59cb83ef99bcp-1, -0x1.fb3b3035aa6ccp-1 };
-static const double KS_23[11] ALIGN64 = { 0x1.14459ad2be466p-2, 0x1.0a06e851db7cap-1, 0x1.763021aaa15d9p-1, 0x1.c698e42f47b09p-1, 0x1.f54a827142577p-1, 0x1.fece70dfd3efbp-1, 0x1.e270060999288p-1, 0x1.a249e0b897caap-1, 0x1.431df5838f7f1p-1, 0x1.97f6748e524b1p-2, 0x1.16de8a4564f1cp-3 };
+static const double KC_23[11] ALIGN64 = { 0x1.ed037ea3d2dbbp-1, 0x1.b57675cf309eep-1, 0x1.5d779b07cfef7p-1, 0x1.d71b4a0c5a6c8p-2, 0x1.a0ad8bd1e2882p-3, -0x1.17855b599f3b9p-4, -0x1.56eaae597c776p-2, -0x1.2742a4a775cfbp-1, -0x1.8d2a07c16d46fp-1, -0x1.d59cb83ef99bcp-1, -0x1.fb3b3035aa6cdp-1 };
+static const double KS_23[11] ALIGN64 = { 0x1.14459ad2be466p-2, 0x1.0a06e851db7cap-1, 0x1.763021aaa15dap-1, 0x1.c698e42f47b09p-1, 0x1.f54a827142577p-1, 0x1.fece70dfd3efbp-1, 0x1.e270060999288p-1, 0x1.a249e0b897ca9p-1, 0x1.431df5838f7efp-1, 0x1.97f6748e524b2p-2, 0x1.16de8a4564f0ap-3 };
 
 static void __attribute__((noinline)) dz_23(double* restrict x){
     double sscr[22*8] ALIGN64;

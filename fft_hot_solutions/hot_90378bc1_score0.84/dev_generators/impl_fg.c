@@ -57,11 +57,11 @@ static void phaseA_36(void){
 const __m512d C_half = _mm512_set1_pd(0x1.0000000000000p-1);
 const __m512d C_s3 = _mm512_set1_pd(0x1.bb67ae8584caap-1);
 const __m512d C_w9_1_r = _mm512_set1_pd(0x1.8836fa2cf5039p-1);
-const __m512d C_w9_1_i = _mm512_set1_pd(-0x1.491b7523c161cp-1);
-const __m512d C_w9_2_r = _mm512_set1_pd(0x1.63a1a7e0b738cp-3);
+const __m512d C_w9_1_i = _mm512_set1_pd(-0x1.491b7523c161dp-1);
+const __m512d C_w9_2_r = _mm512_set1_pd(0x1.63a1a7e0b738ap-3);
 const __m512d C_w9_2_i = _mm512_set1_pd(-0x1.f838b8c811c17p-1);
-const __m512d C_w9_4_r = _mm512_set1_pd(-0x1.e11f642522d1bp-1);
-const __m512d C_w9_4_i = _mm512_set1_pd(-0x1.5e3a8748a0bf8p-2);
+const __m512d C_w9_4_r = _mm512_set1_pd(-0x1.e11f642522d1cp-1);
+const __m512d C_w9_4_i = _mm512_set1_pd(-0x1.5e3a8748a0bf5p-2);
 
   for(int lc=0;lc<64;lc+=8){
     // axis v3: stride 1 row; (v1,v2) outer
@@ -947,11 +947,11 @@ static void phaseA_45(void){
 const __m512d C_half = _mm512_set1_pd(0x1.0000000000000p-1);
 const __m512d C_s3 = _mm512_set1_pd(0x1.bb67ae8584caap-1);
 const __m512d C_w9_1_r = _mm512_set1_pd(0x1.8836fa2cf5039p-1);
-const __m512d C_w9_1_i = _mm512_set1_pd(-0x1.491b7523c161cp-1);
-const __m512d C_w9_2_r = _mm512_set1_pd(0x1.63a1a7e0b738cp-3);
+const __m512d C_w9_1_i = _mm512_set1_pd(-0x1.491b7523c161dp-1);
+const __m512d C_w9_2_r = _mm512_set1_pd(0x1.63a1a7e0b738ap-3);
 const __m512d C_w9_2_i = _mm512_set1_pd(-0x1.f838b8c811c17p-1);
-const __m512d C_w9_4_r = _mm512_set1_pd(-0x1.e11f642522d1bp-1);
-const __m512d C_w9_4_i = _mm512_set1_pd(-0x1.5e3a8748a0bf8p-2);
+const __m512d C_w9_4_r = _mm512_set1_pd(-0x1.e11f642522d1cp-1);
+const __m512d C_w9_4_i = _mm512_set1_pd(-0x1.5e3a8748a0bf5p-2);
 
   for(int lc=0;lc<128;lc+=8){
     // axis v3: stride 1 row; (v1,v2) outer
@@ -1369,9 +1369,9 @@ _mm512_store_pd(bi+567*136, t3251);
 }
 static void phaseB_45(void){
 const __m512d C_c51 = _mm512_set1_pd(0x1.3c6ef372fe950p-2);
-const __m512d C_c52 = _mm512_set1_pd(-0x1.9e3779b97f4a7p-1);
+const __m512d C_c52 = _mm512_set1_pd(-0x1.9e3779b97f4a8p-1);
 const __m512d C_s51 = _mm512_set1_pd(0x1.e6f0e134454ffp-1);
-const __m512d C_s52 = _mm512_set1_pd(0x1.2cf2304755a5fp-1);
+const __m512d C_s52 = _mm512_set1_pd(0x1.2cf2304755a5ep-1);
 const __m512d C_three = _mm512_set1_pd(0x1.8000000000000p+1);
 const __m512d C_twelve = _mm512_set1_pd(0x1.8000000000000p+3);
 const __m512d C_s16 = _mm512_set1_pd(0x1.0000000000000p-4);

@@ -1,30 +1,41 @@
 attempt                         score C_opt(3x)    ->1x ours(bare) grader/bare shot-spread  verdict
+hot_d82aee89_score0.98           0.98     1.224   0.408     0.826        0.49x          --  ANOMALOUS (<0.8x bare)
 1760b1bf_score0.96             0.9593     1.500   0.500     1.004        0.50x          --  ANOMALOUS (<0.8x bare)
 0f45aeae_score0.44                        2.355   0.785     1.264        0.62x          --  ANOMALOUS (<0.8x bare)
 dd9fa88c_score0.76              0.764     2.038   0.679     1.064        0.64x          --  ANOMALOUS (<0.8x bare)
+hot_502912a3_score0.95           0.95     1.661   0.554     0.829        0.67x          --  ANOMALOUS (<0.8x bare)
 1000f989_score1.00                1.0     2.014   0.671     1.004        0.67x          --  ANOMALOUS (<0.8x bare)
+hot_262a05c6_score0.94           0.94     1.752   0.584     0.818        0.71x          --  ANOMALOUS (<0.8x bare)
 a31f5f85_score0.81             0.8103     2.306   0.769     1.072        0.72x          --  ANOMALOUS (<0.8x bare)
-warm_d43251c2_score0.99          0.99     2.019   0.673     0.857        0.79x       2.02x  ANOMALOUS (<0.8x bare)
-warm_00291a90_score0.97          0.97     2.132   0.711     0.832        0.85x       1.03x  fast-tier (clock-explainable)
-warm_57053476_score0.9            0.9     2.975   0.992     1.083~       0.92x       1.06x  fast-tier (clock-explainable) ~est
+warm_d43251c2_score0.99          0.99     2.019   0.673     0.878        0.77x       2.02x  ANOMALOUS (<0.8x bare)
+warm_00291a90_score0.97          0.97     2.132   0.711     0.850        0.84x       1.03x  fast-tier (clock-explainable)
+hot_16d44d13_score0.92           0.92     2.071   0.690     0.806        0.86x          --  fast-tier (clock-explainable)
+warm_57053476_score0.9            0.9     2.975   0.992     1.085~       0.91x       1.06x  fast-tier (clock-explainable) ~est
 8dc1a96d_score1.00_floor-artifact    1.0     3.250   1.083     1.060        1.02x          --  tier~bare
-v5_8175a973_score0.90          0.8962     3.512   1.171     1.140~       1.03x          --  tier~bare ~est
-warm_53ebdad6_score0.89          0.89     3.151   1.050     0.958        1.10x       1.00x  tier~bare
-v6_f40c5e25_score0.91          0.9078     3.555   1.185     1.053~       1.13x          --  tier~bare ~est
-v5_3907583b_score0.87           0.869     4.006   1.335     0.977~       1.37x          --  consistent ~est
-v5_2419f19d_score0.81          0.8127     5.705   1.902     1.359~       1.40x          --  consistent ~est
-v6_4d0483ea_score0.85          0.8455     4.353   1.451     1.023~       1.42x          --  consistent ~est
-v6_4a50d3db_score0.77          0.7726     5.073   1.691     1.150~       1.47x          --  consistent ~est
-v6_2cbe0fb0_score0.80          0.7961     4.589   1.530     1.024~       1.49x       1.07x  consistent ~est
-v6_78662a62_score0.84          0.8415     4.637   1.546     1.026~       1.51x          --  consistent ~est
-v5_2c2dfce8_score0.74          0.7448     5.139   1.713     1.130~       1.52x          --  consistent ~est
-v5_26833bab_score0.87          0.8729     5.080   1.693     1.111~       1.52x          --  consistent ~est
-v6_5a869e40_score0.80          0.8004     5.692   1.897     1.241~       1.53x          --  consistent ~est
-v6_8b0fbe57_score0.77          0.7737     4.880   1.627     1.053~       1.54x          --  consistent ~est
-v5_95ab77a1_score0.82          0.8168     4.688   1.563     1.006~       1.55x          --  consistent ~est
-v6_3f30d81f_score0.88           0.884     6.040   2.013     1.010~       1.99x          --  SLOW-SHOT ~est
-v5_197d7c23_score0.83          0.8266     7.035   2.345     1.101~       2.13x          --  SLOW-SHOT ~est
+v5_8175a973_score0.90          0.8962     3.512   1.171     1.116~       1.05x          --  tier~bare ~est
+warm_53ebdad6_score0.89          0.89     3.151   1.050     0.974        1.08x       1.00x  tier~bare
+hot_04b0abdc_score0.87         0.8661     2.828   0.943     0.817        1.15x          --  tier~bare
+v6_f40c5e25_score0.91          0.9078     3.555   1.185     1.000~       1.18x          --  tier~bare ~est
+v7_47551a02_score0.82          0.8153     4.177   1.392     0.997        1.40x          --  consistent
+v5_3907583b_score0.87           0.869     4.006   1.335     0.953~       1.40x          --  consistent ~est
+v7_b1eaa90c_score0.77          0.7667     4.595   1.532     1.084        1.41x          --  consistent
+v5_2419f19d_score0.81          0.8127     5.705   1.902     1.335~       1.42x          --  consistent ~est
+v6_4d0483ea_score0.85          0.8455     4.353   1.451     0.999~       1.45x          --  consistent ~est
+v7_91a35119_score0.78          0.7835     4.457   1.486     1.018        1.46x          --  consistent
+v6_4a50d3db_score0.77          0.7726     5.073   1.691     1.126~       1.50x          --  consistent ~est
+v7_9d9b3935_score0.77          0.7741     4.838   1.613     1.065~       1.51x          --  consistent ~est
+v6_2cbe0fb0_score0.80          0.7961     4.589   1.530     1.000~       1.53x       1.07x  consistent ~est
+v6_78662a62_score0.84          0.8415     4.637   1.546     1.002~       1.54x          --  consistent ~est
+v5_2c2dfce8_score0.74          0.7448     5.139   1.713     1.106~       1.55x          --  consistent ~est
+v5_26833bab_score0.87          0.8729     5.080   1.693     1.087~       1.56x          --  consistent ~est
+v6_5a869e40_score0.80          0.8004     5.692   1.897     1.217~       1.56x          --  consistent ~est
+v7_69505252_score0.78          0.7832     4.683   1.561     0.986        1.58x       1.02x  consistent
+v5_95ab77a1_score0.82          0.8168     4.688   1.563     0.982~       1.59x          --  consistent ~est
+v6_8b0fbe57_score0.77          0.7737     4.880   1.627     1.000~       1.63x          --  consistent ~est
+v6_3f30d81f_score0.88           0.884     6.040   2.013     0.986~       2.04x          --  SLOW-SHOT ~est
+v5_197d7c23_score0.83          0.8266     7.035   2.345     1.077~       2.18x          --  SLOW-SHOT ~est
 warm_361a3485_score0.93          0.93     2.674   0.891       --            --       1.06x  not measured
+hot_90378bc1_score0.84           0.84     3.112   1.037       --            --          --  not measured
 
-calibration: honest tier factor median 1.47x over 15 consistent attempts
-flagged as grader-flaky: 1760b1bf_score0.96, 0f45aeae_score0.44, dd9fa88c_score0.76, 1000f989_score1.00, a31f5f85_score0.81, warm_d43251c2_score0.99
+calibration: honest tier factor median 1.46x over 21 consistent attempts
+flagged as grader-flaky: hot_d82aee89_score0.98, 1760b1bf_score0.96, 0f45aeae_score0.44, dd9fa88c_score0.76, hot_502912a3_score0.95, 1000f989_score1.00, hot_262a05c6_score0.94, a31f5f85_score0.81, warm_d43251c2_score0.99

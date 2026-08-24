@@ -286,10 +286,10 @@ static __attribute__((noinline)) void wv36B_ps(double* pr, double* pi){
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -299,10 +299,10 @@ static __attribute__((noinline)) void wv36B_ps(double* pr, double* pi){
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -370,10 +370,10 @@ static __attribute__((noinline)) void wv36B_ps(double* pr, double* pi){
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -383,10 +383,10 @@ static __attribute__((noinline)) void wv36B_ps(double* pr, double* pi){
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -454,10 +454,10 @@ static __attribute__((noinline)) void wv36B_ps(double* pr, double* pi){
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -467,10 +467,10 @@ static __attribute__((noinline)) void wv36B_ps(double* pr, double* pi){
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -538,10 +538,10 @@ static __attribute__((noinline)) void wv36B_ps(double* pr, double* pi){
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -551,10 +551,10 @@ static __attribute__((noinline)) void wv36B_ps(double* pr, double* pi){
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -806,10 +806,10 @@ static __attribute__((noinline)) void wv36B_rs(double* pr, double* pi){
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -819,10 +819,10 @@ static __attribute__((noinline)) void wv36B_rs(double* pr, double* pi){
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -890,10 +890,10 @@ static __attribute__((noinline)) void wv36B_rs(double* pr, double* pi){
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -903,10 +903,10 @@ static __attribute__((noinline)) void wv36B_rs(double* pr, double* pi){
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -974,10 +974,10 @@ static __attribute__((noinline)) void wv36B_rs(double* pr, double* pi){
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -987,10 +987,10 @@ static __attribute__((noinline)) void wv36B_rs(double* pr, double* pi){
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -1058,10 +1058,10 @@ static __attribute__((noinline)) void wv36B_rs(double* pr, double* pi){
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -1071,10 +1071,10 @@ static __attribute__((noinline)) void wv36B_rs(double* pr, double* pi){
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -1326,10 +1326,10 @@ static __attribute__((noinline)) void wv36B_z(double* pr, double* pi){
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -1339,10 +1339,10 @@ static __attribute__((noinline)) void wv36B_z(double* pr, double* pi){
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -1410,10 +1410,10 @@ static __attribute__((noinline)) void wv36B_z(double* pr, double* pi){
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -1423,10 +1423,10 @@ static __attribute__((noinline)) void wv36B_z(double* pr, double* pi){
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -1494,10 +1494,10 @@ static __attribute__((noinline)) void wv36B_z(double* pr, double* pi){
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -1507,10 +1507,10 @@ static __attribute__((noinline)) void wv36B_z(double* pr, double* pi){
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -1578,10 +1578,10 @@ static __attribute__((noinline)) void wv36B_z(double* pr, double* pi){
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -1591,10 +1591,10 @@ static __attribute__((noinline)) void wv36B_z(double* pr, double* pi){
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -1665,10 +1665,10 @@ static __attribute__((noinline)) void wv36Bm0_ps(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -1678,10 +1678,10 @@ static __attribute__((noinline)) void wv36Bm0_ps(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -1785,10 +1785,10 @@ static __attribute__((noinline)) void wv36Bm0_ps(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -1798,10 +1798,10 @@ static __attribute__((noinline)) void wv36Bm0_ps(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -1905,10 +1905,10 @@ static __attribute__((noinline)) void wv36Bm0_ps(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -1918,10 +1918,10 @@ static __attribute__((noinline)) void wv36Bm0_ps(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -2025,10 +2025,10 @@ static __attribute__((noinline)) void wv36Bm0_ps(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -2038,10 +2038,10 @@ static __attribute__((noinline)) void wv36Bm0_ps(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -2148,10 +2148,10 @@ static __attribute__((noinline)) void wv36Bm1_ps(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -2161,10 +2161,10 @@ static __attribute__((noinline)) void wv36Bm1_ps(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -2304,10 +2304,10 @@ static __attribute__((noinline)) void wv36Bm1_ps(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -2317,10 +2317,10 @@ static __attribute__((noinline)) void wv36Bm1_ps(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -2460,10 +2460,10 @@ static __attribute__((noinline)) void wv36Bm1_ps(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -2473,10 +2473,10 @@ static __attribute__((noinline)) void wv36Bm1_ps(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -2616,10 +2616,10 @@ static __attribute__((noinline)) void wv36Bm1_ps(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -2629,10 +2629,10 @@ static __attribute__((noinline)) void wv36Bm1_ps(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -2775,10 +2775,10 @@ static __attribute__((noinline)) void wv36Bm2_ps(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -2788,10 +2788,10 @@ static __attribute__((noinline)) void wv36Bm2_ps(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -2967,10 +2967,10 @@ static __attribute__((noinline)) void wv36Bm2_ps(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -2980,10 +2980,10 @@ static __attribute__((noinline)) void wv36Bm2_ps(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -3159,10 +3159,10 @@ static __attribute__((noinline)) void wv36Bm2_ps(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -3172,10 +3172,10 @@ static __attribute__((noinline)) void wv36Bm2_ps(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -3351,10 +3351,10 @@ static __attribute__((noinline)) void wv36Bm2_ps(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -3364,10 +3364,10 @@ static __attribute__((noinline)) void wv36Bm2_ps(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -3546,10 +3546,10 @@ static __attribute__((noinline)) void wv36Bm0_rs(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -3559,10 +3559,10 @@ static __attribute__((noinline)) void wv36Bm0_rs(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -3666,10 +3666,10 @@ static __attribute__((noinline)) void wv36Bm0_rs(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -3679,10 +3679,10 @@ static __attribute__((noinline)) void wv36Bm0_rs(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -3786,10 +3786,10 @@ static __attribute__((noinline)) void wv36Bm0_rs(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -3799,10 +3799,10 @@ static __attribute__((noinline)) void wv36Bm0_rs(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -3906,10 +3906,10 @@ static __attribute__((noinline)) void wv36Bm0_rs(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -3919,10 +3919,10 @@ static __attribute__((noinline)) void wv36Bm0_rs(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -4029,10 +4029,10 @@ static __attribute__((noinline)) void wv36Bm1_rs(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -4042,10 +4042,10 @@ static __attribute__((noinline)) void wv36Bm1_rs(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -4185,10 +4185,10 @@ static __attribute__((noinline)) void wv36Bm1_rs(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -4198,10 +4198,10 @@ static __attribute__((noinline)) void wv36Bm1_rs(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -4341,10 +4341,10 @@ static __attribute__((noinline)) void wv36Bm1_rs(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -4354,10 +4354,10 @@ static __attribute__((noinline)) void wv36Bm1_rs(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -4497,10 +4497,10 @@ static __attribute__((noinline)) void wv36Bm1_rs(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -4510,10 +4510,10 @@ static __attribute__((noinline)) void wv36Bm1_rs(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -4656,10 +4656,10 @@ static __attribute__((noinline)) void wv36Bm2_rs(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -4669,10 +4669,10 @@ static __attribute__((noinline)) void wv36Bm2_rs(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -4848,10 +4848,10 @@ static __attribute__((noinline)) void wv36Bm2_rs(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -4861,10 +4861,10 @@ static __attribute__((noinline)) void wv36Bm2_rs(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -5040,10 +5040,10 @@ static __attribute__((noinline)) void wv36Bm2_rs(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -5053,10 +5053,10 @@ static __attribute__((noinline)) void wv36Bm2_rs(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -5232,10 +5232,10 @@ static __attribute__((noinline)) void wv36Bm2_rs(double* pr, double* pi,
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(b5r,b8r), ui=VADD(b5i,b8i);
       V vr=VSUB(b5r,b8r), vi=VSUB(b5i,b8i);
       V sr=VFMA(ur,VSET1(-0.5),b2r), si=VFMA(ui,VSET1(-0.5),b2i);
@@ -5245,10 +5245,10 @@ static __attribute__((noinline)) void wv36Bm2_rs(double* pr, double* pi,
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -5670,10 +5670,10 @@ static __attribute__((noinline)) void wv45A_ps(const double* pr, const double* p
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -5683,10 +5683,10 @@ static __attribute__((noinline)) void wv45A_ps(const double* pr, const double* p
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -5754,10 +5754,10 @@ static __attribute__((noinline)) void wv45A_ps(const double* pr, const double* p
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -5767,10 +5767,10 @@ static __attribute__((noinline)) void wv45A_ps(const double* pr, const double* p
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -5838,10 +5838,10 @@ static __attribute__((noinline)) void wv45A_ps(const double* pr, const double* p
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -5851,10 +5851,10 @@ static __attribute__((noinline)) void wv45A_ps(const double* pr, const double* p
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -5922,10 +5922,10 @@ static __attribute__((noinline)) void wv45A_ps(const double* pr, const double* p
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -5935,10 +5935,10 @@ static __attribute__((noinline)) void wv45A_ps(const double* pr, const double* p
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -6006,10 +6006,10 @@ static __attribute__((noinline)) void wv45A_ps(const double* pr, const double* p
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -6019,10 +6019,10 @@ static __attribute__((noinline)) void wv45A_ps(const double* pr, const double* p
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -6074,14 +6074,14 @@ static __attribute__((noinline)) void wv45B_ps(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6105,14 +6105,14 @@ static __attribute__((noinline)) void wv45B_ps(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6136,14 +6136,14 @@ static __attribute__((noinline)) void wv45B_ps(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6167,14 +6167,14 @@ static __attribute__((noinline)) void wv45B_ps(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6198,14 +6198,14 @@ static __attribute__((noinline)) void wv45B_ps(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6229,14 +6229,14 @@ static __attribute__((noinline)) void wv45B_ps(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6260,14 +6260,14 @@ static __attribute__((noinline)) void wv45B_ps(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6291,14 +6291,14 @@ static __attribute__((noinline)) void wv45B_ps(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6322,14 +6322,14 @@ static __attribute__((noinline)) void wv45B_ps(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6373,10 +6373,10 @@ static __attribute__((noinline)) void wv45A_rs(const double* pr, const double* p
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -6386,10 +6386,10 @@ static __attribute__((noinline)) void wv45A_rs(const double* pr, const double* p
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -6457,10 +6457,10 @@ static __attribute__((noinline)) void wv45A_rs(const double* pr, const double* p
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -6470,10 +6470,10 @@ static __attribute__((noinline)) void wv45A_rs(const double* pr, const double* p
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -6541,10 +6541,10 @@ static __attribute__((noinline)) void wv45A_rs(const double* pr, const double* p
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -6554,10 +6554,10 @@ static __attribute__((noinline)) void wv45A_rs(const double* pr, const double* p
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -6625,10 +6625,10 @@ static __attribute__((noinline)) void wv45A_rs(const double* pr, const double* p
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -6638,10 +6638,10 @@ static __attribute__((noinline)) void wv45A_rs(const double* pr, const double* p
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -6709,10 +6709,10 @@ static __attribute__((noinline)) void wv45A_rs(const double* pr, const double* p
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -6722,10 +6722,10 @@ static __attribute__((noinline)) void wv45A_rs(const double* pr, const double* p
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -6777,14 +6777,14 @@ static __attribute__((noinline)) void wv45B_rs(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6808,14 +6808,14 @@ static __attribute__((noinline)) void wv45B_rs(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6839,14 +6839,14 @@ static __attribute__((noinline)) void wv45B_rs(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6870,14 +6870,14 @@ static __attribute__((noinline)) void wv45B_rs(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6901,14 +6901,14 @@ static __attribute__((noinline)) void wv45B_rs(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6932,14 +6932,14 @@ static __attribute__((noinline)) void wv45B_rs(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6963,14 +6963,14 @@ static __attribute__((noinline)) void wv45B_rs(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -6994,14 +6994,14 @@ static __attribute__((noinline)) void wv45B_rs(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7025,14 +7025,14 @@ static __attribute__((noinline)) void wv45B_rs(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7076,10 +7076,10 @@ static __attribute__((noinline)) void wv45A_z(const double* pr, const double* pi
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -7089,10 +7089,10 @@ static __attribute__((noinline)) void wv45A_z(const double* pr, const double* pi
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -7160,10 +7160,10 @@ static __attribute__((noinline)) void wv45A_z(const double* pr, const double* pi
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -7173,10 +7173,10 @@ static __attribute__((noinline)) void wv45A_z(const double* pr, const double* pi
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -7244,10 +7244,10 @@ static __attribute__((noinline)) void wv45A_z(const double* pr, const double* pi
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -7257,10 +7257,10 @@ static __attribute__((noinline)) void wv45A_z(const double* pr, const double* pi
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -7328,10 +7328,10 @@ static __attribute__((noinline)) void wv45A_z(const double* pr, const double* pi
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -7341,10 +7341,10 @@ static __attribute__((noinline)) void wv45A_z(const double* pr, const double* pi
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -7412,10 +7412,10 @@ static __attribute__((noinline)) void wv45A_z(const double* pr, const double* pi
       w1_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w1_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
-      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161cp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
-    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738cp-3))); w1_2r=tw; }
+    { V tw=VFNMA(w1_1i,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1r,VSET1(0x1.8836fa2cf5039p-1)));
+      w1_1i=VFMA(w1_1r,VSET1(-0x1.491b7523c161dp-1),VMUL(w1_1i,VSET1(0x1.8836fa2cf5039p-1))); w1_1r=tw; }
+    { V tw=VFNMA(w1_2i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w1_2i=VFMA(w1_2r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w1_2i,VSET1(0x1.63a1a7e0b738ap-3))); w1_2r=tw; }
     { V ur=VADD(a5r,a8r), ui=VADD(a5i,a8i);
       V vr=VSUB(a5r,a8r), vi=VSUB(a5i,a8i);
       V sr=VFMA(ur,VSET1(-0.5),a2r), si=VFMA(ui,VSET1(-0.5),a2i);
@@ -7425,10 +7425,10 @@ static __attribute__((noinline)) void wv45A_z(const double* pr, const double* pi
       w2_2r=VFNMA(vi,VSET1(0x1.bb67ae8584caap-1),sr);
       w2_2i=VFMA(vr,VSET1(0x1.bb67ae8584caap-1),si);
     }
-    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738cp-3)));
-      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738cp-3))); w2_1r=tw; }
-    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1bp-1)));
-      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf8p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1bp-1))); w2_2r=tw; }
+    { V tw=VFNMA(w2_1i,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1r,VSET1(0x1.63a1a7e0b738ap-3)));
+      w2_1i=VFMA(w2_1r,VSET1(-0x1.f838b8c811c17p-1),VMUL(w2_1i,VSET1(0x1.63a1a7e0b738ap-3))); w2_1r=tw; }
+    { V tw=VFNMA(w2_2i,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2r,VSET1(-0x1.e11f642522d1cp-1)));
+      w2_2i=VFMA(w2_2r,VSET1(-0x1.5e3a8748a0bf5p-2),VMUL(w2_2i,VSET1(-0x1.e11f642522d1cp-1))); w2_2r=tw; }
     { V ur=VADD(w1_0r,w2_0r), ui=VADD(w1_0i,w2_0i);
       V vr=VSUB(w1_0r,w2_0r), vi=VSUB(w1_0i,w2_0i);
       V sr=VFMA(ur,VSET1(-0.5),w0_0r), si=VFMA(ui,VSET1(-0.5),w0_0i);
@@ -7480,14 +7480,14 @@ static __attribute__((noinline)) void wv45B_z(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7511,14 +7511,14 @@ static __attribute__((noinline)) void wv45B_z(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7542,14 +7542,14 @@ static __attribute__((noinline)) void wv45B_z(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7573,14 +7573,14 @@ static __attribute__((noinline)) void wv45B_z(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7604,14 +7604,14 @@ static __attribute__((noinline)) void wv45B_z(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7635,14 +7635,14 @@ static __attribute__((noinline)) void wv45B_z(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7666,14 +7666,14 @@ static __attribute__((noinline)) void wv45B_z(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7697,14 +7697,14 @@ static __attribute__((noinline)) void wv45B_z(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7728,14 +7728,14 @@ static __attribute__((noinline)) void wv45B_z(double* pr, double* pi){
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7762,14 +7762,14 @@ static __attribute__((noinline)) void wv45Bm0_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7813,14 +7813,14 @@ static __attribute__((noinline)) void wv45Bm0_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7864,14 +7864,14 @@ static __attribute__((noinline)) void wv45Bm0_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7915,14 +7915,14 @@ static __attribute__((noinline)) void wv45Bm0_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -7966,14 +7966,14 @@ static __attribute__((noinline)) void wv45Bm0_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8017,14 +8017,14 @@ static __attribute__((noinline)) void wv45Bm0_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8068,14 +8068,14 @@ static __attribute__((noinline)) void wv45Bm0_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8119,14 +8119,14 @@ static __attribute__((noinline)) void wv45Bm0_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8170,14 +8170,14 @@ static __attribute__((noinline)) void wv45Bm0_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8224,14 +8224,14 @@ static __attribute__((noinline)) void wv45Bm1_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8300,14 +8300,14 @@ static __attribute__((noinline)) void wv45Bm1_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8376,14 +8376,14 @@ static __attribute__((noinline)) void wv45Bm1_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8452,14 +8452,14 @@ static __attribute__((noinline)) void wv45Bm1_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8528,14 +8528,14 @@ static __attribute__((noinline)) void wv45Bm1_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8604,14 +8604,14 @@ static __attribute__((noinline)) void wv45Bm1_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8680,14 +8680,14 @@ static __attribute__((noinline)) void wv45Bm1_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8756,14 +8756,14 @@ static __attribute__((noinline)) void wv45Bm1_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8832,14 +8832,14 @@ static __attribute__((noinline)) void wv45Bm1_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -8911,14 +8911,14 @@ static __attribute__((noinline)) void wv45Bm2_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -9012,14 +9012,14 @@ static __attribute__((noinline)) void wv45Bm2_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -9113,14 +9113,14 @@ static __attribute__((noinline)) void wv45Bm2_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -9214,14 +9214,14 @@ static __attribute__((noinline)) void wv45Bm2_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -9315,14 +9315,14 @@ static __attribute__((noinline)) void wv45Bm2_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -9416,14 +9416,14 @@ static __attribute__((noinline)) void wv45Bm2_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -9517,14 +9517,14 @@ static __attribute__((noinline)) void wv45Bm2_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -9618,14 +9618,14 @@ static __attribute__((noinline)) void wv45Bm2_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -9719,14 +9719,14 @@ static __attribute__((noinline)) void wv45Bm2_ps(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -9823,14 +9823,14 @@ static __attribute__((noinline)) void wv45Bm0_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -9874,14 +9874,14 @@ static __attribute__((noinline)) void wv45Bm0_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -9925,14 +9925,14 @@ static __attribute__((noinline)) void wv45Bm0_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -9976,14 +9976,14 @@ static __attribute__((noinline)) void wv45Bm0_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10027,14 +10027,14 @@ static __attribute__((noinline)) void wv45Bm0_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10078,14 +10078,14 @@ static __attribute__((noinline)) void wv45Bm0_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10129,14 +10129,14 @@ static __attribute__((noinline)) void wv45Bm0_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10180,14 +10180,14 @@ static __attribute__((noinline)) void wv45Bm0_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10231,14 +10231,14 @@ static __attribute__((noinline)) void wv45Bm0_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10285,14 +10285,14 @@ static __attribute__((noinline)) void wv45Bm1_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10361,14 +10361,14 @@ static __attribute__((noinline)) void wv45Bm1_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10437,14 +10437,14 @@ static __attribute__((noinline)) void wv45Bm1_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10513,14 +10513,14 @@ static __attribute__((noinline)) void wv45Bm1_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10589,14 +10589,14 @@ static __attribute__((noinline)) void wv45Bm1_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10665,14 +10665,14 @@ static __attribute__((noinline)) void wv45Bm1_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10741,14 +10741,14 @@ static __attribute__((noinline)) void wv45Bm1_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10817,14 +10817,14 @@ static __attribute__((noinline)) void wv45Bm1_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10893,14 +10893,14 @@ static __attribute__((noinline)) void wv45Bm1_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -10972,14 +10972,14 @@ static __attribute__((noinline)) void wv45Bm2_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -11073,14 +11073,14 @@ static __attribute__((noinline)) void wv45Bm2_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -11174,14 +11174,14 @@ static __attribute__((noinline)) void wv45Bm2_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -11275,14 +11275,14 @@ static __attribute__((noinline)) void wv45Bm2_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -11376,14 +11376,14 @@ static __attribute__((noinline)) void wv45Bm2_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -11477,14 +11477,14 @@ static __attribute__((noinline)) void wv45Bm2_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -11578,14 +11578,14 @@ static __attribute__((noinline)) void wv45Bm2_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -11679,14 +11679,14 @@ static __attribute__((noinline)) void wv45Bm2_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -11780,14 +11780,14 @@ static __attribute__((noinline)) void wv45Bm2_rs(double* pr, double* pi,
       V u2r=VADD(b2r,b3r), u2i=VADD(b2i,b3i);
       V v2r=VSUB(b2r,b3r), v2i=VSUB(b2i,b3i);
       X0r=VADD(b0r,VADD(u1r,u2r)); X0i=VADD(b0i,VADD(u1i,u2i));
-      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a7p-1),b0r));
-      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a7p-1),b0i));
-      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
-      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a7p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
-      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5fp-1)));
-      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5fp-1)));
-      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
-      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5fp-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
+      V s1r_=VFMA(u1r,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2r,VSET1(-0x1.9e3779b97f4a8p-1),b0r));
+      V s1i_=VFMA(u1i,VSET1(0x1.3c6ef372fe950p-2),VFMA(u2i,VSET1(-0x1.9e3779b97f4a8p-1),b0i));
+      V s2r_=VFMA(u1r,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2r,VSET1(0x1.3c6ef372fe950p-2),b0r));
+      V s2i_=VFMA(u1i,VSET1(-0x1.9e3779b97f4a8p-1),VFMA(u2i,VSET1(0x1.3c6ef372fe950p-2),b0i));
+      V t1r_=VFMA(v1r,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2r,VSET1(0x1.2cf2304755a5ep-1)));
+      V t1i_=VFMA(v1i,VSET1(0x1.e6f0e134454ffp-1),VMUL(v2i,VSET1(0x1.2cf2304755a5ep-1)));
+      V t2r_=VFMS(v1r,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2r,VSET1(0x1.e6f0e134454ffp-1)));
+      V t2i_=VFMS(v1i,VSET1(0x1.2cf2304755a5ep-1),VMUL(v2i,VSET1(0x1.e6f0e134454ffp-1)));
       X1r=VADD(s1r_,t1i_); X1i=VSUB(s1i_,t1r_);
       X4r=VSUB(s1r_,t1i_); X4i=VADD(s1i_,t1r_);
       X2r=VADD(s2r_,t2i_); X2i=VSUB(s2i_,t2r_);
@@ -12581,10 +12581,10 @@ static __attribute__((noinline)) void wv64B_ps(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1r,VSET1(0x1.fd88da3d12526p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1i,VSET1(0x1.fd88da3d12526p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f05p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
-      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f05p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f06p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
+      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f06p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
     { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(0x1.d906bcf328d46p-1)));
       b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(0x1.d906bcf328d46p-1))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b5r,VSET1(0x1.c38b2f180bdb1p-1)));
@@ -12643,20 +12643,20 @@ static __attribute__((noinline)) void wv64B_ps(double* pr, double* pi){
     V b6r = VL(SC64 + 800), b6i = VL(SC64 + 808);
     V b7r = VL(SC64 + 928), b7i = VL(SC64 + 936);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2r,VSET1(0x1.d906bcf328d46p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2i,VSET1(0x1.d906bcf328d46p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3r,VSET1(0x1.a9b66290ea1a3p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3i,VSET1(0x1.a9b66290ea1a3p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c9p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea964p-2)));
-      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea964p-2))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60dp-3))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c8p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea963p-2)));
+      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea963p-2))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60bp-3))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -12707,20 +12707,20 @@ static __attribute__((noinline)) void wv64B_ps(double* pr, double* pi){
     V b6r = VL(SC64 + 816), b6i = VL(SC64 + 824);
     V b7r = VL(SC64 + 944), b7i = VL(SC64 + 952);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f05p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f05p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f06p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f06p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2r,VSET1(0x1.a9b66290ea1a3p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2i,VSET1(0x1.a9b66290ea1a3p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.8bc806b151741p-1),VMUL(b3r,VSET1(0x1.44cf325091dd6p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.8bc806b151741p-1),VMUL(b3i,VSET1(0x1.44cf325091dd6p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea964p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea964p-2))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5r,VSET1(0x1.917a6bc29b438p-4)));
-      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5i,VSET1(0x1.917a6bc29b438p-4))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a608p-3))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63cp-2))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea963p-2))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5r,VSET1(0x1.917a6bc29b42cp-4)));
+      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5i,VSET1(0x1.917a6bc29b42cp-4))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a60bp-3))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63bp-2))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -12773,18 +12773,18 @@ static __attribute__((noinline)) void wv64B_ps(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1r,VSET1(0x1.d906bcf328d46p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1i,VSET1(0x1.d906bcf328d46p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea964p-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea964p-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(0x1.1a62633145c07p-54)));
-      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(0x1.1a62633145c07p-54))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea962p-2)));
-      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea962p-2))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bccp-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
-      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea963p-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea963p-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(-0x1.d9cceba3f91f2p-66)));
+      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(-0x1.d9cceba3f91f2p-66))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea963p-2)));
+      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea963p-2))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bcdp-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
+      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -12837,18 +12837,18 @@ static __attribute__((noinline)) void wv64B_ps(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1r,VSET1(0x1.c38b2f180bdb1p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1i,VSET1(0x1.c38b2f180bdb1p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c9p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3r,VSET1(0x1.917a6bc29b438p-4)));
-      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3i,VSET1(0x1.917a6bc29b438p-4))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea962p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea962p-2))); b4r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c8p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3r,VSET1(0x1.917a6bc29b42cp-4)));
+      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3i,VSET1(0x1.917a6bc29b42cp-4))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea963p-2))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5r,VSET1(-0x1.8bc806b151741p-1)));
       b5i=VFMA(b5r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5i,VSET1(-0x1.8bc806b151741p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f01p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b7i=VFMA(b7r,VSET1(0x1.294062ed59f01p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddbp-1))); b7r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f06p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b7i=VFMA(b7r,VSET1(0x1.294062ed59f06p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddap-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -12901,16 +12901,16 @@ static __attribute__((noinline)) void wv64B_ps(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1r,VSET1(0x1.a9b66290ea1a3p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1i,VSET1(0x1.a9b66290ea1a3p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea964p-2)));
-      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea964p-2))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a608p-3))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bccp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea961p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d47p-1)));
-      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea961p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d47p-1))); b6r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea963p-2)));
+      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea963p-2))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a60bp-3))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea963p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d46p-1)));
+      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea963p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d46p-1))); b6r=tw; }
     { V tw=VFNMA(b7i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b7i=VFMA(b7r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7i,VSET1(-0x1.1c73b39ae68c8p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
@@ -12965,18 +12965,18 @@ static __attribute__((noinline)) void wv64B_ps(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1r,VSET1(0x1.8bc806b151741p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1i,VSET1(0x1.8bc806b151741p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60dp-3))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63cp-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f01p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b5i=VFMA(b5r,VSET1(0x1.294062ed59f01p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddbp-1))); b5r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60bp-3))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63bp-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f06p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b5i=VFMA(b5r,VSET1(0x1.294062ed59f06p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddap-1))); b5r=tw; }
     { V tw=VFNMA(b6i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b6i=VFMA(b6r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6i,VSET1(-0x1.1c73b39ae68c8p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b407p-4)));
-      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b407p-4))); b7r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b42cp-4)));
+      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b42cp-4))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -13483,10 +13483,10 @@ static __attribute__((noinline)) void wv64B_rs(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1r,VSET1(0x1.fd88da3d12526p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1i,VSET1(0x1.fd88da3d12526p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f05p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
-      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f05p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f06p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
+      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f06p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
     { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(0x1.d906bcf328d46p-1)));
       b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(0x1.d906bcf328d46p-1))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b5r,VSET1(0x1.c38b2f180bdb1p-1)));
@@ -13545,20 +13545,20 @@ static __attribute__((noinline)) void wv64B_rs(double* pr, double* pi){
     V b6r = VL(SC64 + 800), b6i = VL(SC64 + 808);
     V b7r = VL(SC64 + 928), b7i = VL(SC64 + 936);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2r,VSET1(0x1.d906bcf328d46p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2i,VSET1(0x1.d906bcf328d46p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3r,VSET1(0x1.a9b66290ea1a3p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3i,VSET1(0x1.a9b66290ea1a3p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c9p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea964p-2)));
-      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea964p-2))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60dp-3))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c8p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea963p-2)));
+      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea963p-2))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60bp-3))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -13609,20 +13609,20 @@ static __attribute__((noinline)) void wv64B_rs(double* pr, double* pi){
     V b6r = VL(SC64 + 816), b6i = VL(SC64 + 824);
     V b7r = VL(SC64 + 944), b7i = VL(SC64 + 952);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f05p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f05p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f06p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f06p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2r,VSET1(0x1.a9b66290ea1a3p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2i,VSET1(0x1.a9b66290ea1a3p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.8bc806b151741p-1),VMUL(b3r,VSET1(0x1.44cf325091dd6p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.8bc806b151741p-1),VMUL(b3i,VSET1(0x1.44cf325091dd6p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea964p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea964p-2))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5r,VSET1(0x1.917a6bc29b438p-4)));
-      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5i,VSET1(0x1.917a6bc29b438p-4))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a608p-3))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63cp-2))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea963p-2))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5r,VSET1(0x1.917a6bc29b42cp-4)));
+      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5i,VSET1(0x1.917a6bc29b42cp-4))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a60bp-3))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63bp-2))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -13675,18 +13675,18 @@ static __attribute__((noinline)) void wv64B_rs(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1r,VSET1(0x1.d906bcf328d46p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1i,VSET1(0x1.d906bcf328d46p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea964p-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea964p-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(0x1.1a62633145c07p-54)));
-      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(0x1.1a62633145c07p-54))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea962p-2)));
-      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea962p-2))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bccp-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
-      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea963p-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea963p-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(-0x1.d9cceba3f91f2p-66)));
+      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(-0x1.d9cceba3f91f2p-66))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea963p-2)));
+      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea963p-2))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bcdp-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
+      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -13739,18 +13739,18 @@ static __attribute__((noinline)) void wv64B_rs(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1r,VSET1(0x1.c38b2f180bdb1p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1i,VSET1(0x1.c38b2f180bdb1p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c9p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3r,VSET1(0x1.917a6bc29b438p-4)));
-      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3i,VSET1(0x1.917a6bc29b438p-4))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea962p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea962p-2))); b4r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c8p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3r,VSET1(0x1.917a6bc29b42cp-4)));
+      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3i,VSET1(0x1.917a6bc29b42cp-4))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea963p-2))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5r,VSET1(-0x1.8bc806b151741p-1)));
       b5i=VFMA(b5r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5i,VSET1(-0x1.8bc806b151741p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f01p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b7i=VFMA(b7r,VSET1(0x1.294062ed59f01p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddbp-1))); b7r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f06p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b7i=VFMA(b7r,VSET1(0x1.294062ed59f06p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddap-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -13803,16 +13803,16 @@ static __attribute__((noinline)) void wv64B_rs(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1r,VSET1(0x1.a9b66290ea1a3p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1i,VSET1(0x1.a9b66290ea1a3p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea964p-2)));
-      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea964p-2))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a608p-3))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bccp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea961p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d47p-1)));
-      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea961p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d47p-1))); b6r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea963p-2)));
+      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea963p-2))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a60bp-3))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea963p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d46p-1)));
+      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea963p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d46p-1))); b6r=tw; }
     { V tw=VFNMA(b7i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b7i=VFMA(b7r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7i,VSET1(-0x1.1c73b39ae68c8p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
@@ -13867,18 +13867,18 @@ static __attribute__((noinline)) void wv64B_rs(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1r,VSET1(0x1.8bc806b151741p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1i,VSET1(0x1.8bc806b151741p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60dp-3))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63cp-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f01p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b5i=VFMA(b5r,VSET1(0x1.294062ed59f01p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddbp-1))); b5r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60bp-3))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63bp-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f06p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b5i=VFMA(b5r,VSET1(0x1.294062ed59f06p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddap-1))); b5r=tw; }
     { V tw=VFNMA(b6i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b6i=VFMA(b6r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6i,VSET1(-0x1.1c73b39ae68c8p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b407p-4)));
-      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b407p-4))); b7r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b42cp-4)));
+      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b42cp-4))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -14385,10 +14385,10 @@ static __attribute__((noinline)) void wv64B_z(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1r,VSET1(0x1.fd88da3d12526p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1i,VSET1(0x1.fd88da3d12526p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f05p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
-      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f05p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f06p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
+      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f06p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
     { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(0x1.d906bcf328d46p-1)));
       b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(0x1.d906bcf328d46p-1))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b5r,VSET1(0x1.c38b2f180bdb1p-1)));
@@ -14447,20 +14447,20 @@ static __attribute__((noinline)) void wv64B_z(double* pr, double* pi){
     V b6r = VL(SC64 + 800), b6i = VL(SC64 + 808);
     V b7r = VL(SC64 + 928), b7i = VL(SC64 + 936);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2r,VSET1(0x1.d906bcf328d46p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2i,VSET1(0x1.d906bcf328d46p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3r,VSET1(0x1.a9b66290ea1a3p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3i,VSET1(0x1.a9b66290ea1a3p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c9p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea964p-2)));
-      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea964p-2))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60dp-3))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c8p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea963p-2)));
+      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea963p-2))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60bp-3))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -14511,20 +14511,20 @@ static __attribute__((noinline)) void wv64B_z(double* pr, double* pi){
     V b6r = VL(SC64 + 816), b6i = VL(SC64 + 824);
     V b7r = VL(SC64 + 944), b7i = VL(SC64 + 952);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f05p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f05p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f06p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f06p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2r,VSET1(0x1.a9b66290ea1a3p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2i,VSET1(0x1.a9b66290ea1a3p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.8bc806b151741p-1),VMUL(b3r,VSET1(0x1.44cf325091dd6p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.8bc806b151741p-1),VMUL(b3i,VSET1(0x1.44cf325091dd6p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea964p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea964p-2))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5r,VSET1(0x1.917a6bc29b438p-4)));
-      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5i,VSET1(0x1.917a6bc29b438p-4))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a608p-3))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63cp-2))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea963p-2))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5r,VSET1(0x1.917a6bc29b42cp-4)));
+      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5i,VSET1(0x1.917a6bc29b42cp-4))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a60bp-3))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63bp-2))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -14577,18 +14577,18 @@ static __attribute__((noinline)) void wv64B_z(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1r,VSET1(0x1.d906bcf328d46p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1i,VSET1(0x1.d906bcf328d46p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea964p-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea964p-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(0x1.1a62633145c07p-54)));
-      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(0x1.1a62633145c07p-54))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea962p-2)));
-      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea962p-2))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bccp-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
-      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea963p-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea963p-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(-0x1.d9cceba3f91f2p-66)));
+      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(-0x1.d9cceba3f91f2p-66))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea963p-2)));
+      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea963p-2))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bcdp-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
+      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -14641,18 +14641,18 @@ static __attribute__((noinline)) void wv64B_z(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1r,VSET1(0x1.c38b2f180bdb1p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1i,VSET1(0x1.c38b2f180bdb1p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c9p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3r,VSET1(0x1.917a6bc29b438p-4)));
-      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3i,VSET1(0x1.917a6bc29b438p-4))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea962p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea962p-2))); b4r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c8p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3r,VSET1(0x1.917a6bc29b42cp-4)));
+      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3i,VSET1(0x1.917a6bc29b42cp-4))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea963p-2))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5r,VSET1(-0x1.8bc806b151741p-1)));
       b5i=VFMA(b5r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5i,VSET1(-0x1.8bc806b151741p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f01p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b7i=VFMA(b7r,VSET1(0x1.294062ed59f01p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddbp-1))); b7r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f06p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b7i=VFMA(b7r,VSET1(0x1.294062ed59f06p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddap-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -14705,16 +14705,16 @@ static __attribute__((noinline)) void wv64B_z(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1r,VSET1(0x1.a9b66290ea1a3p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1i,VSET1(0x1.a9b66290ea1a3p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea964p-2)));
-      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea964p-2))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a608p-3))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bccp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea961p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d47p-1)));
-      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea961p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d47p-1))); b6r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea963p-2)));
+      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea963p-2))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a60bp-3))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea963p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d46p-1)));
+      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea963p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d46p-1))); b6r=tw; }
     { V tw=VFNMA(b7i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b7i=VFMA(b7r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7i,VSET1(-0x1.1c73b39ae68c8p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
@@ -14769,18 +14769,18 @@ static __attribute__((noinline)) void wv64B_z(double* pr, double* pi){
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1r,VSET1(0x1.8bc806b151741p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1i,VSET1(0x1.8bc806b151741p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60dp-3))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63cp-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f01p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b5i=VFMA(b5r,VSET1(0x1.294062ed59f01p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddbp-1))); b5r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60bp-3))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63bp-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f06p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b5i=VFMA(b5r,VSET1(0x1.294062ed59f06p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddap-1))); b5r=tw; }
     { V tw=VFNMA(b6i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b6i=VFMA(b6r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6i,VSET1(-0x1.1c73b39ae68c8p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b407p-4)));
-      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b407p-4))); b7r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b42cp-4)));
+      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b42cp-4))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -14918,10 +14918,10 @@ static __attribute__((noinline)) void wv64Bm0_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1r,VSET1(0x1.fd88da3d12526p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1i,VSET1(0x1.fd88da3d12526p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f05p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
-      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f05p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f06p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
+      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f06p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
     { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(0x1.d906bcf328d46p-1)));
       b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(0x1.d906bcf328d46p-1))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b5r,VSET1(0x1.c38b2f180bdb1p-1)));
@@ -15012,20 +15012,20 @@ static __attribute__((noinline)) void wv64Bm0_ps(double* pr, double* pi,
     V b6r = VL(SC64 + 800), b6i = VL(SC64 + 808);
     V b7r = VL(SC64 + 928), b7i = VL(SC64 + 936);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2r,VSET1(0x1.d906bcf328d46p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2i,VSET1(0x1.d906bcf328d46p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3r,VSET1(0x1.a9b66290ea1a3p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3i,VSET1(0x1.a9b66290ea1a3p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c9p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea964p-2)));
-      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea964p-2))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60dp-3))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c8p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea963p-2)));
+      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea963p-2))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60bp-3))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -15108,20 +15108,20 @@ static __attribute__((noinline)) void wv64Bm0_ps(double* pr, double* pi,
     V b6r = VL(SC64 + 816), b6i = VL(SC64 + 824);
     V b7r = VL(SC64 + 944), b7i = VL(SC64 + 952);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f05p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f05p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f06p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f06p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2r,VSET1(0x1.a9b66290ea1a3p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2i,VSET1(0x1.a9b66290ea1a3p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.8bc806b151741p-1),VMUL(b3r,VSET1(0x1.44cf325091dd6p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.8bc806b151741p-1),VMUL(b3i,VSET1(0x1.44cf325091dd6p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea964p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea964p-2))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5r,VSET1(0x1.917a6bc29b438p-4)));
-      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5i,VSET1(0x1.917a6bc29b438p-4))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a608p-3))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63cp-2))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea963p-2))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5r,VSET1(0x1.917a6bc29b42cp-4)));
+      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5i,VSET1(0x1.917a6bc29b42cp-4))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a60bp-3))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63bp-2))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -15206,18 +15206,18 @@ static __attribute__((noinline)) void wv64Bm0_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1r,VSET1(0x1.d906bcf328d46p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1i,VSET1(0x1.d906bcf328d46p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea964p-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea964p-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(0x1.1a62633145c07p-54)));
-      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(0x1.1a62633145c07p-54))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea962p-2)));
-      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea962p-2))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bccp-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
-      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea963p-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea963p-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(-0x1.d9cceba3f91f2p-66)));
+      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(-0x1.d9cceba3f91f2p-66))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea963p-2)));
+      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea963p-2))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bcdp-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
+      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -15302,18 +15302,18 @@ static __attribute__((noinline)) void wv64Bm0_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1r,VSET1(0x1.c38b2f180bdb1p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1i,VSET1(0x1.c38b2f180bdb1p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c9p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3r,VSET1(0x1.917a6bc29b438p-4)));
-      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3i,VSET1(0x1.917a6bc29b438p-4))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea962p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea962p-2))); b4r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c8p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3r,VSET1(0x1.917a6bc29b42cp-4)));
+      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3i,VSET1(0x1.917a6bc29b42cp-4))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea963p-2))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5r,VSET1(-0x1.8bc806b151741p-1)));
       b5i=VFMA(b5r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5i,VSET1(-0x1.8bc806b151741p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f01p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b7i=VFMA(b7r,VSET1(0x1.294062ed59f01p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddbp-1))); b7r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f06p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b7i=VFMA(b7r,VSET1(0x1.294062ed59f06p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddap-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -15398,16 +15398,16 @@ static __attribute__((noinline)) void wv64Bm0_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1r,VSET1(0x1.a9b66290ea1a3p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1i,VSET1(0x1.a9b66290ea1a3p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea964p-2)));
-      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea964p-2))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a608p-3))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bccp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea961p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d47p-1)));
-      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea961p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d47p-1))); b6r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea963p-2)));
+      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea963p-2))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a60bp-3))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea963p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d46p-1)));
+      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea963p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d46p-1))); b6r=tw; }
     { V tw=VFNMA(b7i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b7i=VFMA(b7r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7i,VSET1(-0x1.1c73b39ae68c8p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
@@ -15494,18 +15494,18 @@ static __attribute__((noinline)) void wv64Bm0_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1r,VSET1(0x1.8bc806b151741p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1i,VSET1(0x1.8bc806b151741p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60dp-3))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63cp-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f01p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b5i=VFMA(b5r,VSET1(0x1.294062ed59f01p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddbp-1))); b5r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60bp-3))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63bp-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f06p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b5i=VFMA(b5r,VSET1(0x1.294062ed59f06p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddap-1))); b5r=tw; }
     { V tw=VFNMA(b6i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b6i=VFMA(b6r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6i,VSET1(-0x1.1c73b39ae68c8p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b407p-4)));
-      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b407p-4))); b7r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b42cp-4)));
+      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b42cp-4))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -15715,10 +15715,10 @@ static __attribute__((noinline)) void wv64Bm1_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1r,VSET1(0x1.fd88da3d12526p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1i,VSET1(0x1.fd88da3d12526p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f05p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
-      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f05p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f06p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
+      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f06p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
     { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(0x1.d906bcf328d46p-1)));
       b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(0x1.d906bcf328d46p-1))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b5r,VSET1(0x1.c38b2f180bdb1p-1)));
@@ -15849,20 +15849,20 @@ static __attribute__((noinline)) void wv64Bm1_ps(double* pr, double* pi,
     V b6r = VL(SC64 + 800), b6i = VL(SC64 + 808);
     V b7r = VL(SC64 + 928), b7i = VL(SC64 + 936);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2r,VSET1(0x1.d906bcf328d46p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2i,VSET1(0x1.d906bcf328d46p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3r,VSET1(0x1.a9b66290ea1a3p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3i,VSET1(0x1.a9b66290ea1a3p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c9p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea964p-2)));
-      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea964p-2))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60dp-3))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c8p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea963p-2)));
+      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea963p-2))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60bp-3))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -15985,20 +15985,20 @@ static __attribute__((noinline)) void wv64Bm1_ps(double* pr, double* pi,
     V b6r = VL(SC64 + 816), b6i = VL(SC64 + 824);
     V b7r = VL(SC64 + 944), b7i = VL(SC64 + 952);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f05p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f05p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f06p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f06p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2r,VSET1(0x1.a9b66290ea1a3p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2i,VSET1(0x1.a9b66290ea1a3p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.8bc806b151741p-1),VMUL(b3r,VSET1(0x1.44cf325091dd6p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.8bc806b151741p-1),VMUL(b3i,VSET1(0x1.44cf325091dd6p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea964p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea964p-2))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5r,VSET1(0x1.917a6bc29b438p-4)));
-      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5i,VSET1(0x1.917a6bc29b438p-4))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a608p-3))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63cp-2))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea963p-2))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5r,VSET1(0x1.917a6bc29b42cp-4)));
+      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5i,VSET1(0x1.917a6bc29b42cp-4))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a60bp-3))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63bp-2))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -16123,18 +16123,18 @@ static __attribute__((noinline)) void wv64Bm1_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1r,VSET1(0x1.d906bcf328d46p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1i,VSET1(0x1.d906bcf328d46p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea964p-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea964p-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(0x1.1a62633145c07p-54)));
-      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(0x1.1a62633145c07p-54))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea962p-2)));
-      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea962p-2))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bccp-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
-      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea963p-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea963p-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(-0x1.d9cceba3f91f2p-66)));
+      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(-0x1.d9cceba3f91f2p-66))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea963p-2)));
+      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea963p-2))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bcdp-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
+      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -16259,18 +16259,18 @@ static __attribute__((noinline)) void wv64Bm1_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1r,VSET1(0x1.c38b2f180bdb1p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1i,VSET1(0x1.c38b2f180bdb1p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c9p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3r,VSET1(0x1.917a6bc29b438p-4)));
-      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3i,VSET1(0x1.917a6bc29b438p-4))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea962p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea962p-2))); b4r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c8p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3r,VSET1(0x1.917a6bc29b42cp-4)));
+      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3i,VSET1(0x1.917a6bc29b42cp-4))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea963p-2))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5r,VSET1(-0x1.8bc806b151741p-1)));
       b5i=VFMA(b5r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5i,VSET1(-0x1.8bc806b151741p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f01p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b7i=VFMA(b7r,VSET1(0x1.294062ed59f01p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddbp-1))); b7r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f06p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b7i=VFMA(b7r,VSET1(0x1.294062ed59f06p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddap-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -16395,16 +16395,16 @@ static __attribute__((noinline)) void wv64Bm1_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1r,VSET1(0x1.a9b66290ea1a3p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1i,VSET1(0x1.a9b66290ea1a3p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea964p-2)));
-      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea964p-2))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a608p-3))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bccp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea961p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d47p-1)));
-      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea961p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d47p-1))); b6r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea963p-2)));
+      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea963p-2))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a60bp-3))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea963p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d46p-1)));
+      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea963p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d46p-1))); b6r=tw; }
     { V tw=VFNMA(b7i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b7i=VFMA(b7r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7i,VSET1(-0x1.1c73b39ae68c8p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
@@ -16531,18 +16531,18 @@ static __attribute__((noinline)) void wv64Bm1_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1r,VSET1(0x1.8bc806b151741p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1i,VSET1(0x1.8bc806b151741p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60dp-3))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63cp-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f01p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b5i=VFMA(b5r,VSET1(0x1.294062ed59f01p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddbp-1))); b5r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60bp-3))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63bp-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f06p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b5i=VFMA(b5r,VSET1(0x1.294062ed59f06p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddap-1))); b5r=tw; }
     { V tw=VFNMA(b6i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b6i=VFMA(b6r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6i,VSET1(-0x1.1c73b39ae68c8p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b407p-4)));
-      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b407p-4))); b7r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b42cp-4)));
+      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b42cp-4))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -16832,10 +16832,10 @@ static __attribute__((noinline)) void wv64Bm2_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1r,VSET1(0x1.fd88da3d12526p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1i,VSET1(0x1.fd88da3d12526p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f05p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
-      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f05p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f06p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
+      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f06p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
     { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(0x1.d906bcf328d46p-1)));
       b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(0x1.d906bcf328d46p-1))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b5r,VSET1(0x1.c38b2f180bdb1p-1)));
@@ -17006,20 +17006,20 @@ static __attribute__((noinline)) void wv64Bm2_ps(double* pr, double* pi,
     V b6r = VL(SC64 + 800), b6i = VL(SC64 + 808);
     V b7r = VL(SC64 + 928), b7i = VL(SC64 + 936);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2r,VSET1(0x1.d906bcf328d46p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2i,VSET1(0x1.d906bcf328d46p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3r,VSET1(0x1.a9b66290ea1a3p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3i,VSET1(0x1.a9b66290ea1a3p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c9p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea964p-2)));
-      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea964p-2))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60dp-3))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c8p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea963p-2)));
+      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea963p-2))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60bp-3))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -17182,20 +17182,20 @@ static __attribute__((noinline)) void wv64Bm2_ps(double* pr, double* pi,
     V b6r = VL(SC64 + 816), b6i = VL(SC64 + 824);
     V b7r = VL(SC64 + 944), b7i = VL(SC64 + 952);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f05p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f05p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f06p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f06p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2r,VSET1(0x1.a9b66290ea1a3p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2i,VSET1(0x1.a9b66290ea1a3p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.8bc806b151741p-1),VMUL(b3r,VSET1(0x1.44cf325091dd6p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.8bc806b151741p-1),VMUL(b3i,VSET1(0x1.44cf325091dd6p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea964p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea964p-2))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5r,VSET1(0x1.917a6bc29b438p-4)));
-      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5i,VSET1(0x1.917a6bc29b438p-4))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a608p-3))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63cp-2))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea963p-2))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5r,VSET1(0x1.917a6bc29b42cp-4)));
+      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5i,VSET1(0x1.917a6bc29b42cp-4))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a60bp-3))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63bp-2))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -17360,18 +17360,18 @@ static __attribute__((noinline)) void wv64Bm2_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1r,VSET1(0x1.d906bcf328d46p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1i,VSET1(0x1.d906bcf328d46p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea964p-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea964p-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(0x1.1a62633145c07p-54)));
-      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(0x1.1a62633145c07p-54))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea962p-2)));
-      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea962p-2))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bccp-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
-      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea963p-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea963p-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(-0x1.d9cceba3f91f2p-66)));
+      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(-0x1.d9cceba3f91f2p-66))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea963p-2)));
+      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea963p-2))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bcdp-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
+      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -17536,18 +17536,18 @@ static __attribute__((noinline)) void wv64Bm2_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1r,VSET1(0x1.c38b2f180bdb1p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1i,VSET1(0x1.c38b2f180bdb1p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c9p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3r,VSET1(0x1.917a6bc29b438p-4)));
-      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3i,VSET1(0x1.917a6bc29b438p-4))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea962p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea962p-2))); b4r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c8p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3r,VSET1(0x1.917a6bc29b42cp-4)));
+      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3i,VSET1(0x1.917a6bc29b42cp-4))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea963p-2))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5r,VSET1(-0x1.8bc806b151741p-1)));
       b5i=VFMA(b5r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5i,VSET1(-0x1.8bc806b151741p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f01p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b7i=VFMA(b7r,VSET1(0x1.294062ed59f01p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddbp-1))); b7r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f06p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b7i=VFMA(b7r,VSET1(0x1.294062ed59f06p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddap-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -17712,16 +17712,16 @@ static __attribute__((noinline)) void wv64Bm2_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1r,VSET1(0x1.a9b66290ea1a3p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1i,VSET1(0x1.a9b66290ea1a3p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea964p-2)));
-      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea964p-2))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a608p-3))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bccp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea961p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d47p-1)));
-      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea961p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d47p-1))); b6r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea963p-2)));
+      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea963p-2))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a60bp-3))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea963p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d46p-1)));
+      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea963p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d46p-1))); b6r=tw; }
     { V tw=VFNMA(b7i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b7i=VFMA(b7r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7i,VSET1(-0x1.1c73b39ae68c8p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
@@ -17888,18 +17888,18 @@ static __attribute__((noinline)) void wv64Bm2_ps(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1r,VSET1(0x1.8bc806b151741p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1i,VSET1(0x1.8bc806b151741p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60dp-3))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63cp-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f01p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b5i=VFMA(b5r,VSET1(0x1.294062ed59f01p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddbp-1))); b5r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60bp-3))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63bp-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f06p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b5i=VFMA(b5r,VSET1(0x1.294062ed59f06p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddap-1))); b5r=tw; }
     { V tw=VFNMA(b6i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b6i=VFMA(b6r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6i,VSET1(-0x1.1c73b39ae68c8p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b407p-4)));
-      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b407p-4))); b7r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b42cp-4)));
+      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b42cp-4))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -18149,10 +18149,10 @@ static __attribute__((noinline)) void wv64Bm0_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1r,VSET1(0x1.fd88da3d12526p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1i,VSET1(0x1.fd88da3d12526p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f05p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
-      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f05p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f06p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
+      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f06p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
     { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(0x1.d906bcf328d46p-1)));
       b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(0x1.d906bcf328d46p-1))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b5r,VSET1(0x1.c38b2f180bdb1p-1)));
@@ -18243,20 +18243,20 @@ static __attribute__((noinline)) void wv64Bm0_rs(double* pr, double* pi,
     V b6r = VL(SC64 + 800), b6i = VL(SC64 + 808);
     V b7r = VL(SC64 + 928), b7i = VL(SC64 + 936);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2r,VSET1(0x1.d906bcf328d46p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2i,VSET1(0x1.d906bcf328d46p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3r,VSET1(0x1.a9b66290ea1a3p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3i,VSET1(0x1.a9b66290ea1a3p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c9p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea964p-2)));
-      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea964p-2))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60dp-3))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c8p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea963p-2)));
+      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea963p-2))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60bp-3))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -18339,20 +18339,20 @@ static __attribute__((noinline)) void wv64Bm0_rs(double* pr, double* pi,
     V b6r = VL(SC64 + 816), b6i = VL(SC64 + 824);
     V b7r = VL(SC64 + 944), b7i = VL(SC64 + 952);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f05p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f05p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f06p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f06p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2r,VSET1(0x1.a9b66290ea1a3p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2i,VSET1(0x1.a9b66290ea1a3p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.8bc806b151741p-1),VMUL(b3r,VSET1(0x1.44cf325091dd6p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.8bc806b151741p-1),VMUL(b3i,VSET1(0x1.44cf325091dd6p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea964p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea964p-2))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5r,VSET1(0x1.917a6bc29b438p-4)));
-      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5i,VSET1(0x1.917a6bc29b438p-4))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a608p-3))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63cp-2))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea963p-2))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5r,VSET1(0x1.917a6bc29b42cp-4)));
+      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5i,VSET1(0x1.917a6bc29b42cp-4))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a60bp-3))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63bp-2))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -18437,18 +18437,18 @@ static __attribute__((noinline)) void wv64Bm0_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1r,VSET1(0x1.d906bcf328d46p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1i,VSET1(0x1.d906bcf328d46p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea964p-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea964p-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(0x1.1a62633145c07p-54)));
-      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(0x1.1a62633145c07p-54))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea962p-2)));
-      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea962p-2))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bccp-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
-      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea963p-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea963p-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(-0x1.d9cceba3f91f2p-66)));
+      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(-0x1.d9cceba3f91f2p-66))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea963p-2)));
+      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea963p-2))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bcdp-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
+      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -18533,18 +18533,18 @@ static __attribute__((noinline)) void wv64Bm0_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1r,VSET1(0x1.c38b2f180bdb1p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1i,VSET1(0x1.c38b2f180bdb1p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c9p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3r,VSET1(0x1.917a6bc29b438p-4)));
-      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3i,VSET1(0x1.917a6bc29b438p-4))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea962p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea962p-2))); b4r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c8p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3r,VSET1(0x1.917a6bc29b42cp-4)));
+      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3i,VSET1(0x1.917a6bc29b42cp-4))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea963p-2))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5r,VSET1(-0x1.8bc806b151741p-1)));
       b5i=VFMA(b5r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5i,VSET1(-0x1.8bc806b151741p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f01p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b7i=VFMA(b7r,VSET1(0x1.294062ed59f01p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddbp-1))); b7r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f06p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b7i=VFMA(b7r,VSET1(0x1.294062ed59f06p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddap-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -18629,16 +18629,16 @@ static __attribute__((noinline)) void wv64Bm0_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1r,VSET1(0x1.a9b66290ea1a3p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1i,VSET1(0x1.a9b66290ea1a3p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea964p-2)));
-      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea964p-2))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a608p-3))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bccp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea961p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d47p-1)));
-      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea961p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d47p-1))); b6r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea963p-2)));
+      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea963p-2))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a60bp-3))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea963p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d46p-1)));
+      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea963p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d46p-1))); b6r=tw; }
     { V tw=VFNMA(b7i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b7i=VFMA(b7r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7i,VSET1(-0x1.1c73b39ae68c8p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
@@ -18725,18 +18725,18 @@ static __attribute__((noinline)) void wv64Bm0_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1r,VSET1(0x1.8bc806b151741p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1i,VSET1(0x1.8bc806b151741p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60dp-3))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63cp-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f01p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b5i=VFMA(b5r,VSET1(0x1.294062ed59f01p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddbp-1))); b5r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60bp-3))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63bp-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f06p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b5i=VFMA(b5r,VSET1(0x1.294062ed59f06p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddap-1))); b5r=tw; }
     { V tw=VFNMA(b6i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b6i=VFMA(b6r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6i,VSET1(-0x1.1c73b39ae68c8p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b407p-4)));
-      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b407p-4))); b7r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b42cp-4)));
+      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b42cp-4))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -18946,10 +18946,10 @@ static __attribute__((noinline)) void wv64Bm1_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1r,VSET1(0x1.fd88da3d12526p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1i,VSET1(0x1.fd88da3d12526p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f05p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
-      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f05p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f06p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
+      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f06p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
     { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(0x1.d906bcf328d46p-1)));
       b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(0x1.d906bcf328d46p-1))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b5r,VSET1(0x1.c38b2f180bdb1p-1)));
@@ -19080,20 +19080,20 @@ static __attribute__((noinline)) void wv64Bm1_rs(double* pr, double* pi,
     V b6r = VL(SC64 + 800), b6i = VL(SC64 + 808);
     V b7r = VL(SC64 + 928), b7i = VL(SC64 + 936);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2r,VSET1(0x1.d906bcf328d46p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2i,VSET1(0x1.d906bcf328d46p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3r,VSET1(0x1.a9b66290ea1a3p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3i,VSET1(0x1.a9b66290ea1a3p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c9p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea964p-2)));
-      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea964p-2))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60dp-3))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c8p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea963p-2)));
+      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea963p-2))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60bp-3))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -19216,20 +19216,20 @@ static __attribute__((noinline)) void wv64Bm1_rs(double* pr, double* pi,
     V b6r = VL(SC64 + 816), b6i = VL(SC64 + 824);
     V b7r = VL(SC64 + 944), b7i = VL(SC64 + 952);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f05p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f05p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f06p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f06p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2r,VSET1(0x1.a9b66290ea1a3p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2i,VSET1(0x1.a9b66290ea1a3p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.8bc806b151741p-1),VMUL(b3r,VSET1(0x1.44cf325091dd6p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.8bc806b151741p-1),VMUL(b3i,VSET1(0x1.44cf325091dd6p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea964p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea964p-2))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5r,VSET1(0x1.917a6bc29b438p-4)));
-      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5i,VSET1(0x1.917a6bc29b438p-4))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a608p-3))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63cp-2))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea963p-2))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5r,VSET1(0x1.917a6bc29b42cp-4)));
+      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5i,VSET1(0x1.917a6bc29b42cp-4))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a60bp-3))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63bp-2))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -19354,18 +19354,18 @@ static __attribute__((noinline)) void wv64Bm1_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1r,VSET1(0x1.d906bcf328d46p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1i,VSET1(0x1.d906bcf328d46p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea964p-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea964p-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(0x1.1a62633145c07p-54)));
-      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(0x1.1a62633145c07p-54))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea962p-2)));
-      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea962p-2))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bccp-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
-      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea963p-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea963p-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(-0x1.d9cceba3f91f2p-66)));
+      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(-0x1.d9cceba3f91f2p-66))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea963p-2)));
+      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea963p-2))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bcdp-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
+      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -19490,18 +19490,18 @@ static __attribute__((noinline)) void wv64Bm1_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1r,VSET1(0x1.c38b2f180bdb1p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1i,VSET1(0x1.c38b2f180bdb1p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c9p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3r,VSET1(0x1.917a6bc29b438p-4)));
-      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3i,VSET1(0x1.917a6bc29b438p-4))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea962p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea962p-2))); b4r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c8p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3r,VSET1(0x1.917a6bc29b42cp-4)));
+      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3i,VSET1(0x1.917a6bc29b42cp-4))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea963p-2))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5r,VSET1(-0x1.8bc806b151741p-1)));
       b5i=VFMA(b5r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5i,VSET1(-0x1.8bc806b151741p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f01p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b7i=VFMA(b7r,VSET1(0x1.294062ed59f01p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddbp-1))); b7r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f06p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b7i=VFMA(b7r,VSET1(0x1.294062ed59f06p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddap-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -19626,16 +19626,16 @@ static __attribute__((noinline)) void wv64Bm1_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1r,VSET1(0x1.a9b66290ea1a3p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1i,VSET1(0x1.a9b66290ea1a3p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea964p-2)));
-      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea964p-2))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a608p-3))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bccp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea961p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d47p-1)));
-      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea961p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d47p-1))); b6r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea963p-2)));
+      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea963p-2))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a60bp-3))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea963p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d46p-1)));
+      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea963p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d46p-1))); b6r=tw; }
     { V tw=VFNMA(b7i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b7i=VFMA(b7r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7i,VSET1(-0x1.1c73b39ae68c8p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
@@ -19762,18 +19762,18 @@ static __attribute__((noinline)) void wv64Bm1_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1r,VSET1(0x1.8bc806b151741p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1i,VSET1(0x1.8bc806b151741p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60dp-3))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63cp-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f01p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b5i=VFMA(b5r,VSET1(0x1.294062ed59f01p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddbp-1))); b5r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60bp-3))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63bp-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f06p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b5i=VFMA(b5r,VSET1(0x1.294062ed59f06p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddap-1))); b5r=tw; }
     { V tw=VFNMA(b6i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b6i=VFMA(b6r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6i,VSET1(-0x1.1c73b39ae68c8p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b407p-4)));
-      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b407p-4))); b7r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b42cp-4)));
+      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b42cp-4))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -20063,10 +20063,10 @@ static __attribute__((noinline)) void wv64Bm2_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1r,VSET1(0x1.fd88da3d12526p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.917a6bc29b42cp-4),VMUL(b1i,VSET1(0x1.fd88da3d12526p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f05p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
-      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f05p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2r,VSET1(0x1.f6297cff75cb0p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b2i,VSET1(0x1.f6297cff75cb0p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.294062ed59f06p-2),VMUL(b3r,VSET1(0x1.e9f4156c62ddap-1)));
+      b3i=VFMA(b3r,VSET1(-0x1.294062ed59f06p-2),VMUL(b3i,VSET1(0x1.e9f4156c62ddap-1))); b3r=tw; }
     { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(0x1.d906bcf328d46p-1)));
       b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(0x1.d906bcf328d46p-1))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b5r,VSET1(0x1.c38b2f180bdb1p-1)));
@@ -20237,20 +20237,20 @@ static __attribute__((noinline)) void wv64Bm2_rs(double* pr, double* pi,
     V b6r = VL(SC64 + 800), b6i = VL(SC64 + 808);
     V b7r = VL(SC64 + 928), b7i = VL(SC64 + 936);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60ap-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1r,VSET1(0x1.f6297cff75cb0p-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b1i,VSET1(0x1.f6297cff75cb0p-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2r,VSET1(0x1.d906bcf328d46p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b2i,VSET1(0x1.d906bcf328d46p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3r,VSET1(0x1.a9b66290ea1a3p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b3i,VSET1(0x1.a9b66290ea1a3p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c9p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea964p-2)));
-      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea964p-2))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60dp-3))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b5i,VSET1(0x1.1c73b39ae68c8p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6r,VSET1(0x1.87de2a6aea963p-2)));
+      b6i=VFMA(b6r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b6i,VSET1(0x1.87de2a6aea963p-2))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b7i=VFMA(b7r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b7i,VSET1(0x1.8f8b83c69a60bp-3))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -20413,20 +20413,20 @@ static __attribute__((noinline)) void wv64Bm2_rs(double* pr, double* pi,
     V b6r = VL(SC64 + 816), b6i = VL(SC64 + 824);
     V b7r = VL(SC64 + 944), b7i = VL(SC64 + 952);
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
-    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f05p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
-      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f05p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
+    { V tw=VFNMA(b1i,VSET1(-0x1.294062ed59f06p-2),VMUL(b1r,VSET1(0x1.e9f4156c62ddap-1)));
+      b1i=VFMA(b1r,VSET1(-0x1.294062ed59f06p-2),VMUL(b1i,VSET1(0x1.e9f4156c62ddap-1))); b1r=tw; }
     { V tw=VFNMA(b2i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2r,VSET1(0x1.a9b66290ea1a3p-1)));
       b2i=VFMA(b2r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b2i,VSET1(0x1.a9b66290ea1a3p-1))); b2r=tw; }
     { V tw=VFNMA(b3i,VSET1(-0x1.8bc806b151741p-1),VMUL(b3r,VSET1(0x1.44cf325091dd6p-1)));
       b3i=VFMA(b3r,VSET1(-0x1.8bc806b151741p-1),VMUL(b3i,VSET1(0x1.44cf325091dd6p-1))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea964p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea964p-2))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5r,VSET1(0x1.917a6bc29b438p-4)));
-      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b5i,VSET1(0x1.917a6bc29b438p-4))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a608p-3))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63cp-2))); b7r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(0x1.87de2a6aea963p-2))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5r,VSET1(0x1.917a6bc29b42cp-4)));
+      b5i=VFMA(b5r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b5i,VSET1(0x1.917a6bc29b42cp-4))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b6i=VFMA(b6r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b6i,VSET1(-0x1.8f8b83c69a60bp-3))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b7i=VFMA(b7r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b7i,VSET1(-0x1.e2b5d3806f63bp-2))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -20591,18 +20591,18 @@ static __attribute__((noinline)) void wv64Bm2_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1r,VSET1(0x1.d906bcf328d46p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b1i,VSET1(0x1.d906bcf328d46p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bccp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea964p-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea964p-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(0x1.1a62633145c07p-54)));
-      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(0x1.1a62633145c07p-54))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea962p-2)));
-      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea962p-2))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bccp-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
-      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2r,VSET1(0x1.6a09e667f3bcdp-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b2i,VSET1(0x1.6a09e667f3bcdp-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3r,VSET1(0x1.87de2a6aea963p-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b3i,VSET1(0x1.87de2a6aea963p-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.0000000000000p+0),VMUL(b4r,VSET1(-0x1.d9cceba3f91f2p-66)));
+      b4i=VFMA(b4r,VSET1(-0x1.0000000000000p+0),VMUL(b4i,VSET1(-0x1.d9cceba3f91f2p-66))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5r,VSET1(-0x1.87de2a6aea963p-2)));
+      b5i=VFMA(b5r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b5i,VSET1(-0x1.87de2a6aea963p-2))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b6i,VSET1(-0x1.6a09e667f3bcdp-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7r,VSET1(-0x1.d906bcf328d46p-1)));
+      b7i=VFMA(b7r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b7i,VSET1(-0x1.d906bcf328d46p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -20767,18 +20767,18 @@ static __attribute__((noinline)) void wv64Bm2_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1r,VSET1(0x1.c38b2f180bdb1p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.e2b5d3806f63bp-2),VMUL(b1i,VSET1(0x1.c38b2f180bdb1p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c9p-1)));
-      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c9p-1))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3r,VSET1(0x1.917a6bc29b438p-4)));
-      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12525p-1),VMUL(b3i,VSET1(0x1.917a6bc29b438p-4))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea962p-2)));
-      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea962p-2))); b4r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2r,VSET1(0x1.1c73b39ae68c8p-1)));
+      b2i=VFMA(b2r,VSET1(-0x1.a9b66290ea1a3p-1),VMUL(b2i,VSET1(0x1.1c73b39ae68c8p-1))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3r,VSET1(0x1.917a6bc29b42cp-4)));
+      b3i=VFMA(b3r,VSET1(-0x1.fd88da3d12526p-1),VMUL(b3i,VSET1(0x1.917a6bc29b42cp-4))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4r,VSET1(-0x1.87de2a6aea963p-2)));
+      b4i=VFMA(b4r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b4i,VSET1(-0x1.87de2a6aea963p-2))); b4r=tw; }
     { V tw=VFNMA(b5i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5r,VSET1(-0x1.8bc806b151741p-1)));
       b5i=VFMA(b5r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b5i,VSET1(-0x1.8bc806b151741p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f01p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b7i=VFMA(b7r,VSET1(0x1.294062ed59f01p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddbp-1))); b7r=tw; }
+    { V tw=VFNMA(b6i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b6i=VFMA(b6r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b6i,VSET1(-0x1.f6297cff75cb0p-1))); b6r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.294062ed59f06p-2),VMUL(b7r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b7i=VFMA(b7r,VSET1(0x1.294062ed59f06p-2),VMUL(b7i,VSET1(-0x1.e9f4156c62ddap-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);
@@ -20943,16 +20943,16 @@ static __attribute__((noinline)) void wv64Bm2_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1r,VSET1(0x1.a9b66290ea1a3p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.1c73b39ae68c8p-1),VMUL(b1i,VSET1(0x1.a9b66290ea1a3p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea964p-2)));
-      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea964p-2))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a608p-3)));
-      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a608p-3))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bccp-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bccp-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
-      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a617p-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
-    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea961p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d47p-1)));
-      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea961p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d47p-1))); b6r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2r,VSET1(0x1.87de2a6aea963p-2)));
+      b2i=VFMA(b2r,VSET1(-0x1.d906bcf328d46p-1),VMUL(b2i,VSET1(0x1.87de2a6aea963p-2))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3r,VSET1(-0x1.8f8b83c69a60bp-3)));
+      b3i=VFMA(b3r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b3i,VSET1(-0x1.8f8b83c69a60bp-3))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4r,VSET1(-0x1.6a09e667f3bcdp-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.6a09e667f3bcdp-1),VMUL(b4i,VSET1(-0x1.6a09e667f3bcdp-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5r,VSET1(-0x1.f6297cff75cb0p-1)));
+      b5i=VFMA(b5r,VSET1(-0x1.8f8b83c69a60bp-3),VMUL(b5i,VSET1(-0x1.f6297cff75cb0p-1))); b5r=tw; }
+    { V tw=VFNMA(b6i,VSET1(0x1.87de2a6aea963p-2),VMUL(b6r,VSET1(-0x1.d906bcf328d46p-1)));
+      b6i=VFMA(b6r,VSET1(0x1.87de2a6aea963p-2),VMUL(b6i,VSET1(-0x1.d906bcf328d46p-1))); b6r=tw; }
     { V tw=VFNMA(b7i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b7i=VFMA(b7r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b7i,VSET1(-0x1.1c73b39ae68c8p-1))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
@@ -21119,18 +21119,18 @@ static __attribute__((noinline)) void wv64Bm2_rs(double* pr, double* pi,
     V X0r, X0i, X1r, X1i, X2r, X2i, X3r, X3i, X4r, X4i, X5r, X5i, X6r, X6i, X7r, X7i;
     { V tw=VFNMA(b1i,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1r,VSET1(0x1.8bc806b151741p-1)));
       b1i=VFMA(b1r,VSET1(-0x1.44cf325091dd6p-1),VMUL(b1i,VSET1(0x1.8bc806b151741p-1))); b1r=tw; }
-    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60dp-3)));
-      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60dp-3))); b2r=tw; }
-    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63cp-2)));
-      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63cp-2))); b3r=tw; }
-    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
-      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea965p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
-    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f01p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddbp-1)));
-      b5i=VFMA(b5r,VSET1(0x1.294062ed59f01p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddbp-1))); b5r=tw; }
+    { V tw=VFNMA(b2i,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2r,VSET1(0x1.8f8b83c69a60bp-3)));
+      b2i=VFMA(b2r,VSET1(-0x1.f6297cff75cb0p-1),VMUL(b2i,VSET1(0x1.8f8b83c69a60bp-3))); b2r=tw; }
+    { V tw=VFNMA(b3i,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3r,VSET1(-0x1.e2b5d3806f63bp-2)));
+      b3i=VFMA(b3r,VSET1(-0x1.c38b2f180bdb1p-1),VMUL(b3i,VSET1(-0x1.e2b5d3806f63bp-2))); b3r=tw; }
+    { V tw=VFNMA(b4i,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4r,VSET1(-0x1.d906bcf328d46p-1)));
+      b4i=VFMA(b4r,VSET1(-0x1.87de2a6aea963p-2),VMUL(b4i,VSET1(-0x1.d906bcf328d46p-1))); b4r=tw; }
+    { V tw=VFNMA(b5i,VSET1(0x1.294062ed59f06p-2),VMUL(b5r,VSET1(-0x1.e9f4156c62ddap-1)));
+      b5i=VFMA(b5r,VSET1(0x1.294062ed59f06p-2),VMUL(b5i,VSET1(-0x1.e9f4156c62ddap-1))); b5r=tw; }
     { V tw=VFNMA(b6i,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6r,VSET1(-0x1.1c73b39ae68c8p-1)));
       b6i=VFMA(b6r,VSET1(0x1.a9b66290ea1a3p-1),VMUL(b6i,VSET1(-0x1.1c73b39ae68c8p-1))); b6r=tw; }
-    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b407p-4)));
-      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b407p-4))); b7r=tw; }
+    { V tw=VFNMA(b7i,VSET1(0x1.fd88da3d12526p-1),VMUL(b7r,VSET1(0x1.917a6bc29b42cp-4)));
+      b7i=VFMA(b7r,VSET1(0x1.fd88da3d12526p-1),VMUL(b7i,VSET1(0x1.917a6bc29b42cp-4))); b7r=tw; }
     V s0r = VADD(b0r, b4r), s0i = VADD(b0i, b4i);
     V d0r = VSUB(b0r, b4r), d0i = VSUB(b0i, b4i);
     V s1r = VADD(b1r, b5r), s1i = VADD(b1i, b5i);

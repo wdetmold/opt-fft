@@ -53,13 +53,20 @@ if 'warm_00291a90_score0.97' in persize:
         m=re.match(r'\s+warm_00291a90\S* L=\s*(\d+): best ([0-9.]+)s', line)
         if m: fin[m.group(1)]=float(m.group(2))
     if fin: persize['warm_00291a90_score0.97']=fin
+rt=os.path.join(FFT,'bench/ice/results/rivaltime_last.json')
+if os.path.exists(rt):
+    for row in json.load(open(rt)):
+        d={}
+        for L,rec in row.get('sizes',{}).items():
+            if rec.get('best_s',0)>1e-4 and rec.get('chain_rel',1)<0.5: d[L]=rec['best_s']
+        if d: persize[row['attempt']]=d
 ALL=('6','8','13','17','23','36','45','64')
 med={L:statistics.median([d[L] for d in persize.values() if L in d]) for L in ALL}
 for att,d in persize.items():
     filled=sum(d.get(L,med[L]) for L in ALL)
     ours[att]=(filled, len(d))
 rows=[]
-for corpus in ('fft_v4_solutions','fft_v5v6_solutions','fft_warm_solutions'):
+for corpus in ('fft_v4_solutions','fft_v5v6_solutions','fft_warm_solutions','fft_v7_solutions','fft_hot_solutions'):
     for d in sorted(glob.glob(os.path.join(FFT,corpus,'*','README.md'))):
         att=os.path.basename(os.path.dirname(d))
         rep=parse_readme(d)

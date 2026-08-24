@@ -13,7 +13,7 @@ to discriminate the known ways a grader clock lies:
 usage: python3 rivaltime.py <solutions_root> [attempt-substring]
 Writes JSON next to results/rivals_icelake/. Pin externally with taskset.
 """
-import importlib.util, json, os, resource, sys, threading, time
+import ctypes, importlib.util, inspect, json, os, re, resource, sys, threading, time
 import numpy as np
 
 # Every rival solution.py calls os.sched_setaffinity(0, {0}) at import ("pin to core 0
@@ -71,7 +71,7 @@ out=[]
 todo=[(r,n) for r in roots for n in sorted(os.listdir(r))]
 for root,name in todo:
     d=os.path.join(root,name)
-    if only and only not in name: continue
+    if only and not re.search(only,name): continue
     sol=os.path.join(d,'solution.py')
     if not os.path.isfile(sol): continue
     row={'attempt':name,'sizes':{},'error':None}
@@ -81,11 +81,37 @@ for root,name in todo:
         old=os.getcwd(); os.chdir(d)
         try: spec.loader.exec_module(mod)
         finally: os.chdir(old)
-        run=mod._run
+        def get_runner(mod):
+            if hasattr(mod,'_run'):
+                n=len(inspect.signature(mod._run).parameters)
+                if n==5: return mod._run
+                if n==7:
+                    def r(L,B,m,x0,c):
+                        one=np.empty_like(x0); fin=np.empty_like(x0)
+                        mod._run(L,B,m,x0,c,one,fin); return one,fin
+                    return r
+            if hasattr(mod,'_run_into'):
+                def r(L,B,m,x0,c):
+                    one=np.empty_like(x0); fin=np.empty_like(x0)
+                    mod._run_into(L,B,m,x0,c,one,fin); return one,fin
+                return r
+            if hasattr(mod,'_RUNS'):
+                PD=ctypes.POINTER(ctypes.c_double)
+                def r(L,B,m,x0,c):
+                    xr=np.ascontiguousarray(x0.real); xi=np.ascontiguousarray(x0.imag)
+                    cr=np.ascontiguousarray(c.real); ci=np.ascontiguousarray(c.imag)
+                    one=np.empty(x0.shape,dtype=np.complex128); fin=np.empty_like(one)
+                    pp=lambda a: a.ctypes.data_as(PD)
+                    mod._RUNS[L](B,m,pp(xr),pp(xi),pp(cr),pp(ci),
+                                 ctypes.cast(one.ctypes.data,PD),ctypes.cast(fin.ctypes.data,PD))
+                    return one,fin
+                return r
+            raise AttributeError('no runnable entry point (_run/_run_into/_RUNS)')
+        run=get_runner(mod)
         for L,B,m in POINTS:
             x0,c=data[L]
             one,fin=run(L,B,m,x0,c)
-            one=np.asarray(one).reshape(ref1[L].shape); fin=np.asarray(fin).reshape(ref[L].shape)
+            one=np.array(one,copy=True).reshape(ref1[L].shape); fin=np.array(fin,copy=True).reshape(ref[L].shape)
             r1=float(np.linalg.norm(one-ref1[L])/np.linalg.norm(ref1[L]))
             rch=float(np.linalg.norm(fin-ref[L])/np.linalg.norm(ref[L]))
             reps=[]
@@ -99,7 +125,7 @@ for root,name in todo:
                 tp.stop=True; th.join(timeout=0.3)
                 rate1,_=spin()
                 cpu=(ru1.ru_utime-ru0.ru_utime)+(ru1.ru_stime-ru0.ru_stime)
-                fp=np.asarray(fp).reshape(ref[L].shape)
+                fp=np.array(fp,copy=True).reshape(ref[L].shape)
                 changed=bool(np.linalg.norm(fp-fin)>0)
                 reps.append(dict(wall=wall,cpu_over_wall=cpu/wall if wall>0 else None,
                                  thread_peak=tp.peak,out_changed=changed,
