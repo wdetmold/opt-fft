@@ -82,3 +82,9 @@ scoring window open: all 24 slots held
 [2026-08-24 09:47:53] promoting: gen_batchlane gen_pfa_small gen_powp gen_rader gen_pow2 gen_pfa_large gen_dense_prime gen_layout gen_planner gen_race gen_twiddle
 /tmp/fft_rounds_RFPXs9.sh: line 512: ./promote.sh: No such file or directory
 [2026-08-24 09:47:53] promote.sh reported a problem
+[2026-08-24 09:47:56] committed round gen_r2
+[2026-08-24 09:47:56] ---------- gen_r2 complete; next is gen_r3 of gen_r6 ----------
+[2026-08-24 09:47:56] ---------- gen_r3 begins ----------
+[2026-08-24 09:47:57] gen_r3 works in impl_3 (13 sources carried over from impl_2)
+[2026-08-24 09:47:57] context pack: 224 lines
+[2026-08-24 09:47:57] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle

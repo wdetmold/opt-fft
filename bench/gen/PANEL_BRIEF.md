@@ -103,3 +103,14 @@ build/$(hostname -s)/; maintain your STRATEGY.md every round; read the previous
 campaigns' strategies, impl_N sources, and the rival corpora (fft_v4_solutions/,
 fft_v5v6_solutions/, fft_warm_solutions/ — especially the generator pipelines, which are
 the closest prior art to this campaign's deliverable).
+
+## Cross-architecture advisory (from round 4)
+
+After the round-4 and round-6 Ice Lake leaderboards, the suite is rerun on a Cascade Lake
+node (severe 512-bit downclock, 1 MB L2), and once on Sapphire Rapids after round 5 —
+reduced sampling, ADVISORY only (the score stays Ice Lake; absolute times never cross
+machines). Read `XARCH.md` when it appears: a cell whose winner changes or whose
+vs-library ratio degrades >25% on another Intel machine is a portability finding — the
+fix is racing variants at plan time (the gen_race layer), not retuning for one host.
+The wisdom cache is per-host by design; the advisory run populates a fresh one, which is
+exactly what round 6's surprise sizes will do too.
