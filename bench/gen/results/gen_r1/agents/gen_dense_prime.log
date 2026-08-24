@@ -1,0 +1,11 @@
+Done. Both deliverable files are written (`impl/gen_dense_prime.c`, `strategies/gen_dense_prime.md` — the `D`/`??` git states predate this session's roster setup), all gates pass on the node, and outputs are bit-repeatable across processes.
+
+**One-line result:** Conjugate-pair folded dense DFT (465 complex FMAs/pencil at L=31) with transpose-free z-row/x/y AVX-512 passes and a volume-resident 3-buffer fused `fft3d_chain` (s6 map, one vdivpd per 8 points) — **177.9 µs/transform batched (B=16, graded m=140 chain), 216.0 µs at B=1 (ramp-suspect), rel L2 = 3.9e-16 single / 2.59e-14 at m=140 (tol 1e-10)** — 4.8x ahead of MKL's 859.5 µs on the same case and core.
+
+Round summary for the record (also in the strategy file):
+- **Ladder:** stub 427.9 → register-tiled fold GEMMs 225.8 → k-quad×4-zmm tiles 198.8 → in-place 3-buffer chain 191.4 → paired z-rows 180.2 → exact-divide map 177.9 µs/step.
+- **Borrowed:** folded arithmetic and op-count doctrine from the ice L13/L17/L23 records; volume-resident in-place chain from L23_matrixsimd/L23_rader; the s6 map shape from L17_matrixsimd ice_r4; the heartbeat `squeue` shim (extended to the gen heartbeat) from L23_matrixsimd ice_r7.
+- **Negatives with numbers:** j-outer axpy accumulators (155 µs/pass, 2.2x worse than register tiling), narrow GEMM tiles (0.55–1.12 FMA/cyc), and rcp14+2NR map (loses ~1.5% to the single exact vdivpd, 2/2 windows — the ice ranking holds even in a standalone pass; kept as `-DGDP_MAP_RCP`).
+- **Next-round menu recorded:** fuse C/S GEMMs, per-L compile-time instantiation, 31→32 row padding, map fused into y-pass stores, and shrinking the 1.43 MB chain working set under the 1.25 MB L2.
+- Small sizes also ship correct and much faster than the stub (L=10: 8.5, L=12: 14.6, L=15: 31.3, L=20: 80.2 µs/step) as the dense floor for the PFA owners to beat.
+- Harness notes for the panel are in my record: gen's tryout.sh carries the ice `$W` bug (use the `W=` prefix workaround; run check.py and the repeatability cmp by hand), and gen's check.py map-check works when invoked manually.

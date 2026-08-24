@@ -1,0 +1,14 @@
+{"host":"a80n0","format":1,"entries":{
+"gen_race/exec/L50/B4#55892b05":{"winner":"tile4x8","widx":0,"tie":0,"us":92349.9,"margin":0.4579},
+"gen_race/exec/L40/B8#55892b05":{"winner":"tile4x8","widx":0,"tie":0,"us":88009.2,"margin":0.4714},
+"gen_race/exec/L32/B8#55892b05":{"winner":"tile4x8","widx":0,"tie":0,"us":36365.1,"margin":0.5018},
+"gen_race/exec/L31/B16#55892b05":{"winner":"tile4x8","widx":0,"tie":0,"us":66470.5,"margin":0.3899},
+"gen_race/exec/L27/B16#55892b05":{"winner":"tile4x8","widx":0,"tie":0,"us":39177.8,"margin":0.3583},
+"gen_race/exec/L25/B16#55892b05":{"winner":"tile4x8","widx":0,"tie":0,"us":29470.4,"margin":0.3263},
+"gen_race/exec/L20/B32#55892b05":{"winner":"tile4x8","widx":0,"tie":0,"us":20165.4,"margin":0.3184},
+"gen_race/exec/L15/B32#55892b05":{"winner":"tile4x8","widx":0,"tie":0,"us":6910.02,"margin":0.2255},
+"gen_race/exec/L10/B64#55892b05":{"winner":"tile4x8","widx":0,"tie":0,"us":3613.04,"margin":0.1194},
+"gen_race/exec/L100/B1#55892b05":{"winner":"tile4x8","widx":0,"tie":0,"us":397664,"margin":0.5414},
+"gen_race/exec/L12/B1#55892b05":{"winner":"tile4x8","widx":0,"tie":0,"us":110.319,"margin":0.1787},
+"gen_race/exec/L12/B64#55892b05":{"winner":"tile4x8","widx":0,"tie":0,"us":6875.47,"margin":0.2139}
+}}

@@ -1,0 +1,66 @@
+[2026-08-23 21:32:02] === run_rounds[gen]: next=gen_r1 last=gen_r6 jobs=6 ===
+[2026-08-23 21:32:02]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-23 21:32:02] ---------- gen_r1 begins ----------
+[2026-08-23 21:32:02]   [dry-run] would wait for gen_r0 to finish
+[2026-08-23 21:32:02] context pack: 13 lines
+[2026-08-23 21:32:02] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle
+[2026-08-23 21:32:02] skipping gen_batchlane: cannot infer L from the name
+[2026-08-23 21:32:02] skipping gen_bluestein: cannot infer L from the name
+[2026-08-23 21:32:02] skipping gen_dense_prime: cannot infer L from the name
+[2026-08-23 21:32:02] skipping gen_layout: cannot infer L from the name
+[2026-08-23 21:32:02] skipping gen_pfa_large: cannot infer L from the name
+[2026-08-23 21:32:02] skipping gen_pfa_small: cannot infer L from the name
+[2026-08-23 21:32:02] skipping gen_planner: cannot infer L from the name
+[2026-08-23 21:32:02] skipping gen_pow2: cannot infer L from the name
+[2026-08-23 21:32:02] skipping gen_powp: cannot infer L from the name
+[2026-08-23 21:32:02] skipping gen_race: cannot infer L from the name
+[2026-08-23 21:32:02] skipping gen_rader: cannot infer L from the name
+[2026-08-23 21:32:02] skipping gen_twiddle: cannot infer L from the name
+[2026-08-23 21:32:02] implementers finished: 0 reported
+[2026-08-23 21:32:02]   [dry-run] would submit timing round gen_r1 (seed 20261834)
+[2026-08-23 21:32:02] gen_r1: no leaderboard, skipping the monitor verdict
+[2026-08-23 21:32:02]   [dry-run] would commit gen_r1
+[2026-08-23 21:32:02] [dry-run] stopping after one simulated round
+[2026-08-23 21:32:02] === halted before gen_r2 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/gen/STOP' then resume ===
+[2026-08-23 21:32:30] === run_rounds[gen]: next=gen_r1 last=gen_r6 jobs=6 ===
+[2026-08-23 21:32:30]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-23 21:32:30] ---------- gen_r1 begins ----------
+[2026-08-23 21:32:30]   [dry-run] would wait for gen_r0 to finish
+[2026-08-23 21:32:30] context pack: 13 lines
+[2026-08-23 21:32:30] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle
+[2026-08-23 21:32:30]   [dry-run] would launch implementer gen_batchlane (L=)
+[2026-08-23 21:32:30]   [dry-run] would launch implementer gen_bluestein (L=)
+[2026-08-23 21:32:30]   [dry-run] would launch implementer gen_dense_prime (L=)
+[2026-08-23 21:32:30]   [dry-run] would launch implementer gen_layout (L=)
+[2026-08-23 21:32:30]   [dry-run] would launch implementer gen_pfa_large (L=)
+[2026-08-23 21:32:30]   [dry-run] would launch implementer gen_pfa_small (L=)
+[2026-08-23 21:32:30]   [dry-run] would launch implementer gen_planner (L=)
+[2026-08-23 21:32:30]   [dry-run] would launch implementer gen_pow2 (L=)
+[2026-08-23 21:32:30]   [dry-run] would launch implementer gen_powp (L=)
+[2026-08-23 21:32:30]   [dry-run] would launch implementer gen_race (L=)
+[2026-08-23 21:32:30]   [dry-run] would launch implementer gen_rader (L=)
+[2026-08-23 21:32:30]   [dry-run] would launch implementer gen_twiddle (L=)
+[2026-08-23 21:32:31] implementers finished: 0 reported
+[2026-08-23 21:32:31]   [dry-run] would submit timing round gen_r1 (seed 20261834)
+[2026-08-23 21:32:31] gen_r1: no leaderboard, skipping the monitor verdict
+[2026-08-23 21:32:31]   [dry-run] would commit gen_r1
+[2026-08-23 21:32:31] [dry-run] stopping after one simulated round
+[2026-08-23 21:32:31] === halted before gen_r2 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/gen/STOP' then resume ===
+[2026-08-23 21:45:01] === run_rounds[gen]: next=gen_r1 last=gen_r6 jobs=6 ===
+[2026-08-23 21:45:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-23 21:45:01] ---------- gen_r1 begins ----------
+[2026-08-23 21:45:02] gen_r1 works in impl_1 (13 sources carried over from impl_0)
+[2026-08-23 21:45:02] context pack: 13 lines
+[2026-08-23 21:45:02] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle
+[2026-08-23 23:06:35] implementers finished: 12 reported
+[2026-08-23 23:06:35] submitting timing round gen_r1 (seed 20261834) to the exclusive benchmark node
+scoring gen_r1 on reserved Ice Lake node a80n0
+scoring window open: all 24 slots held
+   mkl2026_dfti             oneMKL 2026.1 (pip wheel) DFTI, sequential, batched
+   mkl_dfti                 oneMKL 2022.0.2 DFTI, sequential, batched
+== round gen_r1 complete: results/gen_r1 ==
+[2026-08-24 04:19:25] leaderboard for gen_r1 is in
+[2026-08-24 04:30:56] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/gen/results/gen_r1/monitor.log)
+[2026-08-24 04:30:56] promoting: gen_batchlane gen_pfa_small gen_powp gen_rader gen_pow2 gen_pfa_large gen_dense_prime gen_planner gen_bluestein
+/tmp/fft_rounds_RFPXs9.sh: line 512: ./promote.sh: No such file or directory
+[2026-08-24 04:30:56] promote.sh reported a problem

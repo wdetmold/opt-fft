@@ -1,0 +1,42 @@
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-08-23 21:45:01] === run_rounds[gen]: next=gen_r1 last=gen_r6 jobs=6 ===
+[2026-08-23 21:45:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-23 21:45:01] ---------- gen_r1 begins ----------
+[2026-08-23 21:45:02] gen_r1 works in impl_1 (13 sources carried over from impl_0)
+[2026-08-23 21:45:02] context pack: 13 lines
+[2026-08-23 21:45:02] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle
+2026-08-23 22:00:01 gen tick skipped: lock held
+2026-08-23 22:15:01 gen tick skipped: lock held
+2026-08-23 22:30:01 gen tick skipped: lock held
+2026-08-23 22:45:01 gen tick skipped: lock held
+/tmp/fft_rounds_RFPXs9.sh: line 411: [: 0
+0: integer expression expected
+2026-08-23 23:00:01 gen tick skipped: lock held
+[2026-08-23 23:06:35] implementers finished: 12 reported
+[2026-08-23 23:06:35] submitting timing round gen_r1 (seed 20261834) to the exclusive benchmark node
+2026-08-23 23:15:01 gen tick skipped: lock held
+2026-08-23 23:30:01 gen tick skipped: lock held
+2026-08-23 23:45:01 gen tick skipped: lock held
+2026-08-24 00:00:01 gen tick skipped: lock held
+2026-08-24 00:15:01 gen tick skipped: lock held
+2026-08-24 00:30:01 gen tick skipped: lock held
+2026-08-24 00:45:01 gen tick skipped: lock held
+2026-08-24 01:00:01 gen tick skipped: lock held
+2026-08-24 01:15:01 gen tick skipped: lock held
+2026-08-24 01:30:01 gen tick skipped: lock held
+2026-08-24 01:45:01 gen tick skipped: lock held
+2026-08-24 02:00:01 gen tick skipped: lock held
+2026-08-24 02:15:01 gen tick skipped: lock held
+2026-08-24 02:30:01 gen tick skipped: lock held
+2026-08-24 02:45:01 gen tick skipped: lock held
+2026-08-24 03:00:01 gen tick skipped: lock held
+2026-08-24 03:15:01 gen tick skipped: lock held
+2026-08-24 03:30:01 gen tick skipped: lock held
+2026-08-24 03:45:01 gen tick skipped: lock held
+2026-08-24 04:00:01 gen tick skipped: lock held
+2026-08-24 04:15:02 gen tick skipped: lock held
+[2026-08-24 04:19:25] leaderboard for gen_r1 is in
+2026-08-24 04:30:01 gen tick skipped: lock held
+[2026-08-24 04:30:56] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/gen/results/gen_r1/monitor.log)
+[2026-08-24 04:30:56] promoting: gen_batchlane gen_pfa_small gen_powp gen_rader gen_pow2 gen_pfa_large gen_dense_prime gen_planner gen_bluestein
+[2026-08-24 04:30:56] promote.sh reported a problem

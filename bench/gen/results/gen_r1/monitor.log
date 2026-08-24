@@ -1,0 +1,17 @@
+`VERDICT.md` is written to `/home/lqcd/wdetmold/fft/bench/gen/results/gen_r1/VERDICT.md`.
+
+**Three premises in the monitoring brief were wrong, and I corrected them up front rather than reporting around them:**
+
+1. **The geometries aren't L = 6, 8, 17, 36.** Those are the *previous* campaign's tuned cubes (`bench/geom`, panel_r1..r11). This round's acceptance suite is `cases.txt`: L = 10, 12, 15, 20, 25, 27, 31, 32, 40, 50, 100 — deliberately disjoint ("none of these sizes was ever tuned by any prior round"). I reported all eleven.
+2. **The node is Ice Lake-SP, not Cascade Lake.** `environment.txt` says Xeon Gold 6326 @ 2.90 GHz — 1.25 MiB L2, two 512-bit FMA units, no low-core-count AVX-512 downclock. Both campaign docs specify Ice Lake as the scoring node, so it's the intended machine.
+3. **Implementers developed on this same node**, through `tryout.sh` leased cores — every strategy table is labelled a80n0. So §4 has no machine gap to attribute anything to: claims and measurements agree to a few percent, and *every* divergence over 1.5% is in the conservative direction (they measured faster than they claimed). The one implementer who did report dev-host numbers measured the gap at **1.29–1.52x**, not 2.9x — and, more usefully, recorded that the winning *variant* inverts between hosts at 2 of 4 sizes.
+
+**The result:** eleven never-tuned sizes, eleven wins over the best of MKL 2022/2026, FFTW3 ×3, ducc0. Geomean 2.82x, worst 1.56x (L=100), best 7.70x (L=31 — where all six libraries collapse to 2.5–3.1 GF/s and even our Bluestein *fallback* beats them).
+
+**Adversarial pass found no fast-wrong answer.** I audited the gates from the artifacts rather than the self-reports: 152/152 single-call, 153/153 on the two-step precision gate (which lives in `o_*.json`, not `c_*.json` — easy to miss), worst residual anywhere 4.86e-15 against 3e-14. Zero build errors, zero crashes, no roster size missing. What I did flag: the L=20 winner `gen_pfa_small` carries four `-Waggressive-loop-optimizations` UB warnings in its `B%8` tail — a path no scored case exercised, which is exactly what round 6's unannounced (L, B) draws will find. And **all four library layers scored zero adoption** — I grepped every entry; not one `#include`. That's the round's real failure, and it's on r5/r6's critical path.
+
+On §4 of LITERATURE.md: the question that moved is **§4.3**, in the L2↔DRAM regime its own addendum called "the largest untried structural move on the board." `gen_rader` tiled state + c to 953 KB inside the 1.25 MiB L2 and measured **−14.5%**; `gen_pfa_small` at L=20 is the same condition left unfixed (2 MB working set) and its GF/s drops from 42–47 to 30.7. §4.2's dense-vs-Rader crossover also moved, transposed to p=31 — Rader wins 1.86x, via the symmetric/antisymmetric fold §4.2(b) asked about — but 31 is not 17, and I said so.
+
+One thing I deliberately did **not** do: this round owns the m-calibration duty, and L=31 runs at 4.75x the 0.4 s MKL target because MKL collapses there. Rescaling to m=29 would shrink the winner's chain to 44 ms and make the spreads meaningless. I recorded the full table and recommended freezing as-run (or re-anchoring m to best-library rather than MKL), but left `cases.txt` untouched — it's a number all six rounds and the r6 acceptance test depend on, so it's your call, not mine.
+
+PROMOTE: gen_batchlane gen_pfa_small gen_powp gen_rader gen_pow2 gen_pfa_large gen_dense_prime gen_planner gen_bluestein

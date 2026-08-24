@@ -1,0 +1,1 @@
+PFA/Good–Thomas SoA-8 batch-lane engine with fused-map chain ownership (rsqrt14/rcp14+Newton map): batched graded chains 1.43 / 2.50 / 6.44 / 17.05 µs/xform at L=10/12/15/20 (3.1×, 2.9×, 2.5×, 3.4× over MKL+driver-map on the Ice Lake node), B=1 plain 3.75 / 5.30 / 15.06 / 30.94 µs, rel L2 = 2.8–3.2e-16 with all chain gates passed (two-step ≤1.3e-15, bit-repeatable).

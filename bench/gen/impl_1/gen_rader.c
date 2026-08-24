@@ -1,0 +1,756 @@
+/* gen_rader -- Rader-class prime entry, round gen_r1.  Owns L=31.
+ *
+ * FOLDED RADER: the conjugate-pair fold (s_j = x_j + x_{31-j}, d_j = x_j - x_{31-j})
+ * turns the 31-point DFT into
+ *     X_k     = x_0 + E_k - i O_k,   X_{31-k} = x_0 + E_k + i O_k,
+ *     E_k = sum_j cos(2pi jk/31) s_j,   O_k = sum_j sin(2pi jk/31) d_j,  j,k = 1..15.
+ * Indexing both j and k through the multiplicative quotient group Z31* mod {+-1}
+ * (cyclic of order 15, generator 3) makes the E system a CYCLIC-15 correlation of
+ * s with the cos kernel and the O system a NEGACYCLIC-15 correlation of sign-twisted
+ * d with the sin kernel; because 15 is odd, the negacyclic one converts to cyclic via
+ * diagonal +-1 twists that fold entirely into the (compile-time) load/store index
+ * tables.  Correlation -> convolution by reversing the (precomputed) kernel.
+ *
+ * Each cyclic-15 convolution is computed as Winograd-C3 (4 block products, 11 block
+ * adds) NESTED OVER dense cyclic-5 blocks (25 FMA each): 100 FMA + 65 vector adds
+ * per convolution, ALL constants real, so on interleaved complex data every op is a
+ * plain zmm add/FMA -- no complex-multiply shuffles anywhere.  Per 4 pencils per
+ * axis: ~435 zmm ops vs the folded-dense entry's ~555, with ~40 broadcast constants
+ * instead of ~450 table loads.  (Dense C5 blocks beat Winograd C5 blocks on FMA
+ * hardware: 25 FMA < 10 mul + 31 add.  The full-Winograd C15 at 40 mul + 179 add
+ * would LOSE to this hybrid -- same lesson as ice L23_rader's "121 fused FMAs beat
+ * any sub-quadratic length-11 convolution".)
+ *
+ * Chassis (pass order, z-row kernel, chain scheme, map) ADOPTED from
+ * gen_dense_prime gen_r1 (itself from the ice-campaign records):
+ *   P1 z rows contiguous (their zpass31 row-pair GEMM, verbatim), P2 x-axis
+ *   inner=961, P3 y-axis per-plane in place; volume-resident fused chain
+ *   (state z in place, x -> t1, y in place, s6 map t1+c -> state);
+ *   map = pair-compressed |w|^2, rsqrt14+2NR, ONE vdivpd per 8 points.
+ *
+ * create() SELF-CHECKS the fast engine against a dense reference volume at 1e-13
+ * and falls back to the (slow, correct) dense-matrix path if the check fails --
+ * a fast wrong answer scores nothing.
+ */
+#include <complex.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifdef __AVX512F__
+#include <immintrin.h>
+#endif
+
+#include "../fft3d_api.h"
+
+typedef double _Complex cplx;
+
+static const long double PIL = 3.141592653589793238462643383279502884L;
+
+/* ---- index tables (derived + verified against a reference DFT offline) ----
+ * slot n = 5*i + j maps to CRT point ((10i+6j) mod 15) of the cyclic-15 system.
+ * JS:  E-sweep fill:  S[n] = x[JS] + x[31-JS]              (s fold, reversal baked in)
+ * JDP/JDM: O-sweep fill: S[n] = x[JDP] - x[JDM]            (d fold; (-1)^q eps_q twist
+ *                                                           baked into the p/m swap)
+ * KP/KM: output rows: X[KP] = T - iO~, X[KM] = T + iO~     (eps_t (-1)^t twist baked
+ *                                                           into the pair order)    */
+static const int R31_JS[15]  = {1, 2, 4, 8, 15, 5, 10, 11, 9, 13, 6, 12, 7, 14, 3};
+static const int R31_JDP[15] = {1, 2, 4, 8, 16, 5, 10, 20, 9, 18, 25, 19, 7, 14, 28};
+static const int R31_JDM[15] = {30, 29, 27, 23, 15, 26, 21, 11, 22, 13, 6, 12, 24, 17, 3};
+static const int R31_KP[15]  = {1, 16, 8, 4, 2, 25, 28, 14, 7, 19, 5, 18, 9, 20, 10};
+static const int R31_KM[15]  = {30, 15, 23, 27, 29, 6, 3, 17, 24, 12, 26, 13, 22, 11, 21};
+
+struct fft3d_plan {
+    int L, batch;
+    int fast;            /* 1: AVX-512 Rader engine passed the self-check */
+    double *ke, *ko;     /* transformed conv kernels: 4 blocks x 5 doubles each */
+    double *ctd, *std_;  /* z-pass duplicated-pair trig tables [15][32] */
+    cplx *t1;            /* scratch volume */
+    cplx *w;             /* dense 31x31 DFT matrix (self-check + fallback) */
+    cplx *tmp;           /* fallback scratch volume */
+};
+
+const char *fft3d_name(void) { return "gen_rader"; }
+const char *fft3d_description(void)
+{
+    return "Rader-31: conjugate fold -> cyclic-15 (cos) + negacyclic-15 (sin; odd-N "
+           "sign-twist to cyclic), each via Winograd-C3 x dense-C5 (100 FMA + 65 add), "
+           "all-real constants on interleaved zmm; dense z-row pass + volume-resident "
+           "fused chain (s6 map, one vdivpd/8pts) adopted from gen_dense_prime";
+}
+int fft3d_supports(int L) { return L == 31; }
+
+/* ---------------- plan-time tables ---------------- */
+
+/* Winograd-C3 kernel-side transform of a cyclic-15 kernel K (long double in):
+ * blocks H_i[j] = K[(10i+6j) mod 15]; out = { (H0+H1+H2)/3, (H0-H2)/3,
+ * (H1-H2)/3, (H0-H1)/3 }, 20 doubles. */
+static void r31_kernel_transform(const long double *K, double *out)
+{
+    long double H[3][5];
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 5; ++j)
+            H[i][j] = K[(10 * i + 6 * j) % 15];
+    for (int j = 0; j < 5; ++j) {
+        out[j]      = (double)((H[0][j] + H[1][j] + H[2][j]) / 3.0L);
+        out[5 + j]  = (double)((H[0][j] - H[2][j]) / 3.0L);
+        out[10 + j] = (double)((H[1][j] - H[2][j]) / 3.0L);
+        out[15 + j] = (double)((H[0][j] - H[1][j]) / 3.0L);
+    }
+}
+
+/* E kernel: CC_r = cos(2pi 3^r/31); O kernel: SN'_r = (-1)^r sin(2pi 3^r/31). */
+static void r31_build_kernels(double *ke, double *ko)
+{
+    long double CC[15], SN[15];
+    long g = 1;
+    for (int r = 0; r < 15; ++r) {
+        long double th = 2.0L * PIL * (long double)g / 31.0L;
+        CC[r] = cosl(th);
+        SN[r] = (r & 1) ? -sinl(th) : sinl(th);
+        g = (g * 3) % 31;
+    }
+    r31_kernel_transform(CC, ke);
+    r31_kernel_transform(SN, ko);
+}
+
+/* duplicated-pair trig layout for the z-pass (from gen_dense_prime):
+ * row j-1 holds (w_{j,0}, w_{j,0}, ..., w_{j,15}, w_{j,15}) = 32 doubles */
+static double *r31_trig_dup(int want_sin)
+{
+    double *t = aligned_alloc(64, 15 * 32 * sizeof(double));
+    if (!t) return NULL;
+    for (int j = 1; j <= 15; ++j)
+        for (int k = 0; k <= 15; ++k) {
+            long m = ((long)j * k) % 31;
+            long double th = 2.0L * PIL * (long double)m / 31.0L;
+            double w = want_sin ? (double)sinl(th) : (double)cosl(th);
+            t[(size_t)(j - 1) * 32 + 2 * k]     = w;
+            t[(size_t)(j - 1) * 32 + 2 * k + 1] = w;
+        }
+    return t;
+}
+
+#ifdef __AVX512F__
+
+/* ---------------- the Winograd C3 x dense-C5 cyclic-15 convolution ----------------
+ * S[15] in CRT slot order -> Y[15] same order; kt = 20 transformed kernel doubles.
+ * If esum != NULL, also emits sum of the E block (= sum of all 15 inputs). */
+
+#define R31_C5(DST, SRC, KB) do {                                              \
+    __m512d k0 = _mm512_set1_pd((KB)[0]), k1 = _mm512_set1_pd((KB)[1]);        \
+    __m512d k2 = _mm512_set1_pd((KB)[2]), k3 = _mm512_set1_pd((KB)[3]);        \
+    __m512d k4 = _mm512_set1_pd((KB)[4]);                                      \
+    DST[0] = _mm512_mul_pd(SRC[0], k0);                                        \
+    DST[1] = _mm512_mul_pd(SRC[0], k1);                                        \
+    DST[2] = _mm512_mul_pd(SRC[0], k2);                                        \
+    DST[3] = _mm512_mul_pd(SRC[0], k3);                                        \
+    DST[4] = _mm512_mul_pd(SRC[0], k4);                                        \
+    DST[0] = _mm512_fmadd_pd(SRC[1], k4, DST[0]);                              \
+    DST[1] = _mm512_fmadd_pd(SRC[1], k0, DST[1]);                              \
+    DST[2] = _mm512_fmadd_pd(SRC[1], k1, DST[2]);                              \
+    DST[3] = _mm512_fmadd_pd(SRC[1], k2, DST[3]);                              \
+    DST[4] = _mm512_fmadd_pd(SRC[1], k3, DST[4]);                              \
+    DST[0] = _mm512_fmadd_pd(SRC[2], k3, DST[0]);                              \
+    DST[1] = _mm512_fmadd_pd(SRC[2], k4, DST[1]);                              \
+    DST[2] = _mm512_fmadd_pd(SRC[2], k0, DST[2]);                              \
+    DST[3] = _mm512_fmadd_pd(SRC[2], k1, DST[3]);                              \
+    DST[4] = _mm512_fmadd_pd(SRC[2], k2, DST[4]);                              \
+    DST[0] = _mm512_fmadd_pd(SRC[3], k2, DST[0]);                              \
+    DST[1] = _mm512_fmadd_pd(SRC[3], k3, DST[1]);                              \
+    DST[2] = _mm512_fmadd_pd(SRC[3], k4, DST[2]);                              \
+    DST[3] = _mm512_fmadd_pd(SRC[3], k0, DST[3]);                              \
+    DST[4] = _mm512_fmadd_pd(SRC[3], k1, DST[4]);                              \
+    DST[0] = _mm512_fmadd_pd(SRC[4], k1, DST[0]);                              \
+    DST[1] = _mm512_fmadd_pd(SRC[4], k2, DST[1]);                              \
+    DST[2] = _mm512_fmadd_pd(SRC[4], k3, DST[2]);                              \
+    DST[3] = _mm512_fmadd_pd(SRC[4], k4, DST[3]);                              \
+    DST[4] = _mm512_fmadd_pd(SRC[4], k0, DST[4]);                              \
+} while (0)
+
+static inline __attribute__((always_inline))
+void r31_wino15(const __m512d *S, const double *kt, __m512d *Y, __m512d *esum)
+{
+    __m512d E[5], A[5], B[5], C[5], M0[5], M1[5], M2[5], M3[5];
+    for (int j = 0; j < 5; ++j) {
+        E[j] = _mm512_add_pd(_mm512_add_pd(S[j], S[5 + j]), S[10 + j]);
+        A[j] = _mm512_sub_pd(S[j], S[10 + j]);
+        B[j] = _mm512_sub_pd(S[5 + j], S[10 + j]);
+        C[j] = _mm512_sub_pd(S[j], S[5 + j]);
+    }
+    if (esum)
+        *esum = _mm512_add_pd(_mm512_add_pd(_mm512_add_pd(E[0], E[1]),
+                                            _mm512_add_pd(E[2], E[3])), E[4]);
+    R31_C5(M0, E, kt);
+    R31_C5(M1, A, kt + 5);
+    R31_C5(M2, B, kt + 10);
+    R31_C5(M3, C, kt + 15);
+    const __m512d TWO = _mm512_set1_pd(2.0);
+    for (int j = 0; j < 5; ++j) {
+        __m512d t01 = _mm512_add_pd(M0[j], M1[j]);
+        Y[j]      = _mm512_fnmadd_pd(M2[j], TWO, _mm512_add_pd(t01, M3[j]));
+        Y[5 + j]  = _mm512_fnmadd_pd(M3[j], TWO, _mm512_add_pd(t01, M2[j]));
+        __m512d t23 = _mm512_add_pd(M2[j], M3[j]);
+        Y[10 + j] = _mm512_fnmadd_pd(M1[j], TWO, _mm512_add_pd(M0[j], t23));
+    }
+}
+
+/* s6 map ladder pieces (arithmetic identical to map_volume; every ladder op is
+ * elementwise, so where it runs cannot change per-point bits).  Pair form: one
+ * vdivpd per two output vectors; single form for the lone X0 vector. */
+static inline __attribute__((always_inline)) __m512d r31_map_rec(__m512d m2)
+{
+    const __m512d ONE  = _mm512_set1_pd(1.0);
+    const __m512d TH   = _mm512_set1_pd(1.5);
+    const __m512d HALF = _mm512_set1_pd(0.5);
+    const __m512d TINY = _mm512_set1_pd(1e-300);
+    __m512d m2c = _mm512_max_pd(m2, TINY);
+    __m512d r = _mm512_rsqrt14_pd(m2c);
+    __m512d hm = _mm512_mul_pd(m2c, HALF);
+    r = _mm512_mul_pd(r, _mm512_fnmadd_pd(_mm512_mul_pd(hm, r), r, TH));
+    r = _mm512_mul_pd(r, _mm512_fnmadd_pd(_mm512_mul_pd(hm, r), r, TH));
+    __m512d d = _mm512_fmadd_pd(m2c, r, ONE);                  /* 1 + |w| */
+#ifdef R31_FUSE_DIV
+    return _mm512_div_pd(ONE, d);          /* hw divide: raced, LOSES when fused */
+#else
+    /* divider-free: rcp14 + 2 Newton (sub-ulp) -- the ice L23 r4 lesson: an
+     * eager-fused map must not end its chain in vdivpd right before the stores */
+    const __m512d TWO = _mm512_set1_pd(2.0);
+    __m512d rec = _mm512_rcp14_pd(d);
+    rec = _mm512_mul_pd(rec, _mm512_fnmadd_pd(d, rec, TWO));
+    rec = _mm512_mul_pd(rec, _mm512_fnmadd_pd(d, rec, TWO));
+    return rec;
+#endif
+}
+
+static inline __attribute__((always_inline))
+void r31_map2(__m512d wa, __m512d wb, __m512d *oa, __m512d *ob)
+{
+    __m512d pa = _mm512_mul_pd(wa, wa), pb = _mm512_mul_pd(wb, wb);
+    __m512d m2 = _mm512_add_pd(_mm512_unpacklo_pd(pa, pb),
+                               _mm512_unpackhi_pd(pa, pb));
+    __m512d rec = r31_map_rec(m2);
+    *oa = _mm512_mul_pd(wa, _mm512_unpacklo_pd(rec, rec));
+    *ob = _mm512_mul_pd(wb, _mm512_unpackhi_pd(rec, rec));
+}
+
+static inline __attribute__((always_inline)) __m512d r31_map1(__m512d w)
+{
+    __m512d p = _mm512_mul_pd(w, w);
+    __m512d m2 = _mm512_add_pd(p, _mm512_permute_pd(p, 0x55));
+    return _mm512_mul_pd(w, r31_map_rec(m2));
+}
+
+/* one column chunk (up to 4 complex = 8 doubles wide) of a 31 x inner pass.
+ * sx/dx already offset to the chunk; rs = row stride in doubles.  In-place safe:
+ * within the chunk every load of a row precedes every store to it (E sweep writes
+ * only row 0, which the O sweep never reads).  NO restrict here -- the y-pass runs
+ * dst == src and the compiler must keep the load/store order.
+ * mapc == NULL: plain FFT stores.  mapc != NULL: chain mode -- every output is
+ * mapped ((X+c)/(1+|X+c|)) at the store, c chunk at mapc, same row strides. */
+static inline __attribute__((always_inline))
+void r31_chunk(const double *sx, double *dx, const double *mapc,
+               const ptrdiff_t rs, int full,
+               __mmask8 msk, const double *ke, const double *ko)
+{
+    const __m512d SG = _mm512_setr_pd(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
+    __m512d S[15], Y[15], T[15];
+#ifdef R31_ONEBODY
+    (void)full;   /* single always-masked body: halves the hot code footprint */
+#define R31_LD(px, off) _mm512_maskz_loadu_pd(msk, (px) + (off))
+#define R31_ST(off, v)  _mm512_mask_storeu_pd(dx + (off), msk, v)
+#else
+#define R31_LD(px, off) (full ? _mm512_loadu_pd((px) + (off)) \
+                              : _mm512_maskz_loadu_pd(msk, (px) + (off)))
+#define R31_ST(off, v) do { if (full) _mm512_storeu_pd(dx + (off), v); \
+                            else _mm512_mask_storeu_pd(dx + (off), msk, v); } while (0)
+#endif
+    __m512d x0 = R31_LD(sx, 0);
+    for (int n = 0; n < 15; ++n) {
+        const ptrdiff_t j = R31_JS[n];
+        S[n] = _mm512_add_pd(R31_LD(sx, j * rs), R31_LD(sx, (31 - j) * rs));
+    }
+    __m512d esum;
+    r31_wino15(S, ke, Y, &esum);
+    __m512d X0 = _mm512_add_pd(x0, esum);
+    if (mapc)
+        X0 = r31_map1(_mm512_add_pd(X0, R31_LD(mapc, 0)));
+    R31_ST(0, X0);
+    for (int n = 0; n < 15; ++n) T[n] = _mm512_add_pd(x0, Y[n]);
+    for (int n = 0; n < 15; ++n)
+        S[n] = _mm512_sub_pd(R31_LD(sx, (ptrdiff_t)R31_JDP[n] * rs),
+                             R31_LD(sx, (ptrdiff_t)R31_JDM[n] * rs));
+    r31_wino15(S, ko, Y, NULL);
+    for (int n = 0; n < 15; ++n) {
+        __m512d o = _mm512_permute_pd(Y[n], 0x55);              /* swap re/im */
+        __m512d xp = _mm512_fmadd_pd(o, SG, T[n]);
+        __m512d xm = _mm512_fnmadd_pd(o, SG, T[n]);
+        if (mapc) {
+            xp = _mm512_add_pd(xp, R31_LD(mapc, (ptrdiff_t)R31_KP[n] * rs));
+            xm = _mm512_add_pd(xm, R31_LD(mapc, (ptrdiff_t)R31_KM[n] * rs));
+            r31_map2(xp, xm, &xp, &xm);
+        }
+        R31_ST((ptrdiff_t)R31_KP[n] * rs, xp);
+        R31_ST((ptrdiff_t)R31_KM[n] * rs, xm);
+    }
+#undef R31_LD
+#undef R31_ST
+}
+
+/* contract the slowest axis of a (31 x inner) complex block; dst may equal src
+ * when c == NULL (plain).  c != NULL: map-fused stores (dst must be distinct). */
+static inline __attribute__((always_inline))
+void r31_pass_core(const cplx *src, cplx *dst, const cplx *c, const ptrdiff_t inner,
+                   const double *ke, const double *ko)
+{
+    const ptrdiff_t rs = 2 * inner;
+    const double *sx = (const double *)src;
+    const double *cx = (const double *)c;
+    double *dx = (double *)dst;
+#ifdef R31_ONEBODY
+    for (ptrdiff_t d = 0; d < rs; d += 8) {
+        __mmask8 msk = (rs - d >= 8) ? (__mmask8)0xFF
+                                     : (__mmask8)((1u << (rs - d)) - 1);
+        r31_chunk(sx + d, dx + d, cx ? cx + d : NULL, rs, 0, msk, ke, ko);
+    }
+#else
+    ptrdiff_t d = 0;
+    for (; d + 8 <= rs; d += 8)
+        r31_chunk(sx + d, dx + d, cx ? cx + d : NULL, rs, 1, (__mmask8)0xFF, ke, ko);
+    if (d < rs)
+        r31_chunk(sx + d, dx + d, cx ? cx + d : NULL, rs, 0,
+                  (__mmask8)((1u << (rs - d)) - 1), ke, ko);
+#endif
+}
+
+static void r31_pass_x(const cplx *s, cplx *d, const double *ke, const double *ko)
+{ r31_pass_core(s, d, NULL, 31 * 31, ke, ko); }
+
+static void r31_pass_y(const cplx *s, cplx *d, const double *ke, const double *ko)
+{ r31_pass_core(s, d, NULL, 31, ke, ko); }
+
+/* y pass with the map fused at every store: src = x-pass output plane (t1),
+ * dst = state plane, c = map-constant plane */
+static __attribute__((unused))
+void r31_pass_ym(const cplx *s, cplx *d, const cplx *c,
+                 const double *ke, const double *ko)
+{ r31_pass_core(s, d, c, 31, ke, ko); }
+
+/* ---------------- z-axis pass, Rader form: 4 rows via 4x4-complex transposes ----
+ * Four contiguous rows are transposed (8 vshuff64x2 per 4x4-complex tile) into a
+ * stack array where element j of the 4 pencils is one zmm at stride 8 doubles,
+ * the SAME r31_chunk kernel runs on it (all offsets compile-time), and the result
+ * transposes back.  ~110 arith/pencil + 32 shuffles/pencil vs the dense row-GEMM's
+ * ~240 FMA/pencil.  In-place safe: all loads of the 4 rows precede all stores. */
+static inline __attribute__((always_inline))
+void r31_tp4(const __m512d a, const __m512d b, const __m512d c, const __m512d d,
+             __m512d *o0, __m512d *o1, __m512d *o2, __m512d *o3)
+{
+    __m512d t0 = _mm512_shuffle_f64x2(a, b, 0x44);
+    __m512d t1 = _mm512_shuffle_f64x2(a, b, 0xEE);
+    __m512d t2 = _mm512_shuffle_f64x2(c, d, 0x44);
+    __m512d t3 = _mm512_shuffle_f64x2(c, d, 0xEE);
+    *o0 = _mm512_shuffle_f64x2(t0, t2, 0x88);
+    *o1 = _mm512_shuffle_f64x2(t0, t2, 0xDD);
+    *o2 = _mm512_shuffle_f64x2(t1, t3, 0x88);
+    *o3 = _mm512_shuffle_f64x2(t1, t3, 0xDD);
+}
+
+static void r31_zquad(const cplx *src, cplx *dst, const double *ke, const double *ko)
+{
+    __attribute__((aligned(64))) double xt[32 * 8], yt[32 * 8];
+    const double *x = (const double *)src;
+    double *y = (double *)dst;
+    for (int t = 0; t < 8; ++t) {           /* transpose in: tile t = elements 4t..4t+3 */
+        __m512d r0, r1, r2, r3;
+        if (t < 7) {
+            r0 = _mm512_loadu_pd(x + 8 * t);
+            r1 = _mm512_loadu_pd(x + 62 + 8 * t);
+            r2 = _mm512_loadu_pd(x + 124 + 8 * t);
+            r3 = _mm512_loadu_pd(x + 186 + 8 * t);
+        } else {                            /* elements 28..30 only */
+            r0 = _mm512_maskz_loadu_pd(0x3F, x + 56);
+            r1 = _mm512_maskz_loadu_pd(0x3F, x + 118);
+            r2 = _mm512_maskz_loadu_pd(0x3F, x + 180);
+            r3 = _mm512_maskz_loadu_pd(0x3F, x + 242);
+        }
+        __m512d o0, o1, o2, o3;
+        r31_tp4(r0, r1, r2, r3, &o0, &o1, &o2, &o3);
+        _mm512_store_pd(xt + (4 * t) * 8, o0);
+        _mm512_store_pd(xt + (4 * t + 1) * 8, o1);
+        _mm512_store_pd(xt + (4 * t + 2) * 8, o2);
+        _mm512_store_pd(xt + (4 * t + 3) * 8, o3);
+    }
+    r31_chunk(xt, yt, NULL, 8, 1, (__mmask8)0xFF, ke, ko);
+    for (int t = 0; t < 8; ++t) {           /* transpose out */
+        __m512d o0, o1, o2, o3;
+        r31_tp4(_mm512_load_pd(yt + (4 * t) * 8),
+                _mm512_load_pd(yt + (4 * t + 1) * 8),
+                _mm512_load_pd(yt + (4 * t + 2) * 8),
+                (t < 7) ? _mm512_load_pd(yt + (4 * t + 3) * 8) : _mm512_setzero_pd(),
+                &o0, &o1, &o2, &o3);
+        if (t < 7) {
+            _mm512_storeu_pd(y + 8 * t, o0);
+            _mm512_storeu_pd(y + 62 + 8 * t, o1);
+            _mm512_storeu_pd(y + 124 + 8 * t, o2);
+            _mm512_storeu_pd(y + 186 + 8 * t, o3);
+        } else {
+            _mm512_mask_storeu_pd(y + 56, 0x3F, o0);
+            _mm512_mask_storeu_pd(y + 118, 0x3F, o1);
+            _mm512_mask_storeu_pd(y + 180, 0x3F, o2);
+            _mm512_mask_storeu_pd(y + 242, 0x3F, o3);
+        }
+    }
+}
+
+/* ---------------- z-axis pass: contiguous rows ----------------
+ * ADOPTED VERBATIM from gen_dense_prime gen_r1 (their zpass31/zpass31_pair):
+ * k dimension in 4 zmm per half-spectrum, u/v broadcast as 128-bit pairs,
+ * rows in PAIRS sharing the 8 table loads per j. */
+static void r31_zrow_pair(const cplx *restrict src, cplx *restrict dst,
+                          const double *restrict ctd, const double *restrict std)
+{
+    const __m512d SG = _mm512_setr_pd(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
+    const double *xA = (const double *)src;
+    const double *xB = (const double *)(src + 31);
+    double *yA = (double *)dst;
+    double *yB = (double *)(dst + 31);
+
+    __attribute__((aligned(64))) double ua[32], va[32], ub2[32], vb2[32];
+    for (int j = 1; j <= 15; ++j) {
+        __m128d a = _mm_loadu_pd(xA + 2 * j), b = _mm_loadu_pd(xA + 2 * (31 - j));
+        _mm_store_pd(ua + 2 * j, _mm_add_pd(a, b));
+        _mm_store_pd(va + 2 * j, _mm_sub_pd(a, b));
+        __m128d c = _mm_loadu_pd(xB + 2 * j), e = _mm_loadu_pd(xB + 2 * (31 - j));
+        _mm_store_pd(ub2 + 2 * j, _mm_add_pd(c, e));
+        _mm_store_pd(vb2 + 2 * j, _mm_sub_pd(c, e));
+    }
+    __m512d xa0 = _mm512_broadcast_f64x2(_mm_loadu_pd(xA));
+    __m512d xb0 = _mm512_broadcast_f64x2(_mm_loadu_pd(xB));
+    __m512d CA0 = xa0, CA1 = xa0, CA2 = xa0, CA3 = xa0;
+    __m512d CB0 = xb0, CB1 = xb0, CB2 = xb0, CB3 = xb0;
+    __m512d SA0 = _mm512_setzero_pd(), SA1 = SA0, SA2 = SA0, SA3 = SA0;
+    __m512d SB0 = SA0, SB1 = SA0, SB2 = SA0, SB3 = SA0;
+    for (int j = 1; j <= 15; ++j) {
+        const double *cr = ctd + (size_t)(j - 1) * 32;
+        const double *sr = std + (size_t)(j - 1) * 32;
+        __m512d c0 = _mm512_load_pd(cr + 0),  c1 = _mm512_load_pd(cr + 8);
+        __m512d c2 = _mm512_load_pd(cr + 16), c3 = _mm512_load_pd(cr + 24);
+        __m512d s0 = _mm512_load_pd(sr + 0),  s1 = _mm512_load_pd(sr + 8);
+        __m512d s2 = _mm512_load_pd(sr + 16), s3 = _mm512_load_pd(sr + 24);
+        __m512d uA = _mm512_broadcast_f64x2(_mm_load_pd(ua + 2 * j));
+        __m512d vA = _mm512_broadcast_f64x2(_mm_load_pd(va + 2 * j));
+        __m512d uB = _mm512_broadcast_f64x2(_mm_load_pd(ub2 + 2 * j));
+        __m512d vB = _mm512_broadcast_f64x2(_mm_load_pd(vb2 + 2 * j));
+        CA0 = _mm512_fmadd_pd(c0, uA, CA0); CA1 = _mm512_fmadd_pd(c1, uA, CA1);
+        CA2 = _mm512_fmadd_pd(c2, uA, CA2); CA3 = _mm512_fmadd_pd(c3, uA, CA3);
+        SA0 = _mm512_fmadd_pd(s0, vA, SA0); SA1 = _mm512_fmadd_pd(s1, vA, SA1);
+        SA2 = _mm512_fmadd_pd(s2, vA, SA2); SA3 = _mm512_fmadd_pd(s3, vA, SA3);
+        CB0 = _mm512_fmadd_pd(c0, uB, CB0); CB1 = _mm512_fmadd_pd(c1, uB, CB1);
+        CB2 = _mm512_fmadd_pd(c2, uB, CB2); CB3 = _mm512_fmadd_pd(c3, uB, CB3);
+        SB0 = _mm512_fmadd_pd(s0, vB, SB0); SB1 = _mm512_fmadd_pd(s1, vB, SB1);
+        SB2 = _mm512_fmadd_pd(s2, vB, SB2); SB3 = _mm512_fmadd_pd(s3, vB, SB3);
+    }
+#define R31_ZSTORE(y, C0, C1, C2, C3, S0, S1, S2, S3) do {                     \
+        __m512d T0 = _mm512_permute_pd(S0, 0x55);                              \
+        __m512d T1 = _mm512_permute_pd(S1, 0x55);                              \
+        __m512d T2 = _mm512_permute_pd(S2, 0x55);                              \
+        __m512d T3 = _mm512_permute_pd(S3, 0x55);                              \
+        _mm512_storeu_pd((y) + 0,  _mm512_fmadd_pd(T0, SG, C0));               \
+        _mm512_storeu_pd((y) + 8,  _mm512_fmadd_pd(T1, SG, C1));               \
+        _mm512_storeu_pd((y) + 16, _mm512_fmadd_pd(T2, SG, C2));               \
+        _mm512_storeu_pd((y) + 24, _mm512_fmadd_pd(T3, SG, C3));               \
+        __m512d h0 = _mm512_fnmadd_pd(T0, SG, C0);                             \
+        __m512d h1 = _mm512_fnmadd_pd(T1, SG, C1);                             \
+        __m512d h2 = _mm512_fnmadd_pd(T2, SG, C2);                             \
+        __m512d h3 = _mm512_fnmadd_pd(T3, SG, C3);                             \
+        _mm512_storeu_pd((y) + 32, _mm512_shuffle_f64x2(h3, h3, 0x1B));        \
+        _mm512_storeu_pd((y) + 40, _mm512_shuffle_f64x2(h2, h2, 0x1B));        \
+        _mm512_storeu_pd((y) + 48, _mm512_shuffle_f64x2(h1, h1, 0x1B));        \
+        _mm512_mask_storeu_pd((y) + 56, 0x3F, _mm512_shuffle_f64x2(h0, h0, 0x1B)); \
+    } while (0)
+    R31_ZSTORE(yA, CA0, CA1, CA2, CA3, SA0, SA1, SA2, SA3);
+    R31_ZSTORE(yB, CB0, CB1, CB2, CB3, SB0, SB1, SB2, SB3);
+}
+
+static void r31_zpass(const cplx *restrict src, cplx *restrict dst, size_t nrows,
+                      const double *restrict ctd, const double *restrict std)
+{
+    const __m512d SG = _mm512_setr_pd(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
+    size_t r = 0;
+    for (; r + 2 <= nrows; r += 2)
+        r31_zrow_pair(src + r * 31, dst + r * 31, ctd, std);
+    for (; r < nrows; ++r) {
+        const double *x = (const double *)(src + r * 31);
+        double *y = (double *)(dst + r * 31);
+        __attribute__((aligned(64))) double ub[32], vb[32];
+        for (int j = 1; j <= 15; ++j) {
+            __m128d a = _mm_loadu_pd(x + 2 * j);
+            __m128d b = _mm_loadu_pd(x + 2 * (31 - j));
+            _mm_store_pd(ub + 2 * j, _mm_add_pd(a, b));
+            _mm_store_pd(vb + 2 * j, _mm_sub_pd(a, b));
+        }
+        __m512d x0 = _mm512_broadcast_f64x2(_mm_loadu_pd(x));
+        __m512d C0 = x0, C1 = x0, C2 = x0, C3 = x0;
+        __m512d S0 = _mm512_setzero_pd(), S1 = S0, S2 = S0, S3 = S0;
+        for (int j = 1; j <= 15; ++j) {
+            __m512d u = _mm512_broadcast_f64x2(_mm_load_pd(ub + 2 * j));
+            __m512d v = _mm512_broadcast_f64x2(_mm_load_pd(vb + 2 * j));
+            const double *cr = ctd + (size_t)(j - 1) * 32;
+            const double *sr = std + (size_t)(j - 1) * 32;
+            C0 = _mm512_fmadd_pd(_mm512_load_pd(cr + 0),  u, C0);
+            C1 = _mm512_fmadd_pd(_mm512_load_pd(cr + 8),  u, C1);
+            C2 = _mm512_fmadd_pd(_mm512_load_pd(cr + 16), u, C2);
+            C3 = _mm512_fmadd_pd(_mm512_load_pd(cr + 24), u, C3);
+            S0 = _mm512_fmadd_pd(_mm512_load_pd(sr + 0),  v, S0);
+            S1 = _mm512_fmadd_pd(_mm512_load_pd(sr + 8),  v, S1);
+            S2 = _mm512_fmadd_pd(_mm512_load_pd(sr + 16), v, S2);
+            S3 = _mm512_fmadd_pd(_mm512_load_pd(sr + 24), v, S3);
+        }
+        __m512d T0 = _mm512_permute_pd(S0, 0x55);
+        __m512d T1 = _mm512_permute_pd(S1, 0x55);
+        __m512d T2 = _mm512_permute_pd(S2, 0x55);
+        __m512d T3 = _mm512_permute_pd(S3, 0x55);
+        _mm512_storeu_pd(y + 0,  _mm512_fmadd_pd(T0, SG, C0));
+        _mm512_storeu_pd(y + 8,  _mm512_fmadd_pd(T1, SG, C1));
+        _mm512_storeu_pd(y + 16, _mm512_fmadd_pd(T2, SG, C2));
+        _mm512_storeu_pd(y + 24, _mm512_fmadd_pd(T3, SG, C3));
+        __m512d h0 = _mm512_fnmadd_pd(T0, SG, C0);
+        __m512d h1 = _mm512_fnmadd_pd(T1, SG, C1);
+        __m512d h2 = _mm512_fnmadd_pd(T2, SG, C2);
+        __m512d h3 = _mm512_fnmadd_pd(T3, SG, C3);
+        _mm512_storeu_pd(y + 32, _mm512_shuffle_f64x2(h3, h3, 0x1B));
+        _mm512_storeu_pd(y + 40, _mm512_shuffle_f64x2(h2, h2, 0x1B));
+        _mm512_storeu_pd(y + 48, _mm512_shuffle_f64x2(h1, h1, 0x1B));
+        _mm512_mask_storeu_pd(y + 56, 0x3F, _mm512_shuffle_f64x2(h0, h0, 0x1B));
+    }
+}
+/* z-pass dispatcher: Rader-quad form by default, dense row-GEMM with -DR31_ZDENSE */
+static void r31_zpass_main(const struct fft3d_plan *p, const cplx *src, cplx *dst,
+                           size_t nrows)
+{
+#ifdef R31_ZDENSE
+    r31_zpass(src, dst, nrows, p->ctd, p->std_);
+#else
+    size_t r = 0;
+    for (; r + 4 <= nrows; r += 4)
+        r31_zquad(src + r * 31, dst + r * 31, p->ke, p->ko);
+    if (r < nrows)
+        r31_zpass(src + r * 31, dst + r * 31, nrows - r, p->ctd, p->std_);
+#endif
+}
+
+#endif /* __AVX512F__ */
+
+/* ---------------- dense fallback / reference (the round-0 stub engine) ---------------- */
+
+static void ref_contract(const cplx *w, int L, const cplx *in, cplx *out, int inner)
+{
+    for (int k = 0; k < L; ++k)
+        for (int c = 0; c < inner; ++c) {
+            cplx acc = 0.0;
+            for (int j = 0; j < L; ++j)
+                acc += w[(size_t)k * L + j] * in[(size_t)j * inner + c];
+            out[(size_t)k * inner + c] = acc;
+        }
+}
+
+/* full reference volume: src -> dst (src untouched; uses p->tmp) */
+static void ref_volume(fft3d_plan *p, const cplx *src, cplx *dst)
+{
+    const int L = p->L;
+    const size_t LL = (size_t)L * L;
+    ref_contract(p->w, L, src, dst, (int)LL);
+    for (int x = 0; x < L; ++x)
+        ref_contract(p->w, L, dst + (size_t)x * LL, p->tmp + (size_t)x * LL, L);
+    for (size_t row = 0; row < LL; ++row)
+        ref_contract(p->w, L, p->tmp + row * L, dst + row * L, 1);
+}
+
+/* ---------------- one volume, forward 3D (fast path) ----------------
+ * z rows: src -> dst (row-local, out-of-place or in-place safe); x and y IN
+ * PLACE on dst (the chunk kernel loads every row before storing any). */
+static void fast_volume(fft3d_plan *p, const cplx *src, cplx *dst)
+{
+#ifdef __AVX512F__
+    const size_t LL = 31 * 31;
+    r31_zpass_main(p, src, dst, LL);
+    r31_pass_x(dst, dst, p->ke, p->ko);
+    for (int x = 0; x < 31; ++x)
+        r31_pass_y(dst + (size_t)x * LL, dst + (size_t)x * LL, p->ke, p->ko);
+#else
+    (void)p; (void)src; (void)dst;
+#endif
+}
+
+void fft3d_execute(fft3d_plan *p, const cplx *in, cplx *out)
+{
+    const size_t vol = (size_t)p->L * p->L * p->L;
+    for (int b = 0; b < p->batch; ++b) {
+        if (p->fast)
+            fast_volume(p, in + (size_t)b * vol, out + (size_t)b * vol);
+        else
+            ref_volume(p, in + (size_t)b * vol, out + (size_t)b * vol);
+    }
+}
+
+/* ---------------- fused map chain (shape from gen_dense_prime / ice s6) ---------------- */
+
+static void map_volume(const cplx *restrict z, const cplx *restrict c,
+                       cplx *restrict o, size_t npts)
+{
+    const double *zp = (const double *)z;
+    const double *cp = (const double *)c;
+    double *op = (double *)o;
+    size_t i = 0;
+#ifdef __AVX512F__
+    const __m512d ONE  = _mm512_set1_pd(1.0);
+    const __m512d TH   = _mm512_set1_pd(1.5);
+    const __m512d HALF = _mm512_set1_pd(0.5);
+    const __m512d TINY = _mm512_set1_pd(1e-300);
+    for (; i + 8 <= npts; i += 8) {
+        __m512d w0 = _mm512_add_pd(_mm512_loadu_pd(zp + 2 * i),
+                                   _mm512_loadu_pd(cp + 2 * i));
+        __m512d w1 = _mm512_add_pd(_mm512_loadu_pd(zp + 2 * i + 8),
+                                   _mm512_loadu_pd(cp + 2 * i + 8));
+        __m512d p0 = _mm512_mul_pd(w0, w0), p1 = _mm512_mul_pd(w1, w1);
+        __m512d m2 = _mm512_add_pd(_mm512_unpacklo_pd(p0, p1),
+                                   _mm512_unpackhi_pd(p0, p1));
+        __m512d m2c = _mm512_max_pd(m2, TINY);
+        __m512d r = _mm512_rsqrt14_pd(m2c);
+        __m512d hm = _mm512_mul_pd(m2c, HALF);
+        r = _mm512_mul_pd(r, _mm512_fnmadd_pd(_mm512_mul_pd(hm, r), r, TH));
+        r = _mm512_mul_pd(r, _mm512_fnmadd_pd(_mm512_mul_pd(hm, r), r, TH));
+        __m512d d = _mm512_fmadd_pd(m2c, r, ONE);           /* 1 + |w| */
+        __m512d rec = _mm512_div_pd(ONE, d);                /* the one divide */
+        _mm512_storeu_pd(op + 2 * i,     _mm512_mul_pd(w0, _mm512_unpacklo_pd(rec, rec)));
+        _mm512_storeu_pd(op + 2 * i + 8, _mm512_mul_pd(w1, _mm512_unpackhi_pd(rec, rec)));
+    }
+#endif
+    for (; i < npts; ++i) {
+        double re = zp[2 * i] + cp[2 * i];
+        double im = zp[2 * i + 1] + cp[2 * i + 1];
+        double sc = 1.0 / (1.0 + sqrt(re * re + im * im));
+        op[2 * i] = re * sc;
+        op[2 * i + 1] = im * sc;
+    }
+}
+
+void fft3d_chain(fft3d_plan *p, const cplx *x0, const cplx *c,
+                 cplx *final_out, int m)
+{
+    const size_t LL = (size_t)p->L * p->L, vol = LL * p->L;
+    for (int b = 0; b < p->batch; ++b) {
+        cplx *stv = final_out + (size_t)b * vol;    /* state lives in the out volume */
+        const cplx *cv = c + (size_t)b * vol;
+        memcpy(stv, x0 + (size_t)b * vol, vol * sizeof(cplx));
+        for (int s = 0; s < m; ++s) {
+            if (p->fast) {
+#ifdef __AVX512F__
+                /* z in place on state, x -> t1, y in place, map t1+c -> state.
+                 * -DR31_FUSEMAP fuses the map into the y-pass stores instead:
+                 * MEASURED SLOWER (121.9/127.3 vs 111.3 us/step) -- the ladder
+                 * blows the kernel's ~30-live-zmm budget; see strategy record. */
+                /* ALL passes in place on the state volume (the chunk kernel
+                 * loads every row before storing any -- in-place safe), then
+                 * the map in place: working set = state + c = 953 KB < L2.
+                 * t1 exists only for execute()'s out-of-place contract. */
+                r31_zpass_main(p, stv, stv, LL);
+                r31_pass_x(stv, stv, p->ke, p->ko);
+#ifdef R31_FUSEMAP
+                for (int x = 0; x < 31; ++x)
+                    r31_pass_ym(stv + (size_t)x * LL, p->t1 + (size_t)x * LL,
+                                cv + (size_t)x * LL, p->ke, p->ko);
+                memcpy(stv, p->t1, vol * sizeof(cplx));
+#else
+                for (int x = 0; x < 31; ++x)
+                    r31_pass_y(stv + (size_t)x * LL, stv + (size_t)x * LL,
+                               p->ke, p->ko);
+                map_volume(stv, cv, stv, vol);
+#endif
+#endif
+            } else {
+                ref_volume(p, stv, p->t1);
+                map_volume(p->t1, cv, stv, vol);
+            }
+        }
+    }
+}
+
+/* ---------------- plan lifecycle ---------------- */
+
+static void *xalloc(size_t bytes)
+{
+    return aligned_alloc(64, (bytes + 63) & ~(size_t)63);
+}
+
+/* deterministic pseudo-random volume; compare fast engine vs dense reference.
+ * Transcription bugs in the Rader tables would show at ~1e0; the two correct
+ * engines differ by rounding only (~1e-15). */
+static int self_check(fft3d_plan *p)
+{
+#ifdef __AVX512F__
+    const size_t vol = (size_t)p->L * p->L * p->L;
+    cplx *a = xalloc(vol * sizeof(cplx));
+    cplx *rf = xalloc(vol * sizeof(cplx));
+    cplx *ff = xalloc(vol * sizeof(cplx));
+    if (!a || !rf || !ff) { free(a); free(rf); free(ff); return 0; }
+    unsigned long long st = 0x9e3779b97f4a7c15ull;
+    double *ad = (double *)a;
+    for (size_t i = 0; i < 2 * vol; ++i) {
+        st ^= st << 13; st ^= st >> 7; st ^= st << 17;
+        ad[i] = (double)(long long)(st % 2000001ull) / 1000000.0 - 1.0;
+    }
+    ref_volume(p, a, rf);
+    fast_volume(p, a, ff);
+    long double num = 0, den = 0;
+    for (size_t i = 0; i < vol; ++i) {
+        cplx dd = ff[i] - rf[i];
+        num += creal(dd) * creal(dd) + cimag(dd) * cimag(dd);
+        den += creal(rf[i]) * creal(rf[i]) + cimag(rf[i]) * cimag(rf[i]);
+    }
+    free(a); free(rf); free(ff);
+    return den > 0 && sqrtl(num / den) < 1e-13L;
+#else
+    (void)p;
+    return 0;
+#endif
+}
+
+fft3d_plan *fft3d_create(int L, int batch)
+{
+    if (!fft3d_supports(L)) return NULL;
+    fft3d_plan *p = calloc(1, sizeof *p);
+    if (!p) return NULL;
+    p->L = L;
+    p->batch = batch;
+
+    const size_t vol = (size_t)L * L * L;
+    p->ke = xalloc(20 * sizeof(double));
+    p->ko = xalloc(20 * sizeof(double));
+    p->ctd = r31_trig_dup(0);
+    p->std_ = r31_trig_dup(1);
+    p->t1 = xalloc(vol * sizeof(cplx));
+    p->w = xalloc((size_t)L * L * sizeof(cplx));
+    p->tmp = xalloc(vol * sizeof(cplx));
+    if (!(p->ke && p->ko && p->ctd && p->std_ && p->t1 && p->w && p->tmp)) {
+        fft3d_destroy(p);
+        return NULL;
+    }
+    r31_build_kernels(p->ke, p->ko);
+    for (int k = 0; k < L; ++k)
+        for (int j = 0; j < L; ++j) {
+            long double th = -2.0L * PIL * (long double)((k * j) % L) / (long double)L;
+            p->w[(size_t)k * L + j] = (double)cosl(th) + I * (double)sinl(th);
+        }
+    p->fast = self_check(p);
+    return p;
+}
+
+void fft3d_destroy(fft3d_plan *p)
+{
+    if (!p) return;
+    free(p->ke); free(p->ko); free(p->ctd); free(p->std_);
+    free(p->t1); free(p->w); free(p->tmp);
+    free(p);
+}

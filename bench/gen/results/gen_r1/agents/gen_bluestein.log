@@ -1,0 +1,11 @@
+Done. Final state is validated end-to-end: the last three tryout runs built and passed with the final code, the strategy record is written, and I only touched my two files.
+
+**Summary of the round:**
+
+- **Rewrote the stub** (dense O(L⁴) floor) into a real Bluestein chirp-Z engine: chirp multiply → circular convolution via my own power-of-2 radix-4 FFT (M = next_pow2(2L−1)), with in-place DIF forward and mirrored stage-inverse DIT so no bit-reversal permutation ever exists — the pointwise multiply happens in the pipeline's own scrambled order, making correctness structural.
+- **Performance path**: 8-row SoA lanes (one zmm per element), hand AVX-512 intrinsics after discovering gcc refuses to vectorize the lane loops (80.4 → 29.0 ms at L=100 B=1), zero-pad input pruning + output pruning of the conv FFT, vectorized gather/scatter (deinterleave permutes on axes 0/1, register 8×8 transpose on axis 2), and a fused conv-middle (forward tail + bh multiply + inverse head in one register pass). Net: **80.4 ms → 20.8 ms** at L=100; L=10 went 61.6 → 15.5 µs.
+- **Correctness**: all 11 acceptance sizes pass at rel L2 ≤ 8.8e-16; generality sweep L = 2, 3, 7, 17, 23, 64, 101, 127, 128 all pass; chain map-gates pass at ≤ 2.2x the honest anchor; bit-repeatable; create() is sub-millisecond.
+- **Recorded failures** (with numbers, so nobody rediscovers them): plane-fused axis passes (+2-4% slower, not bandwidth-bound), standalone twiddle-free len-4 stage (flat until fused with the pointwise), gcc autovectorization (total failure, checked via `-fopt-info-vec-missed`).
+- Also documented in my record for the panel: tryout.sh's `$W` set-u/remote-expansion bugs and the slurm-PATH workaround, since every implementer will hit them.
+
+**One-liner:** Bluestein chirp-Z with pruned+fused AVX-512 radix-4 pow2 convolution (no bit-reversal), 8-row SoA lanes — best node timings 15.5 µs/xform at L=10 B=1 and 15.6 µs/xform at L=10 B=64 (20.8 ms at L=100 B=1), rel L2 = 3.9e-16–8.8e-16 across all sizes 2–128.

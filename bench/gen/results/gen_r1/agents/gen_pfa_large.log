@@ -1,0 +1,9 @@
+Done. The round is complete: gen_pfa_large went from the dense O(L⁴) stub to a real Good-Thomas PFA engine with an owned, raced chain step, all gates passing on the node.
+
+**Technique:** Good-Thomas PFA per axis in L45_pfa's two-sweep zmm engine (40 = 8×5 via DFT5/DFT8, 50 = 25×2 and 100 = 25×4 via a 5×5 Cooley-Tukey DFT25 with exact long-double literal twiddles), plus a strong-symbol `fft3d_chain` that owns the graded map chain — create() races an all-in-place step (p1/p2/sequential NR map, state never leaves `out`) against a map-fused-into-stores step, with a correctness gate against the driver's exact scalar map.
+
+**Best node (a80n0) numbers, graded chain:** L=40: **236 µs/xform at B=1, 207 at B=8**; L=50: 558 at B=1, 497 at B=4; L=100: 5248 at B=1 (raw execute, no chain: 137/388/4563 µs). Rel L2 vs numpy: **3.6–4.5e-16** at all sizes; map-chain gate passes with ~2× margin under the per-step budget.
+
+Key findings recorded in the strategy file: the driver-side map cost more than the FFT itself (fusing/owning the chain bought 1.4–1.7× on every graded case), and fusing the map into the 100-stream x-pass is a win only while the volume is cache-resident — at L=100 it doubled the miss-stream count and lost 46%, which is why the chain step is raced per (L, B, host) rather than fixed. Next-round levers (codelet spill audit, L=50 tails, L=100 phase-1) are listed in `strategies/gen_pfa_large.md`.
+
+One environment note: `tryout.sh` cannot pass its reservation check from wallaby because `squeue` doesn't exist here, even though the node hold is alive (heartbeat updating). I replicated its exact build/run/check steps over ssh with a slot lease instead — the monitor may want to fix that check.

@@ -1,0 +1,28 @@
+impl/gen_pfa_small.c: In function ‘soa_step_20’:
+impl/gen_pfa_small.c:324:22: warning: iteration 2305843009213693951 invokes undefined behavior [-Waggressive-loop-optimizations]
+  324 |         double a = zr[i] + cr[i], b = zi[i] + ci[i];
+      |                      ^
+impl/gen_pfa_small.c:323:14: note: within this loop
+  323 |     for (; i < n; ++i) {
+      |            ~~^~~
+impl/gen_pfa_small.c: In function ‘soa_step_15’:
+impl/gen_pfa_small.c:324:22: warning: iteration 2305843009213693951 invokes undefined behavior [-Waggressive-loop-optimizations]
+  324 |         double a = zr[i] + cr[i], b = zi[i] + ci[i];
+      |                      ^
+impl/gen_pfa_small.c:323:14: note: within this loop
+  323 |     for (; i < n; ++i) {
+      |            ~~^~~
+impl/gen_pfa_small.c: In function ‘soa_step_12’:
+impl/gen_pfa_small.c:324:22: warning: iteration 2305843009213693951 invokes undefined behavior [-Waggressive-loop-optimizations]
+  324 |         double a = zr[i] + cr[i], b = zi[i] + ci[i];
+      |                      ^
+impl/gen_pfa_small.c:323:14: note: within this loop
+  323 |     for (; i < n; ++i) {
+      |            ~~^~~
+impl/gen_pfa_small.c: In function ‘soa_step_10’:
+impl/gen_pfa_small.c:324:22: warning: iteration 2305843009213693951 invokes undefined behavior [-Waggressive-loop-optimizations]
+  324 |         double a = zr[i] + cr[i], b = zi[i] + ci[i];
+      |                      ^
+impl/gen_pfa_small.c:323:14: note: within this loop
+  323 |     for (; i < n; ++i) {
+      |            ~~^~~

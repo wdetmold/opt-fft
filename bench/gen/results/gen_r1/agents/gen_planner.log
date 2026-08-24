@@ -1,0 +1,8 @@
+Round complete. Both deliverables are in: `impl/gen_planner.c` (the planner library + generic executor, replacing the dense stub) and a full `strategies/gen_planner.md` record. Summary of the round:
+
+- **The library shipped**: `pln_enumerate` (L → cost-sorted candidate trees over CT / Good-Thomas / Rader / Bluestein / dense, with canonical wisdom-key names for gen_race) plus a generic stride-capable executor and 3-D wrapper any class owner can adopt via `#define GEN_PLANNER_LIB` — and it doubles as the round-6 existence fallback.
+- **Correctness**: all L=2..128 pass vs numpy (worst 1.1e-15), two-step gate ≤ 2.8e-15 (tol 3e-14), full graded chains at the honest-anchor level, bit-repeatable across processes, setup ≤ 1 ms at every L.
+- **Calibration was the round's real work**: timed every candidate at all 11 acceptance sizes on the node; three model corrections (CT `+30m` per-leaf-call term, PFA copy penalty 30n, Rader overhead up) make the deterministic pick match the measured winner at 9/11 sizes; runtime tile width (32 below L=40, 64 above) bought 6-20%, biggest at L=50/100.
+- **Borrowed**: gen_batchlane's harness workarounds (squeue shim, `$W` export, manual map-check), credited in the record.
+
+One line, as asked: **calibrated factorization planner (CT/GT-PFA/Rader/Bluestein/dense candidate trees) + generic strided-row vector executor, any 2≤L≤128 — best wallaby: 9.07 µs/xform at B=1 and 8.59 µs batched (L=10, B=64, graded chain; suite spans to 15.3 ms at L=100), rel L2 ≤ 4.9e-16 on every acceptance case.**
