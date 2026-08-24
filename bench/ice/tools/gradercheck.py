@@ -23,12 +23,23 @@ def parse_readme(path):
     if m: out['c_sota']=float(m.group(1))
     m=re.search(r'score[=\s|*]+([01]\.[0-9]+)', s)
     if m: out['score']=float(m.group(1))
-    m=re.search(r'opt[^\[\n]*\[([^\]]+)\]', s)
-    if m:
-        try:
+    # grader wall-shot arrays: a line labeled opt (not ref/sota) followed by [a, b, c]
+    for line in s.splitlines():
+        m=re.match(r'^[^\[]*\bopt\b[^\[]*\[([^\]]+)\]', line, re.I)
+        if m and not re.search(r'\b(ref|sota)\b[^\[]*$', line[:m.start(1)], re.I):
             shots=[float(x) for x in re.findall(r'[0-9]+\.[0-9]+', m.group(1))]
-            if len(shots)>=2: out['shots']=shots
-        except ValueError: pass
+            if len(shots)>=2:
+                out['shots']=shots; break
+    # inspection-verified shots for attempts whose READMEs resist the regex
+    KNOWN={'v7_47551a02':[4.177,4.33,4.308],'v7_69505252':[4.698,4.683,4.788],
+           'v7_91a35119':[4.53,4.46,4.56],'v7_9d9b3935':[4.84,4.84,4.88],
+           'v7_b1eaa90c':[4.605,4.694,4.595],'hot_04b0abdc':[2.926,2.93,2.827],
+           'hot_16d44d13':[3.3485,2.0712,3.133],'hot_262a05c6':[1.7867,1.7516,1.9047],
+           'hot_502912a3':[1.6864,1.6608,1.7619],'hot_90378bc1':[3.4128,3.1122,3.1567],
+           'hot_d82aee89':[1.22794,1.22387,1.2366]}
+    if 'shots' not in out:
+        for k,v in KNOWN.items():
+            if k in path: out['shots']=v; break
     return out
 
 ours={}
@@ -68,6 +79,7 @@ for att,d in persize.items():
 MULT={'fft_v4_solutions':1.0}
 rows=[]
 corpus_of={}
+shots_of={}
 for corpus in ('fft_v4_solutions','fft_v5v6_solutions','fft_warm_solutions','fft_v7_solutions','fft_hot_solutions'):
     for d in sorted(glob.glob(os.path.join(FFT,corpus,'*','README.md'))):
         att=os.path.basename(os.path.dirname(d)); corpus_of[att]=corpus
@@ -85,8 +97,9 @@ for corpus in ('fft_v4_solutions','fft_v5v6_solutions','fft_warm_solutions','fft
             elif ratio<1.70: v='consistent'
             else: v='SLOW-SHOT'
             if not full: v+=' ~est'
-            rows.append((att,rep.get('score'),rep['c_opt'],r1x,meas[0],meas[1],ratio,spread,v))
+            shots_of[att]=rep.get('shots'); rows.append((att,rep.get('score'),rep['c_opt'],r1x,meas[0],meas[1],ratio,spread,v))
         else:
+            shots_of[att]=rep.get('shots')
             rows.append((att,rep.get('score'),rep['c_opt'],r1x,None,0,None,
                          max(rep['shots'])/min(rep['shots']) if rep.get('shots') else None,'not measured'))
 rows.sort(key=lambda r:(r[6] is None, r[6] if r[6] is not None else 9))
@@ -104,12 +117,13 @@ if imp: print(f"flagged as grader-flaky: {', '.join(r[0] for r in imp)}")
 if '--md' in sys.argv:
     C={'fft_v4_solutions':'v4 (1x)','fft_v5v6_solutions':'v5/v6','fft_warm_solutions':'warm','fft_v7_solutions':'v7','fft_hot_solutions':'hot'}
     print()
-    print("| attempt | cohort | score | reported C_opt | implied 1x | ours bare 1x | grader/bare | shots max/min | verdict |")
-    print("|---|---|---|---|---|---|---|---|---|")
-    print("| **our panel (ice_r8)** | ice | — | — | — | **0.7791** | — | — | fastest measured |")
+    print("| attempt | cohort | score | grader shots (s) | implied 1x | ours bare 1x | grader/bare | verdict |")
+    print("|---|---|---|---|---|---|---|---|")
+    print("| **our panel (ice_r8)** | ice | — | — | — | **0.7791** | — | fastest measured |")
     order={'hot':0,'warm':1,'v7':2,'v5/v6':3,'v4 (1x)':4}
     for att,sc,co,r1,ms,n,ra,sp,v in sorted(rows,key=lambda r:(order.get(C.get(corpus_of.get(r[0],''),''),9), r[4] if r[4] else 9)):
         c=C.get(corpus_of.get(att,''),'?')
-        print(f"| {att} | {c} | {sc if sc else '—'} | {co:.3f} | {r1:.3f} | "
-              f"{(f'{ms:.4f}'+('~' if 0<n<8 else '')) if ms else '—'} | {(f'{ra:.2f}x' if ra else '—')} | "
-              f"{(f'{sp:.2f}x' if sp else '—')} | {v} |")
+        sh=shots_of.get(att)
+        shstr=', '.join((f"**{x}**" if x==min(sh) else f"{x}") for x in sh) if sh else f"{co:.3f} (best only)"
+        print(f"| {att} | {c} | {sc if sc else '—'} | {shstr} | {r1:.3f} | "
+              f"{(f'{ms:.4f}'+('~' if 0<n<8 else '')) if ms else '—'} | {(f'{ra:.2f}x' if ra else '—')} | {v} |")
