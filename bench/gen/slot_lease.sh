@@ -22,7 +22,7 @@ cd "$(dirname "$(readlink -f "$0")")"
 GPU=$(pwd)
 LEASES=$GPU/leases
 RES=$GPU/RESERVATION
-STALE_MIN=${FFT_LEASE_STALE_MIN:-120}
+STALE_MIN=${FFT_LEASE_STALE_MIN:-420}
 WAIT_MAX=${FFT_LEASE_WAIT:-1800}
 
 mkdir -p "$LEASES"
