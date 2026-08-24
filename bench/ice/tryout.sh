@@ -33,10 +33,9 @@ CORE=$((SLOT + 2))
 
 # the graded chain length for this L, so dev timings measure what the score measures
 M=$(awk -F: -v l="$L" '$1==l {print $3}' cases.txt 2>/dev/null); M=${M:-1}
-CH=""; [ "${M:-1}" -gt 1 ] && CH="--chain $M --map --cin '$W/c.bin'"
-
 W=$ICE/build/tryout/$NAME
 mkdir -p "$W"
+CH=""; [ "${M:-1}" -gt 1 ] && CH="--chain $M --map --cin '$W/c.bin'"
 ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$RES_NODE" "
   cd '$ICE' && source /home/lqcd/wdetmold/fft/env.sh >/dev/null 2>&1 &&
   echo '== building on '\$(hostname -s)' (Ice Lake, -march=native) ==' &&
