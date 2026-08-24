@@ -1,0 +1,1 @@
+cd /workdir && ldd implementation.so && echo --- && nm -D implementation.so | grep -E " U " | head -10

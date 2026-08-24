@@ -1,0 +1,1 @@
+ls -la /work/mkl_wheels /work/mkl_runtime /work/mkl_runtime/lib 2>/dev/null | head -40; df -h /workdir /tmp | head; free -g

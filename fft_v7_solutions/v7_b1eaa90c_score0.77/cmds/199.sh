@@ -1,0 +1,1 @@
+cd /workdir && gcc -O0 -g -march=native -fsanitize=address -shared -fPIC implementation.c -o /tmp/impl_asan0.so -lm && sed -i 's/impl_asan.so/impl_asan0.so/' /tmp/asan_min.py && LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libasan.so.8 ASAN_OPTIONS=detect_leaks=0 python3 /tmp/asan_min.py 2>&1 | grep -E "calling|OK|ERROR|READ|#0|#1|#2|SUMMARY|0x" | head -12

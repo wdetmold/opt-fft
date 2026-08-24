@@ -1,0 +1,1 @@
+cd /workdir && sed -i 's/impl_asan.so/impl_asan2.so/' /tmp/asan_test.py && LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libasan.so.8 ASAN_OPTIONS=detect_leaks=0 python3 /tmp/asan_test.py 2>&1 | tail -5

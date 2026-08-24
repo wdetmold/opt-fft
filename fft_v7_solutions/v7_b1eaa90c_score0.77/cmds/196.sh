@@ -1,0 +1,1 @@
+cd /workdir && LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libasan.so.8 ASAN_OPTIONS=detect_leaks=0 python3 /tmp/asan_test.py 2>&1 | head -30 && sed -n '95,115p' implementation.c

@@ -1,0 +1,1 @@
+cd /workdir/dev && sed -n '/#ifndef SQ64_YZ_DEFINED/,/#undef SQ64_YZ_DEFINED/p' gen.py

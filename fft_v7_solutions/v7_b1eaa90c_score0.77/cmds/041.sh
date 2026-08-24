@@ -1,0 +1,1 @@
+which perf || ls /usr/bin/perf* 2>/dev/null; perf stat -e cycles,instructions true 2>&1 | tail -5

@@ -1,0 +1,1 @@
+cd /workdir && objdump -d implementation.so | grep -E "<fft64" ; nm implementation.so | grep fft64

@@ -1,0 +1,1 @@
+cd /workdir && sed -n '190,215p' implementation.c && echo ======= && sed -n '268,300p' implementation.c && echo ======= && sed -n '425,445p' implementation.c

@@ -1,0 +1,1 @@
+cd /workdir/dev && objdump -d prof6 | awk '/<passA>:/,/ret/' | grep -cE "^\s+[0-9a-f]+:"; objdump -d prof6 | awk '/<passB>:/,/ret/' | grep -cE "^\s+[0-9a-f]+:"; objdump -d prof6 | awk '/<passA>:/,/ret/' | grep -oE "\bv[a-z0-9]+\b" | sort | uniq -c | sort -rn | head

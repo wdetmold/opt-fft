@@ -1,0 +1,7 @@
+cd /workdir && rm -f implementation.so && gcc -O3 -march=native -shared -fPIC implementation.c -o implementation.so -lm && python3 dev/check.py && cd dev && python3 -c "
+import tune
+so=tune.build({},'ap45')
+for i in range(2):
+    r=tune.bench(so, Ls=(45,), reps=5)
+    print({L: round(v,2) for L,v in r.items()})
+"

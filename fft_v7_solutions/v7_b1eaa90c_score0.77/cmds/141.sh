@@ -1,0 +1,1 @@
+cd /workdir/dev && python3 gen.py && gcc -fsyntax-only -O3 -march=native ../implementation.c && echo BASE-OK && GENCFG='{"sqpar":{"36":"1"}}' python3 gen.py && gcc -fsyntax-only -O3 -march=native ../implementation.c && echo PAR36-OK

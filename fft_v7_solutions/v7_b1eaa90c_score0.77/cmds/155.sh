@@ -1,0 +1,1 @@
+cd /workdir/dev && sed -i 's/f64_cb(BUF + (r&7), BUF + 512 + (r&7), BUF + d, BUF + d + 512, 0, 0); \/\/ wait signature (xr,xi,yr,yi)/f64_cb(BUF + (r\&7), BUF + 512 + (r\&7), BUF + d, BUF + d + 512);/' prof20.c && gcc -O3 -march=native prof20.c -o prof20 -lm && taskset -c 0 ./prof20

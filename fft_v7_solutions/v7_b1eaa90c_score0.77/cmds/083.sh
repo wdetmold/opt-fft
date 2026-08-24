@@ -1,0 +1,1 @@
+cd /workdir/dev && gcc -O3 -march=native -c ../implementation.c -o /tmp/impl.o && objdump -d /tmp/impl.o | awk '/<f23_z>:/,/ret/' > /tmp/f23z.asm && grep -cE "^\s+[0-9a-f]+:" /tmp/f23z.asm && grep -oE "\bv[a-z0-9]+(pd|sd)\b" /tmp/f23z.asm | sort | uniq -c | sort -rn | head -8 && echo "--- quad j-loop body ---" && awk '/vfmadd/{found=1} found' /tmp/f23z.asm | head -30

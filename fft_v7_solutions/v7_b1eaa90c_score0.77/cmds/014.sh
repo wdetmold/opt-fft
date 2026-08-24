@@ -1,0 +1,1 @@
+cd /tmp/bench && ar x /usr/local/lib/python3.12/dist-packages/numpy/random/lib/libnpyrandom.a src_distributions_distributions.c.o && objdump -t src_distributions_distributions.c.o | grep -E "wi_double|ki_double|fi_double|ziggurat"; readelf -S src_distributions_distributions.c.o | grep -A1 rodata | head

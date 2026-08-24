@@ -1,0 +1,1 @@
+cd /workdir/dev && GENCFG='{"pw":{"13":"alt","17":"alt","23":"alt","45":"alt"}}' python3 gen.py && gcc -fsyntax-only -O2 -march=native ../implementation.c && echo COMPILES && cd /workdir && rm -f implementation.so && gcc -O3 -march=native -shared -fPIC implementation.c -o implementation.so -lm && python3 dev/check.py

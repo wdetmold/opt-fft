@@ -1,0 +1,1 @@
+cd /workdir/dev && grep -n "def gen_sq(L, G):" gen.py && sed -n '/def gen_sq(L, G):/,/^def /p' gen.py | head -30
