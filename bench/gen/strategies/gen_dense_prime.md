@@ -1136,3 +1136,151 @@ comment block only).
    microbench trio (prof2.c, gemmb.c, gemmb2.c) is the working substitute;
    r7_ab.sh generalizes r6_ab.sh with parametrized arms (build SRC OUT
    [flags] / gates A B / check ARM L B M / time L B M SAMP ROUNDS ARMS...).
+
+## Round gen_r8
+
+### Where this round started
+
+r7 leaderboard: **120.347** at the graded cell (L=31 B=16 m=140; gen_rader
+84.544); roster 5.416 / 8.010 / 14.520 / 39.003 at 10/12/15/20.  My r7
+record closed with "the residual ~1.6-2x over the FMA-port floor is
+register-file/ROB physics at 240-FMA drain granularity (boundary count =
+FMA/(16 acc x 15 j) is INVARIANT under any 32-register tiling), not fixable
+in C intrinsics; the only >5% lever left is a hand-scheduled asm GEMM."
+This round FALSIFIED the invariance claim and banked the lever in plain
+intrinsics.  The new round-8 static analyzers were used exactly as the
+brief prescribes: choose the schedule with the models, score with the node.
+
+### The idea: 24-accumulator GEMM tiles (6 k-columns x 4 zmm)
+
+The r7 invariance argument assumed the 4 broadcast registers must stay
+live across the j-body (16 acc + 4 u + 4 w = 24, and the next size up,
+8 wide, would need 32 acc + regs).  But the broadcasts have NO reuse
+beyond their own 4 FMAs: with each `w = set1(wr[k+i])` consumed
+immediately, ONE rotating w register suffices, and a 6-column x 4-zmm
+group holds **24 accumulators at ~29 live zmm** (24 acc + 4 u + w).
+Effects per block at L=31: k-grouping 6/6/4 (C, k=0..15) and 6/6/3
+(S, k=1..15); tile-boundary drains drop 16 -> 12 per block, the big
+groups drain every 360 FMAs instead of 240, and the feed ratio improves
+0.5 -> 0.417 loads/FMA.  Op sequence per OUTPUT row is unchanged (init,
+FMAs j=1..15 ascending, one store), so outputs are **bit-identical** to
+r7 by construction -- the entire correctness story, same as r5.
+
+### What shipped
+
+1. **L=31**: the C/S GEMMs of fold31_core and fold31zx_core factored into
+   SHARED always_inline kernels gdp31_c6 / gdp31_c4 / gdp31_s6 / gdp31_s3
+   (the two cores had carried identical copies since r2; the file lost
+   ~340 lines net).  The 6-groups are the new shape; the C 4-quad
+   (k=12..15) and S triple (13,14,15) tails are the r7 bodies unchanged.
+2. **Generic fold_pass (every non-31 size)**: the GDP_CCH/GDP_SCH macros
+   extended with g/h accumulator quads (KN up to 6); the k-loops step 6
+   with exact 1..5-column tails (greedy 6s: hc+1=15 at 29 -> 6/6/3 vs the
+   old 4/4/4/3; 12 at 23 -> 6/6 vs 4/4/4; 11 at 20 -> 6/5 vs 4/4/3).
+   fold_block (the default-off custody knob) updated identically.
+
+### Static-model validation BEFORE the node (the round-8 tool discipline)
+
+- objdump/asm audit: the emitted j-body is exactly 4 aligned u loads + 6
+  rotating vbroadcastsd + 24 vfmadd231pd into 24 distinct zmm, **zero
+  spills** in every KN=6 instantiation (checked by an automated
+  innermost-loop scan of the whole .s, both L=31 and generic).
+- llvm-mca (icelake-server): new body RThroughput 24.0 cyc/24 FMA vs old
+  x3-unrolled quad 48.0/48 -- identical in-loop throughput, no new
+  bottleneck (mca's ICL model has 1 zmm-FMA/cyc; use it RELATIVELY only).
+- OSACA (ICX): FMAs 0.5/0.5 on ports 0/5 (12 cyc/j), loads 5 cyc/j on
+  ports 2/3 -- FMA-saturated with 2.4x feed headroom, as designed.
+- **uiCA is BROKEN on this host**: ext/tools/uiCA has xed built for the
+  venv python but `instrData/` was never generated -- its setup.sh died
+  downloading uops.info/instructions.xml (connection timeout, see
+  setup2.log).  Do not burn time on it; llvm-mca + OSACA agree here.
+
+### Measured on the node (a80n0, ONE held lease slot 4 core 6, interleaved
+### same-core min-sets -- the r4-r7 protocol; control = impl_7 rebuild)
+
+| cell | r8ctl (r7 ship) | gen_r8 | delta |
+|---|---|---|---|
+| 31 B=16 m=140 | 119.58 / 120.35 / 120.55 / 120.68 / 121.09 / 121.81 / 121.84 | **113.11 / 113.15 / 113.16 / 113.30 / 113.55 / 113.80 / 114.02 / 115.07** | **-5.7%, 8/8 pairwise** |
+| 31 B=1 m=140 | 120.75 / 121.31 / 121.54 | **112.43 / 113.33 / 114.02** | **-6.5%, 3/3** |
+| 23 B=4 m=8 | 62.64 / 63.39 / 63.74 | **60.16 / 61.51 / 61.53** | -2.5%, 3/3 |
+| 20 B=32 m=256 | 39.01 / 39.13 / 39.94 | **38.00 / 38.22 / 38.55** | -2.3%, 3/3 |
+| 17 B=4 m=8 | 31.74 / 32.65 / 32.93 | **27.22 / 31.13 / 32.30** | -2..-5%, 3/3 |
+| 29 B=4 m=8 | 139.58 / 142.31 / 143.28 | **137.60 / 141.98 / 142.28** | -1%, 3/3 |
+| 19 B=4 m=8 | 36.10 / 36.67 / 37.20 | **35.24 / 35.29** / 36.73 | -2%, 2/3 |
+| 13 B=4 m=8 | 11.13 / 11.94 / 12.13 | 11.51 / 11.80 / 12.02 | wash |
+| 10 / 12 / 15 | 5.38-5.97 / 7.94-8.57 / 14.78-15.42 | 5.24-6.02 / 8.00-8.52 / 14.72-15.60 | wash, no regressions |
+
+Correctness: **outputs bit-identical to the r7 control at ALL 14 dev cells
+(5/7/11/10/12/13/15/17/19/20/23/29/31x2), single AND chain m=4** (so every
+r7 gate result is inherited exactly); numpy gates re-run fresh at the
+graded cells: single rel_l2 3.917e-16 (B=16) / 3.920e-16 (B=1) tol 1e-12,
+m=140 map-chain 2.551e-14 (anchor 2.312e-14) / 1.710e-14 (anchor 1.178e-14)
+tol 1e-10; two-run repeatability cmp-identical on the node; the non-AVX512
+scalar build compiles clean (scalar path untouched).
+
+### Why it works (mechanism, tied to the r7 profile)
+
+The r7 phase profile put the two GEMM passes at ~1.0 zmm-FMA/cyc in situ
+with the isolated C-GEMM at 1.4-1.6, the shortfall split between boundary
+drain (acc init + last-FMA latency + 16 stores every 240 FMAs) and
+phase-junction bubbles.  The 24-acc tile attacks exactly that term: 25%
+fewer drain instances, 50% more OoO-independent chains per drain window
+(24 vs 16), and 17% fewer load-port uops competing at the junctions.  -6%
+of the step from a lever the r7 study had explicitly written off is the
+round's lesson: **"fixed by the register file" arguments must count LIVE
+ranges, not named values -- a broadcast consumed immediately costs no
+register.**  The remaining gap to the ~65 us floor is now the z-phase
+feed shape, the divider floor (~21 us, closed on ICX), and the drain
+latency itself (a true asm software-pipelined drain could still pay, but
+the intrinsics ceiling just moved 6% closer to it).
+
+### What did NOT work / notes
+
+- No negative results this round -- the single lever built was the single
+  lever shipped (static models filtered the schedule before any lease
+  time; one build-iteration, zero dead windows).
+- 13/15 stay washes: their group counts do not drop (hc+1 = 7/8: 6+1/6+2
+  vs 4+3/4+4 -- same 2 groups), confirming the drain-count mechanism.
+- uiCA broken (above) -- tooling note for the panel.
+
+### Borrowed this round, named
+
+- **The brief's round-8 tool mandate** (llvm-mca/OSACA schedule-first
+  discipline) -- used as prescribed; saved the lease slots that r7 burned
+  on the pipelining and C+S-merge negatives.
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol,
+  as every round since r5.
+- The lever itself is a refutation of my own r7 item 4 ("boundary count
+  invariant") -- no other entry had tried >16 accumulators either; the
+  r7cs merged-GEMM negative (0.75 loads/FMA) is what pointed AT the
+  rotating-broadcast trick (merging k-groups raised the feed ratio;
+  widening them LOWERS it).
+
+### Operation count (shipped)
+
+FMA counts identical to r5-r7 at every size (exact tiles, bit-identical
+outputs).  L=31 per block: drains 16 -> 12, GEMM feed uops -17%
+(broadcasts 128+120 -> 128+120 unchanged in count but shared over 1.5x
+the FMAs; u/v re-loads per j unchanged at 4).  Generic sizes: k-groups
+per GEMM at 17/19/20/23/29: C 3/3/3/3/4 -> 2/2/2/2/3, S 2/3/3/3/4 ->
+2/2/2/2/3.
+
+### What I would do next
+
+1. **The z-phase is now the largest off-floor item at 31** (~30 us vs
+   ~20 floor; the zpair kernel runs 0.75 loads/FMA with 16 acc chains
+   across a row-pair).  A 3-row-pair variant (24 C/S chains sharing
+   table loads) is the same lever one layer down, but the store layout
+   (reversed-half masked stores) makes the drain hairy -- cost it with
+   the models first.
+2. **Cross-arch**: re-race the 24-acc tiles on CLX (narrower front end,
+   1 MB L2) and SPR when advisory windows exist; the shape is pure
+   register-file arithmetic and should transfer, but the r6/r7 knob
+   lesson says measure.
+3. **gen_race**: the 6-vs-4 k-group width is a clean race axis for other
+   engines (gen_powp/gen_pow2 GEMM-shaped stages); the bit-identity
+   argument transfers to any grouping change with per-output chains kept
+   in order.
+4. Fix or replace uiCA (fetch instructions.xml offline and rerun
+   ext/tools/uiCA/setup.sh) -- llvm-mca's 1-FMA/cyc ICL model is fine
+   relatively but will mislead anyone reading absolute cycles.

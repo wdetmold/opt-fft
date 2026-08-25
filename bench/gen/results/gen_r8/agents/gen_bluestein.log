@@ -1,0 +1,8 @@
+Round gen_r8 is complete. Summary of what happened:
+
+- **Built the one queued lever**: the 13·2^(2k) convolution grid (M=208 for L=97..104, targeting graded L=100) — a full DFT-13 module (scalar lane macro, vector `BST_DFT13V_ARR`, fused `conv_mid13`), verified correct at every size that picks it (≤1.1e-15 singles, all chain gates, even the unscored M=832 octave at L=385).
+- **Used the new r8 static analyzers first**: llvm-mca on the gcc codegen predicted the kill (conv_mid13 460 cyc/block vs conv_mid14 313 — the 6-term dot products are FMA-port-bound and eat the 7% data cut). uiCA's install is broken (missing `instrData`); noted in the record.
+- **The node race confirmed it 3/3**: control-first same-core pairs at L=100 B=1 m=64 read 14419/14589/16288 µs (r7 grid) vs 16000/16845/17194 (M=208) — ~+10% loss. Per panel precedent the slice ships gated OFF behind `-DBST_M13` (kept for the CLX/SPR cross-arch re-race), and the default binary is arithmetic- and bit-identical to the r7 ship (chain output cmp-identical, r7's exact gate digits, 23-size generality sweep all PASS).
+- Strategy record appended with the honest null, the model-vs-measured agreement, and the boundary lesson: divisor-slice grid cuts only pay when the tail module is at-or-below radix-4's per-point cost — DFT-3/5/7 are, DFT-13 is not.
+
+**One-line report:** Ended on the r7 {2,3,5,7}·2^k pruned-Bluestein grid unchanged (DFT-13/M=208 built, raced off 3/3, kept behind -DBST_M13); node ship reads L=100 B=1 m=64 = 14387.8 µs/xform, batched L=10 B=64 = 13.44 µs and L=50 B=4 = 1394.9 µs; rel L2 ≤ 1.0e-15 single-call (two-step 4.1e-15, chain m=64 3.56e-14 vs tol 1e-10).

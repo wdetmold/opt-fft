@@ -943,3 +943,141 @@ transforms, one new broadcast constant pair (PHI, KL5).
    (1/2 -- the verdict moved once already), BL_X214 (0/1). CLX's weaker
    FMA throughput could widen the lift's win; its smaller L1 could flip
    the hybrid back.
+
+## Round gen_r8 -- the class goes 11-smooth: a DFT11 module gives 22/33/44/55, closing the surprise test's named gap
+
+Standings into the round (r7 board): led all four scored cells (10: 1.147,
+12: 1.915, 15: 4.381, 20: 12.855), all within ~1% of gen_pfa_small's converged
+copies -- nothing structural left in the owned cells. The round-8 brief's
+surprise-test addendum names the real lever instead: L=44 (prime 11) was the
+trunk's weakest surprise cell (1.29x) because NO panel entry has ever built an
+11-point module. My r6 safe placement makes 11-smooth sizes mechanical; this
+round built them (my own r6 next-step #3, third round on the queue).
+
+### What shipped
+
+1. **DFT11 module** (new): same symmetric/antisymmetric split as the r6 DFT7,
+   five rotation pairs: t_j = x_j + x_{11-j}, u_j = x_j - x_{11-j}, j = 1..5;
+   A_k = x0 + sum_j cos(2pi kj/11) t_j, B_k = sum_j sin(2pi kj/11) u_j;
+   X_k = A_k - iB_k, X_{11-k} = A_k + iB_k. Exponent folding (kj mod 11, cos
+   even, sin sign-flipped past 5) GENERATED in Python rather than hand-derived,
+   and verified against a reference DFT before touching C. Constants exact to
+   the last bit of double (60-digit Decimal Machin pi + Taylor series,
+   cross-checked vs libm). 150 vector FP per DFT11 per 8 volumes.
+2. **Four new class sizes, all memory form, safe placement, div map tail,
+   stock scheduler** (the memory-form family defaults, unchanged):
+   - L=22 = 2x11: n=(11a+2b)%22, Q==1 mod P: natural placement (M2IP).
+     11xDFT2 + 2xDFT11 = 388 FP/pencil. PL2=514.
+   - L=33 = 3x11: n=(11a+3b)%33, Q^-1=2 mod 3: M3IPS, the exact L=15 stage-1
+     perm reused verbatim. 11xDFT3 + 3xDFT11 = 582. PL2=1090.
+   - L=44 = 4x11: n=(11a+4b)%44, Q^-1=3 mod 4: M4IPO(i0,i3,i2,i1), the L=28
+     perm reused. 11xDFT4 + 4xDFT11 = 776. PL2=1954.
+   - L=55 = 5x11: n=(11a+5b)%55, Q==1 mod P: natural (M5ST identity outs).
+     11xDFT5(lifted) + 5xDFT11 = 1102. PL2=3042.
+   All PL2 keep plane bytes == 256 (mod 4096). Slot tables for every size
+   generated AND simulated (load-all-store-all group semantics, exactly what
+   the C does) against a reference DFT in Python; the in-place and
+   disjointness invariants asserted programmatically, not eyeballed.
+3. **supports() now accepts 10,12,14,15,20,21,22,28,33,35,44,55** -- the
+   planner/race layers see 12 sizes for library assembly and any surprise draw.
+4. **L=77 = 7x11 deliberately NOT built**: an 11xDFT7 + 7xDFT11 = 1776-FP
+   always_inline pencil (x2 forms) is a real compile-time hazard for a size no
+   case has ever named, at a working set (58 MB x2) far past LLC where the
+   engine's advantage collapses anyway. Its verified slot table is one
+   generator run away (/tmp scratch reproduced in this record's method) if a
+   round ever wants it.
+
+### Measured on the node (a80n0, held slot lease, same-core; graded-shape
+### chains with MKL 2022 same core same window; m chosen per the ~6 ns/pt/step
+### case calibration since the new sizes are not in cases.txt)
+
+| case | this engine | MKL | ratio |
+|---|---|---|---|
+| L=22 B=32 m=256 | **25.37** us/xform | 78.86 | **3.1x** |
+| L=33 B=16 m=200 | **98.07** | 364.45 | **3.7x** |
+| L=44 B=16 m=128 | **272.5** (busy window, sd 6.8%; 256.9 seen later same core) | 688.39 | **2.5x** |
+| L=55 B=8  m=64  | **985.0** | 1473.0 | **1.5x** |
+
+Single-call (m=1, pack/unpack unamortized) also beats MKL everywhere:
+38.4 vs 45.8 (22), 162.4 vs 289.3 (33), 404.5 vs 557.3 (44), 985 vs 1076 (55).
+L=55's chain time EQUALS its single-call time: S+C = 43 MB streams past the
+24 MB LLC, so the whole chain is bandwidth-bound and pack amortization is
+invisible -- that size is at the engine's shape boundary, as expected.
+The 44 ratio (2.5x) vs the trunk's surprise-test 1.29x is the addendum's
+predicted lift, now measured on real code.
+
+Scored cells: 10/12/15/20 paths untouched. Same-core interleaved A/B of the
+r7 ship binary vs this one at L=10 (four pairs after warmup): 1.147-1.148 vs
+1.150-1.151 (+0.2%, code-layout noise; first invocation read 1.305-1.307 --
+the known warmup state, do not panic at it). Chain outputs BIT-IDENTICAL to
+r7 at ALL EIGHT pre-existing sizes (cmp on the full graded chains: 10 m=1000,
+12/15 m=600, 20 m=256, 14 m=600, 21 m=300, 28 m=180, 35 m=128), so every r7
+gate number carries over exactly.
+
+Gates at the new sizes, all run on the node by hand (tryout's map-check leg
+still dies on the r1 '$W/c.bin' quoting bug -- harness note stands):
+single call 3.2/3.6/3.5/4.2e-16 at 22/33/44/55 (tol 1e-12); two-step m=2
+1.38/1.72/1.79/2.21e-15 (tol 3e-14, 14-22x margin); graded chains 3.75e-14 /
+2.86e-14 / 2.35e-14 / 2.56e-14 vs honest anchors 2.68e-14 / 2.54e-14 /
+2.08e-14 / 1.74e-14 (1.1-1.5x, tol 1e-10); repeatable bit-identical; B=1
+single + m=2 chains PASS at all four new sizes (remainder-lane replication
+path, correct as always, still slow as always).
+
+### What did NOT work / was raced and settled
+
+- **rcp map tail at 44** (-DBL_MAPRCP, racing the family default on the new
+  codelet as the r3/r6 rule requires): div 256.9-332.9 vs rcp 266.4-363.3,
+  div wins the minima 3 of 4 same-core pairs. Window was noisy (the 22 MB
+  working set shares LLC with neighbors), but direction matches the whole
+  memory-form family (14: +2.3%, 15: +4.1%, 20: +4.4% for rcp). Div stays;
+  knob remains for CLX/SPR.
+- **DFT11X2 fusion at 22** (the analogue of DFT5X2-at-15): DECLINED on
+  gen_pfa_small r4's register-budget rule, now measured from both sides on
+  this engine (DFT5X2: 10 loads + ~14 temps/core, wins ~1%; DFT7X2: 28 loads
+  + ~24 temps/core, loses 6-10% r7). DFT11X2 is 44 loads + ~60 temps/core --
+  further past the boundary than the case that already lost. Not built.
+- Nothing else was attempted at the scored cells: r7 closed them ("only an
+  op-count cut could move them"), the r8 static analyzers (tools/TOOLS.md)
+  were not spent on a speculative reschedule against bit-identical known-good
+  cells in the campaign's final round.
+
+### Borrowed, plainly
+
+- **My own r6 safe placement + gen_pfa_small r2's disjointness rule**: the
+  entire mechanism; this round is its second mechanical application (stage-1
+  perms M3IPS and M4IPO reused verbatim from the 15 and 28 derivations).
+- **gen_pfa_small r4's register-budget rule**, used predictively again to
+  decline DFT11X2 without spending node time.
+- **Literature 10 / my r4**: held-lease interleaved protocol for the L=10
+  regression check and the 44 map-tail race.
+- The surprise-test addendum (brief r7/r8) chose the round's target: it
+  measured the 11-point gap at L=44 as ~2x left on the table; this round
+  closes my class's half of it. The other half is ROUTING (gen_race/
+  gen_planner must enumerate gen_batchlane's candidates at 22/33/44/55 --
+  same gap my r7 record flagged at L=21, still the highest-value fix that
+  is not in my file).
+
+### Operation count
+
+Per pencil per 8 volumes (vector FP, FMA-contracted): 84 / 96 / 160 / 156 /
+208 / 282 / 376 / 388 / 554 / 582 / 776 / 1102 at L = 10/12/14/15/20/21/28/
+22/35/33/44/55. New sizes memory form, 4L ld + 4L st per pencil, map ~14 FMA
++ 1 rsqrt14 seed + 1 vdivpd per site-vector. Zero twiddle tables, zero
+shuffle-port ops inside every transform -- twelve sizes and the campaign's
+twiddle problem still never entered this file.
+
+### What I would do next (ranked)
+
+1. **Routing** (unchanged from r7, now 4 sizes wider): gen_race/gen_planner
+   must race my 22/33/44/55 candidates or the trunk leaves 2x on the table
+   at any 11-smooth draw, exactly as measured at L=21 in the surprise test.
+2. **B=1 lane-spatial engine** (eighth round on the list; the class's one
+   structural hole, at all twelve sizes).
+3. **L=55 residency**: the only new cell below 2.5x is pure bandwidth
+   (43 MB working set). A y*z-fused two-axes pass (lit 11 Tier 2, the
+   gen_pfa_large L=100 play) is the only shape that could move it; at B=8
+   it is a full engine restructure -- only worth it if a scored case ever
+   lands there.
+4. **Cross-arch**: the new sizes ship Ice Lake defaults (div tail, stock
+   sched, no fusion); the standing knobs (-DBL_MAPRCP etc.) are the race
+   axes on CLX/SPR as always.

@@ -1,0 +1,3 @@
+Done. Round gen_r8 shipped: all gates pass, tuned paths bit-identical to r7, strategy record appended, lease released.
+
+**Technique ended on:** rotation fused-map split chain ported to the generic coprime engine (out-of-place split-complex gspencil per (P,Q), GSPLIT_RMAX=4 raced crossover) — best wallaby us/xform: batched 1.155/1.915/4.407/12.929 at L=10/12/15/20 (bit-identical to r7) and B=1 2.57/3.36/10.76/21.7 tuned plus new generic B=1 11.10/40.93/233.0/520.9 at L=14/21/34/44 (4.5–5.6x over r7, 1.1–3.4x faster than MKL where r7 lost 3–4x); rel L2 2.1–4.6e-16 single-call, two-step 1.7e-15 (tol 3e-14).

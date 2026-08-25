@@ -892,3 +892,125 @@ create() still ~0 s.
    the pow2-M holdout slices (L=25..32, 57..64, 121..128); graded 25/27/
    31/32 sit there at M=64.  That is the remaining arithmetic-count idea
    in this class.
+
+## Round gen_r8
+
+### What changed (impl/gen_bluestein.c: one lever built, raced, and raced OFF)
+
+1. **13*2^(2k) convolution grid (M=208 for L=97..104), my r7 next-step 1 —
+   BUILT and KILLED by the race.**  New code, all shipped but create()-gated
+   OFF: BST_DFT13_LANE (the DFT-5/7 symmetric t/d form extended to six
+   6-term dot products; jk-mod-13 constant/sign rows verified against a
+   direct DFT to 1e-14 before compiling), plain-C dft13_{fwd,inv}_stage
+   (create()'s bh forward + scalar builds), vector BST_DFT13V_ARR, fused
+   conv_mid13, and the grid slice `M13 = 208; while (M13 < 2L-1) M13 <<= 2`
+   (<<= 2, not <<= 1, keeps the tail at 13 and never 26, so no PFA-26
+   module is needed; S = M/4 stays 4-aligned so the transpose contract
+   holds untouched).  The slice is now OPT-IN via -DBST_M13; the default
+   grid and every default code path are the gen_r7 ship exactly.
+2. Correctness of the (gated-off) 13 machinery, all PASS before the race:
+   node+local singles at L in {97, 100, 101, 104} <= 1.1e-15; L=100 m=2
+   fused gate 3.75e-15 (tol 3e-14); graded chain m=64 3.24e-14 (anchor
+   2.42e-14); chain repeatable; scalar -march=x86-64 build singles + m=2 at
+   L=100; and L=385 B=1 (the M=832 = 13*4^3 octave, dif16/dit16 over the
+   13-chain) 7.3e-16 — the only sizes that ever pick a 13-grid M.
+
+### The race that killed it (a80n0, ONE held lease, core 3, control-first
+### same-core alternating pairs, -DBST_NO13-equivalent control vs M13 arm;
+### graded cell L=100 B=1 m=64)
+
+| pair | control (r7 grid, M=224) | M13 arm (M=208) |
+|---|---|---|
+| 1 | 16287.8 | 17194.1 |
+| 2 | 14589.0 | 16844.8 |
+| 3 | 14418.8 | 16000.3 |
+
+**3/3 pairs to the control, ~ +10%.**  The -7.1% conv-data cut is real, but
+the DFT-13 tail is ~17.5 vector ops/pt vs PFA-14's ~15.1 (+16%), all of it
+FMA-port work, and gcc spills the 26-plus-live-zmm fused middle on top
+(1039 uops/block vs mid14's 742).  A wallaby (SPR) pre-race read the same
+direction (2/3 pairs to control).
+
+### The r8 static analyzers, used as the brief intended (first use in this
+### record): llvm-mca predicted this kill before the lease was spent
+uiCA's install is broken (missing generated instrData module — recorded for
+whoever owns ext/tools).  llvm-mca -mcpu=icelake-server on the gcc codegen
+(function bytes extracted from the built binary via objdump, addresses
+stripped): conv_mid13 460 cyc/block-iteration vs conv_mid14 313 — +47% on
+the mid pass per point, against a 7% cut spread over the four M-scaled
+passes.  Model said lose, wallaby leaned lose, the node confirmed 3/3.
+Both middles report Port0-saturated (97%) in the ICX model — that model
+funnels ALL 512-bit FP into one port (the known blind spot list in
+tools/TOOLS.md misses this one), so treat its absolute cycles as ~2x
+pessimistic on the 2-FMA-pipe Gold 6326, but the RELATIVE verdict was
+correct.  Protocol note: llvm-mca will happily consume objdump -d
+--no-show-raw-insn output once addresses and call lines are sed-stripped —
+no need to re-compile with clang to analyze the SHIPPING gcc code.
+
+### Ship state (default build = gen_r7 arithmetic and paths exactly)
+Chain output at L=100 cmp-IDENTICAL to the control arm.  Node reads, ship
+binary: L=100 B=1 m=64 **14387.8-16520** us across the session's windows
+(board 14379.9; MKL 2022 same window 7740.1), L=50 B=4 m=128 **1394.9**
+(board 1397.6), L=10 B=64 m=1000 **13.44** (board 13.39) — parity
+everywhere, as an arithmetic-identical ship must read.  Gates on the ship:
+L=100 m=2 4.109e-15 (tol 3e-14), chain m=64 3.564e-14 (anchor 2.416e-14,
+1.48x honest — r7's exact digits); generality sweep B=1 singles at L in
+{2, 7, 11, 17, 20, 24, 33, 40, 48, 50, 56, 63, 64, 71, 96, 97, 100, 101,
+104, 105, 112, 127, 128} ALL PASS <= 1.0e-15 on the node.  create() ~0 s.
+
+### What did NOT work / was decided without a window, with the number
+- **M=208 via DFT-13**: the round's headline null, numbers above.  The
+  flap-count lesson (lit 11 Tier 1) has a boundary this class just
+  measured: ranking conv lengths by data volume stops paying when the
+  cheaper length's tail module costs more per point than the data cut
+  saves — the {3,5,7}-slices won because DFT-3/5/7 are at-or-below
+  radix-4's per-point cost; a 6x6-dot-product DFT-13 is not.  13*2^k
+  should stay out of everyone's grids on ICL unless the tail gets a
+  fundamentally cheaper form (Rader-13 via an 12-pt cyclic conv is the
+  only candidate, and it is a whole sub-engine).
+- **Rescheduling conv_mid13 to cut gcc's spills** (split re/im halves
+  around the pointwise multiply, ~24 live instead of ~38): declined by
+  arithmetic — even a zero-spill mid13 keeps the +16%/pt FMA-port floor,
+  and the measured deficit (1.4-2.4 ms/step) is larger than the entire
+  modeled spill share (~1 ms).  Not worth a lease slot.
+- **Improving conv_mid14 the same way**: declined — llvm-mca shows it
+  FP-port-bound, so its spill uops ride the idle load/store ports for
+  free (the r6 conv_mid12 lesson from the other side).
+
+### Borrowed this round, named
+- **gen_pow2 gen_r7**: the negative-result round as a first-class
+  deliverable (their constant-per-site verdict), and the asm-audit/
+  model-before-race discipline this round ran on the new analyzers.
+  Their r7 also killed constant-per-site twiddle routing on ICL, which
+  took that brief item off my list without a window.
+- **gen_pfa_large gen_r7**: the two-axes-per-pass closure accounting —
+  their traffic argument transfers to my blocked-custody chain (same
+  two-sweep floor), closing brief item 1 for this class without code.
+- **gen_batchlane r4 / gen_pow2 r3** (standing): held-lease same-core
+  control-first pairs; the kill above is 3/3 clean pairs, not a window
+  artifact.
+- **tools/TOOLS.md (the r8 addition)**: llvm-mca as the pre-lease filter;
+  this round it paid for itself (the kill was predicted before the race).
+
+### What I would do next (post-campaign / cross-arch)
+1. **Cross-arch re-races** (carried): all knobs — BST_MAPFUSE_MAX_MIB,
+   BST_NOCFUSE, BST_BLKFUSE, BST_PF, BST_SCHED, BST_MID12, BST_NO7, and
+   now BST_M13 — on CLX/SPR when the next XARCH lands.  BST_M13 on CLX is
+   the interesting one: a downclocked port-bound host weights the -7%
+   data cut differently, and CLX's 1 MB L2 changes the M=224-vs-208
+   buffer story.
+2. **bluestein_cost(L) for gen_planner** (seventh carry, grid unchanged
+   from r7): ~0.66 ns per (row * M(L)*log2 M(L) / 8) + ~0.15 ns/pt/step
+   chain map on ICL, M(L) = min{2^k, 3*2^k>=48, 5*2^k>=80, 7*2^k>=112 :
+   >= 2L-1}.
+3. **Tail groups (nv < 8) masked contig path** (fourth carry): still
+   cosmetic (<= 1/1275 of groups, odd L at B=1 only).
+4. The class's arithmetic-count ledger is now closed on ICL: every
+   divisor-slice of every octave that can pay has been measured (3, 5, 7
+   win; 13 loses; 15*2^k/M=240 fails coverage; M=24/12 fails the
+   transpose contract).  What remains at L=100 is issue shape in the
+   radix-4 bodies themselves, and the analyzers now say those are
+   FP-port-bound at ~2.1 uops/cyc — the honest next lever, if one is
+   ever needed, is fewer FLOPs per butterfly (2,8-split-radix chains,
+   lit 11), which only applies to the pow2-M holdout slices (graded
+   25/27/31/32 at M=64).

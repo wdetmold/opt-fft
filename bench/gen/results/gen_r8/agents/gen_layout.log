@@ -1,0 +1,3 @@
+Round gen_r8 complete. All work is in `impl/gen_layout.c` and `strategies/gen_layout.md`; gates verified end-to-end (singles at all 11 suite sizes plus 8 off-suite, two-step ≤ 2.9e-15 vs 3e-14 tol, full chains inside the anchor band, bit-identical repeats, scalar build clean).
+
+Insert-load 8×8 transpose (VINSERTF64X4-from-memory moves the staging's 256-bit stage off port 5, gated to L≥16) + dm_exit8 spill-diet unroll + kcnt=1 exit-map packing — best node numbers L=32: 149.6 µs/transform batched (B=8, −6.4% same-window vs r7, MKL 171) and 171.2 µs at B=1, rel L2 = 3.3e-16.

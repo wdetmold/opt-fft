@@ -1,0 +1,8 @@
+Round gen_r8 complete. The work in summary:
+
+- **The lever**: 24-accumulator GEMM tiles (6 k-columns × 4 zmm, one rotating broadcast register, ~29 live zmm, zero spills) — refuting my own r7 claim that the 16-acc boundary-drain count was "invariant under the 32-register file". Drains per block drop 16→12, drain granularity 240→360 FMAs, feed ratio 0.5→0.417 loads/FMA. Applied to the shared L=31 kernels (fold31/fold31zx now call one factored set) and to the generic `fold_pass` via KN=6 macro extension with exact 1..5-column tails.
+- **Discipline**: schedule chosen with the round-8 static analyzers first (llvm-mca + OSACA confirm FMA-port saturation, no spills; uiCA is broken on this host — noted in the record), then scored on the node with the one-lease same-core interleave protocol. One build iteration, no dead lease windows.
+- **Correctness**: outputs bit-identical to the r7 ship at all 14 dev cells (single + chain), numpy gates re-run and PASS, repeatable, scalar build clean.
+- **Results**: L=31 B=16: 120.7 → **113.1** (-5.7%, 8/8 pairwise); B=1 **112.4**; generic cells -1..-2.5% at 17/19/20/23/29, washes elsewhere, no regressions. Strategy record appended with mechanism, models-vs-measured, and next steps.
+
+24-accumulator (6k×4d) GEMM tiles with rotating broadcast register, bit-identical by construction: **113.1 µs/step at B=16, 112.4 µs/step at B=1** (L=31 graded chain, wallaby-leased node), rel L2 = 3.92e-16 single / 2.55e-14 m=140 chain (tol 1e-12 / 1e-10).

@@ -976,3 +976,134 @@ unchanged (88/96/162/216 vector FP per pencil per 8 vols).
    exactly what CLX's port structure flips; dense=2 stays buildable but is
    30%+ behind on ICL -- only race it if a machine shows a port-5 famine).
 3. The batched cells are saturated (r5/r6 verdicts stand); protect, don't chase.
+
+## Round gen_r8
+
+### Headline
+Spent my r7 next-list #1, which is also what the brief's surprise-test addendum asks
+this class for (the L=21/44-class small-batch gap): the r7 rotation fused-map split
+chain is PORTED TO THE GENERIC COPRIME ENGINE. Remainder volumes (B%8, incl. B=1) at
+the 64 generic sizes no longer lane-replicate into 8 zmm lanes; they run per-volume
+through a three-pass rotation step with the graded map fused into the last pass's
+rotated stores. B=1 graded-shape chains, same-core adjacent runs (min-of-mins, three
+rounds, MKL in the same window):
+
+| case (B=1) | r7 ship (lane-replicated) | gen_r8 ship | MKL | vs r7 | vs MKL |
+|---|---|---|---|---|---|
+| L=14 m=100 | 49.8 us | **11.10** | 12.65 | **4.5x** | **1.14x** |
+| L=21 m=50  | 184.1   | **40.93** | 72.29 | **4.5x** | **1.77x** |
+| L=34 m=64  | 1296.7  | **233.0** | 792.0 | **5.6x** | **3.40x** |
+| L=44 m=20  | 2825.6  | **520.9** | 580.4 | **5.4x** | **1.11x** |
+
+r7 LOST these cells 3-4x to MKL; every measured one now wins. ALL tuned paths --
+batched engine and the r7 tuned split path -- ship BIT-IDENTICAL to r7 (cmp on full
+graded chains at 10 B=64 m=1000, 20 B=32 m=256, 12 B=1 m=600, 15 B=9 m=600; official
+tryout sanity 1.229/4.414/13.162 at 10/15/20 in a somewhat noisy window, single-call
+gates 2.6-3.1e-16, MKL 4.67/16.55/59.62 same runs).
+
+### What changed (all in the generic engine's B%8 path; ~150 net new lines)
+
+1. **gstep_split**: DEF_STEP's three ping-pong passes with runtime L. Pass 1
+   stride-L^2 (flat 8-lane blocks over the inner L^2, one overlap tail), pass 2
+   stride-L per slab, pass 3 stride-1 via tr8 transpose-in, pencil on buffered
+   lanes, and the graded map (map8c, the map_span ladder) fused into ROTATED
+   contiguous stores (output k -> k*L^2 + R): ceil(L^2/8) row blocks, one overlap
+   tail, no back-transposes -- the r7 minimal-block form, unchanged. Layout cycles
+   period 3; the chain builds c in both extra rotations once per volume (scalar)
+   and un-rotates once at chain end when m % 3 != 0 (interleave_rot was already
+   runtime-L). cr==NULL skips the map (a plain FFT+rotation variant for a future
+   execute() route; execute() itself still lane-replicates -- unscored, correct).
+2. **gspencil_<P>_<Q>: out-of-place split-complex pencil instantiations** (same
+   GT slot algebra, same gmod/gmodQ modules, always buffered -- out-of-place needs
+   no IPOK rule). The (P,Q) instantiation list is now ONE X-macro (GP_LIST) that
+   emits both pencil families and both lookup switches; the emitted gpencil set is
+   unchanged in content and order (tuned+generic batched codegen identical, see
+   bit-identity above). Build cost of doubling the instantiations: ~7s -> ~14s.
+3. **GSPLIT_RMAX = 4 (raced)**: remainder groups r <= 4 go per-volume split;
+   r >= 5 keep the one lane-replicated SoA group, whose cost is flat in r.
+   Same-core race at L=21 m=50 (per-xform): r=4 split 29.86 vs replicated 31.19
+   (-4%; also -3% at 34 r=4, wash at 14 r=4); r=6 split 31.2 vs 26.5 (+18%), and
+   +21% at 34 r=6, +29% at 21 r=7. r=5 was state-flip muddy (split 30.7 fast-state
+   vs replicated 39.2 slow-state reads); scaling the clean r=6 replicated number
+   (26.5 * 14/13 = 28.5) puts replicated ahead at r=5 by ~8%, so 4 is the
+   conservative cut. -DGSPLIT_RMAX=0 restores r7 behavior; re-race per host.
+4. **Split per-volume buffers (10 svol doubles) now also allocated for generic
+   plans** -- but ONLY when batch%8 is in 1..GSPLIT_RMAX and L >= 8, so the r6
+   memory rule for big pure-batched draws still holds. L=6 (a slab row cannot
+   feed 8 stride-1 lanes) always lane-replicates.
+
+### Built, measured, and REPLACED: the site-buffer first cut
+The first working version avoided new pencil instantiations by gathering each
+pencil's L lanes into a site-format buffer (site = re[8]|im[8], st=16) and running
+the EXISTING in-place gpen codelet on the buffer. It passed every gate and already
+beat lane-replication 3.8-4.7x, but pays a 4L-vector gather/scatter round trip per
+pass-1/2 pencil (~25-30% of pencil work at L=14/21). The dedicated out-of-place
+pencils beat it 10-20% same-core (21: 42.5-47.5 vs 48.6-54.7; 14: 11.18 vs 12.44;
+44: 537.7 vs 622.5; 34: 238-242 vs 300-305) and replaced it. Lesson (the r6
+module-15 shape again, from the other side): buffer traffic that substitutes for
+straight-line loads/stores is not free even when it enables code reuse; at ~25% of
+pencil work it is worth 60 more instantiations and 7 s of compile.
+
+### Gates (ship build, all run on the node by hand; tryout's map-check leg still
+### gets the unexpanded '$W/c.bin' -- unchanged harness bug)
+Single call 2.1-4.6e-16 at every size/batch exercised (6,14,18,21,26,34,42,44,48,
+62,66,117 x B in {1,2,3,5,11}). Two-step m=2 gate at 21 B=1: 1.707e-15 (tol 3e-14,
+17x margin; m=2 ends rotation p=2, exercising the un-rotate). Chains m=6..100
+including m%3=0/1/2 all inside the honest anchor band (ratio 1.1-1.6x, tol 300x).
+Mixed batches B=11 (r=3 split), B=5 (r=5 replicated), B=2/B=3 verified. All outputs
+bit-repeatable across processes. Nested-PFA module path (66=2x33), prime-module
+fold (34,62), IPOK (18), plain fold (117=9x13) all covered. Tuned sizes:
+bit-identical to r7 (see headline).
+
+### What did NOT work / notes
+* The site-buffer reuse cut (above): replaced, numbers recorded.
+* r=5..7 per-volume split: loses to the flat-cost replicated group (+18..+29%);
+  threshold shipped at 4. This is the same crossover the tuned sizes have NEVER
+  been given (their remainder path is per-volume for all r since r1) -- a tuned
+  r=5..7 draw would likely also prefer a replicated SoA group, but graded batches
+  are multiples of 8 and the tuned paths ship bit-identical; noted, not spent.
+* The first-invocation-cold effect (+10-15%) and the two-state node windows both
+  reappeared this session; every verdict above is adjacent-pair min-of-mins
+  (standing protocol since r5).
+
+### Borrowed, plainly
+* My own r7 rotation step and c-rotation chain bookkeeping, ported verbatim
+  (structure, overlap-tail idempotence argument, period-3 cycle, un-rotate).
+* gen_batchlane gen_r4 / gen_pfa_large gen_r4: the held-lease same-core
+  interleaved protocol (standing).
+* The lit 11 Tier 2 transpose-free ordering vein, already cited in r7, now
+  validated on 64 more sizes at runtime L.
+
+### Operation count (generic split path, per volume per step)
+Pass 1: ceil(L^2/8) pencils at stride L^2; pass 2: L*ceil(L/8) at stride L;
+pass 3: ceil(L^2/8) x [2*ceil(L/8) tr8 + 1 pencil + L fused map8c stores].
+Pencil = Q x mod_P + P x mod_Q module FMA + 2L vector loads + 2L stores (buffered
+out-of-place; no gather/scatter round trip). Map: ceil(L^2/8)*L v8 ladders,
+map_span's hs-form + one vdivpd, in-register at the stores. Lane waste is the r7
+structural residue only: pass 2's per-slab blocks and the two overlap tails.
+
+### Notes for the panel
+* **The generic rotation split chain is adoptable**: any entry whose remainder
+  path lane-replicates (both generic engines did until today) can take
+  gstep_split + the GS_DEF pencil family + the chain block wholesale; the only
+  per-entry piece is the out-of-place pencil. gen_pfa_large: your volume-major
+  engine may not need it at your L >= 40 cells, but the trunk's small-batch
+  draws at coprime sizes now route best through me at r <= 4.
+* **gen_planner/gen_race**: at generic coprime sizes the small-batch verdict is
+  now: B=1..4 (mod 8) -> my split chain; B=5..7 (mod 8) -> my replicated group.
+  The wisdom cache can just race me twice if in doubt; create() cost is unchanged
+  (~ms, the gspencil tables are the same gtabs).
+* L=44's 1.11x vs MKL is the weakest of the measured wins (MKL's radix-11 at
+  B=1 is decent); a Winograd/Rader DFT11 module would be the next lever there,
+  but the fold-vs-structure op ratio (~130 -> ~90) is below the ~2x that r6
+  showed is needed to beat a straight-line FMA stream -- do not spend a round
+  on it without a port-model (llvm-mca) check first.
+
+### What I would do next (ranked)
+1. Route generic execute() remainders through gstep_split(cr=NULL) + one
+   un-rotate (the plain-FFT variant already exists and is tested by nothing --
+   wire it only with a measured win; the scalar un-rotate is ~vol stores, so at
+   m=1 it may be a wash vs one replicated SoA fft).
+2. Cross-arch: race GSPLIT_RMAX (and SPLITZ<L>, MT knobs) per host; the split/
+   replicated crossover is a tr8-vs-FMA balance CLX will move.
+3. Tuned batched cells: saturated (r5-r7 verdicts stand); protect, don't chase.

@@ -1101,3 +1101,148 @@ four build modes (entry/LIB_ONLY × icelake-server/x86-64) compile
 4. The demo's odd-L cells are now the only ones untouched since r5; the
    remaining odd-L symmetry is multiplicative (j → 2j mod L) — that is
    Rader territory and stays out of this class.
+
+## Round gen_r8
+
+### What changed
+
+**Library (`gl_*` API): frozen for the fourth consecutive round.** No adopter
+r7 record asked for a new primitive. The one new mechanism this round
+(dm_tr8x8_ld, below) lives demo-side; it is written to be lifted verbatim into
+`gl_` the moment an adopter asks — gl_pack8's tr8x8 stage and gen_batchlane's
+bl8 staging are the same shape.
+
+**Demo entry, three changes (all measured with the round's new static
+analyzers BEFORE spending lease windows — the intended tools discipline):**
+
+1. **Insert-load 8×8 transpose in the axis-2 staging (`dm_tr8x8_ld`).**
+   The uops.info port tables (surfaced by the round-8 analyzer tooling) show
+   `VINSERTF64X4 zmm, zmm, m256` executes as a PURE LOAD-PORT µop on
+   SKX/ICX — no shuffle. So the 256-bit stage of the classic transpose
+   network can come straight from memory: 8 ymm loads + 8 insert-loads build
+   the [row_r[0:4] | row_{r+4}[0:4]] intermediates, then 8 unpacks + 8
+   vpermt2pd (two constant index vectors) finish. **16 shuffles + 16 load
+   µops per 8×8 block vs gl_tr8x8's 24 shuffles + 8 loads.** Port 5 is the
+   second FMA pipe on Ice Lake, so in the staging this is kernel relief.
+   llvm-mca (icelake-server): block RThroughput 24.0 → 16.0 — exactly the
+   hand count. Applied in both axis-2 stagings (dm_axis_z, dm_axis_z_win) for
+   full blocks only (jcnt==8, rcnt==8, and in the window a same-slot check:
+   8 stride-L rows never wrap a plane inside a slot); masked/boundary blocks
+   keep gl_tr8x8. Reads exactly 64 B per row — no overread, no masks.
+   **Plan-time gate `p->ldt = (L >= 16)`** — see boundaries.
+
+2. **kcnt=1 exit-map packing** (L % 8 == 1: 25 in-suite; 9, 17, 33, 41...
+   surprise class) — the r7 packing family completed one level down: EIGHT
+   rows of one complex share ONE gl_map8 ladder. Pack 6 shuffles (4 vpermt2pd
+   pairing rows + 2 vshuff64x2), c enters via masked VBROADCASTF64X2 (also a
+   load-port µop, no shuffle), results leave by 128-bit extract stores.
+   Bit-identical per complex (the r5 pair-compress lane-independence, again).
+   8 dead-lane divides (7/8 of the ladder wasted) become 1 full one.
+
+3. **dm_exit8 spill diet (the r7 watch item).** The full 8×8 chunk — the
+   dominant exit case at every L — now runs a CONSTANT-BOUND `tt < 8` loop
+   placed before the packing branches, so after unrolling the lo/hi indices
+   are compile-time constants and the vectors stay in the registers
+   gl_tr8x8_c2i produced. The r7 audit blamed exactly this dynamic indexing
+   for dm_exit8's 46 rsp-relative zmm ops.
+
+Knobs: `-DGL_DEMO_NOLDT=1`, `-DGL_DEMO_NOK1=1`, `-DGL_DEMO_NOX8=1`.
+
+### Operation count
+
+FMA count unchanged everywhere. Axis-2 staging per full 8×8 block (both
+components): shuffles 48 → 32, loads 16 → 32 (p23 has the slack; p5 does
+not). Exit at kcnt=1 tails: map ladders per 8 rows 8 → 1 (+14 shuffle-class
+ops for pack/unpack, −28 ladder-internal shuffles, −7 vdivpd). Full-chunk
+exit: identical ops, constant indices (register-resident).
+
+### Measured on the node (a80n0, leased cores via tryout.sh, graded chain, min µs/xform)
+
+| L | B | r7 board | gen_r8 | note |
+|---|---|---|---|---|
+| 10 | 64 | 4.98 | **4.94** | flat (ldt gated off; r7 kcnt=2 pack + unroll unchanged) |
+| 12 | 64 | 8.00–8.02 | **7.97–8.04** | wash; see boundaries (ldt gated OFF at 12) |
+| 12 | 1 | 9.04 | **8.16** | **−9.7%** |
+| 15 | 32 | 19.74 | **19.64** | flat (ldt off at 15; 19.85 with it on) |
+| 20 | 32 | 34.67 | **34.20** | −1.4% |
+| 25 | 16 | 98.5 | **93.1–95.3** | **−5.3% same-window** (98.3 r7-arm); kcnt=1 pack alone −1.7% (96.9 NOK1 arm) |
+| 27 | 16 | 126.5 | **126.3** | flat |
+| 31 | 16 | 200.6 | 203.6 | sd 3.8% dirty window; odd path only touched via staging (ldt on) — treated as noise |
+| 32 | 8 | 151.4–156.9 | **149.6–150.9** | **−6.4% same-window** (159.9 r7-arm); MKL same window 171–179 |
+| 32 | 1 | 176.3 | **171.2** | −2.9% |
+| 40 | 8 | 336.4 | 339.8 | sd 5.0% dirty window, ~flat |
+| 50 | 4 | 961.7 | **943.5** | −1.9% |
+| 100 | 1 | 9277–9417 | **9354.8** | flat — see boundaries |
+
+**Attribution at L=32 B=8, interleaved same-window knockouts:** r7-shape arm
+159.9; unroll only (NOLDT) 154.6 (−3.3%); transpose only (NOX8) 158.6
+(−0.8%); both 149.6 (−6.4%). **Superadditive**: with the exit spilling, the
+staging's port-5 relief had nothing to relieve — the spill diet unmasks it.
+Measure composed changes composed, not only one at a time.
+
+### Gates (map-chain legs by hand as always — tryout's '$W/c.bin' bug persists; r2 recipe verbatim)
+
+Single-call rel L2 2.8e-16–5.5e-16 at all 11 suite sizes and off-suite
+9/17/24/33/44/96/127/128 (tol 1e-12; the kcnt=1 class 9/17/33 exercises the
+new pack + window path together); **two-step gate 9.32e-16 / 1.61e-15 /
+1.59e-15 / 2.86e-15 at 12/25/32/100** (tol 3e-14 — 25 and 32 route every
+tail through the new pack/unrolled exits); full graded chains PASS at 12
+(m=600, 4.74e-14), 25 (m=256, 4.04e-14), 32 (m=250, 3.51e-14), 100 (m=64,
+3.94e-14) vs tol 1e-10; chain outputs bit-identical across independent node
+runs at 12/25/32/100 (NT determinism re-verified at 100); off-suite m=3
+chains PASS at all 8 sizes above; scalar (x86-64 wallaby) build PASS singles
++ m=3 chains at 4/9/12/27 (scalar path untouched). Entry and LIB_ONLY modes
+compile `-Wall -Wextra`-clean, icelake-server and plain x86-64. Setup
+unchanged (≤ 5 ms at L=100).
+
+### What did NOT work / boundaries, with numbers
+
+- **The insert-load transpose LOSES at L=12: +1.0%** (7.97 vs 7.89 r7-arm,
+  same window). At L=12 the quad sweep is he2=3 columns — nothing for the
+  port-5 relief to relieve — and the doubled staging loads bind instead.
+  Shipped behind a plan-time gate `ldt = (L >= 16)` (measured: +1% at 12,
+  flat at 15, −1.4% at 20, −5% at 25, −6% at 32 composed). Not a new code
+  path: the masked fallback must exist anyway; the gate is one predicate.
+- **L=100 flat (9355 vs r7 9277–9417).** The staging relief is real in the
+  model but the chain there runs against the ~2.1 vector-µops/cycle cap
+  under memory pressure (the TOOLS.md model blind spot, observed in the
+  flesh): axis-2's port-5 count is not the binder when the window/exit
+  streams are in flight. The r5 lesson generalizes: at DRAM sizes, µop-mix
+  surgery buys nothing after the NT work — L=100's remaining gap to MKL
+  (1.19×) is algorithmic (O(L⁴) dense vs 5NlogN), not schedule.
+- **kcnt=3 packing (would serve L=27) worked out and skipped**: 4 rows of 3
+  complex → 3 zmm needs ~12 pack shuffles + straddled split stores to save
+  25% of the tail ladders on 1-of-4 chunks — under the window noise floor.
+  Recorded so nobody builds it without a scored L≡3 mod 8 cell that is
+  map-bound. kcnt=6 likewise (no scored cell; r7 verdict stands).
+- **L=31/40 read +1.5/+1.0% in dirty windows (sd 3.8–5.0%)** with ldt the
+  only path change; L=27 sat flat at sd 0.5%. Same call as r7's odd-cell
+  drift: window/layout noise; the monitor's quiet window decides.
+
+### Borrowed this round, named
+
+- Nothing from other entries' code. The enabling fact (VINSERTF64X4 from
+  memory = pure p23) came from the uops.info tables via the round-8 analyzer
+  tooling (tools/TOOLS.md); llvm-mca's 24.0 → 16.0 RThroughput verdict was
+  obtained BEFORE the first lease window was spent, which is exactly the
+  "choose schedules with the models, score with the node" discipline the
+  brief asks for. The kcnt=1 pack extends my own r7 packing family on the r5
+  lane-independence guarantee.
+- **For adopters**: dm_tr8x8_ld is gl_tr8x8-shaped and drop-in wherever the
+  source rows are full and contiguous-strided (gl_pack8's stage, batchlane
+  bl8 staging, powp SoA↔natural). Two caveats travel with it: (a) it reads
+  full 64-B rows — no masks, so partial tails keep the register network;
+  (b) below a ~16-column kernel shadow the extra loads bind (my L=12
+  number) — gate it like I did. If anyone wants it as `gl_tr8x8_ld`, say so
+  in your record and I will promote it verbatim next round.
+
+### What I would do next (gen_r9 / endgame)
+
+1. **Promote dm_tr8x8_ld into the library** on first adopter request (the
+   API-freeze doctrine yields to an actual ask).
+2. **The exit-side analog**: VEXTRACTF64X4 to memory is also load/store-side
+   on ICX; the c2i exit's upper-half stores could shed more port-5 — worth an
+   mca pass before any window.
+3. The odd-L kernel remains the last unfolded structure (multiplicative
+   symmetry = Rader territory, out of class); L=100 remains algorithmic.
+4. Library A/B ladder and adoption offers from r2–r7 all stand.

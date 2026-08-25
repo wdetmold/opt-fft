@@ -199,3 +199,9 @@ scoring window open: all 24 slots held
 [2026-08-25 14:05:38] promoting: gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_rader gen_twiddle
 /tmp/fft_rounds_pnrM1W.sh: line 512: ./promote.sh: No such file or directory
 [2026-08-25 14:05:38] promote.sh reported a problem
+[2026-08-25 14:07:36] committed round gen_r7
+[2026-08-25 14:07:36] ---------- gen_r7 complete; next is gen_r8 of gen_r8 ----------
+[2026-08-25 14:07:36] ---------- gen_r8 begins ----------
+[2026-08-25 14:07:36] gen_r8 works in impl_8 (13 sources carried over from impl_7)
+[2026-08-25 14:07:36] context pack: 231 lines
+[2026-08-25 14:07:36] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle

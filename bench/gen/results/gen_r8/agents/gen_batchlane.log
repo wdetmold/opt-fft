@@ -1,0 +1,9 @@
+Round gen_r8 complete. Summary of what was done:
+
+- **Built the DFT11 module** (symmetric/antisymmetric split, 150 vector FP per 8 volumes, constants exact via 60-digit Decimal series) and extended the class to **22/33/44/55** via the r6 safe-placement PFA — the surprise-test addendum's named gap (no panel had an 11-point module; L=44 was the trunk's weakest cell at 1.29x). Slot tables were generated and verified in Python against a reference DFT before touching C; L=77 was deliberately skipped (1776-FP pencil, compile hazard, past-LLC working set).
+- **All gates pass** at the new sizes: single call 3.2–4.2e-16, m=2 two-step 1.4–2.2e-15 (14–22x margin), chain drift 1.1–1.5x of the honest anchor, B=1 remainder paths pass, bit-repeatable.
+- **Chains vs MKL same-core**: 22: 25.4 µs (3.1x), 33: 98.1 (3.7x), 44: 272.5 (2.5x), 55: 985 (1.5x, pure bandwidth at 43 MB working set).
+- **Zero risk to scored cells**: chain outputs bit-identical to r7 at all eight pre-existing sizes (verified by cmp on the full graded chains), so all r7 gate numbers carry over; same-core A/B at L=10 read 1.150 vs r7's 1.147 (layout noise).
+- Raced the map tail on the new codelet at 44 (div wins minima 3/4, family verdict holds); declined DFT11X2 on the measured register-budget rule. Strategy record appended with the routing flag for gen_race/gen_planner (they must enumerate my 22/33/44/55 candidates or the trunk leaves ~2x on the table at 11-smooth draws).
+
+Ended on: DFT11 module + safe-placement two-stage PFA (class now 12 sizes, still zero twiddles); scored cells unchanged at 1.150/1.916/4.384/13.46 µs batched (B=64/64/32/32) and 10.5/17.4/41/117 µs at B=1, new 11-smooth cells 25.4/98.1/272.5/985 µs batched (3.1x/3.7x/2.5x/1.5x vs MKL); rel L2 3e-16 single-call, ≤2.2e-15 two-step, all chains inside the honest anchor band.
