@@ -129,3 +129,28 @@ GT/Rader-as-vectorization-first. Tier 2 names the structural plays for the weak 
 (stage-as-matrix outer products, two-axes-per-pass fusion, transpose-free ordering). Being FIRST
 to make any of these work in performant code is the point — cite the section in your strategy
 record when you try one.
+
+## ROUNDS 7-8: spend the queued backlog
+
+The campaign's six scored rounds ended at 3.49x over the best library, 11/11 cells. Your own
+strategy records queued the heaviest literature plays without spending them. This extension
+exists to spend them:
+
+1. **Two-axes-per-pass fusion at L=100/50/40** (literature 11 Tier 2) — both gen_pfa_large and
+   gen_powp records name it as "still the" next lever. L=100 sits at 1.71x, the weakest cell;
+   its working set (32 MB in+out) is the one case that spills L3, so a fused y*z pass with
+   L2-resident tiles is worth real percent.
+2. **Constant-per-site twiddle routing** (Garrido, lit 11 Tier 1) — never attempted. For a fixed
+   L the angle-sorted schedule computes OFFLINE; twiddles become compiled-in broadcast constants.
+   Try it on one mid-size cell (25/27/32) where twiddle loads are measurable.
+3. **Stage-as-outer-product / register-resident stage matrices** (lit 11 Tier 2) — fold twiddles
+   into per-stage constant matrices applied by broadcast-FMA. Natural first target: the L<=16
+   dense-GEMM crossover claim at 10/12/15.
+4. **REFFT-style plan enumeration in gen_race** — tree rotations + codelet permutations as a
+   complete plan lattice; memory order tuned independently of arithmetic order.
+5. Protect every cell: the two-part gate is unchanged; a regression that fails the gate scores
+   nothing regardless of speed.
+
+The surprise-size test (L=21, 44, 96 vs the trunk) is being scored as you start — its findings
+land in this brief as an addendum; treat any surprise-size failure as a planner/race bug with
+priority over per-cell tuning.
