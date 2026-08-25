@@ -1,5 +1,6 @@
 #!/bin/bash
 # Cross-architecture ADVISORY sweep (docs/CAMPAIGN_GENERALIZE.md): after round N's Ice Lake
+export PATH=/opt/software/slurm-19.05.8.1-cuda-11.8/bin:$PATH
 # leaderboard, rerun the acceptance suite at reduced sampling on another microarchitecture.
 # Advisory only -- these numbers never enter a leaderboard (numbers from different machines
 # are never compared directly; only ours-vs-lib RATIOS on the same machine travel).
