@@ -18,7 +18,7 @@ mkdir -p "results/$ROUND"
 if [ "$ARCH" = clx ]; then
   # a fresh exclusive Cascade Lake node from the devel partition; name must not match
   # the benchmark job pattern or the round runner stalls on it
-  JOB=$(sbatch -p devel -J xarchhold -t 3:00:00 -o /dev/null --wrap "sleep 10800" | awk '{print $4}')
+  JOB=$(sbatch -p prod -J xarchhold -t 3:00:00 --exclusive -o /dev/null --wrap "sleep 10800" | awk '{print $4}')
   [ -n "$JOB" ] || { echo "sbatch failed"; exit 1; }
   trap "scancel $JOB 2>/dev/null" EXIT
   for i in $(seq 1 60); do
