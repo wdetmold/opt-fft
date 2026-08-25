@@ -33,6 +33,10 @@ CORE=$((SLOT + 2))
 
 # the graded chain length for this L, so dev timings measure what the score measures
 M=$(awk -F: -v l="$L" '$1==l {print $3}' cases.txt 2>/dev/null); M=${M:-1}
+# mid-round broadcast: anything in NOTICE reaches every running implementer on their
+# next tryout invocation (claude -p agents have no other input channel once launched)
+[ -f "$ICE/NOTICE" ] && { echo "=== NOTICE TO ALL IMPLEMENTERS ==="; cat "$ICE/NOTICE"; echo "=================================="; }
+
 W=$ICE/build/tryout/$NAME
 mkdir -p "$W"
 CH=""; [ "${M:-1}" -gt 1 ] && CH="--chain $M --map --cin '$W/c.bin'"
