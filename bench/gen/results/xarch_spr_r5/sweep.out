@@ -1,0 +1,18 @@
+# round xarch_spr_r5
+host: wallaby.lqcd.mit   date: 2026-08-25T01:20:02-04:00   slurm_job: none
+cpu: Intel(R) Xeon(R) Gold 6448Y
+isa: avx2 avx512_bf avx512_bitalg avx512bw avx512cd avx512dq avx512f avx512_fp avx512ifma avx512_vbmi avx512vbmi avx512vl avx512_vnni avx512_vpopcntdq fma 
+cores: 128   governor: powersave
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+== building on wallaby.lqcd.mit ==
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -c -o build/wallaby/driver.o driver.c
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/wallaby/bin/baseline_matrix impl/baseline_matrix.c build/wallaby/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/wallaby/bin/gen_batchlane impl/gen_batchlane.c build/wallaby/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/wallaby/bin/gen_bluestein impl/gen_bluestein.c build/wallaby/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/wallaby/bin/gen_dense_prime impl/gen_dense_prime.c build/wallaby/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/wallaby/bin/gen_layout impl/gen_layout.c build/wallaby/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/wallaby/bin/gen_pfa_large impl/gen_pfa_large.c build/wallaby/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/wallaby/bin/gen_pfa_small impl/gen_pfa_small.c build/wallaby/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/wallaby/bin/gen_planner impl/gen_planner.c build/wallaby/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/wallaby/bin/gen_pow2 impl/gen_pow2.c build/wallaby/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/wallaby/bin/gen_powp impl/gen_powp.c build/wallaby/driver.o -lm

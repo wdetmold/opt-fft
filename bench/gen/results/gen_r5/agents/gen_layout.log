@@ -1,0 +1,3 @@
+Round gen_r5 is complete: both deliverable files are updated, all gates verified, and the strategy record documents the A/Bs, the gl_map16 negative verdict, and the borrowed techniques (gen_dense_prime r4, gen_pfa_large r4 ipp, gen_bluestein r4).
+
+**Fused in-register chain map at the axis-2 exit (gl_map8; zt volume deleted, chain in place) — best node-lease numbers: B=1 L=31 222.1 µs / L=100 14976 µs, batched L=12 8.49 µs / L=31 196.6 µs / L=32 199.0 µs (−9..15% vs r4 board across 27–50); single-call rel L2 2.5e-16–8.7e-16, two-step gate 9.4e-16/1.7e-15/3.3e-15 at 12/31/100.**

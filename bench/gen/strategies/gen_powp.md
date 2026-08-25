@@ -653,3 +653,173 @@ Volume-major moves no arithmetic at all.
    if round 6 draws 81.
 5. **Planner handshake unchanged**: supports() covers 25/27/49/50/81/100/
    121/125; keep gen_planner routing p^k draws here, not to Bluestein.
+
+## Round gen_r5
+
+Standings into the round (r4 board): led 25 (32.100) and 27 (44.281)
+comfortably; TRAILED 50 by 1.5% (472.873 vs gen_pfa_large 466.040); dead
+heat at 100 (4828.216 vs their 4827.566).  gen_pfa_large's r5 was already
+landed in impl_5 when this round started: a pair-packed map ladder and three
+c-stream L3-bypass chain families.  Both apply to my engine nearly verbatim
+(we share the shell); this round takes both, plus one idea of my own for the
+SoA x-pass divider from gen_layout's new r5 primitive.
+
+### What was built (three things)
+
+**1. PAIR-PACKED map ladder in map_span (ADOPTED from gen_pfa_large gen_r5,
+their map_step_pair, verbatim).**  The sequential map paths ran the ~18-op
+NR ladder on vectors where each |z|^2 sits duplicated in both complex lanes
+-- half the ladder lanes computed nothing new.  Two vectors' 8 distinct
+|z|^2 now pack into one zmm (2 shuffles), ONE ladder runs for both, and the
+reciprocals unpack pair-duplicated (2 shuffles): ~21 arithmetic ops + 4
+shuffles per pair vs 36 + 2 before, a ~35-40% cut in map-pass uops.
+BIT-IDENTICAL per element (q_re + q_im commutes; everything else is
+elementwise), so it flows into every ip* map pass, the ipp prepass, and the
+deferred-chain trailing span at all eight sizes with zero numerics risk.
+This is the round's headline: **L=50 dropped 9.9%** (472.9 -> 426.1) -- the
+map is ~40% of step arithmetic at the L3-resident sizes, exactly
+gen_pfa_large's accounting -- and every B=1 chain fell 6-16%.
+
+**2. c-stream L3-bypass families ipq1/ipk1/iqn1 at 50/100, ipq0 at the lite
+sizes (ADOPTED from gen_pfa_large gen_r5).**  c is read once per step; its
+only reuse is across steps, so caching it is pollution wherever the
+VOLUME-MAJOR working set (state+c per volume at B=1, per batch at small B)
+exceeds the 24 MB L3.  ipq* = ipp* with the prepass c fetched PREFETCHNTA;
+ipk1 = CLFLUSHOPT-ing clean c lines a pair behind (architectural semantics
+where NTA fill policy is implementation-defined); iqn1 = ip1 with the NTA-c
+map pass.  All compute bit-identical values.  Ranked LAST; pf ids 11/12/13
+(ipq0 = 14); wisdom tag chain4 -> chain5.  Node verdicts this session:
+at 100 B=1 (32 MB/volume-chain) **ipk1 won the cold race trial 5312 vs ipp1
+5367** and the 3% hysteresis correctly handed the install back to ipp1; a
+4-pair held-lease alternation (ipk1=pf12 vs ipp1=pf10) split 2-2 in a
+violently bimodal window with min-of-mins 4721 vs 4762 (-0.9% for ipk1) --
+NOT enough to justify rank-first (my r4 ipp reorder needed 4/5).  Left
+ranked behind ipp1: if ipk1 wins by >3% in the monitor's quiet window it
+installs itself.  At 50 B=4 they lose big as predicted (ipq1 630.5 / iqn1
+613.1 / ipk1 548.4 vs ip1 468.9): the batch's c IS the L3 reuse set there.
+Surprise worth recording: **ipq1 (NTA) is WORSE than plain ipp1 at 100**
+(5950 vs 5367) while ipk1 (flush) is better -- on this ICL part the NTA
+prefetch actively hurts the prepass (dropped-from-L1-too-early, or prefetch
+distance fighting the ladder); the flush variant is the one that works.
+gen_pfa_large: check which of your three actually carries the win on your
+side before reading the family as confirmed.
+
+**3. PAIRED-vdivpd SoA x-pass map at 25/27 (reciprocal-product trick from
+gen_layout gen_r5's gl_map16 / gen_dense_prime r4's queued idea, adapted to
+the split-complex site).**  In split complex the ladder lanes are all
+distinct (nothing to pack), but the final divide is shareable: the map-fused
+final stages now map output pairs through q = 1/(d0*d1), r0 = q*d1,
+r1 = q*d0 -- ONE vdivpd per two sites.  x-pass divider occupancy: 25 vdivpd
+-> 15 per pencil at 25 (5 outputs/group: single + pair + pair), 27 -> 18 at
+27 (3 outputs: single + pair); cost 3 vmulpd per pair; ~1-2 ulp on the
+reciprocal against a ~60 ulp/step budget (measured: graded-chain rel L2
+moved 3.10e-14 -> 3.145e-14 at 25, i.e. nothing).  Same-core held-lease
+A/Bs, clean windows: 25: 33.56/33.74/33.76 vs 34.17/34.26/34.38 (3/3 pairs,
+**-1.6%**); 27: 44.26/44.44/44.63 vs 44.84/44.98/45.23 (3/3, **-1.3%**).
+Knob -DGENPWP_NOMAPPAIR restores the r2-r4 one-div-per-site form for
+cross-arch races.  Implementation note: the final-stage macros became
+D5STAGEMP/D3STAGEMP and the pencil generators take a final-stage macro
+parameter (D5FS_MAP/D3FS_MAP) instead of a store macro -- the twiddle-store
+path (SSTW stages) is untouched.
+
+### Measured on the node (a80n0 core 4, QUIET window, r5_final.sh battery;
+### sd 0.01-0.4% within runs; same-window MKL not re-run, r4 references)
+
+| case | r4 board | gen_r5 | delta | pick |
+|---|---|---|---|---|
+| L=25 B=16 m=256 | 32.100 | **31.420** | -2.1% | soa (paired-div) |
+| L=27 B=16 m=200 | 44.281 | **44.567** | wash (quiet r4 floor was 44.8-45.0; the A/B says the code is -1.3%) | soa (paired-div) |
+| L=50 B=4 m=128  | 472.873 | **426.098** | **-9.9%** | ipp1 (ip1 fastest trial, 3% hysteresis) |
+| L=100 B=1 m=64  | 4828.216 | **4802.410** | -0.5% board-to-board; paired floors 4721 (ipk1) / 4762 (ipp1) vs r4's 4905-4929 | ipp1 (ipk1 raced, see above) |
+
+B=1 chains (ungraded): 25: **39.96** (r4 42.79, -6.6%), 27: **50.35**
+(r4 59.85, -15.9%), 50: **416.87** (r4 476.1, -12.4%; B=1 is now faster
+than B=4 -- pure pair-packed-map effect on the in-place/prepass families).
+New sizes, same shapes as r3/r4 finals: 49 B=8 m=32: **491.2** (r4 548.5,
+-10.4%); 81 B=2 m=16: **2868.0** (r4 3037.7, -5.6%); 121 m=8: **13960**
+(r4 14103); 125 m=8: **15661**.  Lite-size bypass verdicts (hot window):
+ipq0 loses at 49 (696 vs ip0 552) and 81 (3517 vs 3140) -- volume-major
+makes the per-volume working set L3-resident there -- is a close 2nd at 121
+(15194 vs ipp0 15138) and WINS at 125 (16022 vs 16139) by 0.7%.
+
+Gates, all eight sizes, node, by hand (r5_final.sh; tryout's map-check leg
+still has the '$W/c.bin' quoting bug): single call 3.6-5.0e-16 (tol 1e-12);
+two-step m=2 1.42/1.55/2.36/2.72e-15 at 25/27/50/100 (tol 3e-14, >11x
+margin); graded chains 3.15/3.10/5.03/4.18e-14 at 1.1-1.7x honest anchors
+(tol 1e-10); new-size chains 5.6e-15-1.2e-14; ALL bit-repeatable across
+independent processes.  Setup: cold 0.30-2.82 s scored, 4.1-4.5 s lite
+(60 s budget); warm wisdom unchanged ms-scale.  Round end: all gen_powp
+wisdom entries STRIPPED from results/wisdom_a80n0.json (r2-r4 protocol).
+
+### What did NOT work / went wrong, with the numbers
+
+* **NFS-stale source builds (harness trap, cost ~40 minutes).**  tryout.sh
+  compiles on the node from the shared FS; my first three "successful"
+  builds compiled a MINUTES-old view of gen_powp.c -- the L=50 binary had
+  10 candidates when the source had 13, while md5sum on both hosts already
+  agreed by the time I compared.  Symptom that caught it: the verbose race
+  printed no ipq/ipk/iqn rows.  Rule: after editing, `strings bin | grep
+  <new-candidate-name>` BEFORE trusting any number from a rebuilt binary.
+* **A busy core poisons the race AND the wisdom pins it.**  My first cold
+  race ran on a contended core: every trial read 20-30% high and soa
+  mis-ranked 42.8 us/vol against its true 34.8 (interleaved candidates
+  evict the SoA arena and i-cache between trial rounds; 256-step graded
+  chains hide this, 2-step trials do not) -- the race stored l25-ip0 and
+  the graded chain shipped 41.1 us instead of 31.4.  Stripped the entry,
+  re-raced on a live core: soa wins its slot back (34.8 vs ip0 46.7).
+  This is gen_batchlane r4's core-hop lesson biting the RACE itself, not
+  just A/Bs; the monitor's quiet-window race is the real arbiter, and the
+  strip-at-round-end protocol is what protects it.
+* **ipq (NTA) at 100: +11% vs ipp1** (5950 vs 5367, same cold race that had
+  ipk1 at 5312).  The NTA c-prefetch is not a free L3 bypass on this host;
+  only the CLFLUSHOPT variant delivers.  Kept raced for CLX/SPR.
+* **ipk1 rank-first at 100: evidence insufficient** (2-2 pairs, -0.9%
+  min-of-mins, bimodal window).  Not reordered; revisit with the monitor's
+  quiet number or XARCH data.
+* The wisdom JSON is rewritten wholesale by concurrent implementers'
+  create() races all session -- entries I greped one minute were gone the
+  next.  Do not fight it mid-session; strip your own keys at round end and
+  trust the tag/sig machinery for staleness.
+
+### Borrowed, plainly
+
+- **gen_pfa_large (gen_r5, their landed impl_5 source)**: map_step_pair
+  verbatim (the round's headline win at 50 and every B=1 cell), and the
+  whole ipq/ipk/iqn c-bypass family design with its ranked-last discipline.
+  The lite-size ipq0 instantiation, the NTA-is-worse-than-flush-at-100
+  verdict, and the 50/49/81 volume-major-residency loss accounting are mine.
+- **gen_layout (gen_r5)**: the gl_map16 reciprocal-product idea, re-derived
+  for split-complex sites where only the divide is shareable (their
+  pair-compression of |w|^2 does not apply -- soa lanes are already
+  distinct).  Credited also to gen_dense_prime r4 who queued the trick.
+- **gen_batchlane (gen_r4)**: the held-lease same-core alternation protocol,
+  again, for every A/B verdict above.
+
+### Operation count
+
+FFT FMA ops unchanged at all eight sizes (192/218/434/968 scored,
+534/850/1850/1552 lite per line).  map_span: ~21 arith + 4 shuffles per
+vector PAIR (was 36 + 2), all ip*/ipp/deferred paths.  SoA x-pass map:
+divider ops 25 -> 15 (L=25) / 27 -> 18 (L=27) per pencil, +3 vmulpd per
+paired output, ladders unchanged.  ipq/ipk/iqn move no arithmetic (hints
+and flushes only).
+
+### What I would do next (ranked)
+
+1. **L=27 x-pass two-column pipelining** -- now FOUR rounds on this list,
+   still the weakest scored ratio.  Note the paired-div map raised final-
+   stage register pressure (~6 more live vecs); the ~32-zmm cliff is closer
+   than it was in r2.  One honest same-core A/B, then close it either way.
+2. **100 rank decision**: re-run the ipk1-vs-ipp1 pairs in a quiet window
+   (this session never got one at 100); if ipk1 holds -1% or better across
+   4+ pairs, rank it first, else leave.  Watch gen_pfa_large's r5 record
+   for their side's verdict.
+3. **Tier-2 structural at 100** (literature 11): two-axes-per-pass fusion
+   is the only idea on the table that changes the 100 traffic floor rather
+   than shaving the map; it is a rewrite of phase 1+2 scheduling -- budget
+   a full round, coordinate with gen_pfa_large so only one of us burns it.
+4. **Round 6 readiness unchanged**: supports() covers the eight sizes,
+   lite pools now carry a large-L bypass candidate, cold create 4.5 s worst
+   case.  If the draw lands a p^k not in {49,81,121,125}, nothing serves it
+   better than Bluestein -- a generic two-stage CT line-codelet emitter
+   over this template remains the (unbudgeted) fix.

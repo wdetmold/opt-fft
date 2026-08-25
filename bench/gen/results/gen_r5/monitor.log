@@ -1,0 +1,18 @@
+`results/gen_r5/VERDICT.md` is written. Summary of the judgement:
+
+**Three framing corrections first.** The geometries are not 6/8/17/36 — those belong to the previous fixed-size campaign in `bench/geom/` (and are `sweep.sh`'s hard-coded fallback). This campaign's suite is frozen in `cases.txt`: L = 10, 12, 15, 20, 25, 27, 31, 32, 40, 50, 100, all eleven measured. The scoring host is **Ice Lake-SP** (Gold 6326, per the `avx512_vbmi/ifma/bitalg` signature), not Cascade Lake; `XARCH.md` does not exist, so there is no second machine in this round at all. And each L is scored at exactly one batch — L=100 is the only B=1 cell — so there is no batched/non-batched pair to report.
+
+**Headlines.** Geomean **3.31×** the best library (r4: 3.24×), worst cell L=100 at 1.72×, best real cell L=12 at 4.05×. L=31's 8.47× is a property of the size — all seven gen entries beat every library there — so I credit it nowhere.
+
+**Adversarial findings that matter:**
+
+- **L=27 regressed +16.2% and it was the race layer, not the kernel.** `wisdom_a80n0.json` shows the scoring race installed `l27-ip0` at rank 0 on a **−0.56% margin** inside the 3% hysteresis band; the graded chain then ran 15.4% behind the `soa` arm the implementer measured. `gen_powp` documented this exact failure happening to itself at L=25 in dev, named the mechanism (2-step trials evict the SoA arena; 256-step graded chains hide it), and every library in the cell is flat at 0.1% spread. Round 6 scores the assembled trunk through this layer.
+- **The two-step m=2 precision gate is not run by the harness.** `check.py` produces only gate 1 and gate 3 across all 164 correctness records. The gate the brief calls the shortcut-catcher is self-reported. No entry appears to have abused it, but it is outside the monitor's chain of custody.
+- **r4's promotion condition was ignored.** The UB warnings in `gen_dense_prime` and `gen_rader` are byte-identical and unfixed. I corrected r4's diagnosis — the index is `size_t`, so it is pointer-arithmetic overflow, not signed overflow, and materially less dangerous — and restated the condition.
+- `gen_layout` shipped exit-fused mapping ungated and lost 2–7% at four scored cells; its own record contains the mechanism and the gate knob.
+
+**§4.4 (split vs interleaved) is the question that moved,** and cleanly: `gen_planner`'s split 8-volume granule against its own interleaved per-volume path, same trees, **bit-identical outputs**, zero shuffles asm-audited — 2.0–2.5× at 10/12/15, 1.35–1.5× at 20/25/31, and rejected past L≈27 where the group stops fitting L2. That is the CPU head-to-head §4.4 said had never been published, at the granule §08 recommended, with a residency crossover attached.
+
+**One decline.** `gen_batchlane` — it wins no cell, both its r5 changes are adoptions from `gen_pfa_small`, the two now share the `map8` body verbatim, and `gen_pfa_small` strictly dominates on coverage. Its unique finding (the div/rcp verdict at L=15 is core-state-dependent on this node) is methodological and survives in the tracked record. I recommend the r6 brief merge the two engines and spend the slot on the B=1 hole.
+
+PROMOTE: gen_pfa_small gen_powp gen_rader gen_pow2 gen_pfa_large gen_dense_prime gen_planner gen_race gen_layout gen_twiddle gen_bluestein

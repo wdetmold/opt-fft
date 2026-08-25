@@ -567,3 +567,182 @@ the same 8 shuffles + masked I/O as interior blocks.
    re-race via wisdom by construction. Check XARCH.md when it lands for the
    tile and fusion-cap crossovers (SPR's second FMA pipe may move the n=25
    spill trade).
+
+## Round gen_r5 -- the split-group batch engine: the batch-lane seam, done generically
+
+### The round in one line
+
+At batch >= 8, groups of 8 volumes now run site-major SPLIT-complex (site =
+{8 re, 8 im} = 2 zmm, lane = volume): every pencil DFT is full-width with
+broadcast-scalar twiddles -- ZERO shuffles (asm-audited), zero masked tails,
+zero transposes (axis 2 runs directly on strided rows), and a map ladder that
+sees 8 distinct sites per zmm instead of 4.  This is the composition seam my
+r2/r3/r4 next-lists kept deferring, built as three generic levels that enter
+the create() race as extra arms.
+
+### What changed (all in impl/gen_planner.c; pln_* API unchanged, additive)
+
+1. **Split-lane codelet layer** (`pw_*`): split mirrors of the pv leaves
+   (2/3/4/5/8), the fused two-level CT codelet, and the folded odd dense
+   kernel.  Arithmetic is op-for-op the interleaved form (fmsub/fmadd pairs
+   reproduce fmaddsub's per-lane rounding), so split outputs are
+   BIT-IDENTICAL to the per-volume path on the same tree -- verified by cmp
+   through the whole graded chain.  cmul = 2 mul + 2 fma (no permute);
+   a +- i*b = add + sub (no permute).  asm audit (icelake-server, -O3
+   -funroll-loops): shuffle-class ops in every split codelet = 0; spills
+   20/24/96/128 rsp-zmm-ops at (2,5)/(3,4)/(4,5)/(5,5); leaves spill-free.
+2. **Three group levels, raced per (host, L, batch-regime)**:
+   - `@s1` fused root (n = r*m <= 25, both hard): one register-resident
+     codelet call per pencil, all three axes in place.  Picks: 10, 12, 15,
+     20, 25.
+   - `@s2` two-pass CT (r hard; child = hard leaf or fused CT): pass 1
+     child DFT_m (undoes decimation, src->dst), pass 2 twiddle-fused leaf_r
+     in place; the step runs as TWO fused volume sweeps -- axes 0+1 back to
+     back per z-SLAB (both axes live inside the fixed-z slab, L^2 x 128 B,
+     L2-hot between them), axis 2 per x-plane.  The slab merge took 27 from
+     an 86-us tie with pv to 78.8-79.3 vs 86.0-86.3 same-core (-8.5%): the
+     lev-2 step was L3-traffic-bound, and 3 sweeps -> 2 is the fix.  Pick:
+     27 = c3(c3(d3)) with fused-9 child.
+   - `@s3` folded odd dense root: the split fold with 4-k-row tiled E/O
+     accumulation, per-pencil 4 KB staging, single pass per axis in place.
+     Pick: 31 = d31, 141 us vs r4's 205 (-31%), 6.0x MKL.
+3. **Map fused into the final-axis stores** (`pw_stmap`), gated by residency:
+   same-core pairs show -8% at 25, -4% at 15, -9% at 31, but +5% at 10
+   (L2-resident group; the ladder's ~8 temps push the fused codelet into
+   spills) and a wash at 12.  Shipped rule: fuse iff L^3 > 1728.  Identical
+   ladder ops either way -- bit-identical, and the split ladder is HALF the
+   interleaved ladder work per site (no duplicated |z| lanes).
+4. **The create() race is INTERLEAVED sample-major** (gen_race r4's protocol
+   fix, adopted): all arms built and warmed first, then min-of-3 round-robin
+   rounds.  Group arms are timed on a real 8-volume group and scored /8.
+   Arm order (pv by model cost, then split by level) preserves the 2%
+   simplest-first hysteresis.
+5. **Wisdom is keyed by batch REGIME** (`gen_planner/tree/L<n>/g8` vs
+   `.../L<n>`), value = tree name + `@s1/@s2/@s3` tag.  Caught in dev: with
+   one key per L, a B=1 create() re-raced and CLOBBERED the batched @s1
+   pick, silently reverting the batched cell to pv on the next wisdom hit.
+6. **Chain plumbing**: groups of 8 pack once (scalar interleave, 16 moves/
+   site -- twice per chain per group, amortized over m >= 128; measured
+   negligible), run all m steps in the group buffer(s), unpack once; the
+   B % 8 remainder takes the r4 per-volume path.  The split engine gets its
+   OWN create()-time two-step gate (pack -> 2 group steps -> unpack vs
+   per-volume execute + exact scalar map, tol 1e-12) and is dropped -- never
+   shipped -- on any disagreement; wisdom stores only after it passes.
+7. **R=2 fused specialization**: no y double-buffer (peak live 2n instead of
+   2n + 2M); same-core pairs win 3/3 at L=10, outputs bit-identical.
+
+### Measured on the node (a80n0, tryout leased cores, graded chain, min; MKL 2022 same window)
+
+| case | gen_r4 | gen_r5 | delta | MKL | vs MKL | picked (race) |
+|---|---|---|---|---|---|---|
+| L=10  B=64 m=1000 | 3.49  | **1.43** (same-core floor 1.41) | **-59%** | 4.56  | **3.2x** | c2(d5)@s1 |
+| L=12  B=64 m=600  | 5.18  | **2.47**  | **-52%** | 7.74  | **3.1x** | c3(d4)@s1 |
+| L=15  B=32 m=600  | 11.79 | **5.65**  | **-52%** | 16.48 | **2.9x** | c3(d5)@s1 |
+| L=20  B=32 m=256  | 24.69 | **18.50** | -25% | 59.7  | **3.2x** | c4(d5)@s1 |
+| L=25  B=16 m=256  | 60.2  | **40.6**  | -33% | 121.6 | **3.0x** | c5(d5)@s1 |
+| L=27  B=16 m=200  | 86.5  | **78.8**  | -9%  | 145.1 | 1.8x | c3(c3(d3))@s2 |
+| L=31  B=16 m=140  | 205.6 | **141.1** | -31% | 849.6 | **6.0x** | d31@s3 |
+| L=32  B=8  m=250  | 129.7 | 130.5     | 0    | 183.7 | 1.4x | c4(d8) pv (race rejects the group's L3 set) |
+| L=40  B=8  m=128  | 283   | 285.9     | 0    | 403.8 | 1.4x | pv |
+| L=50  B=4  m=128  | 639.3 | 650.8     | 0 (window) | 974.8 | 1.5x | c5(c2(d5)) pv (B < 8: no group) |
+| L=100 B=1  m=64   | 5528  | 5953 (MKL +3.7% same window) | ~0 | 8046 | 1.4x | c5(c4(d5)) pv |
+
+B=1 (per-volume path, group never engages): 3.96 (10; MKL B=1 4.93), 5.89
+(12), 11.68 (15), 68.0 (25), 203.5 (31).  The B=1 cells are unchanged code;
+the 10-15% wobble vs r4's B=1 reads is the known short-unit core-ramp.
+
+Gates, final binary, all on the node: single call 2.9-4.7e-16 at all 11
+cases (tol 1e-12); two-step m=2 gate 9.2e-16 / 1.52e-15 / 1.60e-15 /
+1.73e-15 at 10/25/27/31 (tol 3e-14, 17-30x margin); graded map-chains
+4.88e-14 (12, anchor 3.89e-14), 3.10e-14 (27, anchor 2.57e-14), 2.60e-14
+(31, anchor 2.31e-14), tol 1e-10; MIXED batch group+remainder chains PASS at
+B=12 (12, 31) and B=9 (15); full local sweep L=2..128 vs numpy: ALL 127
+PASS; graded chains bit-identical across independent node processes at 12
+(@s1), 27 (@s2, ping-pong parity) and 31 (@s3); non-AVX512 build (AVX2
+login host) PASSES end-to-end incl. chain at L=9 B=12; round-6-style draws
+24/45/63 at B=8 all plan, race and pass (setup <= 0.15 s).  Setup: cold
+0.001-0.147 s (60 s budget), warm wisdom ~2-4 ms (50 ms budget).  Round
+end: all gen_planner keys stripped from results/wisdom_a80n0.json under the
+flock (the sweep alone had stored ~127 of them) -- the monitor cold-races
+in its quiet window; absent entries are deliberate.
+
+### What did NOT work / went wrong, with the numbers
+
+- **Fused map at L=10: +5%** (1.40 vs 1.45-1.49 same-core).  The group is
+  L2-resident there, so the deleted sweep was cheap, and the ladder's temps
+  push the n=10 codelet into spills.  Fused map is a RESIDENCY play, not a
+  free win -- hence the L^3 > 1728 gate (12 measured a wash, 15 wins -4%).
+- **Two-pass @s2 at 25: 80 vs 46 us** for the spilling fused @s1 -- extra
+  volume sweeps lose to register pressure at L2/L3-boundary sizes.  The
+  race sees both; @s2 exists for sizes the fused form cannot reach (27, and
+  round-6 composites like r*fused(<=25)).
+- **The one-key wisdom CLOBBER bug**: a B=1 create() at an already-raced L
+  re-raced (no group arms at B=1) and overwrote the batched @s1 pick; the
+  next batched run silently ran pv.  Fixed by the /g8 regime key.  Anyone
+  adding mode tags to wisdom values: key the REGIME too.
+- **A 98-vs-86 "regression" at 27 that was a hot core state**: pinned
+  same-core pairs read pv 86.5/86.7 vs @s2 86.8/107.6 -- a tie plus a
+  mid-state window, exactly gen_batchlane r4's confound.  Every verdict in
+  this record is from held-lease alternation; cross-invocation tryout pairs
+  were treated as smoke only.
+- **The R=2 despill did not zero the asm counter** (the MAP instantiation
+  still spills ~20) but wins 3/3 same-core pairs at 10 anyway; kept on the
+  measurement, not the audit.
+
+### Borrowed this round, named
+
+- **gen_batchlane / gen_pfa_small / gen_powp**: the whole SoA-8 split-lane
+  batch-group concept (their class engines are the existence proof and the
+  target line), the map-fused-in-final-stores placement (the ONE fusion
+  geometry that keeps winning on this panel), and gen_layout's r2 proof
+  that split-lane broadcast-FMA beats interleaved at equal algorithm.
+  My contribution is making it GENERIC: any candidate tree with a hard-leaf
+  root, raced against the per-volume engine per (host, L, batch-regime),
+  with pack/remainder/gating handled once for everyone.
+- **gen_race gen_r4**: the interleaved sample-major race -- my create()
+  race was candidate-major, i.e. exactly the protocol their r4 receipt
+  showed produces wisdom-pinned flip-flops.
+- **gen_batchlane gen_r4 / gen_pfa_large gen_r4 lesson 1**: the same-core
+  held-lease alternation A/B; it acquitted the false 27 regression and
+  killed a wrong fused-map-everywhere default before it shipped.
+- **gen_powp r2 protocol** (again): store-only-gate-passed wisdom, round-end
+  key strip.
+
+### Operation count (split group, per pencil of n rows x 8 volumes)
+
+2n zmm loads + child/root butterfly FMA ops (identical per-point count to
+the interleaved codelets) + (r-1)(m-1) cmul at 4 FMA-port ops each + 2n zmm
+stores; shuffle-class ops: ZERO (asm-audited per codelet); masks: none.
+Map: ~19 FMA-port ops per 8 SITES (half the interleaved rate), fused into
+the final-axis stores for L > 12.  @s2 step: 2 fused volume sweeps (z-slab
+axes 0+1, x-plane axis 2) instead of 3.  Pack/unpack: 16 scalar moves per
+site, twice per chain per group.  Transposes per step: zero (the per-volume
+path keeps its 4x4-block transposes; the group path has none).
+
+### Notes for adopters
+
+- `pln_s8_build(L, tree, lev)` / `pln_s8_step` / `pln_s8_pack/unpack` are
+  in the GEN_PLANNER_LIB surface; batchlane/pfa_small-class engines can
+  drive their own trees through them, and the fold (`pln_foldw`) accepts
+  any odd n >= 11 (round-6 primes at B >= 8 get d_p for free).
+- Wisdom values may now carry `@s1/@s2/@s3`; unknown tags force a re-race
+  (forward-compatible).  Keys are regime-split: `.../L<n>` and
+  `.../L<n>/g8`.
+
+### What I would do next (ranked)
+
+1. **20/25 arithmetic**: pfa_small/powp still lead 1.4x there with
+   hand-derived real-factor codelets (powp's ~218-op lines vs my ~500 at
+   27); a Winograd-style split DFT9/DFT25 module inside the fused codelet
+   is the next arithmetic-level lever the generic engine can host.
+2. **B=1 lane-spatial engine** -- the whole panel's standing hole (my B=1
+   at 10 is 2.8x the batched cell); the ice L6_pfa shape, build once,
+   everyone adopts.  Round 6 draws unknown batches.
+3. **Half-group G=4 (ymm lanes or 2-site zmm) for B=4** -- L=50 is the one
+   batched scored cell the group engine cannot touch.
+4. **Large L unchanged since r4** (100: 1.4x MKL): gen_pfa_large's PMU
+   attribution advice stands; the split engine does not reach B=1.
+5. **xarch**: the split layer is AVX-512F+DQ-guarded with the pv fallback;
+   the fusemap boundary (L^3 > 1728) is an ICX L2 number -- CLX (1 MB L2)
+   and SPR (2 MB) should re-race it via wisdom, which the /g8 keys now do
+   by construction.

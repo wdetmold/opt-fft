@@ -1,0 +1,3 @@
+Round complete. Everything shipped: `impl/gen_planner.c` (split-group batch engine + interleaved race + regime-keyed wisdom) and the appended `Round gen_r5` section in `strategies/gen_planner.md`; all gates pass (single-call, two-step m=2, graded chains, mixed-batch remainder, full L=2..128 sweep, bit-repeatability, scalar build), and my wisdom keys are stripped for the monitor's cold race.
+
+**Split-lane group-of-8 batch engine (site-major split-complex, shuffle/mask/transpose-free, map fused in final-axis stores, raced per batch-regime): best 1.43 µs/transform batched (L=10 B=64, 3.2× MKL; −59% vs r4, with −52%/−52%/−25%/−33%/−9%/−31% at L=12/15/20/25/27/31) and 3.96 µs at B=1 (L=10), rel L2 = 2.9–4.7e-16 on all 11 acceptance cases.**

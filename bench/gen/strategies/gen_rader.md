@@ -560,3 +560,151 @@ grouping adds one short-quad tail per plane at p%4!=0 (measured: a wash at
 5. Harness: check.py --output takes the BASE filename (it appends .chain);
    in16/c16, in1/c1, in23/37/61/127 + c mirrors kept current under
    build/tryout/gen_rader/.
+
+## Round gen_r5
+
+### Where this round started
+
+r4 leaderboard: **84.603 us/step** at the graded cell (L=31 B=16 m=140), leading
+the crossover (gen_dense_prime 120.5, gen_bluestein 299.4, MKL/FFTW 830-883).
+My r4 record's port model says the 31 cell is saturated; my r3/r4 next-lists
+say the round belongs to the generic primes (r6 insurance): the padded-arena
+debt and the generalized Rader arithmetic.  That is what this round did.  All
+node numbers below: a80n0, ONE held lease (slot 0, core 2), interleaved arms
+(the gen_batchlane r4 protocol).
+
+### What shipped, part 1: OUTER-C3 RADER for h = 3m primes (the round's headline)
+
+The r31 Winograd-C3-over-dense-blocks machinery generalized to runtime tables,
+for any prime whose quotient-group order h = (p-1)/2 is odd, divisible by 3,
+with gcd(3, h/3) = 1 — **p in {43, 67, 79, 103}** (7 is m=1 = already dense;
+19 and 127 have 3 | m and cannot CRT-split; h-even primes need a negacyclic
+split, see next-steps).  The construction (rp3_build) is the r31 table recipe
+verbatim at runtime — a_r = g^r mod p, slot n = m*i+j <-> CRT index
+(e3*i + em*j) mod h, correlation->convolution by data reversal, the odd-h
+negacyclic sign twist baked into the jdp/jdm swap, the output (-1)^t twist
+baked into the kp/km pair order, kernels Winograd-C3-transformed in long
+double and STRETCHED to 2m-1 doubles so the dense-Cm block product indexes
+kb[m-1+j-i] mod-free.  I re-derived the recipe from scratch and cross-checked
+it against the R31_JS/JDP/JDM/KP/KM constants before writing any C.
+
+The chunk kernel (rp3_chunk_M) is macro-instantiated PER m (7/11/13/17) so
+every loop bound is compile-time and the four m^2-FMA block products unroll
+register-resident, exactly like R31_C5 — the gen_dense_prime r2/r5 exact-tile
+doctrine.  Per 4 columns per system: 4m^2 + ~11m FMA-class vs the dense
+engine's 9m^2 (2h^2 = 18m^2 for both systems).  Dispatch is one switch on
+plan->m3 per chunk (rp_chunk_any); the dense engine is untouched and remains
+the path for all other primes.
+
+**Measured (same-core interleaved, min us/step, chain B/m as shown):**
+
+| p | dense (-DRP_NOC3) | outer-C3 | delta |
+|---|---|---|---|
+| 43 (B=2 m=8) | 697.6 / 701.2 | **456.7 / 467.5** | **-34.5%** |
+| 67 (B=1 m=8) | 3778 / 3788 | **2233 / 2251** | **-40.9%** (3/3) |
+| 79 (B=1 m=8) | 7751 / 8138 | **5343 / 5351** | **-31%** (2/2) |
+| 103 (B=1 m=4) | 21250 / 21276 | **17829 / 17963** | **-16%** (33 MB volume, DRAM-resident — the FMA cut is partially hidden behind memory; see next-steps) |
+
+Setup: 0.02 s (43) / 0.14 (67) / 0.3 (79) / 1.15 (103) — far under the 60 s
+budget.  Gates on the node at 43/67/79/103: single rel_l2 4.1e-16..9.1e-16,
+**two-step 2.1e-15 / 2.5e-15 / 2.8e-15 / 5.0e-15** (tol 3e-14).  A table bug
+cannot ship: the create() self-check (execute + one chain step vs dense
+reference at 1e-13) gates every plan, same as always.
+
+### What shipped, part 2: padded huge-page arena chain for generic primes p <= 61
+
+The r2 lesson at 31 paid at the other primes, with a measured size gate.
+Rows p -> mult-of-4 complex (all row bases 64B-aligned, y-pass and x-pass
+tail-free), plane pitch by rp_pick_pp: PP/4 == 2 mod 4 makes the +64B x-pass
+store->load alias equation d*(PP/4) == 1 mod 64 UNSOLVABLE at every row
+distance — stronger than my r2 closed form, which only pushed the first
+solution outside the row system.  State + padded c mirror in ONE gl_map_huge
+2MiB arena (gen_layout, now adopted as a real GEN_LAYOUT_LIB_ONLY include,
+not a copied recipe), c at a +2048B page phase (my r3 trick).  Map runs on a
+mult-of-8 window whose pad lanes are provably zero.  Custody pass order kept.
+**Outputs are BIT-IDENTICAL to the flat chain** (every op is lanewise;
+cmp-verified at 13/37/61) — the whole numerics story, borrowed from
+gen_dense_prime r5.
+
+Measured: **37: 423.9/424.3 flat vs 418.6/417.4 padded (-1.4%, 2/2** after a
+warmup round); 13/43/53/61: wash (43/53 in a noisy sd 2-7% window, min-of-mins
+overlap); **127: padded LOSES -4% (48.0k flat vs 49.9-50.3k, 2/2 clean)**.
+Diagnosis of the 127 loss: at DRAM-resident sizes the arena's per-VOLUME
+overheads (c-mirror fill + final copy-out ~ 2 volume sweeps = ~32 MB/step at
+m=4) are exactly the gap, and large L implies small m by the suite's
+construction (~0.4 s of MKL per case), so they never amortize.  Hence
+RP_PAD_MAX = 61: padded where it wins or washes, flat where it loses.
+create() falls back to the flat chain if the mapping fails; never fails.
+
+### What did NOT work, with the number that killed it
+
+- **zp phase-spreading bump** (skip row strides == 0 mod 4 in 64B units, to
+  fix the "zp=128 at p=127 is a 2048B stride = two 4K phases for 127 rows"
+  theory): **127: zp 132 vs 128 = +1.5% (3/3); 61: zp 68 vs 64 = +4% (3/3).**
+  The extra pad lanes cost more than 4K-phase spread buys.  The set-conflict
+  theory is DEAD at these kernels — do not resurrect it without new evidence.
+- **-DR31_ZMIX (my r4 next-step 1: replace trailing z-quads with dense
+  zrow_pair rows to move z work off the quad's binding port 5): ZMIX=6 =
+  88.0-89.0 vs 85.7-86.4 (+2.5%, 3/3); ZMIX=4 = 91.7-92.3 (+7%).**  The dense
+  rows' table loads + fold traffic cost more than the port-5 relief; the
+  all-quad r4 form is confirmed optimal and the r4 port model's "only deleted
+  work moves this kernel" holds.  31 is closed.  (Dropping `restrict` from
+  r31_zpass/zrow_pair src/dst was required for the in-place ZMIX arm — kept,
+  since the r1 flat arm ran the same latent violation; no timing effect.)
+- Bookkeeping: the padded chain at 43 combines with outer-C3 (43 <= 61), so
+  the 43 numbers above are arena+C3 vs arena+dense — the C3 delta is clean.
+
+### Borrowed this round, named
+
+- **gen_layout** (adoption, not transcription): gl_map_huge/gl_unmap via
+  GEN_LAYOUT_LIB_ONLY include back the generic arena; their r5 "one code path
+  unless a scored regime measurably loses" doctrine shaped the RP_PAD_MAX
+  gate; their r5 result that the fusion/locality money lives in the L2/L3
+  MIDDLE (not at DRAM sizes) predicted my 127 finding before I measured it.
+- **gen_dense_prime gen_r5**: the exact-tile/tail-free discipline (their
+  -17% at 17) is the shape of the padded layout; the bit-identity-by-lanewise
+  argument + cmp-at-every-size verification protocol, used verbatim.
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol, again.
+- **ice L23_rader / my r1**: the "keep the blocks dense, Winograd only at the
+  outer level" arithmetic that makes outer-C3 the right generalization.
+- **docs/literature 11 (rounds 5-6 brief)**: "GT/Rader-as-vectorization-first"
+  (Tier 1) — this round is the first performant realization of the
+  generalized-quotient-group Rader in this campaign; cited per the brief.
+
+### Operation count (shipped)
+
+31: unchanged (~240k zmm FMA-class + ~90k adds per volume step); chain output
+bit-identical to the r4 binary (cmp on the node).  Outer-C3 primes: per 4
+columns per axis, 2 x (4m^2 + ~11m) FMA + fold 2h + combine ~4h, vs dense
+2h^2 = 18m^2 — a 2.1-2.25x conv-FMA cut; z via the same transpose quads.
+Padded chain (p <= 61): identical arithmetic to flat on padded addresses,
+plus <= 8% pad lanes, minus all masked tails and line splits.
+
+### Measured summary (the reply line)
+
+L=31 B=16 m=140: **85.27 / 85.57 / 86.05** (this window; r4 board 84.603 —
+same binary path, bit-identical output); B=1: **85.54**.  Single rel_l2
+4.059e-16, map-chain m=140 2.559e-14 (anchor 2.312e-14), two-step 1.784e-15,
+bit-repeatable.  Class duty: 43 **457**, 67 **2233**, 79 **5343**, 103
+**17829** us/step — -31..-41% vs r4's engine (-16% at 103).
+
+### What I would do next
+
+1. **h-even primes (37, 41, 53, 61, 73, 89, 97, 101, 109, 113)**: the E
+   (cos) system is still a cyclic-h correlation for ANY h — only the O (sin)
+   system goes negacyclic when h is even, and a negacyclic C2 split is a
+   3-block-product Karatsuba (not 2).  E-side C2 split alone is a ~25% FMA
+   cut at h == 2 mod 4; worth one round.  127 (h = 63 = 7x9) needs an
+   Agarwal-Cooley C7xC9 or a two-level plan — the last big-prime hole.
+2. **103/127 are now (more) memory-bound**: the x-band custody blocking
+   (gen_bluestein r4 shape, my r4 next-step 2) is the lever the C3 cut just
+   sharpened — at 103 the dense engine hid the memory time, the C3 engine
+   exposes it (16% vs 35-40% at cache-resident sizes).
+3. The rp3 chunk's kp/km stores are index-scattered; a store-order pass
+   (contiguous row order, indices on the LOAD side only) is a cheap race.
+4. Two-level outer Winograd (C3 x C3 does not CRT-split, but C2 x C3 = C6
+   does for h == 6 mod 12, e.g. 61's h = 30 -> m = 5 dense): after item 1.
+5. Harness: check.py --output takes the BASE filename; r5_ab.sh under
+   build/tryout/gen_rader/ holds the whole session protocol (build / generic /
+   zpfix / mid / l31 / c3 / final phases); in/c pairs for 13,31(B1,B16),37,43,
+   53,61,67,79,103,127 kept current there.

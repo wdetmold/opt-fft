@@ -516,3 +516,152 @@ once per step, sequentially.
 5. Cross-arch: re-race BST_MAPFUSE_MAX_MIB (an ICL-LLC number), BST_BLKFUSE
    (CLX's 1 MB L2), BST_NOBLOCK, BST_PF, BST_SCHED on CLX/SPR when XARCH.md
    lands.
+
+## Round gen_r5
+
+### What changed (impl/gen_bluestein.c, one structural change + one gate move)
+
+1. **Custody-ordered c + map fused into the blocked axis-1 scatter** (named
+   borrow: gen_pow2 gen_r4's GP2_CT — "store the chain operand in the LAST
+   pass's consumption order"; their record explicitly asked peers to check
+   whether c's layout matches the last pass's walk order, and mine did not).
+   In the separate-map regime the r3 race had banned scatter-fused mapping
+   because the scatter's c reads are strided (16L-B steps, one 128-B touch
+   per line, ~L streams — nothing the L2 streamer tracks) and cold. The fix
+   is not prefetch games but layout: `build_ccust` runs once per
+   fft3d_chain call and copies c into chunk-per-group order — chunk g =
+   axis-1 group r0 = 8g holds, for k = 0..L-1, [8 re][8 im] of c at the
+   group's row offsets. The blocked axis-1 scatter (the block's last touch)
+   then applies the map reading c as two aligned interleaved +128 B streams
+   (k = j and k = j+S advance together), which the hardware prefetcher
+   covers, and the c deinterleave permutes disappear (custody is already
+   split re/im). map_pass_seq and its block read+write+re/de-interleave are
+   deleted from the schedule. Per-element ladder identical (BST_MAP8 in
+   contig/seam paths, sqrt/div in the generic tail as before) ⇒ **chain
+   outputs bit-identical to gen_r4 at every graded size** (cmp-verified at
+   40/50/100/31). The custody buffer (= state bytes; 16 MB at L=100) hangs
+   off the plan, allocated lazily; alloc failure falls back to the r4 sweep.
+   Collector cost is one strided sweep of c per chain CALL (not per step):
+   vectorized for contig groups (2 loadu + 2 permutex2var per k), scalar for
+   seam/tail groups. Knobs: -DBST_NOCFUSE = r4 sweep control,
+   -DBST_CSTRIDED = fused-but-strided attribution arm.
+2. **BST_MAPFUSE_MAX_MIB default 15 → 14** (my r4 next-step 2): with the
+   custody-fused map the blocked regime now beats the LLC-fused regime at
+   L=31 B=16 (14.55 MiB combined), 5/6 same-core pairs, mean −2.9%, best
+   288.6 vs 302.2 µs. 27 (9.6 MiB) and 32 (8.0 MiB) stay fused — untouched
+   and re-gated. L=31 B=1 (0.95 MiB) stays fused, as it should.
+
+### Struck without a window (carried item 1 closed by arithmetic)
+**Axis-2 transpose absorption into the pruned end stages**: counted OUT.
+The tr path costs 2×tr8x8 = 48 port-5 shuffles per 8 lanes × 4 complex
+columns each way = 1.5 shuffles/complex/side — and transposing interleaved
+data yields split re/im for free. The absorption alternative (butterflies in
+row-major registers with vector twiddles) needs an interleaved cmul = 1
+vpermilpd + 2 FMA, i.e. ≥ 3 port-5 shuffles/complex in the butterflies
+ALONE (≈ 0.75 cmul/element/stage × 4 stages), before any end-stage shuffle
+work — strictly more port-5 traffic than the transpose it replaces.
+gen_layout r4's gl_tr8x8_c2i (48 shuffles per 16 output zmm) matches, not
+beats, my existing 2×tr8x8 = 48-for-16, so there is nothing to adopt there
+either. The axis-2 premium is the compulsory cold read plus ~0.3-0.5 ms of
+port-5 at L=100, not 2 ms of removable shuffles. Fourth carry: closed.
+
+### Measured on the node (a80n0, ONE held lease, core 3, tight alternating
+### same-core pairs — gen_batchlane r4's protocol; this session's windows
+### swung ±8%, MKL same-window sd 0.55%)
+
+Custody fusion vs r4 sweep (blocked regime, pairwise):
+- L=31 B=16 (forced separate, attribution): cust 4/6 pairs, mean −5%;
+  bests 288.6 vs 303.8.
+- L=40 B=8: new 8/13 pairs over two sets, mean ≈ −0.5%; bests 1062.4 vs 1073.2.
+- L=50 B=4: a WASH (7/13 pairs); bests 1772.2 vs 1771.4. The strided arm
+  (BST_CSTRIDED) reads 1817-2139 — worst of the three, confirming the r3
+  diagnosis: fusion without custody layout is still wrong past LLC.
+- L=100 B=1: 6/10 pairs, mean ≈ −0.4% — a wash-to-lean in a dirty window;
+  bests 15759.9 (new) vs 16247.0 (r4) across the session.
+  gen_pfa_large r4's "ipp at 40/50 is a wash — the deleted map pass is
+  L3-resident traffic" replays here almost verbatim; the deleted work is
+  L2-resident, so the win is uop-count-sized, not traffic-sized.
+
+Regime race that moved the gate: L=31 B=16 fused vs separate+custody:
+sep 5/6 pairs (−7.6/−4.1/−5.0/−0.4/−1.7/+5.2%).
+
+Ship binary, end-of-session quiet reads (min µs/xform): **L=31 289.0**
+(r4 board 299.4), **L=100 15479** (r4 board 15742; quiet r4 windows
+15545), L=10 B=64 13.34 (board 13.28 — fused path untouched, parity),
+L=40 1062-1088, L=50 1772-1834. MKL 2022 same window: L=31 854.3.
+
+### Gates (shipped default build, on the node, check.py by hand)
+Singles B=1: L ∈ {2,3,5,7,9,13,16,17,23,33,47,63,64,65,96,127,128} ALL
+PASS ≤ 8.6e-16 (tol 1e-12). Two-step m=2: L=31 2.55e-15, L=40 2.60e-15,
+L=50 3.18e-15, L=100 3.63e-15, L=101 5.17e-15 (tol 3e-14). Graded chains:
+L=25 4.83e-14, L=27 4.73e-14, L=31 4.17e-14 (blocked now), L=32 4.50e-14,
+L=40 4.29e-14, L=50 6.84e-14, L=100 3.03e-14, L=10 m=1000 2.30e-13 — all
+≤ 2.4x honest anchors, tol 1e-10. Chains bit-repeatable; 40/50/100 chain
+outputs bit-identical to the r4 binary. Scalar -march=x86-64 build:
+singles + m=2 chains PASS at {10,50,100}. create() still ~0 s; the custody
+buffer is chain-lazy so plan budget is untouched.
+One recorded non-identity: at L=101 B=1 (nrows % 8 ≠ 0) the new arm's tail
+group maps through the generic scalar sqrt/div while the r4 sweep's ladder
+covered those elements — a rounding-tier (≤1e-15) difference that step 2's
+FFT then spreads volume-wide. Gates pass with 6x margin; repeatable; only
+possible at sizes where 8 ∤ B·L².
+
+### What did NOT work / was decided by race, with the number
+- **BST_CSTRIDED (fuse the map into axis-1 but read c strided)**: worst arm
+  at L=50 (1817-2139 vs custody's 1772-1834). Layout, not placement, was
+  always the blocker — this arm exists to prove exactly that and should not
+  be resurrected.
+- **Custody fusion is NOT a traffic win at 40/50/100** (see wash numbers).
+  It ships because it never loses, deletes a pass and its permutes, is the
+  thing that flips the L=31 regime, and (pfa_large r4's observation) a
+  smaller per-step footprint is busy-window contention armor.
+- **NT stores (gen_layout r4's −19% at L=100)**: declined without a run,
+  on structure: their win killed RFO reads on three cold full-volume store
+  streams; my blocked custody has no such stream — axis-0 stores hit
+  just-read lines (in place), axis-2/1 stores hit L2-hot block lines, and
+  the only cold-written buffer (step 1's dst) is touched once per chain.
+  Nothing for NT to delete; noted for CLX/SPR where residency changes.
+
+### Borrowed this round, named
+- **gen_pow2 gen_r4**: GP2_CT — the custody-oriented chain operand — is the
+  round's entire structural idea; their "peers should check whether c's
+  layout matches the LAST pass's walk order" line is what this round did.
+- **gen_batchlane gen_r4**: the held-lease same-core alternating protocol
+  (tryout.sh leases a fresh core per invocation; every verdict above is
+  same-core adjacent-pair). Their SCHED15 reversal is why I trusted no
+  cross-invocation number this session.
+- **gen_pfa_large gen_r4**: the "deleted L2/L3-resident passes are worth
+  ~nothing" boundary (their ipp-at-40/50 wash), used to size expectations
+  honestly instead of over-claiming the wash cells; and the ±15%
+  window-drift warning that shaped the pairing discipline.
+- **gen_layout gen_r4**: the NT-store recipe, adopted as a reasoned decline
+  (structure above); their gl_tr8x8_c2i shuffle count, used to close my
+  axis-2 carry by arithmetic.
+
+### Operation count (delta vs r4, per chain step in the blocked regime)
+FFT arithmetic unchanged. Deleted: the map sweep's block state read+write
+(L2), its 4 de/re-interleave permutes and 2 c-deinterleave permutes per 8
+points, and 2 stores per 8 points. Moved: the ~21-op ladder from the sweep
+into the axis-1 scatter. Added, once per chain CALL: the custody collector
+(one strided read sweep of c + sequential write of state-sized buffer,
+amortized over m = 64-1000 steps).
+
+### What I would do next (gen_r6 — the surprise round)
+1. **Round-6 posture first**: any L in 14..127 must plan and pass. The
+   generality sweep covers the odd/even log2 pipelines, masked boundaries,
+   partial blocks (L=101) and the M=4 path; keep that sweep the first thing
+   run on any new binary.
+2. **Tail groups (nv < 8) through a masked contig path** (third carry):
+   now slightly more interesting since the L=101 non-identity lives there,
+   but still ≤ 1/1275 of groups — cosmetic unless a surprise size lands on
+   B=1 odd L AND the cell is close.
+3. **bluestein_cost(L) for gen_planner** (fourth carry): ~0.66 ns per
+   (row · M·log2M / 8) + ~0.15 ns/pt/step chain map on ICL, unchanged.
+4. **Cross-arch (XARCH.md due after r5)**: re-race BST_MAPFUSE_MAX_MIB (an
+   ICL-LLC number, now 14), BST_NOCFUSE (CLX's 1 MB L2 shrinks the block
+   custody the fusion rides on), BST_BLKFUSE, BST_PF, BST_SCHED. The
+   custody collector's one-time cost also rescales with m on any host.
+5. If a real lever is wanted at L=100: the remaining ~2.1x over the port
+   floor is issue shape in the conv stages themselves (broadcast-heavy
+   radix-4 bodies); literature 11's 2,8-split-radix flap-optimal chains are
+   the only untried arithmetic-count idea left in this class.

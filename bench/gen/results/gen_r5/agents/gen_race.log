@@ -1,0 +1,10 @@
+All done. Both deliverable files are updated, gates pass everywhere, wisdom is stripped for the monitor's cold-race window, and the lease is released.
+
+**Summary of round gen_r5 for gen_race:**
+
+- **Library** (the adoption surface): one additive call, `gr_wisdom_drop_prefix()` — the campaign-wide round-end wisdom-strip protocol as a single flock-safe call, self-tested and dogfooded (stripped my own 60 keys with it). Everything else stays frozen.
+- **Demo entry**: adopted gen_planner's brand-new split-group batch-lane engine (SoA-8, batch = vector dimension) as extra race arms `<tree>@s<lev>` at batch ≥ 8, raced through `gr_pick` against the per-volume trees at equal work (1 group step vs 8 volume-major steps), with its own cached two-step gate and a group-of-8 chain with per-volume remainder. Salt bumped to chain5/tile5/chaingate5 per my own r3 rule.
+- **Results on the node**: the group arms won at 10/12/15/20/25/31 — L=10: 3.48→**1.46 µs** (−58%), L=12: 4.99→**2.51 µs** (−50%, confirmed 2.02x in a same-core interleaved A/B), L=25: −33% at a 51% race margin, L=31: −26% via a dense-31 batch-lane fold (5.9x MKL). The race *rejected* the group form at 27/32/40 (loses or ties there) — which is exactly the per-(L,B,host) measured-pick this layer sells. Round-6 drills: unseen L=14 and worst-case L=127 both plan, pass, and stay far inside the 60 s cold budget (1.43 s worst); warm create is 2 ms.
+- Notable friction: gen_planner's file was mid-refactor twice during the session (broken AVX-512 builds for ~20 min); I validated against a patched scratch copy and re-verified against their stabilized snapshot.
+
+**Final line:** Technique: gr_pick race over planner trees + gen_planner-r5 split-group batch-lane arms (@s1/2/3) with per-host wisdom; best wallaby-driven node numbers: B=1 4.99 µs/transform (L=12, smallest B=1 case; 5479 µs at L=100), batched 1.458 µs/transform (L=10 B=64; 2.51 at L=12); rel L2 = 2.8–4.5e-16 (all gates PASS, tol 1e-12).

@@ -606,3 +606,161 @@ structural.
    {31} to {31,40} when the engine fused; if planner's engine changes again,
    consider racing {32,16,48,64} once per host rather than trusting the
    pair.
+
+## Round gen_r5
+
+### What changed
+
+**1. Library: ONE additive call, `gr_wisdom_drop_prefix(prefix)`** (my r4
+next-list #3). Round-end wisdom strip as a single flock-safe read-filter-
+rename; returns the count dropped. Three entries hand-roll this protocol
+every round (gen_pfa_large r3 started it; by r4 end the entries block was
+empty because everyone had stripped by hand) -- now it is one call that
+cannot tear the shared file. Self-tested on wallaby (drop 2 of 4 keys,
+foreign prefixes untouched, file valid and writable after; empty-drop
+no-op), then dogfooded for this round's own strip (60 entries, file valid,
+0 gen_race keys left). Everything else in the API: FROZEN, unchanged
+signatures, r3 doctrine.
+
+**2. Demo entry: gen_planner's NEW split-group batch-lane engine raced in
+as extra arms.** Their r5 (in-progress file, adopted the day it appeared)
+adds `pln_s8_*`: 8 volumes of a batch packed site-major SPLIT-complex --
+batch is the vector dimension, zero shuffles, no masked tails, the map
+ladder sees 8 sites/zmm -- with levels s1 (fused whole-axis CT), s2
+(two-pass CT), s3 (dense fold). At batch >= 8 my create() now probes
+`pln_s8_build` per enumerated tree x level (cap 4 arms, planner's own
+heuristic) and enters them in the SAME gr_pick tree race as candidates
+"<tree>@s<lev>". Normalization: a group thunk is one `pln_s8_step` (8
+volumes); pv thunks run 8 volume-major steps per call -- equal work, each
+in its real chain pattern. Probes run before gr_pick so the candidate name
+list (hence gr_sig) is deterministic; group race buffers (16*vol doubles
+x 3, shared by ALL group arms per the r4 coexistence rule) allocate lazily
+in setup(), so a wisdom hit builds nothing. A group winner gets its own
+two-step gate (pack -> 2 group steps -> unpack vs per-volume execute +
+exact scalar map, verdict string-cached like the pv gate) and fft3d_chain
+runs pack -> m steps -> unpack per 8 volumes, B%8 remainder per-volume
+(planner's own shapes, adopted). Group-gate failure drops to the pv path,
+never ships.
+
+**3. Salt bump chain4/tile4/chaingate4 -> chain5/tile5/chaingate5**
+(mandated by my r3 rule: planner's engine generation changed again -- twice
+during this session; their file went 124951 -> 130517 bytes while I raced).
+Tile race now runs only for pv winners (the group engine has no tile knob;
+p3 then only serves execute() + remainder).
+
+### Measured on the node (a80n0, tryout leased cores, graded chain, min us/xform)
+
+| case | r4 board | r5 | delta | MKL same window | vs MKL | pick (race receipt) |
+|---|---|---|---|---|---|---|
+| L=10  B=64 | 3.483 | **1.458** | -58% | 4.562 | 3.1x | c2(d5)@s1 |
+| L=12  B=64 | 4.993 | **2.511** | -50% | 7.738 | 3.1x | c3(d4)@s1 |
+| L=12  B=1  | 5.732 | **4.992** | -13% | 7.316 | 1.5x | pv (no group at B<8) |
+| L=15  B=32 | 11.767 | **5.830** | -50% | 16.458 | 2.8x | c3(d5)@s1 (+2.5% non-tie) |
+| L=20  B=32 | 24.224 | **19.934** | -18% | 58.967 | 3.0x | c4(d5)@s1 |
+| L=25  B=16 | 60.129 | **40.337** | -33% | 124.394 | 3.1x | c5(d5)@s1 (+50.7% margin!) |
+| L=27  B=16 | 86.257 | 86.591 | flat | 145.216 | 1.7x | pv c3(c3(d3)) beat its @s2 by 3.1% |
+| L=31  B=16 | 196.16 | **144.95** | -26% | 856.881 | 5.9x | d31@s3 (+39.3% margin) |
+| L=32  B=8  | 132.24 | 135.26 | ~flat | 186.124 | 1.4x | pv c4(d8)@t16 (s8 tie, -0.3%) |
+| L=40  B=8  | 282.93 | 279.99 | -1% | 429.194 | 1.5x | pv c5(d8)@t16 (s8 tie, -0.06%) |
+| L=50  B=4  | 645.33 | 644.63 | flat | 964.107 | 1.5x | pv (no group at B<8) |
+| L=100 B=1  | 5504.7 | 5479.5 | flat | 8374.796 | 1.5x | pv c5(c4(d5)) |
+
+Same-core interleaved receipt (held slot lease core 3, 4 alternating rounds,
+L=12 B=64 m=600): shipped c3(d4)@s1 2.486-2.528 vs GEN_RACE_FORCE'd r4-style
+pv c4(d3) 5.005-5.109 -- **2.02x, all four rounds**. The pick's contribution
+vs blind adoption: the race REJECTED the group engine at 27 (+3.1% pv),
+32/40 (honest ties, pv primary kept), i.e. the batch-lane form is NOT a
+uniform win and the per-(L,B,host) verdict is exactly what this layer sells.
+
+Gates, shipped binary, run manually on the node (tryout's check.py leg still
+dies on the unexpanded '$W/c.bin', unchanged since r1): single-call rel L2
+2.8e-16..4.5e-16 at all 12 graded cases (tol 1e-12); map-chain at graded m
+PASS at 12/27/31/100 + mixed B=12 at L=10 (4.9e-14 / 3.1e-14 / 2.6e-14 /
+4.3e-14 / 8.6e-14 vs anchors 3.9/2.6/2.3/2.4/9.1e-14, tol 1e-10); two-step
+m=2 gate PASS at the same five (9.2e-16..2.6e-15 vs tol 3e-14); single AND
+chain outputs bit-identical across independent node processes at all five --
+the B=12 case exercises group-of-8 + 4-volume pv remainder end to end.
+
+Budgets: warm create 2 ms measured at 27/31 (instrumented phase timers:
+enumerate 0.0 / s8 probes 0.1 / tree pick 0.7 / gates-cached 1.0 ms) -- the
+0.08-0.17 s "setup" the driver prints on chain runs is chain-buffer prep it
+charges every entry, not create(). Cold create worst measured: 0.68 s at
+L=100, 1.43 s at the round-6-style L=127 B=8 probe (vs 60 s budget), which
+also PASSes (rel L2 1.0e-15) and beats MKL on raw execute (43.9 vs 50.6 ms).
+Unseen-composite probe L=14 B=8: plans, passes, 0.022 s cold.
+
+### Operation count
+
+Library: unchanged, zero instructions in any hot path. Demo: the winning
+arm's cost on gen_planner's r5 engines -- group arms are op-for-op the pv
+tree (their fmsub/fmadd pairs match fmaddsub rounding per lane) with zero
+shuffle uops and the batch dimension as the vector dimension; my
+contribution is the measured (tree, form, tile) pick per (L, B-bucket,
+host) and the persistence that keeps repeatability structural.
+
+### What did NOT work / honest boundaries
+
+* **The group arms lose or tie at 27/32/40** (numbers above) -- expected
+  boundary, not a failure: at vol >= 20k the group working set (16*vol
+  doubles vs 2*vol) trades L2 residency for lane width. Recorded so nobody
+  assumes @s wins everywhere.
+* **gen_planner's file was mid-refactor twice during this session** (their
+  pw_leaf_run/pln_fusedw_run grew a fused-c arg with call sites trailing;
+  ~20 min of broken AVX-512 builds). Validated my side against a
+  NULL-patched scratch copy, re-verified against their real file once it
+  stabilized -- shipped state compiles and passes against their 20:55
+  snapshot. If their final r5 file changes arm relative speeds again, the
+  round-end strip already guarantees the monitor cold-races fresh verdicts.
+* **Execute() (non-chain) stays per-volume even at B>=8** -- MKL beats my
+  execute at L=14 (18.5 vs 4.3 us) while the graded chain is the win. A
+  group-packed execute would pay pack+unpack per call with no m to amortize
+  it; declined deliberately, noted for anyone tempted.
+* The driver's setup column on chain runs includes ~0.1 s of chain-buffer
+  prep charged to every entry (measured: my create is 2 ms warm) -- don't
+  chase it.
+
+### Borrowed, plainly
+
+* **gen_planner r5 (the whole headline)**: pln_s8_build/step/pack/unpack --
+  their split-lane batch-group engine (itself credited to gen_batchlane /
+  gen_pfa_small's SoA-8 and gen_layout's split-lane fold demo), their
+  group-chain shape (pack once per 8 volumes, remainder pv), their
+  s8-gate discipline, and their arm-cap heuristic (4). Same honest split as
+  every round: their kernels, my measured pick + persistence + gates cache.
+* **gen_batchlane r4/r5 + gen_pfa_small r5**: the held-lease same-core
+  interleaved A/B protocol for the 2.02x receipt, and the first-invocation-
+  is-warmup rule (their +10-15% cold-i-cache note reproduces here).
+* **gen_pfa_large r3**: the round-end strip protocol, now shipped as API.
+
+### Adoption status (the score)
+
+* **gen_planner r5**: now a full `GEN_RACE_LIB_ONLY` include -- their entry
+  wires gr_wisdom_get_str/put_str around their in-create race (key
+  `gen_planner/tree/L<L>`, value now carrying the "@s<lev>" tag with an
+  unknown-tag-forces-re-race guard and a wrong-regime batch<8 check; the
+  key-versioning concern I flagged in r4 is addressed by their tag
+  validation). Their r5 header credits the r4 interleaved protocol.
+* **gen_pfa_large**: string wisdom, key salted to "chain5" this round --
+  they adopted the salt rule without being asked twice.
+* **gen_powp**: gr_keyf/gr_sig/gr_wisdom_lookup/store, key "chain4".
+* Standing offer now CONCRETE for everyone: `gr_wisdom_drop_prefix("<your
+  prefix>/")` at round end replaces the hand-rolled strip.
+
+### What I would do next (gen_r6 -- the assembled-library round)
+
+1. **Race across class ENGINES via gr_pick_plan** (carried five rounds,
+   still blocked): no class entry exposes a `*_LIB_ONLY` include yet except
+   the library layers. Round 6 scores the TRUNK; if entries expose their
+   create/execute/destroy as a vtable, the trunk composition is one
+   gr_pick_plan call away. The gr_plan_cand API has shipped since r1.
+2. **Surprise-size drill went well** (L=14, L=127 cold: pass, in budget) --
+   for round 6 also drill a mid-size prime with B >= 8 (e.g. L=61) where
+   the d<p>@s3 fold arm vs rader pv crossover is untested.
+3. **Cross-arch wisdom table** (carried four rounds; the SPR advisory runs
+   after r5): capture per-host winner divergence when XARCH.md lands. New
+   predicted flips: every @s1-vs-pv verdict at 20-27 (the group form's L2
+   pressure meets CLX's 1 MB L2), and d31@s3 (fold FMA density vs SPR's
+   wider FMA).
+4. **Group-form execute()** if round 6's timing mix ever weights raw
+   execute at B>=8 -- pack cost per call needs measuring before anyone
+   assumes it's a loss at m=1 with large B.

@@ -1,0 +1,9 @@
+Round gen_r5 complete. What shipped in `impl/gen_twiddle.c` and `strategies/gen_twiddle.md`:
+
+**Library (adoption product):** `tw_cis_ds` — the dual-select Linzer-Feig FMA twiddle form from literature §11 Tier 1 (Bergach), first validation in performant software. The octant fold hands over the select for free (reduced argument ≤ π/4 means the ratio is one `tanl`, always ≤ 1); filler + audit for the k1-major CT layout, selftest extensions, all ≤ 0.51 ulp per stored constant. Demo A/B proved it costs nothing even with a runtime branch (a wash at machine resolution); for codelet generators the select is a plan-time constant — free worst-case error headroom.
+
+**Demo speed:** conjugate-fold half-system butterflies for all odd-prime radices ≥ 7 (using my own `tw_fill_fold_half`, ~3.5x fewer FMAs) — **−41.5% at L=31** (270.9 vs 463.2 µs, 4/4 held-lease same-core pairs, dense control arm ≡ r4). A codegen lesson worth recording: inlining the fold into the shared butterfly de-inlined the hot r=2..5 paths and cost +1–4.5% at sizes with bit-identical outputs; splitting it into a `noinline` function not only fixed that but beat r4 by 2–6% at every no-fold size. gen_pfa_large's pair-packed map ladder was adopted, measured bit-identical, and **rejected** here (+1–4.5% — it relocates shuffles onto the tr8x8-bound port 5; kept as a knob with the boundary written down). Also caught and repaired a round-start hard-link contamination of `impl_4/gen_twiddle.c` (warned the panel in my record).
+
+All gates pass: singles 3.0–4.8e-16, two-step 0.95–2.95e-15 (tol 3e-14), graded chains within 1.1–1.9x of honest anchors, bit-repeatable, and bit-identical to the r4 binary at 12/50/100.
+
+**One-liner:** Dual-select FMA twiddle layer + conjugate-fold prime butterflies — best node timings: L=12 14.33 µs B=1 / 14.60 µs batched (L=31: 271.2 B=1 / 270.9 batched, −41.5% vs r4), rel L2 ≤ 4.8e-16 everywhere (tol 1e-12).

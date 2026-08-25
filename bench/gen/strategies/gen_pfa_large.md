@@ -563,3 +563,152 @@ cold-races in its full-quiet window; absent entries are deliberate).
 4. **L=50 B=4**: the one graded case volume-major did not move; if gen_powp
    pulls ahead there, the lever is probably a 2-volume-pair schedule (4 MB
    working set, still L3-safe) or their soa ideas at B=4 via 2-lane packing.
+
+## Round gen_r5
+
+Standings into the round: led 40 (188.7), led 50 B=4 by 1.4% (466.0 vs
+gen_powp 472.9), DEAD TIE at 100 (4827.6 vs 4828.2 — 0.65 us). gen_powp's r4
+adopted this entry's volume-major schedule and ipp family wholesale, so the
+shared cells needed new structure, not another schedule shuffle. Session
+baseline re-measured first (same windows as the r5 numbers below): 40 B=8
+189.3 (MKL 404.3), 50 B=4 466.9 (MKL 947.8), 100 B=1 4778.2 (MKL 7730.4).
+
+### What changed
+
+**1. PAIR-PACKED map ladder (`map_step_pair`) — the round's win.** The map
+z/(1+|z|) ran its ~19-op NR ladder (rsqrt14/rcp14 + two Newton steps each)
+on vectors where every |z|^2 sits DUPLICATED in both complex lanes — half
+the ladder lanes always computed nothing new. Now the 8 distinct |z|^2 of a
+vector PAIR pack into one zmm (2 shuffles), ONE ladder serves both vectors,
+and the reciprocals unpack pair-duplicated (2 shuffles): per pair of vectors
+38 arith + 2 shuffles -> 21 arith + 4 shuffles, a 45% cut in map arithmetic.
+BIT-IDENTICAL per element (q_re+q_im is IEEE-commutative; max/rsqrt14/rcp14/
+FMA are elementwise; the NR expressions are verbatim), so all chain families
+still agree bitwise, and every r4 gate number reproduced EXACTLY (see gates
+below) — the strongest possible regression check. Applied in map_vec,
+map_vec_rev, and the ipp prepass; the in-stream users (ipm granule loads,
+ipf/f*/ipe stores) keep map_step_v. Why it pays: at 40/50 the step is
+compute-bound and map ops were 46%/41% of the total (304k of 638k vector
+ops at 40; 594k of 1408k at 50). Odd-count spans (L=50's 625-vector planes)
+take a one-vector map_step_v tail.
+
+**2. NEW c-stream L3-bypass families ipq1/ipk1/iqn1 (pf 17/18/19), aimed at
+100.** Theory: per ipp step at 100, state+c = 32 MB streams through the
+24 MB NON-INCLUSIVE L3; c has zero within-step reuse, so caching it evicts
+the state that p2 and the next prepass re-read (~32 MB/step of avoidable
+DRAM). ipq1 = ipp1 with PREFETCHNTA on the prepass c stream; ipk1 = ipp1
+with CLFLUSHOPT on c lines one iteration after use (architectural semantics
+where NTA fill policy is implementation-defined); iqn1 = ip1 + NTA-c map
+pass. All compute bit-identical values. Verdict this session: **ipk1 WON
+the interleaved create() race at 100 (4822.4 vs ipp1 4916.3, ip0 4920.1)**
+— first direct evidence the c-pollution theory has teeth — but LOST all 4
+held-lease adjacent pairs vs ipp1 (+1.3/+3.9/+18/+21%, worst in hot
+windows; suspected cost is clflushopt's cross-core invalidation traffic
+under load, ~250k flushes/step). NTA lost outright: ipq1 5539.8 (-12%),
+iqn1 5395.7 — PREFETCHNTA is the wrong bypass mechanism on this ICL part.
+All three stay raced (ranked last): CLX/SPR may flip them, and ipk1's race
+win says the quiet-window economics are borderline-real. Wisdom tag
+chain4 -> chain5.
+
+**3. Rank reorder at 100 ONLY (gen_powp's r4 doctrine, their exact move):
+ipp1/ipp0 to ranks 0/1 ahead of ip*.** The pair-packed map narrowed the
+ipp1-vs-ip1 race gap under 1% and the 3% hysteresis reverted the pick to
+ip1 (this session's first cold race stored l100-ip1). Held-lease paired
+minima say ipp1's QUIET floor is lower — 4657-4668 vs ip1's 4842 this
+session, on top of r4's paired quiet -3.4% / busy -11% — and the score is
+measured on full quiet. A margin that shrinks under the tie band falls to
+the measured winner. Verified post-reorder: the cold race now installs
+l100-ipp1.ch.
+
+### Operation count
+
+FFT vector ops per line unchanged (278/434/661/968 at 40/50/80/100). Map
+arithmetic per volume-step: 40: 304k -> 168k; 50: 594k -> 328k; 100 (ipp
+prepass): 4.75M -> 2.63M; shuffles double to 4 per pair (port 5, but the
+sequential map paths have no port-5 competition).
+
+### Measured on the node (a80n0, leased cores via tryout.sh; session-first
+### baselines above were taken in the same window class, minutes apart)
+
+| case | r4 (same session) | gen_r5 | delta | same-window MKL |
+|---|---|---|---|---|
+| L=40 B=8 m=128 | 189.3 | **162.8** (sd 0.05%) | -14% | 416.0 (2.56x) |
+| L=40 B=1 m=128 | 213.5 (r4 board) | **185.8** | -13% | 441.0 |
+| L=50 B=4 m=128 | 466.9 | **426.6** (sd 0.02%) | -8.6% raw, window ran +6.7% HOT by MKL | 1010.9 (2.37x) |
+| L=50 B=1 m=128 | 482.9 (r4 board) | **419.2** | -13% | 928.7 |
+| L=100 B=1 m=64 | 4778.2 | paired r5-ipp1 beats r4-ipp1 **4/4**: 4737/5072/4817/4914 vs 5197/5283/6357/5103 (-4 to -9%); session quiet floor **4657** | ~-4% | window swung 7730-8913 |
+| L=80 B=8 m=1 (unscored) | 2989.6 (r4) | 2916.2 | execute path untouched | 2471.4 |
+
+Gates, all graded sizes, by hand (tryout's '$W/c.bin' map-check quoting bug
+is STILL there): single 3.58-4.52e-16 (tol 1e-12); two-step m=2 1.857e-15
+(40) / 2.361e-15 (50) / 2.721e-15 (100) vs tol 3e-14; full chains 3.804e-14
+(40) / 5.028e-14 (50) / 4.181e-14 (100) — all three EXACTLY r4's values
+(bit-identity across the map rewrite, as designed); outputs bit-identical
+across two processes at 40/50/100. Setup: cold 0.3-10.4 s (pool now 20/18
+candidates; 60 s budget fine), warm wisdom ~1 ms. Round end: all
+gen_pfa_large keys stripped from results/wisdom_a80n0.json (r3 protocol).
+
+### What did NOT work / incidents, with the numbers
+
+1. **PREFETCHNTA on the c stream: ipq1 5539.8 vs ipp1 4916.3 (+12.7%),
+   iqn1 5395.7 vs ip1 4953.4 (+8.9%)** in the same race. Either NTA lines
+   on this part still fill a level p2 does not benefit from, or the L1-only
+   fill re-misses before the demand load. The FLUSH variant is the working
+   mechanism for the same idea (ipk1 won that race) — do not spend another
+   round on NTA prefetch here.
+2. **ipk1's race-vs-paired contradiction** (race winner by 1.9%; loses 4/4
+   held-lease pairs by up to +21% in hot states). Doctrine to record: the
+   interleaved race can flatter a candidate whose cost is SUSTAINED-LOAD
+   snoop/invalidation traffic; held-lease adjacent pairs are the arbiter.
+   Kept raced and ranked last — the monitor's full-quiet race decides, and
+   xarch may genuinely flip it.
+3. **I corrupted results/wisdom_a80n0.json** doing the round-end strip with
+   a bare python rewrite: ignored the .lock file AND the nested
+   {host, format, entries} layout; a concurrent gen_planner write got
+   orphaned mid-file and the file was unparseable until repaired. Fixed
+   under flock, the stray (newer) gen_planner/tree/L27 entry merged back,
+   my keys stripped from d['entries']. Lesson for EVERYONE: take
+   fcntl.flock on wisdom_<host>.json.lock for ANY hand edit, and edit
+   ['entries'], not the top level.
+   Timeline note for the monitor: after my 20:36 repair the file held 46
+   entries (gen_race/gen_powp/gen_planner/mine); at 20:42 a concurrent
+   gen_planner session rewrote it to 7 gen_planner/*/g8 keys only (their
+   new key schema). My locked strip afterwards removed exactly my one
+   remaining key. Absent entries are legitimate per protocol, but the
+   40-entry drop at 20:42 was not this entry's write.
+4. **Window drift nearly mislabeled the round twice**: the first r5 tryout
+   at 100 read 5043 vs the 4778 baseline (-5.5% "regression") — the pick
+   had silently gone to ip1 via the tie band AND the window had shifted;
+   the held-lease pairs (r5 vs r4 alternating, same core) showed r5 winning
+   4/4. And a later within-lease A/B swung +-8% between reps 3 and 4.
+   gen_batchlane r4's protocol (alternate within ONE lease, compare
+   adjacent pairs, read minima) was load-bearing for every conclusion this
+   round.
+
+### Borrowed, plainly
+
+- **gen_batchlane gen_r4** (via gen_powp r4): the held-lease alternation
+  protocol.
+- **gen_powp gen_r4**: the rank-first-for-the-measured-winner doctrine,
+  applied here to ipp at 100 exactly as they applied it.
+- **gen_layout gen_r4**: the RFO/LFB attribution mindset behind the
+  c-pollution hypothesis. Their NT-store fix itself does NOT transfer to
+  this engine (my p2 stores are read-modify-write on just-read lines and
+  the y-subpass lands on prepass-warmed lines; gen_powp r4 reached the
+  same conclusion) — recorded so nobody re-derives it a third time.
+- The pair-packed ladder and the flush-based c bypass are new here.
+
+### What I would do next (ranked)
+
+1. **XARCH: ipk1 on CLX/SPR.** Smaller LLC footprint, no dependence on ICL
+   NTA policy; CLX's 1 MB L2 + downclock make the traffic economics
+   sharper. The race + per-host wisdom arbitrate — check the advisory
+   report's picks before touching ranks again.
+2. **The FFT codelets are now the whole step at 40/50** (map cut from 46%
+   to ~30% of ops): the four-round-old PMU/spill audit of p1's Zv/Wv/T_
+   staging (80-300 live vectors per line at 100) is finally the top lever.
+3. **Generality for round 6**: 75 = 3x25 (DFT3 module + gen_powp's odd-L^2
+   stash tail), then 7/11/13 modules for 56/63/88/99/104/112/117;
+   coordinate with gen_planner on routing before the surprise draw.
+4. **L=50 B=4 2-volume-pair schedule**: still unmeasured by anyone; the
+   cell is now mine by 46 us but gen_powp's record queues the same idea.

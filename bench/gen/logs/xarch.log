@@ -1,2 +1,3 @@
 ./xarch_advisory.sh: line 20: sbatch: command not found
 sbatch failed
+advisory xarch_spr_r5 on wallaby (nice, reduced sampling)

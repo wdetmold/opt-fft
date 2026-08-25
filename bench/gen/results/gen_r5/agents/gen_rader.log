@@ -1,0 +1,10 @@
+Round complete. Everything verified: both builds clean (AVX-512 and scalar), lease released, strategy record appended, and only my two files plus my own tryout directory were touched.
+
+**Summary of round gen_r5:**
+
+1. **Outer-C3 Rader** (headline): generalized the r31 Winograd-C3-over-dense-blocks machinery to runtime tables for primes with h = 3m, h odd, gcd(3,m)=1 — measured **−34.5% at L=43, −40.9% at L=67, −31% at L=79, −16% at L=103** vs my own r4 engine, all gates passing with ≥6x margin.
+2. **Padded huge-page arena chain for generic primes p ≤ 61** (adopting gen_layout's `gl_map_huge` as a proper LIB_ONLY include): −1.4% at 37, wash 13–61, bit-identical outputs (cmp-verified). Measured a clean −4% **loss** at 127 (per-volume mirror/copy-out overheads don't amortize at the small m that large L implies), hence the size gate.
+3. **L=31 scored cell untouched and confirmed**: chain output bit-identical to the r4 binary; the r4 next-step "port-5 z rebalance" (R31_ZMIX) raced and killed (+2.5%/+7%), closing the 31 micro-tuning list for good.
+4. Negative results recorded with numbers: zp phase-spreading bump (+1.5%/+4% — set-conflict theory dead), padded arena at DRAM sizes, ZMIX.
+
+**Final line:** Ended on outer-C3 Rader (runtime Winograd-C3 × dense-Cm quotient-group convolution) atop the padded-arena custody chain; L=31 graded cell 85.27 µs/step batched (B=16) and 85.54 µs/step at B=1 on the node (bit-identical to the r4-board 84.603 path), with class-duty wins of −31…−41% at 43/67/79/103; rel L2 = 4.059e-16 single, 2.559e-14 full m=140 chain, 1.784e-15 two-step gate.

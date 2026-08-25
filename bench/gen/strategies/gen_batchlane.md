@@ -507,3 +507,143 @@ scheduling luck had set wrong and repaired the measurement procedure.
 4. **Cross-arch races**: the knob set now covers map form, map placement,
    and all three sched attributes; when XARCH.md lands, race exactly those
    six axes per host rather than re-deriving.
+
+## Round gen_r5 -- L=15 goes back to the memory form, and its map tail flips to vdivpd
+
+Standings into the round (r4 board): tied 10 (1.154 vs pfa_small 1.153; my 7.9%
+spread was neighbor noise), led 12 (1.912 vs 1.969), TRAILED 15 by 3.1% (4.566
+vs 4.429), trailed 20 by 0.7% (13.145 vs 13.059). gen_pfa_small's r4 record
+addressed me directly: their same-core A/B measured MY register-explicit 15
+form at +12.6% against their r2-lineage memory form (5.02 vs 4.44-4.46), with
+the rule "register-explicit pays only when 2L site regs + module temps fit
+~32 zmm". This round is the audit of that claim on my own engine, plus the
+map-tail race it exposed.
+
+### What shipped (two changes at L=15; 10/12/20 paths untouched, outputs there
+### bit-identical to r4)
+
+1. **L=15 pencils REVERTED to the r2 memory form** (in-place M3IP stage-1
+   DFT3s; stage-2 memory DFT5 with the fused load-both-store-both DFT5X2 pair
+   for the equal-slot-set groups c=1,2). ADOPTED BACK on gen_pfa_small gen_r4's
+   evidence -- their rule is confirmed on my build: 15's 30 live site registers
+   + DFT5CORE/map temps spill past 32 zmm, and the memory form's stage-1 stores
+   ride ICL's 2-stores/cycle ports at near-zero cost. Same arithmetic order, so
+   the form knob is bit-transparent (verified by cmp at single and m=2).
+   Knob: -DBL_MEM15=0/1/2 (register / memory / hybrid).
+2. **L=15 map tail flipped to ONE exact vdivpd** (MAPTAIL_15, new). On the
+   memory-form pencil the rcp14+2NR ladder's 5 extra FMA-port ops cost more
+   than the unpipelined divide the pencil leaves idle -- exactly
+   gen_pfa_small r3's "the div-vs-rcp verdict is a property of the SURROUNDING
+   CODELET" lesson, now measured in both directions on my own entry.
+
+### The same-core race that decided it (held slot lease core 3, alternating
+### --samples 4 invocations, 4-6 rounds each; first invocation of each session
+### discarded as warmup -- it reads +10-14% every time)
+
+| variant (L=15 B=32 m=600) | min-of-mins | verdict |
+|---|---|---|
+| register + rcp ladder (r4 ship, control) | 4.567 | baseline |
+| register + vdivpd | 4.419 | -3.2% (r4's opposite verdict did not reproduce) |
+| memory + rcp ladder | 4.582 | wash vs control |
+| **memory + vdivpd (SHIPPED)** | **4.411** | **-3.4%, wins 3 of 4 head-to-heads vs register+div** |
+| hybrid (reg sweeps + mem map x-pass) + div | 4.427 | +0.35% vs shipped -- rejected |
+| memory + div + sched-pressure | 4.892 | +10.9% -- pfa_small's r2 verdict confirmed |
+
+The FORM was never the whole 3%: register and memory tie at equal map tails
+(4.419 vs 4.411). The board gap was mostly the MAP TAIL, which r4's same-core
+race got backwards at 15 (it measured register+div 4.94 vs register+rcp 4.77
+on core 4; today's core 3 reads register+div 4.42 vs register+rcp 4.57, six
+consecutive pairs, sd < 0.1%). Two honest same-core sessions, opposite
+verdicts: the div/rcp margin at 15 is CORE-STATE-DEPENDENT on this node.
+Shipped memory+div anyway because (a) it wins today's window outright, (b) it
+is the exact form gen_pfa_small scored 4.429 with under real scoring
+conditions, and (c) BL_MAPRCP stays raceable if XARCH or a future window
+disagrees. The hybrid's loss is a real (small) negative result: the register
+sweep pencil's halved load/store count does NOT beat the memory sweep pencil's
+ILP on the L1-resident zy planes.
+
+### Re-raced and kept (same session, same core)
+
+- **10/12 map tail**: rcp ladder confirmed AGAIN (10: 1.156 rcp vs 1.167 div;
+  12: 1.916 rcp vs 1.957 div, +2.1% -- four pairs each). The register pencils
+  keep the FMA ports saturated; the memory pencils do not. Per-size defaults
+  now: rcp at 10/12, div at 15/20 -- consistent with the form split.
+- 10/12 register-explicit + sched-pressure, 20 memory + stock + div: untouched,
+  end-of-session confirmations 1.157 / 1.915 / 13.04-13.09.
+
+### Measured on the node (a80n0 core 3, quiet window, min over 3 end-of-session
+### runs of the shipped binary; MKL 2022 same core same window)
+
+| case | r4 ship (board) | gen_r5 ship | MKL | ratio |
+|---|---|---|---|---|
+| L=10 B=64 m=1000 | 1.154 | **1.157** (unchanged path) | 4.552 | 3.9x |
+| L=12 B=64 m=600  | 1.912 | **1.915** (unchanged path) | 7.738 | 4.0x |
+| L=15 B=32 m=600  | 4.566 | **4.410-4.413** (-3.4%) | 16.461 | 3.7x |
+| L=20 B=32 m=256  | 13.145 | **13.043-13.091** (unchanged path) | 58.883 | 4.5x |
+
+Gates (shipped build, run by hand on the node; tryout.sh's map-check leg still
+passes the literal '$W/c.bin'): single call 2.6/2.9/3.1/3.0e-16; two-step m=2
+8.2e-16 / 9.2e-16 / 1.198e-15 / 1.2e-15 (tol 3e-14, 25x margin -- the 15 div
+tail moved it from 1.196e-15, i.e. nothing); graded chains 1.687e-13 /
+4.869e-14 / 5.208e-14 / 4.366e-14 vs anchors 1.081e-13 / 3.887e-14 /
+4.784e-14 / 2.835e-14 (tol 1e-10); bit-repeatable at all four sizes; 10/12/20
+chain outputs bit-identical to r4. Remainder paths: B=1 single + m=2 PASS at
+all four sizes, B=12 mixed group+remainder at 12 PASS, B=9 at 15 (memory-form
+remainder lanes) PASS. B=1 chains (m=64): 10.65 / 17.59 / 40.53 / 133.97 us
+-- the five-round-old gap, unchanged.
+
+### What did NOT work, with the number that killed it
+
+- **Hybrid form at 15** (register sweeps + memory map x-pass, my one new
+  structural idea this round): 4.427-4.442 vs memory 4.411-4.430, +0.35%,
+  five consecutive interleaved rounds. Cheap to build off the knob, honestly
+  dead.
+- **sched-pressure on the memory-form 15**: 4.892-4.910 vs 4.411 (+10.9%).
+  Now measured on BOTH engines (pfa_small r2: +3-10%); closed.
+- **rcp ladder on the memory-form 15**: +4.1% (4.59 vs 4.41). Closed with the
+  form.
+
+### Borrowed, plainly
+
+- **gen_pfa_small gen_r4**: the round's headline -- their register-fits-32-zmm
+  rule and their direct "A/B the memory form back at 15" instruction, both
+  correct; and their r3 codelet-local div-vs-rcp lesson, which is what made me
+  race the tail ON the new form instead of porting the r4 verdict.
+- **Literature 10 / my own r4**: the held-lease interleaved protocol, used for
+  every number above.
+- Checked and NOT taken: gen_pow2 r4's GP2_CT (c in last-pass walk order) --
+  gen_pfa_small r3 already measured consumption-order c at +4-10% on this
+  engine shape (the natural plane-major c already streams as L sequential
+  per-plane streams); gen_powp/gen_pfa_large r4's volume-major chain -- my
+  chain has been group-major (8 volumes through all m steps) since r1, same
+  residency effect.
+
+### Operation count
+
+FP unchanged (88/96/162/216 vector instrs per pencil per 8 volumes). L=15 is
+back to 4L ld + 4L st per pencil (memory form; the 2L + 2L register form ties
+at best and spills under the map). Map at 15 is now ~14 FMA + 1 rsqrt14 seed +
+1 vdivpd per site (was ~19 FMA + 2 seeds); 10/12 unchanged rcp ladder; 20
+unchanged div.
+
+### What I would do next (ranked)
+
+1. **The div/rcp core-state dependence deserves a wisdom-race axis**: two
+   same-core sessions on different cores gave opposite 15-tail verdicts at
+   the +/-3% level. If gen_race can afford one extra candidate per size, the
+   map-tail knobs (-DBL_MAPDIV/-DBL_MAPRCP, -DBL_MEM15) are exactly the axes
+   to race per host -- this is what the round-6 surprise sizes will hit.
+2. **B=1 lane-spatial engine** (fifth round on the list, unchanged): 2.4x
+   behind MKL at B=1, 10/12/15. Round 6 draws unknown batches. gen_pfa_small
+   and I keep sketching the same ice L6_pfa shape at each other -- whoever
+   moves first, the other adopts.
+3. **L=15 residual vs the ~3.8 us port floor**: with the form and tail settled
+   at 4.41, the remaining gap is the DFT5's op count. The 3-FMA lifting form
+   (literature 08 6.3) cuts ~10% of DFT5 FP; ice measured 11.9% ops -> 0.8%
+   time, so budget an hour, expect ~0.5%, verify the 1.5e-14/step budget
+   (reassociation changes rounding).
+4. **L=20**: identical structure to gen_pfa_small's, cell decided by window
+   luck at the 0.5% level. The only untested idea remains the c bounce buffer
+   (bulk-copy plane x+1's c during plane x's sweep); both records predict it
+   loses; only worth a quiet-window hour if the cell matters for the final
+   geomean.

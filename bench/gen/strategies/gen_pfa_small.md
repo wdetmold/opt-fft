@@ -523,3 +523,151 @@ pencil: drops 2L stores + 2L loads of temp traffic vs r3's buffered form.
    is adopted (change 5 -- it moved 20, not 12); their edge at 12 remains
    unexplained by structure. Suspect code alignment luck; a -falign-loops
    sweep via function attribute is the next cheap probe.
+
+## Round gen_r5
+
+### Headline
+Adopted gen_batchlane gen_r4's same-core interleaved A/B protocol (one held
+slot lease, all variants built side by side and ALTERNATED on one core with
+--samples 4; gen_pfa_large r4 concurs) and used it to re-open every map-knob
+verdict this entry had ever set through core-hopping tryout pairs. The result:
+the 2.8% L=12 gap to gen_batchlane is CLOSED (1.917 vs their 1.915-1.919,
+same core, same minutes), 15 and 20 each gained ~0.5%, and 10 ships
+bit-identical to r4. The mechanism, found by diffing their source against
+mine: my r2 adoption of the bl8 map ladder was a TRANSCRIPTION, not a copy --
+one extra multiply per site in the rsqrt Newtons and set1-intrinsic constants
+where theirs are static-const vectors -- and on the cheaper true-bl8 body the
+div-vs-rcp verdict at 12 FLIPS.
+
+### Measured on the node (a80n0 core 2, ONE slot lease held all session,
+### interleaved minima; window was clean, in-run sd 0.01-0.25%)
+
+| case | r4 ship (same-window control) | gen_r5 ship | gen_batchlane same-window | MKL same-window |
+|---|---|---|---|---|
+| L=10 B=64 m=1000 | 1.154-1.156 | **1.154-1.155** (bit-identical path) | 1.155-1.158 | 4.70 |
+| L=12 B=64 m=600  | 1.973-1.979 | **1.916-1.920** (-2.8%) | 1.915-1.919 | 7.94 |
+| L=15 B=32 m=600  | 4.438-4.454 | **4.418-4.425** (-0.5%) | 4.607-4.620 | 16.77 |
+| L=20 B=32 m=256  | 13.699-13.739 | **13.614-13.681** (-0.6%) | 13.718-13.795 | 59.96 |
+
+Gates, shipped build, all run on the node: single call 2.6-3.1e-16 at
+10/12/15/20; two-step m=2 8.2e-16 / 9.2e-16 / 1.2e-15 / 1.2e-15 (tol 3e-14);
+graded chains 1.615e-13 / 4.869e-14 / 5.208e-14 / 4.366e-14 vs anchors
+1.081e-13 / 3.887e-14 / 4.784e-14 / 2.835e-14 (tol 300x/1e-10); repeatable
+bit-identical at all four sizes; L=10 chain output bit-identical to the r4
+ship (cmp). B=1 m=50 chains PASS at all four sizes (3.447 / 4.761 / 12.422 /
+28.650 us); mixed B=12 group+remainder chain PASS. Generic engine: chains
+PASS at 14 (B=8 m=100), 21 (B=3), 56 (B=3); singles at 36; L=14 graded-shape
+chain now 6.17-6.27 us/xform (GMT race below).
+
+### What changed
+
+1. **map8 now carries TWO ladder bodies, selected per size like the div/rcp
+   tail** (MT<L> encodes both: bit 0 = rcp tail, bit 1 = bl body; GMT for the
+   generic engine). The bl body is gen_batchlane's map8 VERBATIM (bl8 r4
+   lineage): hs = s/2 hoisted once and y *= (1.5 - hs*y^2) -- one multiply
+   per site fewer than my r2-r4 form (0.5*r)*(3 - t*r), which recomputed the
+   halving inside each Newton -- in vector-extension arithmetic with
+   static-const vector constants instead of set1 intrinsics. Ship defaults:
+   MT10=0 (legacy body + div, unchanged r4 arithmetic), MT12=3 (bl + rcp),
+   MT15=2 (bl + div), MT20=2 (bl + div), GMT=2.
+2. **The div-at-12 verdict flipped on the true-bl8 body**: with my old body,
+   div beat rcp again this round (1.960 vs 1.933-1.956 was ALREADY rcp-
+   favoring on the intermediate hs-form; on the verbatim body rcp 1.913-1.914
+   vs div 1.953-1.957, five interleaved pairs, four clean). Ladder cost and
+   tail choice are coupled: the r4 "div wins at 12" was measured on a ladder
+   whose extra FMA-port ops were exactly what made rcp's +4 ops lose.
+3. **Isolation of the r5 gain at 12**: hs-form alone -0.5% (1.960 vs 1.970);
+   + verbatim body (static-const vectors, aligned deref) with rcp tail
+   another -2.3% (1.913). sched-pressure stays ON at 10/12 (2x2 raced:
+   div+nosched 1.945, rcp+nosched 2.015 -- rcp NEEDS the pressure scheduler
+   here).
+4. **L=15**: bl body + div -0.5% (4.418 vs 4.438-4.454). rcp tail still loses
+   at 15 (+2.4%: 4.526-4.556) and PS_SCHED15 still loses (+10%: 4.893-5.003),
+   both re-confirmed same-core on the new body.
+5. **L=20**: bl body + div -0.6% (13.614-13.681 vs 13.699-13.739); rcp still
+   loses (+2.6%: 13.986-14.001). Structurally untouched otherwise.
+
+### Built, raced, and REJECTED: the L=15 hybrid sweep (kept as -DMEM15SW=1)
+
+gen_batchlane's in-progress gen_r5 file ships BL_MEM15=2: register-explicit
+pencils in the map-free zy sweep + MY memory-form fused-map x-pencil (they
+adopted my r4 15 verdict for the x-pass). The combination my r4 A/B never
+tried -- so I built it: dft15_ipr (X3L stage 1 to named registers, X5ST
+stage 2 registers-to-memory, no DFT5X2 hazard) in the sweep only. Same-core,
+five rounds, all three variants in every round: memory sweep 4.413-4.432 vs
+hybrid 4.445-4.449 vs batchlane's shipped hybrid 4.602-4.620. REJECTED here:
+my 30-site register sweep pencil spills even without map temps (~44 live v8
+against 32 zmm), while the memory form's stage-1 stores ride the 2-store/
+cycle port. NOTE for gen_batchlane: my memory-form 15 beats your hybrid by
+4% same-core -- A/B the full memory form (my dft15_ip/ipm, D5X2SM hazard
+pair included) before shipping BL_MEM15=2.
+
+### What did NOT work / was declined, with the number or argument
+
+* **rcp tail at 10 on any body** (1.162-1.164 vs div 1.159-1.160) and **bl
+  body at 10** (+0.6%: 1.162-1.165 vs 1.154-1.156, three interleaved
+  rounds): L=10's 20-live-register pencil leaves sched-pressure nothing to
+  fix; 10 ships the r4 arithmetic bit-identical.
+* **-falign-loops=32 / -falign-functions=64 at 12**: 1.974-1.975 vs base
+  1.970-1.972 -- the r4 "alignment luck" hypothesis for batchlane's 12 edge
+  is dead; the edge was the map ladder all along.
+* **rcp+nosched at 12**: 2.013-2.018 (+5%). The rcp ladder's extra ops only
+  pay under the pressure scheduler.
+* **L=20 bounce buffer (r3/r4 next-step, batchlane r3's idea): DECLINED on
+  an arithmetic argument this time, not a window**: the bounce copy cannot
+  fix capacity -- BB(1.07 MiB) + S(1.07 MiB) still exceeds the 1.25 MiB L2,
+  so bounced c lines must survive next to S exactly as un-bounced ones must,
+  and the copy adds 2.14 MiB/step of extra L2 traffic. The only remaining
+  L=20 lever is shrinking S+C below L2, which no layout in five rounds of
+  records achieves. I consider the cell closed at ~13.6 on this node.
+* **GMT race at 14** (bl vs legacy body in the generic engine): 6.174-6.220
+  vs 6.212-6.270, 2 of 3 rounds favor bl, one flips -- a wash; bl kept for
+  the op count.
+
+### Borrowed, plainly
+
+* **gen_batchlane gen_r4 / gen_pfa_large gen_r4**: the same-core interleaved
+  A/B protocol. It re-decided TWO of my shipped defaults (MT12, and nearly
+  MT15's sign) and killed the alignment hypothesis in one session. Every
+  future default here gets set this way.
+* **gen_batchlane (bl8 r4 lineage)**: the map8 body verbatim -- hs-form
+  Newtons, static-const vector constants, aligned c deref. Full circle
+  in four rounds: I taught them rcp14 (r1), took back vdivpd (r2), rejected
+  their rcp swap on MY transcription (r3/r4), and now adopt their exact body
+  + rcp at 12 because the transcription itself was the bug.
+* **gen_batchlane gen_r5 (in progress)**: the BL_MEM15=2 hybrid idea --
+  measured and rejected on my codelet (numbers above), knob kept.
+
+### Operation count
+Pencil FP unchanged (88/96/162/216 vector FP per pencil per 8 vols; 10/12
+register-explicit 2L+2L, 15/20 memory 4L+4L). Map per site: 10: 13 FMA-class
++ 1 vdivpd (legacy, unchanged); 12: ~17 FMA-class + rcp14 seed, NO divider;
+15/20: 12 FMA-class + 1 vdivpd (one mul/site less than r4). Two volume
+sweeps per step, map fused in x-pass stage-2 stores, all unchanged.
+
+### Method note
+The first invocation of ANY binary in a session reads +10-15% (cold i-cache/
+branch predictors survive taskset within it); every race here discards the
+first sample of the first round. The window itself was the cleanest in three
+rounds (no bimodality all session) -- the r4 protocol note stands regardless:
+alternate within one lease and compare adjacent pairs.
+
+### What I would do next (ranked)
+1. **B=1 lane-spatial engine** (fifth round on the list; B=1 m=50 now
+   3.45/4.76/12.4/28.7 us vs MKL ~1.5/2.1/6.4/31 -- still 2-2.3x behind at
+   10/12/15). Round 6 draws unknown batches for the ASSEMBLED library;
+   whoever moves first (me or batchlane) should build ice L6_pfa's
+   interleaved-complex z-turn once and the other adopts. If nobody builds
+   it, the planner should route B<8 coprime sizes to whichever engine's
+   split path measures ahead (mine, currently).
+2. **Generic-module widening for round 6** (modules 11/13 in gdftodd are a
+   ~20-line h<=6 extension + gfactor entries: 22,26,33,39,44,52,55,65,77,
+   88,91,99,104,117 become coverable at generic-engine speed instead of
+   Bluestein's 107-1315x). Coordinate with gen_pfa_large (their r4 record
+   queues the same modules) so only one of us serves each size class.
+3. **Cross-arch (XARCH.md due after this round)**: race the MT<L>/GMT
+   two-bit knobs and MEM15SW per host -- the r5 finding that ladder BODY
+   and tail flip together means the CLX/SPR races must sweep all four MT
+   values, not just the tail bit.
+4. **L=20**: closed on this node (capacity argument above); revisit only if
+   a layout layer materializes a sub-1.25 MiB S+C representation.

@@ -555,3 +555,130 @@ ZMS idea that lost there), not scheduling.
    ship a 63-ms hole; two TR8s per line-half, L2-blocked x-pass.
 4. Cross-arch: GP2_CT should transfer (it deletes a stride pathology, adds
    none); GP64_HP/GP64_PFS are exactly the wisdom-race axes for CLX/SPR.
+
+## Round gen_r5 — the dual-select FMA twiddle fold validated (a wash that
+## ships), the row-pad question settled, and the structural wall named
+
+Standings into the round: led L=32 at 55.746 us (3.07x MKL 2022, r4
+leaderboard).  This round ran three experiments on the scored size; one
+ships (as a knob default, not a wall-clock win), two are negative results
+worth their numbers.  Protocol upgrade first: adopted the one-lease-one-core
+discipline from **gen_dense_prime gen_r5 / gen_batchlane gen_r4** (slot 2,
+core 4, held for the whole session; every A/B alternates the same binaries
+on that core).  New wrinkle observed: in fixed-order A/B/C loops the
+FIRST-position binary reads consistently better once windows drift —
+ROTATE the order every round (my 3-way race flipped verdict when rotated;
+the fixed-order session was discarded).
+
+### What shipped: GP2_FTW=1 — dual-select FMA-folded pass-2 twiddles
+
+The literature 11 Tier 1 item (Bergach, arXiv:2604.00567 / Linzer-Feig;
+"2^k codelets first" — this entry is that codelet family).  In vfft32 /
+vfft32m / vp2_k2, each pass-2 twiddle product x = W32^j·h is factored
+x = f·m: m computed by two FMAs from a stored ratio (c-form t = s/c when
+|c|>=|s|, else s-form u = c/s — dual-select keeps every stored ratio <= 1),
+and the scale f folded into the following DFT4 stage-1 butterfly (FMA in
+place of add/sub).  Twiddle+butterfly drops 8 -> 6 ops per site; the
+j = 8 site (W32^8 = -i, the b=2 arm of k2=4) needs no multiply at all
+(4 pure adds).  Per 32-point line: 420 -> 390 FMA-port ops (-7.1%), in
+BOTH the y- and x-passes.  Tables long-double, ratio rounded once; the
+form select is compile-time (k2 constant after unrolling), so zero runtime
+cost — exactly the "table-generation policy" the citation promises.
+
+**Result: correct, accuracy-neutral, wall-clock WASH on Ice Lake.**
+16 interleaved same-core rounds across three sessions: ftw1 55.42-55.81 vs
+ftw0 55.44-56.32 min, every paired delta within ±0.3%.  Same-window prof
+pair says the ops really do leave (x-phase 87.8K -> 82.3K cyc, z+y 78.6K
+-> 76.4K) but the wall does not move — the engine is not FMA-port-bound
+(the r3 verdict, now proven by subtraction: removing 7% of the port ops
+changes nothing).  Gates: single 2.902e-16 (B=8), m=2 fused **1.338e-15**
+(B=8) / 1.393e-15 (B=1) vs r4's 1.334e-15 — accuracy statistically
+unchanged; chain end 3.328e-14 / 2.948e-14; bit-repeatable x3.
+SHIPPED as default anyway: the op headroom is free, the accuracy claim of
+the citation is confirmed at fp64 (no regression at ratio<=1), and on a
+port-bound host (CLX's downclocked 512-bit units) the 7% should cash —
+GP2_FTW is a first-class cross-arch race axis; =0 is the r4 arithmetic,
+kept compilable.  First validation of this citation in performant code,
+for whatever the campaign credit is worth: the honest verdict is
+"free, not faster, here."
+
+### What did NOT work, with the number that killed it
+
+* **GP2_KS=64 (drop the custody row pad: S 578 -> 526 KB, S+C 1.11 ->
+  1.06 MB vs the 1.25 MB L2)**: bit-identical output, and consistently
+  +0.3-0.5% SLOWER in every rotated-order round (55.78-56.30 vs ftw1's
+  55.53-55.81).  Two lessons.  (1) The L2-capacity-edge theory of the
+  x-pass slack is DEAD — shrinking the set made it worse.  (2) I
+  re-derived the hazard audit before building: with KS=64 this engine has
+  NO store->load pair at equal addr mod 4K in any phase — the odd-line
+  row rule's value at L=32 is not the ice 4K store-load proofing, it is
+  **L1-SET UNIFORMITY of the y-pass**: stride 9 lines walks all 64 L1
+  sets (gcd(9,64)=1); stride 8 hits 16 sets at 4 lines each and loses to
+  conflict pressure from H/c/stack sharing those sets.  KS=72 stays; the
+  knob remains for the cross-arch race (bigger-L2 hosts may flip it).
+* **GP2_ZYIL=0 re-race under FTW** (the y-lines lost 7% of their FMA ops,
+  so the z/y port balance shifted): 58.97-59.70 vs 56.65-57.23 — the skew
+  still pays ~3.5%.  Keep =1.
+
+### The wall, named (analysis, so nobody spends r6 rediscovering it)
+
+Phase accounting at L=32: per step-volume the port floors are ~110K cyc
+(220K FMA-port ops / 2 pipes; 33K shuffles hide under them) and the L2
+transfer is ~44K cyc (z/y sweep 578 KB r+w, x sweep 578 KB r+w + 532 KB c
+read, at ~64 B/cyc).  Measured ~158-166K = floors + modest overlap
+residual.  Cutting ops 7% did not move the wall; cutting the set 5% made
+it worse.  The two-sweep step structure is traffic-minimal for 3D (z and
+y already share a sweep; x must cross planes), so **L=32 is at its
+structural ceiling short of a different factorization of the whole step**.
+Corollary for L=64, killing my own r4 next-step #2: the proposed
+x(s)+z(s+1) cross-step fusion is traffic-NEUTRAL — z already rides the
+z/y sweep, and unfusing it from y to fuse with x leaves y needing its own
+sweep; same L3 crossings (~22 MB/step), same 32.5 GB/s wall.  Verified on
+paper this round; do not build it.
+
+### Measured on the node (a80n0 core 4, quiet windows, same-core pairs)
+
+| case | gen_pow2 (ship) | same-window MKL 2022 | ratio |
+|---|---|---|---|
+| L=32 B=8 m=250 (graded) | **55.27-55.42 us** (min 55.274, sd 0.06%) | 175.3 | **0.315** |
+| L=32 B=1 m=250 | **55.45** (sd 0.03%) | — | |
+| L=16 B=8 m=300 chain | 7.60 us/step-vol (path untouched) | — | |
+| L=64 B=2 m=64 chain | 685.6 us/step-vol (path untouched; window +1%) | — | |
+
+Gates (ship build = flagless default, verified bit-identical to the raced
+ftw1 binary): L=32 single 2.902e-16 / B=1 2.902e-16 (tol 1e-12); two-step
+fused m=2 1.338e-15 / 1.393e-15 (tol 3e-14, 21x margin); chain end m=250
+3.328e-14 / 2.948e-14 (tol 1e-10); bit-identical across 3 independent
+runs.  L=16: m=2 9.855e-16, chain 2.321e-14 — code path untouched, values
+identical to r4.  L=64: m=2 1.723e-15, chain 2.342e-14 — same.  2^k
+regression L=2/4/8/16/64/128 single call: PASS at 0 / 0 / 1.3e-16 /
+2.3e-16 / 3.2e-16 / 4.1e-16.
+
+### Borrowed / attribution (gen_r5)
+
+* **Literature 11 Tier 1 (Bergach arXiv:2604.00567, Linzer-Feig
+  factorizations)**: the dual-select FMA twiddle fold, implemented and
+  validated here first; verdict "free accuracy-safe op cut, wall-neutral
+  on a non-port-bound engine."
+* **gen_dense_prime gen_r5 / gen_batchlane gen_r4**: the one-lease-same-
+  core A/B protocol.  Added the rotate-the-order corollary from my own
+  fixed-order artifact.
+* gen_powp r4 / gen_pfa_large r4's volume-major chain: checked, already
+  native to this entry since r1 (per-volume custody residency).
+
+### What I would do next
+
+1. **L=128 (G=16) custody engine** — the last real hole in the class
+   (63 ms generic; outside round 6's draw but not outside the library's
+   dignity).  Two TR8s per line-half, L2-blocked x-pass; the FTW fold and
+   DSB rules apply from birth.
+2. **Cross-arch races when XARCH.md lands**: the axis set is now
+   {FTW, MAPDIV, PREMAP, XU, ZU1, ZYIL, KS} — FTW and MAPDIV are the two
+   most likely to flip on CLX (port-bound downclock, slower divider).
+3. If anyone wants L=32 faster, the remaining lever is a different STEP
+   factorization (e.g. two-axes-per-pass with in-register y×z tiles — the
+   literature 11 Tier 2 shape), not scheduling: the current structure is
+   at [port ∥ L2] with <8% residual.
+4. FTW for vfft64i/vfft16i: op cut is real (-10% at L=64 pass 2) but
+   L=64 is L3-bound and L=16 unscored — do it only as library hygiene in
+   a quiet round.

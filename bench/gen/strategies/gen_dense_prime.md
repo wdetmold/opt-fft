@@ -659,3 +659,133 @@ access — measured net -5..-14% at those sizes.
    on the unexpanded '$W/c.bin' — run check.py by hand; check.py needs
    env.sh sourced for numpy; the node alternates quiet/busy at the ~5%
    level — interleave 3+ instances per arm, always.
+
+## Round gen_r5
+
+### Where this round started
+
+r4 leaderboard: **120.490** at the graded cell (L=31 B=16 m=140; gen_rader
+84.603 — the settled arithmetic gap, and their r4 record proves their engine
+is AT its issue-port model, so the crossover standings are stable).  Small
+sizes: 5.282 / 8.272 / 14.264 / 44.159 at 10/12/15/20.  My r4 next-list said:
+stop micro-tuning 31, spend the round on the generic sizes and r6 robustness.
+That is what this round did.
+
+### Protocol change first (borrowed, important)
+
+**gen_batchlane gen_r4 / gen_rader gen_r4**: tryout.sh acquires a FRESH core
+lease per invocation, so consecutive A/B invocations hop cores and carry a
+10-25% core-state confound.  Everything below was measured holding ONE slot
+lease (slot 3, core 5, a80n0) and alternating the SAME binaries on the SAME
+core, 3-8 interleaved rounds per arm, min-sets compared.  My r1-r4 verdicts
+are all far above this confound except possibly the r3 pitch table — not
+re-raced, the conclusion there was already "no".
+
+### What shipped: EXACT-TILE generic GEMM (fold_pass rewritten)
+
+The r1-r4 fold_pass ran every d-tile as a fixed 4-zmm quad (trailing vectors
+masked to NOTHING at the tail) and clamped k-quad ends with duplicate
+columns (stores guarded, FMAs burned).  Slot audit at the padded sizes:
+L=17/19 (rows of 20 complex, n=40 doubles) needs 5 zmm-columns and 9
+k-slots per C-group; the old shape spent 8 and 12 — **2.13x the ideal
+C-GEMM FMA count**.  L=10/12 (n=24): 1.3x; L=20 flat (n=40): 1.6x;
+L=23 (n=48): 1.33x on the d tail.
+
+Now the d dimension is covered by full 4-zmm chunks plus ONE exact tail
+chunk of 1..3 zmm (only its last vector masked, chosen by a per-call
+TWt/mt), and the k dimension by full quads plus one exact 1..3-column tail
+group (KN).  Implementation: the chunk body is a macro over compile-time
+literals (KN, TW) with `if (KN>=2)/(TW>=2)` guards gcc prunes; a TWt switch
+dispatches the tail.  ~20 instantiations per GEMM, only 2-4 hot per size.
+**Every surviving lane sees the identical op sequence, so outputs are
+BIT-IDENTICAL to r4** — verified by cmp at ALL 15 supported sizes, single
+and chained (this is the whole verification story: no numerics risk at
+all).  L=31 (fold31/fold31zx, already compile-time exact) untouched; the
+L=31 shipped binary path is bit-identical to r4.
+
+### Measured on the node (a80n0 core 5, ONE held lease, interleaved min-sets, min us/xform)
+
+| cell | r4 control (same windows) | gen_r5 | delta |
+|---|---|---|---|
+| L=17 B=4 m=8 | 33.39 / 33.69 / 34.91 | **27.58 / 27.78 / 31.94** | **-17%** |
+| L=19 B=4 m=8 | 41.15 / 42.39 / 46.59 | **36.95 / 37.00 / 42.07** | **-10%** |
+| L=23 B=4 m=8 | 66.33 / 66.47 / 74.12 | **61.24 / 62.65 / 63.17** | **-8%** |
+| L=29 B=4 m=8 | 138.27 .. 167.7 (8 rounds) | 140.25 .. 166.8 | wash (n=64 was already exact; only k-tails shrink, ±1-2% noise) |
+| L=20 B=32 m=256 | 44.19 / 44.34 / 44.44 | **39.52 / 39.71 / 39.88** | **-10%** |
+| L=10 B=64 m=1000 | 5.40 / 5.40 / 5.58 | 5.27 / 5.37 / 5.64 | wash |
+| L=12 B=64 m=600 | 8.29 / 8.82 / 8.83 | 8.31 / 8.54 / 9.74 | wash |
+| L=15 B=32 m=600 | 14.33 - 15.99 (5 rounds) | 14.64 - 17.15 | wash, possibly -1..+2% (see below) |
+| L=31 B=16 m=140 | 119.78 / 119.89 / 121.19 / 122.77 | 119.89 / 120.43 / 120.98 / 122.38 | parity (same code path) |
+| L=31 B=1 m=140 | 121.68 | 121.60 | parity |
+
+Correctness, shipped binary, on the node: single rel_l2 3.1e-16..3.9e-16 at
+17/20/23/29/31 (tol 1e-12); **two-step gate 1.1e-15..1.7e-15** (tol 3e-14,
+>=17x margin); graded chains PASS at 1.03-2.1x their honest anchors; single
+AND chain outputs bit-repeatable across independent node runs; bit-identical
+to the r4 binary at every size (local cmp, 15/15 sizes, single + chain m=4);
+non-AVX-512 build verified end-to-end at L=7 and L=31 on the login host.
+
+### What did NOT work, with the number that killed it
+
+- **-DGDP_MAP_SQRT (exact map: |w| by vsqrtpd + one vdivpd instead of the
+  rsqrt14+2NR ladder): loses EVERYWHERE.**  L=31 fused chain: 139.3-151.5
+  vs 119.9-122.4 (+16%, 4/4 rounds); L=17: 31.8 vs 27.6; L=23: 72.2 vs
+  61.2; L=29: 161.0 vs 140.2.  Mechanism, two-sided: in the generic chain
+  the map is a STANDALONE pass, so vsqrtpd->vdivpd is a ~40-cyc dependent
+  divider chain per 8 points vs the ladder's FMA-parallel ~16-cyc-div form;
+  in the fused L=31 kernel the two divider ops sit on the U/V critical FEED
+  path of the x-GEMM (the z-phase issues 124 groups x 2 divider ops per
+  block into the GEMM's inputs) and the divider becomes the binder.  My r4
+  hypothesis ("the divider sits otherwise idle under the z-GEMM — plausible
+  win") is now measured and DEAD.  The panel's map-arithmetic ranking
+  (ladder + one exact vdivpd) survives its sixth challenger.  Knob kept for
+  the cross-arch races (SPR's divider is stronger).
+- **Exact k-tails at sizes whose d-dimension was already exact are inside
+  the noise, leaning fractionally negative** (29: best-min +1.4% across 8
+  rounds; 15: r4 won 4/5 interleaved pairs by 1-3% while best mins overlap).
+  Strictly fewer FMA slots yet no win — most plausibly DSB/code-layout: the
+  tail bodies double the hot-loop footprint at those sizes.  Not worth
+  gating; recorded so nobody "fixes" it blind.
+
+### Borrowed this round, named
+
+- **gen_batchlane gen_r4** (via gen_rader gen_r4): the same-core one-lease
+  interleave protocol — used for every number above.
+- **gen_rader gen_r4**: the port-model-first discipline (their model showed
+  my 17/19 GEMMs were slot-wasteful long before a window was spent; the slot
+  audit in this round's shipped change is that method applied to my shape),
+  and the confirmation that the 31 crossover is arithmetic-settled on both
+  sides.
+- The exact-tile idea itself is my own r2 fold31 lesson ("compile-time exact
+  tiles, no masks in the hot loop") generalized to runtime L — which is what
+  my r4 record promised gen_rader's generic-prime arena in return for their
+  pitch prescription.
+
+### Operation count (shipped)
+
+L=31: unchanged (~352K zmm FMA + fused map), bit-identical binary path.
+Generic sizes, x/y GEMM FMA slots per block, old -> new: L=17/19: 768 -> 480
+(C) and 512 -> 400 (S) = **-32%**; L=23: -25% / -17%; L=20: -37%; L=10/12:
+-25% d-side, k-tails exact; L=29: -6% / -12.5% (k only); L=13/15: k-tails
+only.  z-pass, fold, map, chain layout: unchanged.
+
+### What I would do next
+
+1. **The generic-prime z-pass is now the next slot-waster**: kq = ceil((hc+1)/4)
+   zmm with zeroed pad slots wastes 25% of z-GEMM FMAs at 17/19 (12 k-slots
+   for 9).  An exact-kq z-kernel (mask only the last vector, drop the
+   zero-slot FMAs) is the same trick one layer down; expect a few % at
+   17/19.
+2. **z-into-x fusion for the generic padded chain** (the fold31zx shape at
+   runtime L): deletes a full volume store+read per step; the machinery
+   (zfm/zsm/zso2 store layout, padded U/V) is all present.  Worth ~3-5% at
+   23/29 by the r2 ladder's analogy.
+3. **Lazy map for the generic padded chain** (r4 item, still undone): with
+   the standalone map now measured divider-bound (the sqrt race's collateral
+   finding), moving it under the z-GEMM's FMA shadow should pay MORE than it
+   did at 31 — but only with the ladder form, never sqrt.
+4. **L=29/15 DSB question**: if a spare window exists, objdump the tail
+   bodies and try -falign-loops=32 on the tail instantiations before
+   believing the ~1% k-tail drag is real.
+5. Cross-arch: re-race GDP_MAP_SQRT and the exact tails on CLX/SPR when
+   XARCH.md appears; the divider/FMA balance differs on both.

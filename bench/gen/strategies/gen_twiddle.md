@@ -604,3 +604,199 @@ block); unblocked sizes are the r3 loops exactly, plus one plan-time branch.
    p=41 example above makes three lines; answer whatever layout they ship.
 4. refnd pitch #5 if gen_powp / gen_pfa_large still build gate references
    with double cexp.
+
+## Round gen_r5
+
+### Adoption status (the score)
+
+- **gen_bluestein's adoption stands** (tw_chirp + colmajor filler/audit); API
+  kept 100% backward compatible again — `gcc -c impl/gen_bluestein.c` verified
+  clean against this round's file after every change.
+- **NEW library offering: the dual-select FMA twiddle form** (LITERATURE 11
+  Tier 1, Bergach arXiv:2604.00567 — "per-twiddle choice between Linzer-Feig
+  factorizations keeps every stored ratio <= 1, 235x tighter error bound,
+  zero runtime cost"; the brief asked for a first validation in performant
+  software and this round delivers it, see below):
+  - `tw_cisl_ds / tw_cis_ds(num, den, &m, &t, &swap)` — the root as
+    `w = m*(1+i*t)` (swap=0, |Re| >= |Im|) or `w = m*(t+i)` (swap=1), so
+    **|t| <= 1 always**. The octant fold hands the select over for free:
+    after reduction the argument is in [0, pi/4], the larger component is
+    always the cos one, and the octant index alone fixes slot and signs.
+    t is ONE long-double `tanl` of the reduced argument (NOT a quotient of
+    two rounded doubles), so each stored constant is within ~0.5 ulp.
+    Quarter turns (m,t) = (+-1, +0) exactly; eighth turns t = +-1 exactly,
+    m = correctly rounded sqrt(1/2). Multiply kernel is 4 FMA-class ops —
+    the SAME count as the (c,s) form:
+    swap=0: `m*((ur - t*ui) + i*(ui + t*ur))`; swap=1: `m*((t*ur - ui) +
+    i*(t*ui + ur))`.
+  - `tw_fill_ct_ds_split / tw_audit_ct_ds_split` — CT tables in the k1-major
+    split layout; the audit checks both constants <= 0.51 ulp PLUS the
+    structural invariants (|t| <= 1, select actually picks the larger
+    component; violations return 1e9, not a fraction of an ulp).
+  - `tw_selftest` extended: DS reconstruction vs tw_cisl (abs 2.5e-16 at the
+    |w|=1 scale), quarter/eighth-turn exactness, select correctness, and a
+    fill/audit round trip.
+  - **Who should adopt**: the codelet GENERATORS (gen_planner / gen_pow2 /
+    gen_powp fused leaves). Their twiddles are plan-time constants, so the
+    select is a per-site constant and no branch survives into the kernel —
+    the tighter worst-case bound is literally free error headroom against
+    the 1.5e-14/step contract. My demo validated the runtime-branch worst
+    case (below): even THERE it costs nothing measurable.
+- **refnd double-cexp gate reference, pitch #5**: gen_powp.c:1436 and
+  gen_pfa_large.c:784 still build W with double `cexp` (250 ulp on a 1e-13
+  yardstick at L=100). `tw_fill_dft_cplx` remains the one-line fix.
+- **gen_rader**: their r4 record shows the engine port-model-saturated at 31
+  and no table-layout change; the p=41 folded-kernel worked example from my
+  r4 section still stands for their next-step item 4 (generalized Rader for
+  3|h primes — `tw_primroot`/`tw_fill_rader_half`/`tw_fill_rader_fft` are the
+  three plan-time calls).
+
+### The demo: conjugate-fold prime butterflies (-42% at 31) and a codegen lesson worth the round
+
+**1. Fold butterfly for r >= 7** (every default-case radix is an odd prime:
+leaves 7..127, combine radices 7/11/13). The dense r x r lane butterfly
+(16h^2 FMAs, h = (r-1)/2) is replaced by the conjugate-fold half-system —
+the gen_layout / gen_dense_prime / gen_rader fold shape, tables from this
+layer's own `tw_fill_fold_half` (hp = h, audited at create): fold a_j = x_j +
+x_{r-j}, b_j = x_j - x_{r-j} (4h vector adds), then per k-pair four real
+h-correlations (C*a_re, C*a_im, S*b_re, S*b_im) and the conjugate-signed
+combine X_k = (E_re + O_im, E_im - O_re), X_{r-k} = (E_re - O_im, E_im +
+O_re): ~4h^2 FMAs + O(r) adds, 2 k-rows per iteration = the same 8 independent
+FMA chains as the old dense unroll. **~3.5x fewer butterfly FMAs at r=31.**
+The demo now finally exercises tw_fill_fold_half itself (it had no consumer
+in this engine before).
+
+**2. THE LESSON — the case-bloat tax.** First cut had the fold body INLINE
+as the default case of `twd_butterfly`. Same-core interleaved pairs vs the
+rebuilt r4 binary: L=31 -42% as expected, but 12/50/100 (which never touch
+the fold path and whose outputs were cmp-IDENTICAL) regressed +1..+4.5%,
+4/4 pairs each. The big new case bloated the function and gcc de-inlined /
+re-scheduled the hot r=2..5 paths inside twd_rec. Fix: the fold body is a
+SEPARATE `noinline` function; the default case is a 2-line call. That did
+not merely restore parity — the final binary now BEATS r4 at the no-fold
+sizes with bit-identical outputs (12: 13.97-14.11 vs 14.83-15.25; 50:
+1275-1321 vs 1363-1380; 100: 10734-10862 vs 11362-11464; all 4/4 same-core
+pairs), because twd_butterfly ends up SMALLER than r4's (the dense default
+is gone from the switch). Panel-transferable: keep rare heavy cases out of
+hot dispatch functions; if outputs are bit-identical and time moved, it is
+code layout, and an A/B against the previous binary is the only detector.
+
+**3. Pair-packed map ladder (gen_pfa_large gen_r5's -45% map win): REJECTED
+here on measurement, kept as -DTWD_MAPPAIR.** Packing the 8 distinct |z|^2
+of a vector pair into one zmm (2 permutex2var in, 2 vpermpd out, one ladder
+for two vectors) is bit-identical by construction (verified by cmp at
+12/50/100, singles and chains) — and still LOSES on this engine: it was in
+the first-cut binary and accounts for part of the +1..4.5% above; the
+isolated mechanism is gen_rader r4's relocation lesson: my map runs inside
+`twd_scatter_z_map`, whose tr8x8 transposes already bind port 5, so 4 more
+port-5 shuffles per pair cost more than ~11 saved FMA-class ops on ports
+the scatter leaves half-idle. gen_pfa_large's win was on a SEQUENTIAL map
+pass with "no port-5 competition" (their words). Boundary recorded: pack
+the ladder where the map is a standalone/FMA-bound pass, never inside a
+shuffle-bound exit.
+
+**4. Dual-select twiddles in the combine sweep (-DTWD_DS): a measured WASH —
+which is the validation.** The demo consumes tw_fill_ct_ds_split with a
+per-twiddle branch (pattern fixed per plan level, predictor-friendly).
+Same-core pairs vs the non-DS ship binary: L=12 13.74-14.32 vs 14.43-14.46
+(4/4 but small), L=31 2/4, L=100 3/4 — i.e. zero cost at the resolution of
+the machine, mild lean positive. Accuracy: rel L2 identical to 1e-17
+(3-5e-16 both ways); the DS claim is the WORST-CASE bound, not rms, and the
+runtime-branch engine is the unfavorable case — for codelet generators it
+is free by construction. Shipped default OFF to preserve the bit-identity
+regression property vs r4 at the no-fold sizes; the knob and these numbers
+are the literature validation (lit 11 Tier 1, first in performant code).
+
+### Measured on the node (a80n0; every keep/kill from held-lease same-core
+### interleaved pairs, gen_batchlane r4 protocol; sweep = one lease, 5 samples)
+
+| L | B | r4 board | gen_r5 ship | delta | note |
+|---|---|---|---|---|---|
+| 10 | 64 | 10.94 | **10.33** | -6% | codegen only (bit-identical output) |
+| 12 | 64 | 14.97 | **14.60** | -2.5% | pairs: 13.97-14.11 vs r4ctl 14.83-15.25, 4/4; B=1 14.33 |
+| 15 | 32 | 29.67 | **29.17** | -1.7% | |
+| 20 | 32 | 58.21 | **54.55** | -6.3% | |
+| 25 | 16 | 122.09 | **119.77** | -1.9% | |
+| 27 | 16 | 235.30 | **222.10** | -5.6% | |
+| 31 | 16 | 463.25 | **270.89** | **-41.5%** | fold; pairs 267-277 vs 471-472 (4/4); dense arm == r4 (attribution clean); B=1 271.2 |
+| 32 | 8 | 360.71 | **343.81** | -4.7% | |
+| 40 | 8 | 647.06 | **625.16** | -3.4% | |
+| 50 | 4 | 1367.70 | **1306.90** | -4.4% | pairs 1275-1321 vs 1363-1380 (4/4) |
+| 100 | 1 | 11375.76 | **10735.11** | -5.6% | pairs 10734-10862 vs 11362-11464 (4/4); B=1 10757 |
+
+MKL 2022 same windows: 860.6 (31), 7858.8 (100). The demo now beats ducc0 at
+every acceptance size and fftw3_measure at 100 — still a test bench, but no
+longer an embarrassing one.
+
+### Gates (ship binary, by hand on the node — tryout's map-check leg still
+### dies on the '$W/c.bin' quoting bug)
+
+Singles 2.96-4.82e-16 at 12/27/31/50/100 (tol 1e-12); two-step m=2 9.52e-16
+(12) / 1.59e-15 (27) / 1.72e-15 (31) / 2.31e-15 (50) / 2.95e-15 (100) vs tol
+3e-14; graded chains 5.32e-14 (12, anchor 3.89e-14) / 3.08e-14 (27, 2.57e-14)
+/ 2.48e-14 (31, 2.31e-14) / 4.47e-14 (50, 2.92e-14) / 3.69e-14 (100,
+2.42e-14), tol 1e-10; B=1 chain at 12 PASS 6.97e-14 (anchor 5.80e-14); all
+chains bit-repeatable across runs; **chain AND single outputs bit-identical
+to the r4 binary at 12/50/100** (no fold there, map untouched by default —
+the strongest regression check available). Fold-path accuracy IMPROVED
+(fewer roundings): L=31 single 4.02e-16 vs r4's 4.63e-16. Local: numpy sweep
+16 fold-heavy + 9 acceptance sizes ALL PASS (worst 8.68e-16 at 127); m=3
+chains at 7/11/49/91/97/121/127 PASS; scalar -march=x86-64 build PASS at
+31/127; all knob combinations (DS/DENSEBF/MAPPAIR/PF) compile -Wall -Wextra
+clean; setup <= 0.1 s at L=100.
+
+### What did NOT work / incidents, with the number
+
+- **Pair-packed map as default: +1..4.5% at 12/50/100** (with bit-identical
+  outputs) — see boundary above. Kept as -DTWD_MAPPAIR for CLX/SPR.
+- **Fold inlined into twd_butterfly: the same +1..4.5%** at sizes that never
+  execute it (case-bloat tax, mechanism and fix above).
+- **Selftest false alarm at eighth turns**: the DS select check compared
+  against long-double |cos| vs |sin| at x = pi/4, where the TRUE components
+  tie exactly and the reference breaks the tie at ~1e-19 arbitrarily. Either
+  factorization is correct there; the check now allows the tie (1e-12 fuzz,
+  well under the >= 1e-3 non-tie gap at den <= 1000). Same metric-vs-
+  primitive lesson as my r1 quarter-turn ulp false alarm.
+- **Round-start hard-link contamination (process warning for everyone)**:
+  impl_5/gen_twiddle.c started the round HARD-LINKED to impl_4/gen_twiddle.c
+  (same inode). Early in-place edits landed in BOTH paths — i.e. in the
+  archived r4 file — until a later whole-file write split the inodes, which
+  also silently dropped two edits from the live file. Detected via a
+  gen_layout.c include failure in the r4 control build; fixed with
+  `git checkout -- impl_4/gen_twiddle.c` (verified clean) and re-verified
+  the live file end-to-end. If your r4 control builds strangely, `stat -c
+  %h` your impl_4 file before trusting it.
+
+### Borrowed this round, named
+
+- **gen_pfa_large gen_r5**: the pair-packed ladder (adopted as a knob,
+  rejected as a default with the boundary contributed back).
+- **gen_rader gen_r4**: the port-relocation lesson, used to diagnose the
+  map-pack loss instead of burning more windows on variants.
+- **gen_batchlane gen_r4**: the held-lease same-core protocol — every
+  keep/kill this round is adjacent-pair on one core.
+- **Literature 11 Tier 1 (Bergach)**: the dual-select policy itself; the
+  octant-fold implementation and the tie handling are this layer's.
+
+### Operation count (demo, delta vs gen_r4)
+
+r >= 7 butterflies: dense 16h^2+8h FMA-class -> fold 4h^2 FMA + ~10h adds
+per group call (r=31: ~3844 -> ~1110). Everything else bit-identical to r4
+by default (map, gathers, small radices, blocking). Plan tables: +3 doubles
++1 byte per twiddle (DS), +2h^2 doubles per r>=7 level (fold), well under
+the 3 KiB/size guidance at acceptance sizes; create() <= 0.1 s at L=100.
+
+### What I would do next (gen_r6)
+
+1. **DS inside a codelet generator**: wire tw_cis_ds into gen_planner's
+   fused-leaf constant emission (their twiddles are per-site constants; the
+   select costs nothing and buys worst-case headroom). One-call diff pitch
+   in their prompt if the monitor allows.
+2. **Round-6 surprise insurance**: primes 37..127 now run the fold path
+   (~3.5x fewer FMAs than r4's dense); if a surprise draw lands on a large
+   prime, check the assembled library actually routes it to gen_rader/
+   gen_dense_prime — my demo is the existence fallback, not the contender.
+3. **xarch knobs**: race TWD_BLK_MIN_BYTES, TWD_MAPPAIR, TWD_DS on CLX/SPR
+   when XARCH.md lands (SPR's second FMA pipe may flip the map-pack verdict;
+   its port-5 pressure differs).
+4. refnd pitch #6 if still double-cexp.

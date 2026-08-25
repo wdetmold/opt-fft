@@ -627,3 +627,165 @@ scalar) compile `-Wall -Wextra`-clean.
    (Winograd-style matrix splits) change the algorithm class; the demo's
    job stays: any-L guaranteed-correct vectorized floor + the layer's
    living test bench.
+
+## Round gen_r5
+
+### What changed
+
+**Library (one addition, section 7 of the file):**
+
+- `gl_map8(z0, z1, &o0, &o1)` / `gl_map16(z0..z3, &o0..&o3)` — the graded
+  chain map w/(1+|w|) as IN-REGISTER primitives on 8 (resp. 16) interleaved
+  complex. `gl_map8` is bit-for-bit the campaign-standard ladder this layer
+  shipped inside its map pass since r2 (pair-compressed |w|² via unpacklo/hi
+  — each lane is one complex's re resp. im, so values never mix across
+  complex and the chunking an adopter fuses under is irrelevant to the
+  numbers — 1e-300 guard, rsqrt14 + 2 Newton, ONE exact vdivpd per 8
+  complex). `gl_map16` is gen_dense_prime gen_r4 next-step 3 BUILT: one
+  vdivpd per 16 complex via the reciprocal-product trick (q = 1/(da·db),
+  rec_a = q·db, rec_b = q·da; 3 extra vmulpd, ~1–2 ulp on the reciprocal
+  against a per-step budget of ~60 ulp). Both are in `gl_selftest()`
+  (gl_map8 within 5e-15 of the exact scalar map, gl_map16 within 1e-14 of
+  gl_map8). Fuse them at your engine's exit store and the separate map pass
+  — and its full state round trip — disappears.
+
+**Demo entry (one structural change):**
+
+- **The graded map is fused into the axis-2 exit and the chain runs IN
+  PLACE.** The r2–r4 chain shape was: FFT the state into a full interleaved
+  `zt` volume (NT stores at L=100), then a separate map pass reads zt + c
+  and writes the state. But the axis-2 exit already holds the final
+  interleaved values in registers the moment `gl_tr8x8_c2i` produces them —
+  so now the exit adds c, runs `gl_map8` on the registers, and stores the
+  chain STATE directly. `zt` is deleted from the plan (16 MB at L=100), and
+  the state volume is rewritten in place — legal because axis 0 fully
+  consumes the state into split s1 before axis 2 rewrites it. Per chain
+  step this deletes a full volume write + read (zt) plus the separate
+  pass's loop; map arithmetic is unchanged and moved to ports the scatter
+  leaves idle. NT stores now target the state directly (same eligibility
+  proofs, plus a runtime 64B-alignment check on the actual dst). Knobs:
+  `-DGL_DEMO_NOMAPFUSE=1` (exact r4 shape, for the A/Bs below),
+  `-DGL_DEMO_MAP16=1` (gl_map16 in the exit).
+
+### Operation count
+
+FFT FMA count unchanged. Deleted per chain step: V·16 B zt write + V·16 B
+zt read + the separate map pass (its loads/stores of state and zt). Map
+arithmetic itself unchanged (~14 FMA-class + 2 unpack + 1 vdivpd + 2 mul
+per 8 complex) but now runs once per exit CHUNK: pencils issue ceil(L/8)
+map calls instead of L/8, so L mod 8 ∈ {1..4} pays dead-lane divides
+(+33% map-div count at L=12, +28% at 25, +12% at 50). That waste is the
+measured story of the small-L cells below.
+
+### Measured on the node (a80n0, leased cores via tryout.sh, graded chain, min µs/xform)
+
+Window note: this session read ~3–6% hot vs the r4 board at the small sizes
+(hot windows, sd up to 10% on first readings); every keep/kill below is an
+interleaved same-window A/B (fused vs `-DGL_DEMO_NOMAPFUSE=1` = the r4
+shape), per the gen_dense_prime/gen_pfa_large protocol.
+
+| L | B | r4 board | gen_r5 | same-window r4-shape arm | verdict |
+|---|---|---|---|---|---|
+| 10 | 64 | 4.90 | **5.22** | 5.46 | −4.6% |
+| 12 | 64 | 8.08 | **8.49** | 8.68 | −1.5% |
+| 12 | 1 | — | 9.97 | 9.64 | **+3.7% (kept anyway, see below)** |
+| 15 | 32 | 18.40 | **18.43** | — | wash |
+| 20 | 32 | 39.91 | **41.15** | 41.14 | wash (3 pairs: −2.9%, +0.3%, −3.5%; min-of-mins equal) |
+| 25 | 16 | 93.36 | **95.30** | 97.49 | −2.3% (2 pairs, both fused) |
+| 27 | 16 | 123.8 | **121.6** | — | −1.8% vs board |
+| 31 | 16 | 223.5 | **196.6–201.0** | 231.7 | **−13..15%** |
+| 31 | 1 | 227.5 (r4) | **222.1** | — | |
+| 32 | 8 | 227.7 | **199.0** | — | **−12.6% vs board** |
+| 40 | 8 | 507.7 | **461.8** | — | −9.0% vs board |
+| 50 | 4 | 1204 | **1147** | — | −4.7% vs board |
+| 100 | 1 | 15083 | **14976** | 15088 | −0.7%, ~wash (MKL same windows 7691–7893) |
+
+The shape of the result: the fusion pays exactly where zt lived in L2/L3
+and round-tripped it (the 25–50 middle, −2..15%, biggest where the working
+set rides the L2/L3 boundary: 31, 32, 40), is a wash at L=100 (after r4's
+NT work the chain there is no longer bandwidth-exposed — the deleted 32
+MB/step of streaming traffic was fully overlapped; the r4 attribution
+stands: it was the RFO reads, not the volume count), and at L1-resident
+small-L B=1 the dead-lane divides show up as the only term (+3.7% at 12
+B=1). Kept everywhere anyway: every SCORED cell wins or washes, and one
+code path beats a size-conditional fusion nobody can maintain.
+
+**gl_map16 verdict (gen_dense_prime's ask): a LOSS in a fused exit.**
+Same windows: L=31 220.5 vs 201.0 (+9.7%), L=100 15274 vs 14976 (+2%).
+In a fused exit the vdivpd was never the binder — it overlaps the next
+block's FMAs in the OoO window — so halving divider occupancy buys nothing,
+and pairing two pencils per call lengthens the dependency chain into both
+pencils' stores and raises exit register pressure (the compiler spills).
+gen_dense_prime's context (map divides inside a z-GEMM phase that is
+port-0/5-saturated) is different enough that their item 3 is NOT killed by
+this — but measure there, don't adopt on faith. For a REGISTER-fused exit,
+use gl_map8.
+
+### Gates (all by hand — tryout's chain legs still die on the unexpanded '$W/c.bin'; r2 recipe verbatim)
+
+Single-call rel L2 2.5e-16–8.7e-16 at 10/12/15/20/25/27/31/32/40/50/100 and
+off-suite 7/9/16/17/64/127/128 (tol 1e-12); **two-step gate 9.44e-16 /
+1.73e-15 / 3.29e-15 at 12/31/100** (tol 3e-14 — identical to r4, as it must
+be: gl_map8 is the same arithmetic the pass ran, and the pair-compress
+makes each complex's result independent of chunking); full graded chains
+5.33e-14 (12, m=600), 2.88e-14 (31, m=140), 6.46e-14 (100, m=64) vs tol
+1e-10; chain outputs bit-identical across independent node runs at 31 and
+100; off-suite m=3 chains PASS at 7 (the AVX-512 non-window path), 9, 16,
+17, 64, 127, 128; scalar (AVX2 wallaby) build PASS singles + chains at
+4/9/12/27 (the scalar exit fuses the map too, exact sqrt). All build modes
+(entry/LIB_ONLY × icelake-server/x86-64 × NOMAPFUSE/MAP16/PLAIN) compile
+`-Wall -Wextra`-clean. Setup unchanged (≤ 7 ms at L=100).
+
+### What did NOT work / boundaries, with numbers
+
+- **gl_map16 in the exit: +9.7% at 31, +2% at 100** (above) — shipped as a
+  library primitive with a measured negative verdict attached, which is the
+  point: the next entry that wonders about one-div-per-16 reads a number
+  instead of burning a window.
+- **L=12 B=1: fused +3.7%** (9.97 vs 9.64) — dead-lane map divides with no
+  traffic win to pay for them (28 KB working set never leaves L1). Unscored
+  cell; not special-cased. A ymm-width map for kcnt ≤ 4 tail chunks would
+  recover it if a scored case ever lands on this regime.
+- **L=100 expectation corrected**: I predicted −15..25% from deleting 32
+  MB/step; measured −0.7%. The r4 NT work had already removed the exposed
+  DRAM time; what remains at L=100 binds inside the FFT passes (fold-load
+  L2 misses, port pressure), not on volume count. Recorded so nobody
+  re-derives the fusion for bandwidth reasons at DRAM sizes — its money is
+  the L2/L3 middle.
+
+### Borrowed this round, named
+
+- **gen_dense_prime gen_r4**: the map-into-z-phase fusion result (their
+  −2 MB/step of L2 traffic) is what made this round's shape obviously right
+  for the middle sizes; their next-step 3 (one div per 16) is built and
+  raced here as gl_map16.
+- **gen_pfa_large gen_r4 (ipp) / gen_bluestein gen_r4 (per-block map)**:
+  the two other engines that measured map-pass deletion this campaign —
+  between the three records the "fuse the map where the state is already
+  hot" doctrine is now cross-validated; my register-exit variant is its
+  third form (theirs: plane/block granularity; mine: exit-register
+  granularity, zero extra passes of any kind).
+- **gen_dense_prime gen_r3 / gen_batchlane gen_r4**: the interleaved
+  adjacent-pairs A/B protocol, again (the L=20 and L=25 calls above are
+  exactly the kind a single window would have gotten wrong).
+
+### What I would do next (gen_r6)
+
+1. **Adoption of gl_map8 at other exits**: gen_rader's r4 list already has
+   "gen_layout's NT stores for the map stores at 40/80" — gl_map8 composes
+   with that (their exit is interleaved rows too); gen_powp's parity unpack
+   and gen_pow2's custody exit are the same shape. The one-call swap is
+   written; my record carries the map16 warning so nobody re-races it
+   blind.
+2. **Round 6 readiness is the priority**: supports() takes any 2..128, the
+   engine is size-generic with zero per-size code, gates pass at surprise-
+   style sizes (7..128 verified this round), setup ≤ 7 ms. The demo remains
+   the panel's guaranteed floor for the three unseen draws.
+3. **Cross-arch (XARCH.md due after this round)**: the fusion moves map
+   arithmetic into the exit's port mix — on CLX (1 MB L2, heavier downclock)
+   the L2/L3-middle win should GROW (more of the suite becomes
+   traffic-bound), while the dead-lane div cost is clock-invariant. The
+   NOMAPFUSE knob exists precisely so the race layer can flip it per host
+   if CLX disagrees.
+4. **The ymm tail map** (item from the L=12 B=1 loss) — only if a scored
+   cell lands on L mod 8 ∈ {1..4} at L1-resident sizes.

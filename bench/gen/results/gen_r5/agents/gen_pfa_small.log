@@ -1,0 +1,8 @@
+Round gen_r5 complete. Summary of what happened:
+
+- **Protocol**: adopted batchlane r4's same-core interleaved A/B (one held lease, variants alternated on one core) and re-opened every map-knob verdict my r4 had set through core-hopping tryout pairs.
+- **The find**: my r2 "adoption" of the bl8 map ladder was a mis-transcription — one extra multiply per site in the rsqrt Newtons, and set1-intrinsic constants where batchlane's are static-const vectors. On the verbatim body the div-vs-rcp verdict at 12 flips. map8 now carries both bodies, selected per size like the tail (MT bit 0 = rcp, bit 1 = bl body): 12 = bl+rcp (−2.8%, gap to batchlane fully closed), 15/20 = bl+div (−0.5%/−0.6%), 10 = legacy+div (bit-identical to r4; bl body loses 0.6% there).
+- **Tried and rejected**: batchlane's in-progress r5 hybrid-15 sweep (4.44 vs my memory form's 4.42; their shipped hybrid reads 4.61 same-core — I flagged that in my record), alignment probes at 12 (wash), rcp at 10/15/20, and the L=20 bounce buffer (declined on a capacity argument: bounce+state still exceeds L2).
+- **Gates**: all pass — single 2.6–3.1e-16, two-step m=2 0.8–1.2e-15 (tol 3e-14), graded chains 1.2–1.8× honest anchors, bit-repeatable, B=1/mixed-batch/generic-size chains verified.
+
+**One-liner:** per-size map-ladder body+tail (bl8-verbatim hs-form + rcp at 12, + vdivpd at 15/20, legacy+div at 10), raced same-core — batched chain 1.154 / 1.916 / 4.418 / 13.614 µs/xform at L=10/12/15/20, B=1 chain 3.447 / 4.761 / 12.422 / 28.650 µs, single-call rel L2 = 2.6–3.1e-16.

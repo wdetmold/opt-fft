@@ -1,0 +1,3 @@
+Round gen_r5 complete. Both files written (`impl/gen_pfa_large.c`, `strategies/gen_pfa_large.md`), all gates pass with exactly r4's values (bit-identical algebra), outputs repeatable, wisdom stripped per protocol.
+
+**Pair-packed NR map ladder (8 distinct |z|² per zmm, one ladder per vector pair, −45% map arithmetic) + clflushopt/NTA c-stream L3-bypass families raced at 100 + ipp rank-first at 100 — best node µs/xform: L=40 162.8 (B=8) / 185.8 (B=1), L=50 426.6 (B=4) / 419.2 (B=1), L=100 4737 quiet-paired (B=1, pick ipp1); rel L2 3.6–4.5e-16.**
