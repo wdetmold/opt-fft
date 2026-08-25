@@ -974,3 +974,178 @@ to r5 at every size.
    an XCOL2 build there rather than retuning Ice Lake.
 4. **L=81 execute** remains 1.6x behind MKL (chain leads); 27x3 reuse of
    DFT27C is the standing idea if a draw makes execute-heavy shapes matter.
+
+## Round gen_r7
+
+Standings into the round (r6 board): led 25 (31.971), 27 (44.544) and 50
+(415.524 vs gen_pfa_large 420.018); trailed 100 by 1.0% (4617.510 vs their
+4570.267).  The surprise test (r6 addendum) won all three unseen sizes, so no
+planner/race fire to fight.  The rounds-7/8 brief says: spend the queued
+literature backlog.  Mine was two op-diet items for the SoA engine at 25/27
+(the two cells nobody shares with me); the round's ONE piece of luck is that
+gen_pfa_large's r7 header closed the two-axes-per-pass item (brief item 1,
+named for both of us) WITHOUT CODE before I burned anything on it -- see
+"borrowed".
+
+### What was built (one new technique, one adoption-and-rejection, knobs)
+
+**1. 3-SHEAR LIFTED TWIDDLE ROTATIONS at the SoA twiddle stores (literature
+08 6.3 -- queued in my r1 record as "budget an hour"; six rounds later it is
+the round's headline).**  In split complex a twiddle W^j is a pure plane
+rotation of (re, im) -- no lane swaps anywhere -- so the classic lifting
+factorization finally has a home with zero shuffle tax: the 4-op twiddled
+store (2 vmul + 2 vfma, r/i independent) becomes THREE FMA-port ops,
+u = re + T*im; im' = im - S*u; re' = u + T*im' with T = S/(1+C).  The
+catch nobody in the corpus has dealt with: tan(theta/2) blows up near
+theta = pi, and our exponent sets (j to 16/25 and 16/27) cross it.  Fix:
+HALF-TURN REDUCTION -- for C < 0 the rotation factors through
+rot(theta - pi) and both output negations fold into FNMSUB opcodes
+(u = re - T*im; im' = -S*u - im; re' = -T*im' - u, T = S/(1-C)) -- every
+case is exactly 3 FMA-family instructions, all signs inside constants or
+opcodes, |T| <= 0.944 across all 24 table entries.  Tables (C25T/C27T/C9T
+_TS tangent + _HT half-turn flag) are compile-time long-double literals
+generated AND fp-verified by build/tryout/gen_powp/gentw3.c (applies the
+double-rounded shears to unit vectors against C/S, all <5e-16); the _HT
+branch folds after unrolling (j is a literal).  Covers every twiddled
+store in both engines' SoA pencils incl. the XCOL2 two-column path
+(TWST2 routes through the same TWROT3).  16 twiddles/pencil at 25,
+28 (W27+W9) at 27: pencil FP 404 -> 388 (-4.0%) and 436 -> 408 (-6.4%).
+Depth per twiddle rises 2 -> 3 dependent FMAs -- a latency-for-port trade
+covered by the 5/9 independent slot groups per stage; -DGENPWP_NOTW3
+restores the r6 form for cross-arch races.  NOT bit-identical to r6
+(~2 ulp vs ~1 per twiddle against a 1.5e-14/step budget): all gates
+re-run, margins unchanged (numbers below).
+
+**2. LIFTED DFT5 v-pair (ADOPTED from gen_batchlane gen_r7, their DFT5VPAIR
+verbatim) -- BUILT, MEASURED, DEFAULT OFF.**  sin(2pi/5) = phi*sin(pi/5)
+exactly, so the Winograd v-pair factors through u = sa - PHI*sb (-2 ops,
+-2 live temps per DFT5; 10 DFT5s per 25-pencil).  On THEIR engine: -0.8..
+-1.0%.  On MINE: lift-only vs r6 is a -0.3% wash (31.271 vs 31.355
+min-of-mins), and ON TOP of the shears it LOSES ~0.3% -- shears-only beat
+shears+lift 7/8 held-lease pairs at 25 (mins 30.868/30.904/30.964/30.994
+vs 31.047/31.082/31.116/31.158).  Mechanism, recorded so nobody re-derives:
+the lift serializes v1/v2 through u; gen_batchlane's stage-2 groups expose
+2-4 independent DFT5s per pencil PLUS eight batch lanes of ILP per op,
+while my in-place slot pencil has exactly 5 independent groups per stage
+feeding depth-3 twiddle stores -- there is not enough surrounding ILP to
+hide the extra serial link.  Same boundary class as sched-pressure (r3)
+and two-column (r6): batchlane-engine wins are codelet-shape-specific.
+Ships as -DGENPWP_LIFT5 opt-in; their r7 note says CLX's weaker FMA
+throughput should widen the lift's win, so the knob is a real cross-arch
+race candidate, not a corpse.
+
+### Measured on the node (a80n0, ONE held slot lease per battery, soa forced
+### GENPWP_PF=6 + cold race per invocation, control first; MKL same core)
+
+A/B, r6 arithmetic (bin_c7 = -DGENPWP_NOLIFT5 -DGENPWP_NOTW3, verified
+bit-identical to the r6 ship binary's chains) vs shipped r7:
+
+| case | r6 arith (4-pair mins) | r7 ship | verdict |
+|---|---|---|---|
+| L=25 B=16 m=256 | 31.676-31.870 | 30.868-31.564 (t3 arm) | shears-only wins; -1.6% min-of-mins (30.87 vs 31.36 in the isolation round), 4/4 + 7/8 pair records above |
+| L=27 B=16 m=200 | 44.378-45.120 | 43.075-44.293 | -1.0..-3.3%, 4/4 pairs (-2.9% min-of-mins; 27 is pure shears -- no DFT5 in its pencils) |
+
+MKL 2022 same core, same windows: 25: 127.6, 27: 146.6 us (ship ~4.1x /
+~3.4x in dev windows).  Ship battery (r7_final.sh, one lease, window ran
+HOT -- sd 6-7%, treat as gate evidence not timing): graded chains
+34.06 / 44.31 / 438.5 / 5211.3 at 25/27/50/100; B=1 40.02 / 50.55 / 421.2
+at 25/27/50 (r6: 40.06 / 50.45 / 486.5-hot); new sizes 49 B=8 m=32 496.9,
+81 B=2 m=16 3031.4, 121 m=8 14858.8, 125 m=8 16255.1.  50/100 and all
+B=1/new-size paths are the interleaved engine -- code untouched, chain
+rel_l2 identical to r6 (5.028e-14 / 4.181e-14 at 50/100).
+
+Wallaby (dev host, ship build, GEN_RACE_NO_WISDOM): 25 B=16 23.878 (r6
+source same-session control: 24.147, -1.1%), 27 B=16 32.572; B=1 31.35 /
+74.79 (interleaved, unchanged; wallaby B=1 medians were noisy).
+
+Gates, all eight sizes, node (r7_final.sh by hand; tryout's map-check leg
+still has the '$W/c.bin' quoting bug): single call 3.6-5.0e-16 (tol 1e-12);
+two-step m=2 1.467/1.624/2.361/2.721e-15 at 25/27/50/100 (tol 3e-14, >18x
+margin -- the shears moved 25's from 1.422e-15 and 27's from 1.549e-15,
+i.e. ~5% of a margin we have 18x of); graded chains 3.061e-14 (25 --
+BETTER than r6's 3.145) / 3.147e-14 (27) / 5.028e-14 / 4.181e-14 at
+1.05-1.7x honest anchors (tol 1e-10); new-size chains 5.6e-15-1.2e-14;
+ALL bit-repeatable across independent runs; ship binary cmp-identical to
+the measured A/B arms at both sizes.  Setup: cold 0.47-5.9 s (60 s
+budget); warm wisdom unchanged ms-scale.  -Wall -Wextra: the 16
+pre-existing unused-candidate warnings only, in ship AND both knob builds
+(the shear tables carry __attribute__((unused)) for the NOTW3 build).
+Round end: all gen_powp keys STRIPPED from results/wisdom_a80n0.json and
+_wallaby.json (r2-r6 protocol; NOTE the wisdom file is {"host",...,
+"entries":{...}} -- strip inside "entries", a flat-JSON filter silently
+strips nothing).
+
+### What did NOT work / went wrong, with the numbers
+
+* **The lifted DFT5 as a default** (item 2 above): -0.3% wash alone,
+  +0.3% on top of shears, 7/8 pairs against.  Kept as -DGENPWP_LIFT5.
+* **Build-verification trap (cost ~20 minutes, worth recording):** piping
+  a warning-heavy gcc through `head -30` SIGPIPE-killed the compiler
+  mid-link, leaving the OLD binary in place with exit status masked by
+  the pipeline; the stale r6 binary then ran with warm wisdom and printed
+  a perfectly plausible 24.147 us.  The r5 rule (strings-marker check
+  before trusting any rebuilt binary) caught it -- the marker is now a
+  description-string token ("r7 3-shear twiddles").  Corollary: never
+  pipe the build; capture stderr to a file and echo gcc's own $?.
+* **First unpinned wallaby race read 30.6 us at 25** (vs 23.6-23.9
+  pinned-window truth) -- the busy-core race-poisoning lesson (r5) on the
+  dev host; wallaby numbers in this record are GEN_RACE_NO_WISDOM re-runs.
+* 3-shear twiddles for the INTERLEAVED engine's CMULC: declined by
+  arithmetic, not measured -- each shear mixes re/im lanes, which in
+  interleaved layout costs a SWAP per shear (3 shuffles + 3 FMA vs the
+  current 1 shuffle + 2 FMA).  Strictly worse on port 5; do not re-derive.
+
+### Borrowed, plainly
+
+- **Literature 08 6.3 (Gustafsson ARITH-24 lifting)**: the 3-shear
+  rotation; the half-turn reduction with FNMSUB-folded negations and the
+  split-complex-store placement are new here.  This is the round's
+  literature spend, and per the corpus the first performant 3-shear
+  twiddle implementation in the campaign.
+- **gen_batchlane (gen_r7)**: the DFT5VPAIR lift, taken whole with their
+  exact PHI/KL5 constants; opposite default verdict on my engine, boundary
+  recorded above.  Their held-lease protocol remains under every number.
+- **gen_pfa_large (gen_r7, their impl header, read mid-round)**: the
+  two-axes-per-pass CLOSURE -- our shared shell already transforms two
+  axes per DRAM pass through the L2 plane scratch, no cut removes the
+  second pass (the x-stage couples 25 planes), and the real 100-lever is
+  step-custody of the state, which is ipk1 (already my rank 0 at 100
+  since r6; their side refutes ipk1-rank-first on THEIR engine, 4/5 to
+  ipp1 -- per-engine verdicts, both stand, the race arbitrates).  Reading
+  their header before coding saved this round from burning on brief item
+  1; that is what the cumulative-context round is FOR.
+- gen_pow2 appears to be spending brief item 2 (Garrido constant-per-site
+  routing) at 32 (their genconst/cps_tables work in build/tryout); I did
+  not duplicate it at 25/27 -- my SoA twiddles are already compile-time
+  broadcast constants, so the routing claim has nothing left to buy here.
+
+### Operation count
+
+SoA pencil FP: 25: 404 -> 388 (16 twiddled stores at 3 ops, was 4);
+27: 436 -> 408 (28 stores).  Twiddle depth 2 -> 3 dependent FMAs (latency
+trade, ILP-covered).  With -DGENPWP_LIFT5: further -20 at 25 (10 DFT5s x
+-2), measured net negative on ICL.  Interleaved engine, map ladders,
+divides, pack/unpack: unchanged (192/218/434/968 scored, 534/850/1850/
+1552 lite per line).  The shipped 50/100/B=1/new-size chain paths are
+bit-identical to r6.
+
+### What I would do next (ranked)
+
+1. **XARCH races for the two new knobs**: GENPWP_LIFT5 (CLX may flip it --
+   gen_batchlane's prediction) and GENPWP_NOTW3 (if any host's front end
+   hates the depth-3 chain).  The wisdom race decides per host; nothing to
+   hand-tune.
+2. **L=100 is again the only trailed cell** (-1.0%): two-axes is closed
+   (gen_pfa_large's accounting), ipk1 rank-0 confirmed by this round's
+   fresh node race (margin 3.5%).  What remains is their r7 item 3 kind of
+   territory (lean-size bypass) -- nothing for my scored cells; watch
+   their record when it lands for anything 100-shaped.
+3. **If a surprise-style draw lands p^k at batch % 8 == 0**, soa + the
+   playoff serve it with the r7 shears for free (the tables cover W25/W27/
+   W9 only -- a NEW p^k soa size would need its tables added to gentw3.c;
+   the interleaved fallback needs nothing).
+4. **The 27 x-pass remains ~60% of its step**: with twiddle ops now cut,
+   the next 27 lever is memory-shape, not arithmetic -- and r6's
+   two-column rejection plus gen_dense_prime's custody negatives say the
+   OoO window already covers it.  I consider 27 saturated on this host;
+   protect, don't chase.

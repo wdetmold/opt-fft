@@ -774,3 +774,121 @@ DFT-3/5/6/10 stages end to end). create() still ~0 s.
 4. The remaining L=100-class lever is unchanged from r5: issue shape in the
    broadcast-heavy radix-4 bodies (2,8-split-radix chains, lit 11) — M=256
    got no help this round since 2L-1=199 > 192.
+
+## Round gen_r7
+
+### The find that paid for the round: my own r6 decline was factually wrong
+gen_r6 declined the 7*2^k convolution grid with "M = 112 for L=49..56 ...
+one octave slice that contains no graded size."  cases.txt says otherwise:
+**L=50 (50:4:128) is inside that slice**, and the next 7-slice up, M = 224
+for L=97..112, contains **L=100** — the campaign's weakest big cell.  Two
+graded cells, both −12.5% convolution data, killed in r6 by a slice-memory
+error.  Lesson recorded: when declining an idea by coverage argument, check
+the coverage against cases.txt, not against memory.
+
+### What changed (impl/gen_bluestein.c, one structural change + one knob)
+
+1. **7*2^k convolution lengths: M grid extended to {2^k, 3*2^k, 5*2^k,
+   7*2^k}, k >= 4** (grid now 48, 64, 80, 96, 112, 128, 160, 192, 224,
+   256, ...).  Straight continuation of the r6 machinery: the radix-4
+   DIF/DIT chain, no-bit-reversal, and every pruned/fused end stage carry
+   over untouched; the chain now may end at a twiddle-free DFT-7 or
+   PFA(2x7) DFT-14 tail.  New code: BST_DFT7_LANE (the BST_DFT5_LANE
+   symmetric t/d form extended to three 3-term dot products; constants
+   correctly rounded from 60-digit decimal), plain-C dft{7,14}_{fwd,inv}
+   stages (create()'s bh forward + scalar builds), vector BST_DFT7V, and
+   fused AVX-512 conv_mid7 / conv_mid14 (tail DFT + pointwise bh + exact
+   inverse, one pass, mirroring conv_mid5/10).  PFA-14 slot order
+   (u_k+v_k, u_k-v_k) is never named anywhere — bh is computed by the same
+   forward, so consistency is structural, as always.  M=112/224 keep
+   S = M/4 4-aligned (28, 56), so the transpose gather/scatter contract
+   holds with zero changes.  Affected sizes: L 49-56 M 128->112, L 97-112
+   M 256->224 (also 193-224 -> 448 etc., unscored).  Every other L takes a
+   byte-identical code path.
+2. **-DBST_NO7** attribution knob (create()-side only): restores the r6
+   grid; used as the control arm below.
+
+### Operation count (changed sizes)
+M=112: first(112) + dif4(28) + mid7 + dit4(28) + last(112).  M=224:
+first(224) + dif4(56) + mid14 + dit4(56) + last(224).  Same 5-pass shape
+as the M=128/256 chains they replace (those spent dif16/dit16 fused pairs
+to get to 5), 12.5% less data per pass; the DFT-7 tail is ~9 vector ops/pt
+vs radix-4's ~7/pt, on 12.5% fewer points, and mid7/mid14 replace mid2/mid4
++ the dif16 spill traffic.  Gather/scatter/chirp work (O(L) per row)
+unchanged.
+
+### Measured on the node (a80n0, ONE held lease, core 4, control-first
+### same-core alternating pairs, new vs -DBST_NO7 control; graded cells)
+
+| cell | control (r6 grid) | new (M7 grid) | delta |
+|---|---|---|---|
+| L=50 B=4 m=128 | 1797.9 / 1795.3 / 1776.4 | 1394.9 / 1393.6 / 1556.5 | **−21%** (3/3) |
+| L=100 B=1 m=64 | 15435 / 15469 / 15589 | 14364.9 / 14352.1 / 14353.0 | **−7.0%** (3/3) |
+| L=40 B=8 (parity) | 619.3 / 621.3 | 619.2 / 618.2 | 0 (paths untouched) |
+| L=25 B=16 (parity) | 182.7 / 180.2 | 181.0 / 182.7 | 0 |
+
+Fresh-core tryout reads: L=50 B=4 **1406.9** us (r6 board 1771.7; MKL same
+window 946.9 — we go 1.87x -> 1.49x MKL), L=100 B=1 **14379.9** (board
+15479-15742; MKL 7755).  The L=50 delta beats the −12.5% data model; the
+extra comes from replacing M=128's spill-heavy dif16/dit16 pair with the
+lean dif4(28)/mid7 chain.  L=100 tracks the model (gather/chirp O(L) work
+dominates more there).
+
+### Gates (shipped default build, on the node, check.py by hand)
+Singles B=1: L in {2, 10, 20, 40, 48, 49, 51, 53, 56, 57, 64, 96, 97, 101,
+105, 112, 127, 128} ALL PASS <= 1.0e-15 (tol 1e-12) — covers both new
+tails (7 at M=112, 14 at M=224), the L = M/2 edge (56, 112), the slice
+boundaries (48/57, 96/97), and the untouched-parity checks.  Local naive-
+reference sweep additionally covered 49-56/97-112 interiors and B in
+{2,3,4} seam cases.  Two-step m=2: L=50 3.33e-15, L=56 3.25e-15, L=100
+4.11e-15, L=112 3.47e-15 (tol 3e-14, >= 7x margin).  Graded chains:
+L=50 m=128 6.13e-14 (anchor 2.92e-14, 2.1x honest — r6 read 6.84e-14 on
+the same cell), L=100 m=64 3.56e-14 (anchor 2.42e-14, 1.47x).  Chain
+repeatable (cmp-identical).  Scalar -march=x86-64 build: singles + m=2
+chains PASS at {50 B=4, 100, 112} (exercises plain-C DFT-7/14 end to end).
+create() still ~0 s.
+
+### What did NOT work / was declined, with the reason
+- **15*2^k (M=240)**: S=60 is 4-aligned and DFT-15 = PFA(3x5) is
+  twiddle-free, but the slice it improves (L=113..120, 256->240, −6.25%)
+  contains no graded size — declined on the same coverage test the r6
+  error taught me to actually run.
+- **13*2^k (M=208)**: would cut L=97..104 another 7% below 224 (S=52 is
+  4-aligned), but needs a direct DFT-13 (6x6 dot-product module, 26 live
+  zmm in the fused middle) for a second-order gain on one cell.  Queued,
+  not spent; measure tail cost vs the 7% before believing it.
+- **M=24 for L=9..12** (carried from r6, now with an accurate scope
+  estimate): S=6 needs 2-wide variants of ALL THREE tr block types —
+  at L=11 (jful=5) even the 4-wide masked BOUNDARY block overruns S=6, so
+  it is not just a single-leg tail fix.  Surgery on the hottest, most
+  correctness-critical functions for two cells the PFA owners win anyway.
+  Declined again.
+- tryout.sh's remote map-check leg still dies on the '$W' quoting bug
+  (--cin /c.bin); all chain gates above were run by hand on the node, as
+  documented in my r2 notes.
+
+### Borrowed this round, named
+- **literature 11 Tier-1 (flap-count factorization ranking)**: still the
+  impetus for ranking conv lengths by real cost — this round is the same
+  lever as r6, extended to the 7-slice.
+- **gen_dense_prime's 5/7-point modules**: checked as the obvious source
+  for a 7-point kernel before writing one — their modules are dense fold
+  machinery (fold_pass/zpass), not SoA tail stages; nothing adoptable.
+  The DFT-7 here is my own DFT-5 symmetric form extended.
+- **gen_batchlane r4 / gen_pow2 r3** (standing): the held-lease same-core
+  control-first pairing protocol; the -DBST_NO7 control arm exists so the
+  A/B is build-for-build, not memory-vs-window.
+
+### What I would do next (gen_r8)
+1. **13*2^k (M=208) for L=97..104** if L=100 needs another lever: the
+   only remaining M cut for that cell; budget the DFT-13 tail honestly.
+2. **bluestein_cost(L) for gen_planner** (sixth carry, grid updated):
+   cost ~ 3L^2 rows x 0.66 ns per (row * M(L)*log2 M(L) / 8), now with
+   M(L) = min{2^k, 3*2^k>=48, 5*2^k>=80, 7*2^k>=112 : >= 2L-1}.
+3. **Cross-arch re-races** (carried): all knobs incl. BST_NO7 on CLX/SPR
+   when the next XARCH lands (CLX's 1 MB L2 may reweight the M=112/224
+   pass structure).
+4. The issue-shape lever (2,8-split-radix, lit 11) still applies only to
+   the pow2-M holdout slices (L=25..32, 57..64, 121..128); graded 25/27/
+   31/32 sit there at M=64.  That is the remaining arithmetic-count idea
+   in this class.

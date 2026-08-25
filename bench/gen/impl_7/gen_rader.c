@@ -1,0 +1,2234 @@
+/* gen_rader -- Rader-class prime entry, round gen_r1.  Owns L=31.
+ *
+ * FOLDED RADER: the conjugate-pair fold (s_j = x_j + x_{31-j}, d_j = x_j - x_{31-j})
+ * turns the 31-point DFT into
+ *     X_k     = x_0 + E_k - i O_k,   X_{31-k} = x_0 + E_k + i O_k,
+ *     E_k = sum_j cos(2pi jk/31) s_j,   O_k = sum_j sin(2pi jk/31) d_j,  j,k = 1..15.
+ * Indexing both j and k through the multiplicative quotient group Z31* mod {+-1}
+ * (cyclic of order 15, generator 3) makes the E system a CYCLIC-15 correlation of
+ * s with the cos kernel and the O system a NEGACYCLIC-15 correlation of sign-twisted
+ * d with the sin kernel; because 15 is odd, the negacyclic one converts to cyclic via
+ * diagonal +-1 twists that fold entirely into the (compile-time) load/store index
+ * tables.  Correlation -> convolution by reversing the (precomputed) kernel.
+ *
+ * Each cyclic-15 convolution is computed as Winograd-C3 (4 block products, 11 block
+ * adds) NESTED OVER dense cyclic-5 blocks (25 FMA each): 100 FMA + 65 vector adds
+ * per convolution, ALL constants real, so on interleaved complex data every op is a
+ * plain zmm add/FMA -- no complex-multiply shuffles anywhere.  Per 4 pencils per
+ * axis: ~435 zmm ops vs the folded-dense entry's ~555, with ~40 broadcast constants
+ * instead of ~450 table loads.  (Dense C5 blocks beat Winograd C5 blocks on FMA
+ * hardware: 25 FMA < 10 mul + 31 add.  The full-Winograd C15 at 40 mul + 179 add
+ * would LOSE to this hybrid -- same lesson as ice L23_rader's "121 fused FMAs beat
+ * any sub-quadratic length-11 convolution".)
+ *
+ * Chassis (pass order, z-row kernel, chain scheme, map) ADOPTED from
+ * gen_dense_prime gen_r1 (itself from the ice-campaign records):
+ *   P1 z rows contiguous (their zpass31 row-pair GEMM, verbatim), P2 x-axis
+ *   inner=961, P3 y-axis per-plane in place; volume-resident fused chain;
+ *   map = pair-compressed |w|^2, rsqrt14+2NR, ONE vdivpd per 8 points.
+ * gen_r2: the chain runs on a fully PADDED private state (z-rows 31 -> 32
+ * complex, planes -> 1148 complex == 124 mod 256) -- every access in every
+ * pass 64B-aligned, the x-pass's exact 4K store->load aliases (row stride
+ * 961*16: store row j+4 == next chunk's load of row j in low-12 bits) pushed
+ * outside the 31-row system, z = 8 uniform quads/plane (row 32 is a zeroed
+ * pad row), y and map tail-free.  See R31_ZP/R31_PP and r31_chain_volume.
+ *
+ * gen_r3: the class takes ANY odd prime 3 <= p <= 127 (the round-3 duty).
+ * Primes != 31 run a GENERIC folded half-system engine (rp_*): the same
+ * conjugate fold, C_k = x0 + sum_j cos(2pi jk/p) u_j, S_k = sum_j sin v_j,
+ * X_k = C_k -+ iS_k, computed by a runtime-(p,h) column-chunk kernel with
+ * k in quads (4 C + 4 S accumulators sharing each u_j/v_j load; all-real
+ * broadcast constants, no complex-multiply shuffles) and the z axis through
+ * the 4x4-complex transpose quad (r31_tp4 reused).  The chain runs fully in
+ * place on the out volume (r1 form), map per plane.  The 31 fast path is
+ * unchanged.  st/cpad for 31 now live in ONE 2MiB huge-page arena with the
+ * c mirror at a +2048 B page phase (gen_layout gl_map_huge; gen_dense_prime
+ * r3 found two same-phase ~500 KB aligned_allocs make the map's c loads
+ * 4K-alias the y-pass state stores).
+ *
+ * gen_r4: PLANE CUSTODY in both chains (gen_layout r3 / gen_bluestein r4's
+ * window idea): step s+1's z-pass is plane-local, so it runs right after each
+ * plane's map while the plane is cache-hot -- one full-state read per step
+ * deleted, bit-identical outputs (verified by cmp against the r3 binary).
+ * Raced and rejected same-core (gen_batchlane r4 protocol): x-pass software
+ * prefetch (-DR31_PFX, +0.7%) and the map fused into the z-quads' transpose-in
+ * loads (-DR31_ZMAPF, +4% -- the panel's FIFTH map-fusion negative, first on
+ * the load side).  -DR31_R3CHAIN / -DRP_R3CHAIN restore the r3 pass order.
+ *
+ * gen_r5, two changes.  (1) OUTER-C3 RADER for any prime whose quotient
+ * group order is h = 3m, h odd, gcd(3,m) = 1 (43, 67, 79, 103): the r31
+ * Winograd-C3-over-dense-blocks machinery at runtime tables (rp3_*), per-m
+ * compile-time-instantiated chunk kernels -- 8m^2 + O(m) conv FMA vs the
+ * dense engine's 18m^2.  Node: -34% at 43, -41% at 67, -31% at 79, -16% at
+ * 103 (DRAM-hidden).  (2) the generic-prime chain moves onto a padded
+ * huge-page arena for p <= RP_PAD_MAX = 61 (the r2 lesson at 31): z-rows p
+ * -> mult-of-4 complex (row bases 64B-aligned, y tail-free), plane pitch
+ * rp_pick_pp with PP/4 == 2 mod 4 (the +64B x-pass store->load alias
+ * equation d*(PP/4) == 1 mod 64 becomes UNSOLVABLE), state + c mirror in
+ * one gl_map_huge 2MiB arena (gen_layout, adopted as a LIB_ONLY include),
+ * c at a +2048B page phase; outputs bit-identical to the flat chain
+ * (lanewise ops only; cmp-verified).  -1.4% at 37, wash 13..61, and a
+ * measured LOSS at DRAM sizes (-4% at 127: the per-volume c-mirror +
+ * copy-out do not amortize at the small m large L implies) -- hence the
+ * size gate.  -DRP_FLATCHAIN / -DRP_NOC3 restore the r4 arms.  The 31 path
+ * is untouched (r4 showed it sits AT its issue-port model; this round's
+ * -DR31_ZMIX port-5 rebalance race lost +2.5%/+7%, closing that item).
+ *
+ * gen_r6, two changes (the surprise-round generality round).  (1) EVEN-h
+ * SPLIT RADER (rp2_*) for every prime p == 1 mod 4 in class (13 17 29 37 41
+ * 53 61 73 89 97 101 109 113): the E (cos) system is cyclic-h for ANY h; the
+ * O (sin) system is genuinely negacyclic when h = 2m is even (no odd-h twist
+ * exists).  E splits by CRT z^{2m}-1 = (z^m-1)(z^m+1) into dense cyclic-m +
+ * negacyclic-m products; O splits by y = z^2 (y^m = -1) into a 3-product
+ * negacyclic-m Karatsuba: 5m^2 conv FMA vs the dense engine's 2h^2 = 8m^2.
+ * Rows fold ONCE into stack U/V arrays at compile-time offsets (p = 4m+1
+ * per instantiation) with a negated-V mirror so both fills are stack loads.
+ * Node: -25..-41% vs the dense engine at every one of the 13 primes.
+ * (2) CODEGEN: gcc 11 leaves the m >= 13 conv loops ROLLED with memory
+ * accumulators (the r5 "register-resident" story was only true at m <= 11);
+ * RP_UNROLL pragmas force full peeling, and above the spill ceiling an
+ * 8-accumulator j-tiled blocked conv (RP2_CONV_BLK, the dense engine's
+ * k-quad shape) takes over -- form chosen PER m by same-core node races
+ * (rp2: unroll <= 9, blocked >= 10; rp3: unroll <= 13, blocked at 17).
+ * The pragmas alone move the r5 outer-C3 primes -11..-38% (103: 17.8 -> 11.0
+ * ms).  The 31 path is untouched (bit-identical, cmp-verified).
+ *
+ * gen_r7, three changes, all codegen/memory (an RP_PROF per-pass profile of
+ * the flat chain drove every one; arithmetic untouched, every chain output
+ * bit-identical to r6, cmp-verified).  (1) The RP2_CONV_BLK i loop is PINNED
+ * rolled: -funroll-loops was peeling it 8x, compiling rp2_chunk_28 to 10820
+ * instructions / ~75 KB PER CHUNK -- past L1I, so the passes were FRONT-END
+ * bound even on cache-hot data (y-pass 6.7 ms/step at p=113 vs a ~2.4 ms
+ * load-port model).  -7% at 89, -19% at 101, -8% at 113, -9..11% at 61 on
+ * the node; m=13 (p=53) alone raced better with the gcc default and keeps it.
+ * (2) The dead map-fused arms (RP_YMAPFUSE lost in r3; every caller passes
+ * mapc=NULL) are compiled out via RP_MAPARM: ~57 never-executed rsqrt/rcp
+ * ladders (~20 KB) deleted from every rp2/rp3 chunk; -0.6..-1.8% more at
+ * 61/101/103/113.  (3) x-pass software prefetch (rp_pass pf arg): the x-pass
+ * walks p+1 row streams at plane pitch -- past the L2 streamer -- so at
+ * DRAM-resident sizes each chunk's row loads demand-miss; T0 one chunk ahead
+ * is -8% on that pass at 113.  Gated to state+c > RP_PFMIN_KB (36 MiB, p >=
+ * 107): raced wash-to-negative at 89/101, -1.5% at 113, -0.5% at 127.
+ * Closed by analysis (see strategy record): x-band custody blocking is a
+ * no-op (the custody chain already sits at the 5-sweep-per-step floor), and
+ * gen_layout's NT-store win cannot transfer (in-place passes pay no RFO).
+ *
+ * create() SELF-CHECKS the fast engine against a dense reference volume at 1e-13
+ * and falls back to the (slow, correct) dense-matrix path if the check fails --
+ * a fast wrong answer scores nothing.
+ */
+#include <complex.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <time.h>
+
+#ifdef __AVX512F__
+#include <immintrin.h>
+#endif
+
+#include "../fft3d_api.h"
+
+/* gen_layout library layer, adopted gen_r5: gl_map_huge/gl_unmap (2MiB THP
+ * arena, prefaulted, heap fallback) back the generic-prime padded chain state */
+#define GEN_LAYOUT_LIB_ONLY
+#include "gen_layout.c"
+
+typedef double _Complex cplx;
+
+static const long double PIL = 3.141592653589793238462643383279502884L;
+
+/* ---- index tables (derived + verified against a reference DFT offline) ----
+ * slot n = 5*i + j maps to CRT point ((10i+6j) mod 15) of the cyclic-15 system.
+ * JS:  E-sweep fill:  S[n] = x[JS] + x[31-JS]              (s fold, reversal baked in)
+ * JDP/JDM: O-sweep fill: S[n] = x[JDP] - x[JDM]            (d fold; (-1)^q eps_q twist
+ *                                                           baked into the p/m swap)
+ * KP/KM: output rows: X[KP] = T - iO~, X[KM] = T + iO~     (eps_t (-1)^t twist baked
+ *                                                           into the pair order)    */
+static const int R31_JS[15]  = {1, 2, 4, 8, 15, 5, 10, 11, 9, 13, 6, 12, 7, 14, 3};
+static const int R31_JDP[15] = {1, 2, 4, 8, 16, 5, 10, 20, 9, 18, 25, 19, 7, 14, 28};
+static const int R31_JDM[15] = {30, 29, 27, 23, 15, 26, 21, 11, 22, 13, 6, 12, 24, 17, 3};
+static const int R31_KP[15]  = {1, 16, 8, 4, 2, 25, 28, 14, 7, 19, 5, 18, 9, 20, 10};
+static const int R31_KM[15]  = {30, 15, 23, 27, 29, 6, 3, 17, 24, 12, 26, 13, 22, 11, 21};
+
+/* Padded chain-state layout.  z-rows padded 31 -> R31_ZP = 32 complex (512 B:
+ * every z/y-pass row access 64 B-aligned; natural 496 B rows line-split 3 of 4
+ * accesses).  Planes padded 992 -> R31_PP = 1148 complex, == 124 mod 256, so
+ * the x-pass row stride is 1148*16 B == 31*64 B mod 4096: the nearest 4K
+ * store->load alias sits at row distance 33 -- outside the 31-row system --
+ * where the natural 961-pitch put a store to row j+4 at EXACTLY the low-12
+ * bits of the next chunk's load of row j.  Pad slots are zeroed once at
+ * create(); every pass maps zeros to zeros (columns never mix), so they stay
+ * zero and cost only ~3% extra x-pass/map lanes -- bought back by tail-free
+ * uniform chunks everywhere (992 = 124 x 8, 32 cols = 8 chunks, z = 8 quads). */
+#define R31_ZP 32
+#define R31_PP 1148
+
+struct fft3d_plan {
+    int L, batch;
+    int h;               /* (L-1)/2 */
+    int fast;            /* 1: AVX-512 Rader engine passed the self-check */
+    double *ke, *ko;     /* transformed conv kernels: 4 blocks x 5 doubles each */
+    double *ctd, *std_;  /* z-pass duplicated-pair trig tables [15][32] */
+    double *gct, *gst;   /* generic-prime fold tables, k-major [h][h] (L != 31) */
+    int m3;              /* outer-C3 Rader mode: m = h/3 when active, else 0 */
+    int *j3;             /* 6 x h ints: js, p-js, jdp, jdm, kp, km (slot order) */
+    double *k3e, *k3o;   /* transformed conv kernels: 4 stretched blocks x (2m-1) */
+    int m2;              /* even-h split mode (gen_r6): m = h/2 when active, else 0 */
+    int *j2;             /* 6 x h ints: js, p-js, jdp, jdm, kp, km (conv order) */
+    double *k2;          /* 5 stretched kernel blocks x (2m-1): kc kn kb0 kb1 kb2 */
+    int zp, pp;          /* generic padded chain: row length / plane pitch, complex */
+    int xpf;             /* x-pass prefetch distance in bytes (0 = off) */
+    cplx *gs, *gc;       /* generic padded chain state + c mirror (in gmap) */
+    gl_map gmap;         /* huge-page mapping backing gs+gc (gen_layout) */
+    cplx *t1;            /* scratch volume */
+    cplx *st;            /* padded chain state, 31 planes x R31_PP (pads zeroed) */
+    cplx *cpad;          /* padded mirror of the chain's c volume, same layout */
+    cplx *w;             /* dense LxL DFT matrix (self-check + fallback) */
+    cplx *tmp;           /* fallback scratch volume */
+    void *arena;         /* 2MiB huge-page arena backing st+cpad (may be NULL) */
+    size_t alen;
+};
+
+const char *fft3d_name(void) { return "gen_rader"; }
+const char *fft3d_description(void)
+{
+    return "Rader-class primes 3..127: at 31, conjugate fold -> cyclic-15 (cos) + "
+           "negacyclic-15 (sin; odd-N sign-twist), Winograd-C3 x dense-C5 on a fully "
+           "padded huge-page arena (64B-aligned, anti-4K pitch, c mirror phase-split); "
+           "43/67/79/103 via OUTER-C3 Rader (the same Winograd-C3-over-dense-blocks "
+           "at runtime tables, 8m^2 vs 18m^2 conv FMA); even-h primes (p=1 mod 4, "
+           "13..113) via the E-side C2 CRT split + O-side negacyclic Karatsuba "
+           "(5m^2 vs 8m^2); any other prime via the "
+           "generic folded half-system engine; generic chain on a padded gl_map_huge "
+           "arena for p<=61 (alias-free pitch, tail-free x/y), flat above; "
+           "r7: blocked convs pinned rolled (front-end fix, -7..-21% at 61..113), "
+           "dead map arms compiled out, x-pass stream prefetch at p>=107; "
+           "self-check gated; s6 map from gen_dense_prime, arena from gen_layout";
+}
+static int rp_is_prime(int n)
+{
+    if (n < 2) return 0;
+    for (int d = 2; d * d <= n; ++d)
+        if (n % d == 0) return 0;
+    return 1;
+}
+int fft3d_supports(int L) { return L >= 3 && L <= 127 && rp_is_prime(L); }
+
+/* ---------------- plan-time tables ---------------- */
+
+/* Winograd-C3 kernel-side transform of a cyclic-15 kernel K (long double in):
+ * blocks H_i[j] = K[(10i+6j) mod 15]; out = { (H0+H1+H2)/3, (H0-H2)/3,
+ * (H1-H2)/3, (H0-H1)/3 }, 20 doubles. */
+static void r31_kernel_transform(const long double *K, double *out)
+{
+    long double H[3][5];
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 5; ++j)
+            H[i][j] = K[(10 * i + 6 * j) % 15];
+    for (int j = 0; j < 5; ++j) {
+        out[j]      = (double)((H[0][j] + H[1][j] + H[2][j]) / 3.0L);
+        out[5 + j]  = (double)((H[0][j] - H[2][j]) / 3.0L);
+        out[10 + j] = (double)((H[1][j] - H[2][j]) / 3.0L);
+        out[15 + j] = (double)((H[0][j] - H[1][j]) / 3.0L);
+    }
+}
+
+/* E kernel: CC_r = cos(2pi 3^r/31); O kernel: SN'_r = (-1)^r sin(2pi 3^r/31). */
+static void r31_build_kernels(double *ke, double *ko)
+{
+    long double CC[15], SN[15];
+    long g = 1;
+    for (int r = 0; r < 15; ++r) {
+        long double th = 2.0L * PIL * (long double)g / 31.0L;
+        CC[r] = cosl(th);
+        SN[r] = (r & 1) ? -sinl(th) : sinl(th);
+        g = (g * 3) % 31;
+    }
+    r31_kernel_transform(CC, ke);
+    r31_kernel_transform(SN, ko);
+}
+
+/* duplicated-pair trig layout for the z-pass (from gen_dense_prime):
+ * row j-1 holds (w_{j,0}, w_{j,0}, ..., w_{j,15}, w_{j,15}) = 32 doubles */
+static double *r31_trig_dup(int want_sin)
+{
+    double *t = aligned_alloc(64, 15 * 32 * sizeof(double));
+    if (!t) return NULL;
+    for (int j = 1; j <= 15; ++j)
+        for (int k = 0; k <= 15; ++k) {
+            long m = ((long)j * k) % 31;
+            long double th = 2.0L * PIL * (long double)m / 31.0L;
+            double w = want_sin ? (double)sinl(th) : (double)cosl(th);
+            t[(size_t)(j - 1) * 32 + 2 * k]     = w;
+            t[(size_t)(j - 1) * 32 + 2 * k + 1] = w;
+        }
+    return t;
+}
+
+/* padded z-row length for the generic chain: mult of 4 complex, so every row
+ * base is 64B-aligned and the y-pass (ncols = zp -> 2*zp doubles, mult of 8)
+ * is tail-free.  Plain round-up: a phase-spreading bump to avoid zp/4 == 0
+ * mod 4 strides was RACED AND LOST on the node (127: zp 132 vs 128 +1.5%,
+ * 61: zp 68 vs 64 +4% -- the extra pad lanes cost more than 4K-phase spread
+ * buys; the set-conflict theory is dead, do not resurrect it) */
+static int rp_zpc(int p) { return (p + 3) & ~3; }
+
+/* padded-arena chain only where it measured win-or-wash: state + c mirror
+ * L2/L3-resident.  Above this the chain is DRAM-resident, m is small by the
+ * suite's construction (~0.4 s of MKL per case), and the arena's per-volume
+ * overheads (c mirror fill + final copy-out, ~2 volume sweeps) do not
+ * amortize: measured -4% at 127 m=4.  Boundary measured: win at 37, wash at
+ * 61, loss at 127. */
+#ifndef RP_PAD_MAX
+#define RP_PAD_MAX 61
+#endif
+
+/* plane pitch for the padded generic chain: >= the live plane (p rows x zp),
+ * mult of 8 complex (map window tail-free, plane bases 128B-aligned), and
+ * PP == 8 mod 16 so PP/4 == 2 mod 4: the x-pass row stride is an EVEN number
+ * of 64B units mod 4096, making the +64B store->load alias condition
+ * d*(PP/4) == 1 (mod 64) UNSOLVABLE at every row distance d (the r2 closed
+ * form at 31 only pushed the first solution outside the row system), while
+ * consecutive planes' 4K phases still step by 2 lines -- no set pileup. */
+static int rp_pick_pp(int live)
+{
+    int pp = (live + 7) & ~7;
+    if (pp % 16 != 8) pp += 8;
+    return pp;
+}
+
+/* generic-prime fold tables, k-major so a k-quad walks 4 linear rows:
+ * t[(k-1)*h + (j-1)] = cos/sin(2pi jk/p), j,k = 1..h, exact long-double args */
+static double *rp_trig(int p, int h, int want_sin)
+{
+    double *t = aligned_alloc(64, ((size_t)h * h * sizeof(double) + 63) & ~(size_t)63);
+    if (!t) return NULL;
+    for (int k = 1; k <= h; ++k)
+        for (int j = 1; j <= h; ++j) {
+            long m = ((long)j * k) % p;
+            long double th = 2.0L * PIL * (long double)m / (long double)p;
+            t[(size_t)(k - 1) * h + (j - 1)] =
+                want_sin ? (double)sinl(th) : (double)cosl(th);
+        }
+    return t;
+}
+
+/* ---------------- outer-C3 Rader tables for any prime with h = 3m, h odd,
+ * gcd(3,m) = 1 (p in {43, 67, 79, 103}; 31 keeps its tuned compile-time path,
+ * 7 is m = 1 = already dense, 19/127 have 3 | m and cannot CRT-split).
+ * This is the r31 construction generalized to runtime tables -- the recipe
+ * below regenerates the R31_JS/JDP/JDM/KP/KM constants exactly when run at
+ * p = 31 (verified offline):
+ *   a_r = g^r mod p (g a primitive root; quotient group Z_p* mod {+-1} = C_h),
+ *   slot n = m*i + j <-> group index u(n) = (e3*i + em*j) mod h (CRT units),
+ *   E fill (correlation -> convolution: data reversed, kernel forward):
+ *     r_n = -u(n) mod h, js[n] = fold(a_{r_n}) = min(a, p-a),
+ *   O fill: d''_r = (-1)^r (x[a_r] - x[p-a_r]) -- the negacyclic->cyclic
+ *     twist for odd h baked into the jdp/jdm swap at odd r_n,
+ *   outputs at t = u(n): X_{a_t} = x0 + E_t - i*(-1)^t O'_t, the (-1)^t baked
+ *     into the kp/km pair order,
+ *   kernels CC[r] = cos(2pi a_r/p), SN[r] = (-1)^r sin(2pi a_r/p), Winograd-C3
+ *     kernel-transformed ((H0+H1+H2)/3 etc.) and each block STRETCHED to
+ *     2m-1 doubles so the dense-Cm product indexes kb[m-1+j-i] mod-free. */
+
+static int rp3_prim_root(int p)
+{
+    for (int g = 2; g < p; ++g) {   /* order test directly: p <= 127, trivial */
+        long x = g;
+        int ord = 1;
+        while (x != 1) { x = x * g % p; ++ord; }
+        if (ord == p - 1) return g;
+    }
+    return 0;
+}
+
+static int rp3_build(fft3d_plan *pl)
+{
+    const int p = pl->L, h = pl->h, m = h / 3, K = 2 * m - 1;
+    const int g = rp3_prim_root(p);
+    if (!g) return 0;
+    pl->j3 = malloc((size_t)7 * h * sizeof(int));
+    /* +7 zeroed tail slots: the blocked conv's 8-wide j-tiles may overread
+     * the LAST block by up to 7 (inner blocks overread into the next block's
+     * constants -- finite values that land in never-stored tile lanes) */
+    pl->k3e = aligned_alloc(64, ((size_t)(4 * K + 7) * sizeof(double) + 63) & ~(size_t)63);
+    pl->k3o = aligned_alloc(64, ((size_t)(4 * K + 7) * sizeof(double) + 63) & ~(size_t)63);
+    int a[64], u[64];
+    if (!pl->j3 || !pl->k3e || !pl->k3o || h > 64) return 0;
+    memset(pl->k3e, 0, (size_t)(4 * K + 7) * sizeof(double));
+    memset(pl->k3o, 0, (size_t)(4 * K + 7) * sizeof(double));
+    long x = 1;
+    for (int r = 0; r < h; ++r) { a[r] = (int)x; x = x * g % p; }
+    const int e3 = ((m % 3) == 1) ? m : 2 * m;   /* == 1 mod 3, == 0 mod m */
+    int s3 = 1;
+    while ((3 * s3) % m != 1) ++s3;              /* em == 0 mod 3, == 1 mod m */
+    const int em = 3 * s3;
+    int *js = pl->j3, *js2 = js + h, *jdp = js2 + h, *jdm = jdp + h,
+        *kp = jdm + h, *km = kp + h, *jv = km + h;
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < m; ++j) {
+            const int n = m * i + j;
+            u[n] = (e3 * i + em * j) % h;
+            const int rn = (h - u[n]) % h;
+            const int ar = a[rn], at = a[u[n]];
+            js[n] = ar <= h ? ar : p - ar;
+            js2[n] = p - js[n];
+            if (rn & 1) { jdp[n] = p - ar; jdm[n] = ar; }
+            else        { jdp[n] = ar;     jdm[n] = p - ar; }
+            /* signed V index for the one-pass fold (gen_r6): the kernel
+             * builds V_j = x_j - x_{p-j} and a negated mirror V_{h+j};
+             * x_{jdp} - x_{jdm} == +-V_{fold} exactly (-(a-b) == b-a). */
+            jv[n] = jdp[n] <= h ? jdp[n] - 1 : h + jdm[n] - 1;
+            if (u[n] & 1) { kp[n] = p - at; km[n] = at; }
+            else          { kp[n] = at;     km[n] = p - at; }
+        }
+    long double CC[64], SN[64], H[3][22], B[4][22];
+    for (int r = 0; r < h; ++r) {
+        long double th = 2.0L * PIL * (long double)a[r] / (long double)p;
+        CC[r] = cosl(th);
+        SN[r] = (r & 1) ? -sinl(th) : sinl(th);
+    }
+    for (int e = 0; e < 2; ++e) {
+        const long double *Kk = e ? SN : CC;
+        double *out = e ? pl->k3o : pl->k3e;
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < m; ++j)
+                H[i][j] = Kk[u[m * i + j]];
+        for (int j = 0; j < m; ++j) {
+            B[0][j] = (H[0][j] + H[1][j] + H[2][j]) / 3.0L;
+            B[1][j] = (H[0][j] - H[2][j]) / 3.0L;
+            B[2][j] = (H[1][j] - H[2][j]) / 3.0L;
+            B[3][j] = (H[0][j] - H[1][j]) / 3.0L;
+        }
+        for (int q = 0; q < 4; ++q)
+            for (int v = 0; v < K; ++v)
+                out[(size_t)q * K + v] =
+                    (double)B[q][((v - (m - 1)) % m + m) % m];
+    }
+    return 1;
+}
+
+/* ---------------- even-h split Rader tables (gen_r6), any prime with h = 2m ----
+ * (p == 1 mod 4: 13 17 29 37 41 53 61 73 89 97 101 109 113).  The E (cos)
+ * system is a cyclic-h correlation for ANY h; the O (sin) system is genuinely
+ * NEGACYCLIC-h when h is even (no odd-h +-1 twist exists).  Two splits, both
+ * with dense length-m block products (the settled FMA doctrine):
+ *   E: cyclic-2m -> CRT z^{2m}-1 = (z^m-1)(z^m+1): one dense cyclic-m product
+ *      (folded data u_j + u_{m+j}, kernel (CC_j + CC_{m+j})/2) + one dense
+ *      negacyclic-m product (u_j - u_{m+j}, (CC_j - CC_{m+j})/2); reconstruct
+ *      E_j = Yc_j + Yn_j, E_{m+j} = Yc_j - Yn_j (the 1/2 lives in the kernels).
+ *   O: negacyclic-2m -> y = z^2, y^m = -1: 3-product Karatsuba over
+ *      negacyclic-m blocks (A0 = even slots, A1 = odd slots): M0 = A0*B0,
+ *      M1 = A1*B1, M2 = (A0+A1)*(B0+B1); O_{2j} = M0_j + (y M1)_j (the y-shift
+ *      is index renaming + one sign at j=0), O_{2j+1} = M2_j - M0_j - M1_j.
+ * Total 5m^2 block FMA vs the dense engine's 2h^2 = 8m^2 (-37.5%).
+ * Correlation -> convolution by data reversal; the negacyclic w-reversal sign
+ * (w'_n = -w_{h-n}, n >= 1) is baked into the jdp/jdm swap.  Kernels are
+ * stretched to 2m-1 doubles (negacyclic: negated on wrap) so the block
+ * product indexes kb[m-1+j-i] mod-free -- RP3_CONV reused verbatim.
+ * Verified against numpy in build/tryout/gen_rader/r6_proto.py (worst rel L2
+ * 6.3e-16 over all 13 primes) before any C existed; create()'s self-check
+ * gates the shipped tables at 1e-13 as always. */
+
+static int rp2_build(fft3d_plan *pl)
+{
+    const int p = pl->L, h = pl->h, m = h / 2, K = 2 * m - 1;
+    const int g = rp3_prim_root(p);
+    if (!g || h > 56) return 0;
+    pl->j2 = malloc((size_t)6 * h * sizeof(int));
+    pl->k2 = aligned_alloc(64, ((size_t)5 * (K + 7) * sizeof(double) + 63) & ~(size_t)63);
+    if (!pl->j2 || !pl->k2) return 0;
+    int a[64];
+    long x = 1;
+    for (int r = 0; r < h; ++r) { a[r] = (int)x; x = x * g % p; }
+    /* index tables against the ONE-PASS fold (gen_r6 kernel form): the kernel
+     * folds U_j = x_j + x_{p-j}, V_j = x_j - x_{p-j} (j = 1..h) once into
+     * stack arrays with a negated mirror V_{h+j} = -V_j, so every conv slot
+     * is ONE stack load: js[n] = U index (1..h, reversal baked in), jv[n] =
+     * signed V index (0..2h-1; the negacyclic reversal sign w'_n = -w_{h-n}
+     * picks the mirror half).  -(a-b) == b-a exactly, so this is
+     * bit-identical to the two-row-load form. */
+    int *js = pl->j2, *jv = js + h, *kp = jv + h, *km = kp + h;
+    for (int n = 0; n < h; ++n) {
+        const int q = a[(h - n) % h];        /* data reversal: slot n <- g^{-n} */
+        js[n] = q <= h ? q : p - q;
+        int dp, dm;
+        if (n == 0) { dp = q;     dm = p - q; }
+        else        { dp = p - q; dm = q;     }           /* w'_n = -w_{h-n} */
+        jv[n] = dp <= h ? dp - 1 : h + dm - 1;
+        kp[n] = a[n];
+        km[n] = p - a[n];
+    }
+    long double CC[64], SS[64];
+    for (int r = 0; r < h; ++r) {
+        long double th = 2.0L * PIL * (long double)a[r] / (long double)p;
+        CC[r] = cosl(th);
+        SS[r] = sinl(th);
+    }
+    const int KS = K + 7;   /* block stride: 7 zeroed pad slots so the blocked
+                             * conv's 8-wide j-tiles may overread (x*0 into
+                             * DST slots >= m that are never stored) */
+    double *kc = pl->k2, *kn = kc + KS, *kb0 = kn + KS, *kb1 = kb0 + KS,
+           *kb2 = kb1 + KS;
+    memset(pl->k2, 0, (size_t)5 * KS * sizeof(double));
+    long double Bc[32], Bn[32], B0[32], B1[32], B2[32];
+    for (int j = 0; j < m; ++j) {
+        Bc[j] = (CC[j] + CC[m + j]) / 2.0L;
+        Bn[j] = (CC[j] - CC[m + j]) / 2.0L;
+        B0[j] = SS[2 * j];
+        B1[j] = SS[2 * j + 1];
+        B2[j] = B0[j] + B1[j];
+    }
+    for (int v = 0; v < K; ++v) {
+        const int d = v - (m - 1);           /* block-product shift j - i */
+        const int dc = ((d % m) + m) % m;
+        const long double sg = d < 0 ? -1.0L : 1.0L;    /* negacyclic wrap */
+        kc[v]  = (double)Bc[dc];
+        kn[v]  = (double)(sg * Bn[dc]);
+        kb0[v] = (double)(sg * B0[dc]);
+        kb1[v] = (double)(sg * B1[dc]);
+        kb2[v] = (double)(sg * B2[dc]);
+    }
+    return 1;
+}
+
+#ifdef __AVX512F__
+
+/* ---------------- the Winograd C3 x dense-C5 cyclic-15 convolution ----------------
+ * S[15] in CRT slot order -> Y[15] same order; kt = 20 transformed kernel doubles.
+ * If esum != NULL, also emits sum of the E block (= sum of all 15 inputs). */
+
+#define R31_C5(DST, SRC, KB) do {                                              \
+    __m512d k0 = _mm512_set1_pd((KB)[0]), k1 = _mm512_set1_pd((KB)[1]);        \
+    __m512d k2 = _mm512_set1_pd((KB)[2]), k3 = _mm512_set1_pd((KB)[3]);        \
+    __m512d k4 = _mm512_set1_pd((KB)[4]);                                      \
+    DST[0] = _mm512_mul_pd(SRC[0], k0);                                        \
+    DST[1] = _mm512_mul_pd(SRC[0], k1);                                        \
+    DST[2] = _mm512_mul_pd(SRC[0], k2);                                        \
+    DST[3] = _mm512_mul_pd(SRC[0], k3);                                        \
+    DST[4] = _mm512_mul_pd(SRC[0], k4);                                        \
+    DST[0] = _mm512_fmadd_pd(SRC[1], k4, DST[0]);                              \
+    DST[1] = _mm512_fmadd_pd(SRC[1], k0, DST[1]);                              \
+    DST[2] = _mm512_fmadd_pd(SRC[1], k1, DST[2]);                              \
+    DST[3] = _mm512_fmadd_pd(SRC[1], k2, DST[3]);                              \
+    DST[4] = _mm512_fmadd_pd(SRC[1], k3, DST[4]);                              \
+    DST[0] = _mm512_fmadd_pd(SRC[2], k3, DST[0]);                              \
+    DST[1] = _mm512_fmadd_pd(SRC[2], k4, DST[1]);                              \
+    DST[2] = _mm512_fmadd_pd(SRC[2], k0, DST[2]);                              \
+    DST[3] = _mm512_fmadd_pd(SRC[2], k1, DST[3]);                              \
+    DST[4] = _mm512_fmadd_pd(SRC[2], k2, DST[4]);                              \
+    DST[0] = _mm512_fmadd_pd(SRC[3], k2, DST[0]);                              \
+    DST[1] = _mm512_fmadd_pd(SRC[3], k3, DST[1]);                              \
+    DST[2] = _mm512_fmadd_pd(SRC[3], k4, DST[2]);                              \
+    DST[3] = _mm512_fmadd_pd(SRC[3], k0, DST[3]);                              \
+    DST[4] = _mm512_fmadd_pd(SRC[3], k1, DST[4]);                              \
+    DST[0] = _mm512_fmadd_pd(SRC[4], k1, DST[0]);                              \
+    DST[1] = _mm512_fmadd_pd(SRC[4], k2, DST[1]);                              \
+    DST[2] = _mm512_fmadd_pd(SRC[4], k3, DST[2]);                              \
+    DST[3] = _mm512_fmadd_pd(SRC[4], k4, DST[3]);                              \
+    DST[4] = _mm512_fmadd_pd(SRC[4], k0, DST[4]);                              \
+} while (0)
+
+static inline __attribute__((always_inline))
+void r31_wino15(const __m512d *S, const double *kt, __m512d *Y, __m512d *esum)
+{
+    __m512d E[5], A[5], B[5], C[5], M0[5], M1[5], M2[5], M3[5];
+    for (int j = 0; j < 5; ++j) {
+        E[j] = _mm512_add_pd(_mm512_add_pd(S[j], S[5 + j]), S[10 + j]);
+        A[j] = _mm512_sub_pd(S[j], S[10 + j]);
+        B[j] = _mm512_sub_pd(S[5 + j], S[10 + j]);
+        C[j] = _mm512_sub_pd(S[j], S[5 + j]);
+    }
+    if (esum)
+        *esum = _mm512_add_pd(_mm512_add_pd(_mm512_add_pd(E[0], E[1]),
+                                            _mm512_add_pd(E[2], E[3])), E[4]);
+    R31_C5(M0, E, kt);
+    R31_C5(M1, A, kt + 5);
+    R31_C5(M2, B, kt + 10);
+    R31_C5(M3, C, kt + 15);
+    const __m512d TWO = _mm512_set1_pd(2.0);
+    for (int j = 0; j < 5; ++j) {
+        __m512d t01 = _mm512_add_pd(M0[j], M1[j]);
+        Y[j]      = _mm512_fnmadd_pd(M2[j], TWO, _mm512_add_pd(t01, M3[j]));
+        Y[5 + j]  = _mm512_fnmadd_pd(M3[j], TWO, _mm512_add_pd(t01, M2[j]));
+        __m512d t23 = _mm512_add_pd(M2[j], M3[j]);
+        Y[10 + j] = _mm512_fnmadd_pd(M1[j], TWO, _mm512_add_pd(M0[j], t23));
+    }
+}
+
+/* s6 map ladder pieces (arithmetic identical to map_volume; every ladder op is
+ * elementwise, so where it runs cannot change per-point bits).  Pair form: one
+ * vdivpd per two output vectors; single form for the lone X0 vector. */
+/* hwdiv != 0: end the ladder in vdivpd (bit-identical to map_volume);
+ * hwdiv == 0: divider-free rcp14 + 2 Newton (sub-ulp) -- the ice L23 r4
+ * lesson: an eager STORE-side fused map must not end in vdivpd right before
+ * the stores.  Compile-time constant at every call site. */
+static inline __attribute__((always_inline)) __m512d r31_map_rec(__m512d m2,
+                                                                 const int hwdiv)
+{
+    const __m512d ONE  = _mm512_set1_pd(1.0);
+    const __m512d TH   = _mm512_set1_pd(1.5);
+    const __m512d HALF = _mm512_set1_pd(0.5);
+    const __m512d TINY = _mm512_set1_pd(1e-300);
+    __m512d m2c = _mm512_max_pd(m2, TINY);
+    __m512d r = _mm512_rsqrt14_pd(m2c);
+    __m512d hm = _mm512_mul_pd(m2c, HALF);
+    r = _mm512_mul_pd(r, _mm512_fnmadd_pd(_mm512_mul_pd(hm, r), r, TH));
+    r = _mm512_mul_pd(r, _mm512_fnmadd_pd(_mm512_mul_pd(hm, r), r, TH));
+    __m512d d = _mm512_fmadd_pd(m2c, r, ONE);                  /* 1 + |w| */
+    if (hwdiv)
+        return _mm512_div_pd(ONE, d);
+    const __m512d TWO = _mm512_set1_pd(2.0);
+    __m512d rec = _mm512_rcp14_pd(d);
+    rec = _mm512_mul_pd(rec, _mm512_fnmadd_pd(d, rec, TWO));
+    rec = _mm512_mul_pd(rec, _mm512_fnmadd_pd(d, rec, TWO));
+    return rec;
+}
+
+#ifdef R31_FUSE_DIV
+#define R31_FMDIV 1     /* store-side-fusion map style: raced, LOSES with div */
+#else
+#define R31_FMDIV 0
+#endif
+
+static inline __attribute__((always_inline))
+void r31_map2(__m512d wa, __m512d wb, __m512d *oa, __m512d *ob, const int hwdiv)
+{
+    __m512d pa = _mm512_mul_pd(wa, wa), pb = _mm512_mul_pd(wb, wb);
+    __m512d m2 = _mm512_add_pd(_mm512_unpacklo_pd(pa, pb),
+                               _mm512_unpackhi_pd(pa, pb));
+    __m512d rec = r31_map_rec(m2, hwdiv);
+    *oa = _mm512_mul_pd(wa, _mm512_unpacklo_pd(rec, rec));
+    *ob = _mm512_mul_pd(wb, _mm512_unpackhi_pd(rec, rec));
+}
+
+static inline __attribute__((always_inline)) __m512d r31_map1(__m512d w,
+                                                              const int hwdiv)
+{
+    __m512d p = _mm512_mul_pd(w, w);
+    __m512d m2 = _mm512_add_pd(p, _mm512_permute_pd(p, 0x55));
+    return _mm512_mul_pd(w, r31_map_rec(m2, hwdiv));
+}
+
+/* one column chunk (up to 4 complex = 8 doubles wide) of a 31 x inner pass.
+ * sx/dx already offset to the chunk; rs = row stride in doubles.  In-place safe:
+ * within the chunk every load of a row precedes every store to it (E sweep writes
+ * only row 0, which the O sweep never reads).  NO restrict here -- the y-pass runs
+ * dst == src and the compiler must keep the load/store order.
+ * mapc == NULL: plain FFT stores.  mapc != NULL: chain mode -- every output is
+ * mapped ((X+c)/(1+|X+c|)) at the store, c chunk at mapc, same row strides. */
+static inline __attribute__((always_inline))
+void r31_chunk(const double *sx, double *dx, const double *mapc,
+               const ptrdiff_t rs, int full,
+               __mmask8 msk, const double *ke, const double *ko)
+{
+    const __m512d SG = _mm512_setr_pd(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
+    __m512d S[15], Y[15], T[15];
+#ifdef R31_ONEBODY
+    (void)full;   /* single always-masked body: halves the hot code footprint */
+#define R31_LD(px, off) _mm512_maskz_loadu_pd(msk, (px) + (off))
+#define R31_ST(off, v)  _mm512_mask_storeu_pd(dx + (off), msk, v)
+#else
+#define R31_LD(px, off) (full ? _mm512_loadu_pd((px) + (off)) \
+                              : _mm512_maskz_loadu_pd(msk, (px) + (off)))
+#define R31_ST(off, v) do { if (full) _mm512_storeu_pd(dx + (off), v); \
+                            else _mm512_mask_storeu_pd(dx + (off), msk, v); } while (0)
+#endif
+    __m512d x0 = R31_LD(sx, 0);
+    for (int n = 0; n < 15; ++n) {
+        const ptrdiff_t j = R31_JS[n];
+        S[n] = _mm512_add_pd(R31_LD(sx, j * rs), R31_LD(sx, (31 - j) * rs));
+    }
+    __m512d esum;
+    r31_wino15(S, ke, Y, &esum);
+    __m512d X0 = _mm512_add_pd(x0, esum);
+    if (mapc)
+        X0 = r31_map1(_mm512_add_pd(X0, R31_LD(mapc, 0)), R31_FMDIV);
+    R31_ST(0, X0);
+    for (int n = 0; n < 15; ++n) T[n] = _mm512_add_pd(x0, Y[n]);
+    for (int n = 0; n < 15; ++n)
+        S[n] = _mm512_sub_pd(R31_LD(sx, (ptrdiff_t)R31_JDP[n] * rs),
+                             R31_LD(sx, (ptrdiff_t)R31_JDM[n] * rs));
+    r31_wino15(S, ko, Y, NULL);
+    for (int n = 0; n < 15; ++n) {
+        __m512d o = _mm512_permute_pd(Y[n], 0x55);              /* swap re/im */
+        __m512d xp = _mm512_fmadd_pd(o, SG, T[n]);
+        __m512d xm = _mm512_fnmadd_pd(o, SG, T[n]);
+        if (mapc) {
+            xp = _mm512_add_pd(xp, R31_LD(mapc, (ptrdiff_t)R31_KP[n] * rs));
+            xm = _mm512_add_pd(xm, R31_LD(mapc, (ptrdiff_t)R31_KM[n] * rs));
+            r31_map2(xp, xm, &xp, &xm, R31_FMDIV);
+        }
+        R31_ST((ptrdiff_t)R31_KP[n] * rs, xp);
+        R31_ST((ptrdiff_t)R31_KM[n] * rs, xm);
+    }
+#undef R31_LD
+#undef R31_ST
+}
+
+/* contract the slowest axis of a (31 x ncols) complex block whose rows sit at
+ * `pitch` complex apart (pitch == ncols: flat; pitch > ncols: padded rows);
+ * dst may equal src when c == NULL (plain).  c != NULL: map-fused stores
+ * (dst must be distinct; c rows at the same pitch).
+ * pf != 0: software-prefetch each row's line `pf` bytes ahead of the current
+ * chunk's loads (gen_layout gen_r4: the fold's ~62 row streams outrun what
+ * the DCU prefetcher tracks; T0 pays where the streams miss L1 -> L2). */
+static inline __attribute__((always_inline))
+void r31_pass_core(const cplx *src, cplx *dst, const cplx *c,
+                   const ptrdiff_t ncols, const ptrdiff_t pitch,
+                   const int pf, const double *ke, const double *ko)
+{
+    const ptrdiff_t rs = 2 * pitch;
+    const ptrdiff_t nd = 2 * ncols;
+    const double *sx = (const double *)src;
+    const double *cx = (const double *)c;
+    double *dx = (double *)dst;
+#ifdef R31_ONEBODY
+    for (ptrdiff_t d = 0; d < nd; d += 8) {
+        __mmask8 msk = (nd - d >= 8) ? (__mmask8)0xFF
+                                     : (__mmask8)((1u << (nd - d)) - 1);
+        r31_chunk(sx + d, dx + d, cx ? cx + d : NULL, rs, 0, msk, ke, ko);
+    }
+    (void)pf;
+#else
+    ptrdiff_t d = 0;
+    for (; d + 8 <= nd; d += 8) {
+        if (pf)
+            for (int j = 0; j < 31; ++j)
+                _mm_prefetch((const char *)(sx + (ptrdiff_t)j * rs + d) + pf,
+                             _MM_HINT_T0);
+        r31_chunk(sx + d, dx + d, cx ? cx + d : NULL, rs, 1, (__mmask8)0xFF, ke, ko);
+    }
+    if (d < nd)
+        r31_chunk(sx + d, dx + d, cx ? cx + d : NULL, rs, 0,
+                  (__mmask8)((1u << (nd - d)) - 1), ke, ko);
+#endif
+}
+
+/* -DR31_SCHEDP: pre-RA pressure scheduling on the chunk instantiators only
+ * (gen_batchlane r2 / gen_powp r1: pays on spill-bound bodies, as attribute
+ * not global flags; this kernel spills ~29 moves/chunk). */
+#ifdef R31_SCHEDP
+#define R31_SCHED_ATTR __attribute__((optimize("schedule-insns", "sched-pressure")))
+#else
+#define R31_SCHED_ATTR
+#endif
+
+/* x-pass prefetch distance in bytes (0 disables; 128 = 2 chunks ahead).
+ * Raced gen_r4 same-core: +0.7% LOSS at the graded cell (the 31 extra
+ * port-2/3 uops/chunk cost more than the L2-hit latency they hide -- the
+ * state is L2-resident, unlike gen_layout's DRAM-resident demo where the
+ * same recipe won).  Default OFF; knob kept for the cross-arch race. */
+#ifndef R31_PFX
+#define R31_PFX 0
+#endif
+
+/* custody z step: quads per plane (8 = all rows via quads, the r4 form) */
+#ifndef R31_ZMIX
+#define R31_ZMIX 8
+#endif
+
+static R31_SCHED_ATTR
+void r31_pass_x(const cplx *s, cplx *d, const double *ke, const double *ko)
+{ r31_pass_core(s, d, NULL, 31 * 31, 31 * 31, R31_PFX, ke, ko); }
+
+/* x pass over the padded state: 992 columns per plane (31 pad columns of
+ * zeros ride along -- tail-free), planes R31_PP apart */
+static R31_SCHED_ATTR
+void r31_pass_xp(cplx *st, const double *ke, const double *ko)
+{ r31_pass_core(st, st, NULL, 31 * R31_ZP, R31_PP, R31_PFX, ke, ko); }
+
+static R31_SCHED_ATTR
+void r31_pass_y(const cplx *s, cplx *d, const double *ke, const double *ko)
+{ r31_pass_core(s, d, NULL, 31, 31, 0, ke, ko); }
+
+/* y pass on one padded plane: rows at R31_ZP, 32 columns -> 8 full chunks */
+static R31_SCHED_ATTR
+void r31_pass_yp(cplx *pl, const double *ke, const double *ko)
+{ r31_pass_core(pl, pl, NULL, R31_ZP, R31_ZP, 0, ke, ko); }
+
+/* y pass with the map fused at every store: src = x-pass output plane (t1),
+ * dst = state plane, c = map-constant plane */
+static __attribute__((unused))
+void r31_pass_ym(const cplx *s, cplx *d, const cplx *c,
+                 const double *ke, const double *ko)
+{ r31_pass_core(s, d, c, 31, 31, 0, ke, ko); }
+
+/* ---------------- z-axis pass, Rader form: 4 rows via 4x4-complex transposes ----
+ * Four contiguous rows are transposed (8 vshuff64x2 per 4x4-complex tile) into a
+ * stack array where element j of the 4 pencils is one zmm at stride 8 doubles,
+ * the SAME r31_chunk kernel runs on it (all offsets compile-time), and the result
+ * transposes back.  ~110 arith/pencil + 32 shuffles/pencil vs the dense row-GEMM's
+ * ~240 FMA/pencil.  In-place safe: all loads of the 4 rows precede all stores. */
+static inline __attribute__((always_inline))
+void r31_tp4(const __m512d a, const __m512d b, const __m512d c, const __m512d d,
+             __m512d *o0, __m512d *o1, __m512d *o2, __m512d *o3)
+{
+    __m512d t0 = _mm512_shuffle_f64x2(a, b, 0x44);
+    __m512d t1 = _mm512_shuffle_f64x2(a, b, 0xEE);
+    __m512d t2 = _mm512_shuffle_f64x2(c, d, 0x44);
+    __m512d t3 = _mm512_shuffle_f64x2(c, d, 0xEE);
+    *o0 = _mm512_shuffle_f64x2(t0, t2, 0x88);
+    *o1 = _mm512_shuffle_f64x2(t0, t2, 0xDD);
+    *o2 = _mm512_shuffle_f64x2(t1, t3, 0x88);
+    *o3 = _mm512_shuffle_f64x2(t1, t3, 0xDD);
+}
+
+/* srd/drd: source/dest row strides in DOUBLES (62 flat, 64 padded); always
+ * called with compile-time constants so each wrapper folds its offsets. */
+static inline __attribute__((always_inline))
+void r31_zquad_core(const cplx *src, cplx *dst, const ptrdiff_t srd,
+                    const ptrdiff_t drd, const double *ke, const double *ko)
+{
+    __attribute__((aligned(64))) double xt[32 * 8], yt[32 * 8];
+    const double *x = (const double *)src;
+    double *y = (double *)dst;
+    for (int t = 0; t < 8; ++t) {           /* transpose in: tile t = elements 4t..4t+3 */
+        __m512d r0, r1, r2, r3;
+        if (t < 7) {
+            r0 = _mm512_loadu_pd(x + 8 * t);
+            r1 = _mm512_loadu_pd(x + srd + 8 * t);
+            r2 = _mm512_loadu_pd(x + 2 * srd + 8 * t);
+            r3 = _mm512_loadu_pd(x + 3 * srd + 8 * t);
+        } else {                            /* elements 28..30 only */
+            r0 = _mm512_maskz_loadu_pd(0x3F, x + 56);
+            r1 = _mm512_maskz_loadu_pd(0x3F, x + srd + 56);
+            r2 = _mm512_maskz_loadu_pd(0x3F, x + 2 * srd + 56);
+            r3 = _mm512_maskz_loadu_pd(0x3F, x + 3 * srd + 56);
+        }
+        __m512d o0, o1, o2, o3;
+        r31_tp4(r0, r1, r2, r3, &o0, &o1, &o2, &o3);
+        _mm512_store_pd(xt + (4 * t) * 8, o0);
+        _mm512_store_pd(xt + (4 * t + 1) * 8, o1);
+        _mm512_store_pd(xt + (4 * t + 2) * 8, o2);
+        _mm512_store_pd(xt + (4 * t + 3) * 8, o3);
+    }
+    r31_chunk(xt, yt, NULL, 8, 1, (__mmask8)0xFF, ke, ko);
+    for (int t = 0; t < 8; ++t) {           /* transpose out */
+        __m512d o0, o1, o2, o3;
+        r31_tp4(_mm512_load_pd(yt + (4 * t) * 8),
+                _mm512_load_pd(yt + (4 * t + 1) * 8),
+                _mm512_load_pd(yt + (4 * t + 2) * 8),
+                (t < 7) ? _mm512_load_pd(yt + (4 * t + 3) * 8) : _mm512_setzero_pd(),
+                &o0, &o1, &o2, &o3);
+        if (t < 7) {
+            _mm512_storeu_pd(y + 8 * t, o0);
+            _mm512_storeu_pd(y + drd + 8 * t, o1);
+            _mm512_storeu_pd(y + 2 * drd + 8 * t, o2);
+            _mm512_storeu_pd(y + 3 * drd + 8 * t, o3);
+        } else {
+            _mm512_mask_storeu_pd(y + 56, 0x3F, o0);
+            _mm512_mask_storeu_pd(y + drd + 56, 0x3F, o1);
+            _mm512_mask_storeu_pd(y + 2 * drd + 56, 0x3F, o2);
+            _mm512_mask_storeu_pd(y + 3 * drd + 56, 0x3F, o3);
+        }
+    }
+}
+
+static void r31_zquad(const cplx *src, cplx *dst, const double *ke, const double *ko)
+{ r31_zquad_core(src, dst, 62, 62, ke, ko); }           /* flat, execute() */
+
+static void r31_zquad_pp(const cplx *src, cplx *dst, const double *ke, const double *ko)
+{ r31_zquad_core(src, dst, 2 * R31_ZP, 2 * R31_ZP, ke, ko); }  /* padded in place */
+
+static void r31_zquad_fp(const cplx *src, cplx *dst, const double *ke, const double *ko)
+{ r31_zquad_core(src, dst, 62, 2 * R31_ZP, ke, ko); }   /* step 0: flat x0 -> padded */
+
+/* padded in-place z quad with the s6 MAP APPLIED AT THE TRANSPOSE-IN LOADS:
+ * computes zquad(map(x + c)) for 4 rows, replacing map_volume + r31_zquad_pp
+ * on those rows.  The map is elementwise and every ladder op is lanewise, so
+ * per-element bits are IDENTICAL to the separate sweep (only which lanes share
+ * a zmm changes); pad lanes/rows stay zero (maskz load -> w=0 -> map 0).
+ * Unlike the four store-side map fusions this panel measured and killed
+ * (r31 y-stores r1, dense_prime r2, rp y r3, batchlane epilogue r4), this is
+ * LOAD-side fusion into a register-light transpose phase: ~10 live zmm before
+ * the ladder, not ~30. */
+static __attribute__((unused))
+void r31_zquad_mp(const cplx *src, cplx *dst, const cplx *c,
+                  const double *ke, const double *ko)
+{
+    __attribute__((aligned(64))) double xt[32 * 8], yt[32 * 8];
+    const ptrdiff_t rd = 2 * R31_ZP;
+    const double *x = (const double *)src;
+    const double *cx = (const double *)c;
+    double *y = (double *)dst;
+    for (int t = 0; t < 8; ++t) {
+        __m512d r0, r1, r2, r3;
+        if (t < 7) {
+            r0 = _mm512_add_pd(_mm512_loadu_pd(x + 8 * t),
+                               _mm512_loadu_pd(cx + 8 * t));
+            r1 = _mm512_add_pd(_mm512_loadu_pd(x + rd + 8 * t),
+                               _mm512_loadu_pd(cx + rd + 8 * t));
+            r2 = _mm512_add_pd(_mm512_loadu_pd(x + 2 * rd + 8 * t),
+                               _mm512_loadu_pd(cx + 2 * rd + 8 * t));
+            r3 = _mm512_add_pd(_mm512_loadu_pd(x + 3 * rd + 8 * t),
+                               _mm512_loadu_pd(cx + 3 * rd + 8 * t));
+        } else {                              /* elements 28..30 + pad col */
+            r0 = _mm512_add_pd(_mm512_maskz_loadu_pd(0x3F, x + 56),
+                               _mm512_maskz_loadu_pd(0x3F, cx + 56));
+            r1 = _mm512_add_pd(_mm512_maskz_loadu_pd(0x3F, x + rd + 56),
+                               _mm512_maskz_loadu_pd(0x3F, cx + rd + 56));
+            r2 = _mm512_add_pd(_mm512_maskz_loadu_pd(0x3F, x + 2 * rd + 56),
+                               _mm512_maskz_loadu_pd(0x3F, cx + 2 * rd + 56));
+            r3 = _mm512_add_pd(_mm512_maskz_loadu_pd(0x3F, x + 3 * rd + 56),
+                               _mm512_maskz_loadu_pd(0x3F, cx + 3 * rd + 56));
+        }
+        r31_map2(r0, r1, &r0, &r1, 1);      /* vdivpd: bit-identical to the
+                                             * separate map_volume sweep */
+        r31_map2(r2, r3, &r2, &r3, 1);
+        __m512d o0, o1, o2, o3;
+        r31_tp4(r0, r1, r2, r3, &o0, &o1, &o2, &o3);
+        _mm512_store_pd(xt + (4 * t) * 8, o0);
+        _mm512_store_pd(xt + (4 * t + 1) * 8, o1);
+        _mm512_store_pd(xt + (4 * t + 2) * 8, o2);
+        _mm512_store_pd(xt + (4 * t + 3) * 8, o3);
+    }
+    r31_chunk(xt, yt, NULL, 8, 1, (__mmask8)0xFF, ke, ko);
+    for (int t = 0; t < 8; ++t) {
+        __m512d o0, o1, o2, o3;
+        r31_tp4(_mm512_load_pd(yt + (4 * t) * 8),
+                _mm512_load_pd(yt + (4 * t + 1) * 8),
+                _mm512_load_pd(yt + (4 * t + 2) * 8),
+                (t < 7) ? _mm512_load_pd(yt + (4 * t + 3) * 8) : _mm512_setzero_pd(),
+                &o0, &o1, &o2, &o3);
+        if (t < 7) {
+            _mm512_storeu_pd(y + 8 * t, o0);
+            _mm512_storeu_pd(y + rd + 8 * t, o1);
+            _mm512_storeu_pd(y + 2 * rd + 8 * t, o2);
+            _mm512_storeu_pd(y + 3 * rd + 8 * t, o3);
+        } else {
+            _mm512_mask_storeu_pd(y + 56, 0x3F, o0);
+            _mm512_mask_storeu_pd(y + rd + 56, 0x3F, o1);
+            _mm512_mask_storeu_pd(y + 2 * rd + 56, 0x3F, o2);
+            _mm512_mask_storeu_pd(y + 3 * rd + 56, 0x3F, o3);
+        }
+    }
+}
+
+/* ---------------- z-axis pass: contiguous rows ----------------
+ * ADOPTED VERBATIM from gen_dense_prime gen_r1 (their zpass31/zpass31_pair):
+ * k dimension in 4 zmm per half-spectrum, u/v broadcast as 128-bit pairs,
+ * rows in PAIRS sharing the 8 table loads per j. */
+/* NO restrict on src/dst: the -DR31_ZMIX arm runs these in place (every load
+ * of src precedes every store to dst -- safe only if the compiler keeps the
+ * order, same rule as map_volume since r2) */
+static void r31_zrow_pair(const cplx *src, cplx *dst,
+                          ptrdiff_t sp, ptrdiff_t dp,
+                          const double *restrict ctd, const double *restrict std)
+{
+    const __m512d SG = _mm512_setr_pd(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
+    const double *xA = (const double *)src;
+    const double *xB = (const double *)(src + sp);
+    double *yA = (double *)dst;
+    double *yB = (double *)(dst + dp);
+
+    __attribute__((aligned(64))) double ua[32], va[32], ub2[32], vb2[32];
+    for (int j = 1; j <= 15; ++j) {
+        __m128d a = _mm_loadu_pd(xA + 2 * j), b = _mm_loadu_pd(xA + 2 * (31 - j));
+        _mm_store_pd(ua + 2 * j, _mm_add_pd(a, b));
+        _mm_store_pd(va + 2 * j, _mm_sub_pd(a, b));
+        __m128d c = _mm_loadu_pd(xB + 2 * j), e = _mm_loadu_pd(xB + 2 * (31 - j));
+        _mm_store_pd(ub2 + 2 * j, _mm_add_pd(c, e));
+        _mm_store_pd(vb2 + 2 * j, _mm_sub_pd(c, e));
+    }
+    __m512d xa0 = _mm512_broadcast_f64x2(_mm_loadu_pd(xA));
+    __m512d xb0 = _mm512_broadcast_f64x2(_mm_loadu_pd(xB));
+    __m512d CA0 = xa0, CA1 = xa0, CA2 = xa0, CA3 = xa0;
+    __m512d CB0 = xb0, CB1 = xb0, CB2 = xb0, CB3 = xb0;
+    __m512d SA0 = _mm512_setzero_pd(), SA1 = SA0, SA2 = SA0, SA3 = SA0;
+    __m512d SB0 = SA0, SB1 = SA0, SB2 = SA0, SB3 = SA0;
+    for (int j = 1; j <= 15; ++j) {
+        const double *cr = ctd + (size_t)(j - 1) * 32;
+        const double *sr = std + (size_t)(j - 1) * 32;
+        __m512d c0 = _mm512_load_pd(cr + 0),  c1 = _mm512_load_pd(cr + 8);
+        __m512d c2 = _mm512_load_pd(cr + 16), c3 = _mm512_load_pd(cr + 24);
+        __m512d s0 = _mm512_load_pd(sr + 0),  s1 = _mm512_load_pd(sr + 8);
+        __m512d s2 = _mm512_load_pd(sr + 16), s3 = _mm512_load_pd(sr + 24);
+        __m512d uA = _mm512_broadcast_f64x2(_mm_load_pd(ua + 2 * j));
+        __m512d vA = _mm512_broadcast_f64x2(_mm_load_pd(va + 2 * j));
+        __m512d uB = _mm512_broadcast_f64x2(_mm_load_pd(ub2 + 2 * j));
+        __m512d vB = _mm512_broadcast_f64x2(_mm_load_pd(vb2 + 2 * j));
+        CA0 = _mm512_fmadd_pd(c0, uA, CA0); CA1 = _mm512_fmadd_pd(c1, uA, CA1);
+        CA2 = _mm512_fmadd_pd(c2, uA, CA2); CA3 = _mm512_fmadd_pd(c3, uA, CA3);
+        SA0 = _mm512_fmadd_pd(s0, vA, SA0); SA1 = _mm512_fmadd_pd(s1, vA, SA1);
+        SA2 = _mm512_fmadd_pd(s2, vA, SA2); SA3 = _mm512_fmadd_pd(s3, vA, SA3);
+        CB0 = _mm512_fmadd_pd(c0, uB, CB0); CB1 = _mm512_fmadd_pd(c1, uB, CB1);
+        CB2 = _mm512_fmadd_pd(c2, uB, CB2); CB3 = _mm512_fmadd_pd(c3, uB, CB3);
+        SB0 = _mm512_fmadd_pd(s0, vB, SB0); SB1 = _mm512_fmadd_pd(s1, vB, SB1);
+        SB2 = _mm512_fmadd_pd(s2, vB, SB2); SB3 = _mm512_fmadd_pd(s3, vB, SB3);
+    }
+#define R31_ZSTORE(y, C0, C1, C2, C3, S0, S1, S2, S3) do {                     \
+        __m512d T0 = _mm512_permute_pd(S0, 0x55);                              \
+        __m512d T1 = _mm512_permute_pd(S1, 0x55);                              \
+        __m512d T2 = _mm512_permute_pd(S2, 0x55);                              \
+        __m512d T3 = _mm512_permute_pd(S3, 0x55);                              \
+        _mm512_storeu_pd((y) + 0,  _mm512_fmadd_pd(T0, SG, C0));               \
+        _mm512_storeu_pd((y) + 8,  _mm512_fmadd_pd(T1, SG, C1));               \
+        _mm512_storeu_pd((y) + 16, _mm512_fmadd_pd(T2, SG, C2));               \
+        _mm512_storeu_pd((y) + 24, _mm512_fmadd_pd(T3, SG, C3));               \
+        __m512d h0 = _mm512_fnmadd_pd(T0, SG, C0);                             \
+        __m512d h1 = _mm512_fnmadd_pd(T1, SG, C1);                             \
+        __m512d h2 = _mm512_fnmadd_pd(T2, SG, C2);                             \
+        __m512d h3 = _mm512_fnmadd_pd(T3, SG, C3);                             \
+        _mm512_storeu_pd((y) + 32, _mm512_shuffle_f64x2(h3, h3, 0x1B));        \
+        _mm512_storeu_pd((y) + 40, _mm512_shuffle_f64x2(h2, h2, 0x1B));        \
+        _mm512_storeu_pd((y) + 48, _mm512_shuffle_f64x2(h1, h1, 0x1B));        \
+        _mm512_mask_storeu_pd((y) + 56, 0x3F, _mm512_shuffle_f64x2(h0, h0, 0x1B)); \
+    } while (0)
+    R31_ZSTORE(yA, CA0, CA1, CA2, CA3, SA0, SA1, SA2, SA3);
+    R31_ZSTORE(yB, CB0, CB1, CB2, CB3, SB0, SB1, SB2, SB3);
+}
+
+static void r31_zpass(const cplx *src, cplx *dst, size_t nrows,
+                      ptrdiff_t sp, ptrdiff_t dp,
+                      const double *restrict ctd, const double *restrict std)
+{
+    const __m512d SG = _mm512_setr_pd(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
+    size_t r = 0;
+    for (; r + 2 <= nrows; r += 2)
+        r31_zrow_pair(src + r * sp, dst + r * dp, sp, dp, ctd, std);
+    for (; r < nrows; ++r) {
+        const double *x = (const double *)(src + r * sp);
+        double *y = (double *)(dst + r * dp);
+        __attribute__((aligned(64))) double ub[32], vb[32];
+        for (int j = 1; j <= 15; ++j) {
+            __m128d a = _mm_loadu_pd(x + 2 * j);
+            __m128d b = _mm_loadu_pd(x + 2 * (31 - j));
+            _mm_store_pd(ub + 2 * j, _mm_add_pd(a, b));
+            _mm_store_pd(vb + 2 * j, _mm_sub_pd(a, b));
+        }
+        __m512d x0 = _mm512_broadcast_f64x2(_mm_loadu_pd(x));
+        __m512d C0 = x0, C1 = x0, C2 = x0, C3 = x0;
+        __m512d S0 = _mm512_setzero_pd(), S1 = S0, S2 = S0, S3 = S0;
+        for (int j = 1; j <= 15; ++j) {
+            __m512d u = _mm512_broadcast_f64x2(_mm_load_pd(ub + 2 * j));
+            __m512d v = _mm512_broadcast_f64x2(_mm_load_pd(vb + 2 * j));
+            const double *cr = ctd + (size_t)(j - 1) * 32;
+            const double *sr = std + (size_t)(j - 1) * 32;
+            C0 = _mm512_fmadd_pd(_mm512_load_pd(cr + 0),  u, C0);
+            C1 = _mm512_fmadd_pd(_mm512_load_pd(cr + 8),  u, C1);
+            C2 = _mm512_fmadd_pd(_mm512_load_pd(cr + 16), u, C2);
+            C3 = _mm512_fmadd_pd(_mm512_load_pd(cr + 24), u, C3);
+            S0 = _mm512_fmadd_pd(_mm512_load_pd(sr + 0),  v, S0);
+            S1 = _mm512_fmadd_pd(_mm512_load_pd(sr + 8),  v, S1);
+            S2 = _mm512_fmadd_pd(_mm512_load_pd(sr + 16), v, S2);
+            S3 = _mm512_fmadd_pd(_mm512_load_pd(sr + 24), v, S3);
+        }
+        __m512d T0 = _mm512_permute_pd(S0, 0x55);
+        __m512d T1 = _mm512_permute_pd(S1, 0x55);
+        __m512d T2 = _mm512_permute_pd(S2, 0x55);
+        __m512d T3 = _mm512_permute_pd(S3, 0x55);
+        _mm512_storeu_pd(y + 0,  _mm512_fmadd_pd(T0, SG, C0));
+        _mm512_storeu_pd(y + 8,  _mm512_fmadd_pd(T1, SG, C1));
+        _mm512_storeu_pd(y + 16, _mm512_fmadd_pd(T2, SG, C2));
+        _mm512_storeu_pd(y + 24, _mm512_fmadd_pd(T3, SG, C3));
+        __m512d h0 = _mm512_fnmadd_pd(T0, SG, C0);
+        __m512d h1 = _mm512_fnmadd_pd(T1, SG, C1);
+        __m512d h2 = _mm512_fnmadd_pd(T2, SG, C2);
+        __m512d h3 = _mm512_fnmadd_pd(T3, SG, C3);
+        _mm512_storeu_pd(y + 32, _mm512_shuffle_f64x2(h3, h3, 0x1B));
+        _mm512_storeu_pd(y + 40, _mm512_shuffle_f64x2(h2, h2, 0x1B));
+        _mm512_storeu_pd(y + 48, _mm512_shuffle_f64x2(h1, h1, 0x1B));
+        _mm512_mask_storeu_pd(y + 56, 0x3F, _mm512_shuffle_f64x2(h0, h0, 0x1B));
+    }
+}
+/* z-pass dispatcher: Rader-quad form by default, dense row-GEMM with -DR31_ZDENSE */
+static void r31_zpass_main(const struct fft3d_plan *p, const cplx *src, cplx *dst,
+                           size_t nrows)
+{
+#ifdef R31_ZDENSE
+    r31_zpass(src, dst, nrows, 31, 31, p->ctd, p->std_);
+#else
+    size_t r = 0;
+    for (; r + 4 <= nrows; r += 4)
+        r31_zquad(src + r * 31, dst + r * 31, p->ke, p->ko);
+    if (r < nrows)
+        r31_zpass(src + r * 31, dst + r * 31, nrows - r, 31, 31, p->ctd, p->std_);
+#endif
+}
+
+/* ---------------- generic odd-prime folded half-system engine (rp_*) ----------------
+ * Round-3 class duty: any odd prime 3 <= p <= 127, p != 31 (which keeps the
+ * tuned Winograd path above).  Same fold arithmetic as the r31 z-pass, in
+ * column-chunk form with runtime loops: per chunk of 4 complex columns, all
+ * p rows are loaded ONCE into stack u/v arrays (loads-all-then-stores => the
+ * kernel is in-place safe for any dst == src), then k runs in QUADS of 4
+ * (C,S) accumulator pairs sharing each u_j/v_j reload: per j per quad,
+ * 2 stack loads + 8 broadcast constants feeding 8 FMAs.  ~2h^2 zmm FMA per
+ * chunk per axis -- the settled folded-dense count on FMA hardware. */
+
+#define RP_MAXH 63   /* (127-1)/2 */
+
+/* gen_r7: the map-fused arms (`if (mapc)`) are DEAD in the default build --
+ * RP_YMAPFUSE lost its race in gen_r3 and every pass calls with mapc = NULL --
+ * yet they compiled to ~57 inline rsqrt/rcp ladders (~20 KB of never-executed
+ * code) inside EVERY rp2/rp3 chunk, inflating the fetched footprint of
+ * kernels the front-end already struggles to stream (see RP2_CONV_BLK note).
+ * RP_MAPARM makes them a compile-time constant 0 unless the knob is on. */
+#ifdef RP_YMAPFUSE
+#define RP_MAPARM 1
+#else
+#define RP_MAPARM 0
+#endif
+
+static inline __attribute__((always_inline))
+void rp_chunk(const double *sx, double *dx, const double *mapc,
+              const ptrdiff_t rs, const int p, const int h,
+              const double *ct, const double *st,
+              int full, __mmask8 msk)
+{
+    const __m512d SG = _mm512_setr_pd(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
+    __m512d U[RP_MAXH + 1], V[RP_MAXH + 1];
+#define RP_LD(px, off) (full ? _mm512_loadu_pd((px) + (off)) \
+                             : _mm512_maskz_loadu_pd(msk, (px) + (off)))
+#define RP_ST(off, v_) do { if (full) _mm512_storeu_pd(dx + (off), v_); \
+                            else _mm512_mask_storeu_pd(dx + (off), msk, v_); } while (0)
+    __m512d x0 = RP_LD(sx, 0);
+    __m512d e0 = x0, e1 = _mm512_setzero_pd();
+    for (int j = 1; j <= h; ++j) {
+        __m512d a = RP_LD(sx, (ptrdiff_t)j * rs);
+        __m512d b = RP_LD(sx, (ptrdiff_t)(p - j) * rs);
+        U[j] = _mm512_add_pd(a, b);
+        V[j] = _mm512_sub_pd(a, b);
+        if (j & 1) e1 = _mm512_add_pd(e1, U[j]);
+        else       e0 = _mm512_add_pd(e0, U[j]);
+    }
+    __m512d X0 = _mm512_add_pd(e0, e1);
+    if (RP_MAPARM && mapc) X0 = r31_map1(_mm512_add_pd(X0, RP_LD(mapc, 0)), R31_FMDIV);
+    RP_ST(0, X0);
+/* X_k = C - iS, X_{p-k} = C + iS on interleaved lanes: o = swap(S),
+ * X_k = C + SG*o, X_{p-k} = C - SG*o (SG = +1,-1,...) */
+#define RP_OUT(KK, C, S) do {                                                  \
+        __m512d o_ = _mm512_permute_pd(S, 0x55);                               \
+        __m512d xp_ = _mm512_fmadd_pd(o_, SG, C);                              \
+        __m512d xm_ = _mm512_fnmadd_pd(o_, SG, C);                             \
+        if (RP_MAPARM && mapc) {                                               \
+            xp_ = _mm512_add_pd(xp_, RP_LD(mapc, (ptrdiff_t)(KK) * rs));       \
+            xm_ = _mm512_add_pd(xm_, RP_LD(mapc, (ptrdiff_t)(p - (KK)) * rs)); \
+            r31_map2(xp_, xm_, &xp_, &xm_, R31_FMDIV);                         \
+        }                                                                      \
+        RP_ST((ptrdiff_t)(KK) * rs, xp_);                                      \
+        RP_ST((ptrdiff_t)(p - (KK)) * rs, xm_);                                \
+    } while (0)
+    int k = 1;
+    for (; k + 3 <= h; k += 4) {
+        const double *c0 = ct + (size_t)(k - 1) * h, *c1 = c0 + h,
+                     *c2 = c1 + h, *c3 = c2 + h;
+        const double *s0 = st + (size_t)(k - 1) * h, *s1 = s0 + h,
+                     *s2 = s1 + h, *s3 = s2 + h;
+        __m512d C0 = x0, C1 = x0, C2 = x0, C3 = x0;
+        __m512d S0 = _mm512_setzero_pd(), S1 = S0, S2 = S0, S3 = S0;
+        for (int j = 1; j <= h; ++j) {
+            __m512d uj = U[j], vj = V[j];
+            C0 = _mm512_fmadd_pd(_mm512_set1_pd(c0[j - 1]), uj, C0);
+            S0 = _mm512_fmadd_pd(_mm512_set1_pd(s0[j - 1]), vj, S0);
+            C1 = _mm512_fmadd_pd(_mm512_set1_pd(c1[j - 1]), uj, C1);
+            S1 = _mm512_fmadd_pd(_mm512_set1_pd(s1[j - 1]), vj, S1);
+            C2 = _mm512_fmadd_pd(_mm512_set1_pd(c2[j - 1]), uj, C2);
+            S2 = _mm512_fmadd_pd(_mm512_set1_pd(s2[j - 1]), vj, S2);
+            C3 = _mm512_fmadd_pd(_mm512_set1_pd(c3[j - 1]), uj, C3);
+            S3 = _mm512_fmadd_pd(_mm512_set1_pd(s3[j - 1]), vj, S3);
+        }
+        RP_OUT(k, C0, S0);
+        RP_OUT(k + 1, C1, S1);
+        RP_OUT(k + 2, C2, S2);
+        RP_OUT(k + 3, C3, S3);
+    }
+    for (; k <= h; ++k) {
+        const double *c0 = ct + (size_t)(k - 1) * h;
+        const double *s0 = st + (size_t)(k - 1) * h;
+        __m512d C0 = x0, S0 = _mm512_setzero_pd();
+        for (int j = 1; j <= h; ++j) {
+            C0 = _mm512_fmadd_pd(_mm512_set1_pd(c0[j - 1]), U[j], C0);
+            S0 = _mm512_fmadd_pd(_mm512_set1_pd(s0[j - 1]), V[j], S0);
+        }
+        RP_OUT(k, C0, S0);
+    }
+#undef RP_OUT
+#undef RP_LD
+#undef RP_ST
+}
+
+/* ---------------- outer-C3 chunk kernel (gen_r5) ----------------
+ * The r31_chunk shape at runtime table indices: fold via js/jdp/jdm, TWO
+ * Winograd-C3-over-dense-Cm cyclic-h convolutions (4 block products of m^2
+ * FMA + 11m block adds each, vs the dense engine's 2h^2 = 18m^2 FMA), output
+ * rows via kp/km.  Instantiated per m (7/11/13/17) so every loop bound is a
+ * compile-time constant and the block products unroll register-resident,
+ * exactly like R31_C5.  In-place safe: all loads of a row precede all stores
+ * (the E sweep stores only row 0, which the O sweep never reads). */
+
+#define RP3_LD(px, off) (full ? _mm512_loadu_pd((px) + (off)) \
+                              : _mm512_maskz_loadu_pd(msk, (px) + (off)))
+#define RP3_ST(off, v_) do { if (full) _mm512_storeu_pd(dx + (off), v_); \
+                             else _mm512_mask_storeu_pd(dx + (off), msk, v_); } while (0)
+
+/* full-unroll pragmas: without these gcc 11 keeps the m >= 13 conv loops
+ * ROLLED with stack-resident accumulators (load-fma-store per step, a
+ * vmovapd storm -- seen in the gen_r6 objdump audit on rp3_chunk_17 too:
+ * only ~430 of its 2312 design FMAs were straight-line).  The pragma forces
+ * complete peeling; SRA then scalarizes the constant-index arrays. */
+#define RP_UNROLL _Pragma("GCC unroll 64")
+
+#define RP3_CONV(DST, SRC, KB, M) do {                                        \
+    RP_UNROLL                                                                 \
+    for (int j_ = 0; j_ < (M); ++j_)                                          \
+        DST[j_] = _mm512_mul_pd(SRC[0], _mm512_set1_pd((KB)[(M) - 1 + j_]));  \
+    RP_UNROLL                                                                 \
+    for (int i_ = 1; i_ < (M); ++i_) {                                        \
+        RP_UNROLL                                                             \
+        for (int j_ = 0; j_ < (M); ++j_)                                      \
+            DST[j_] = _mm512_fmadd_pd(SRC[i_],                                \
+                          _mm512_set1_pd((KB)[(M) - 1 + j_ - i_]), DST[j_]);  \
+    }                                                                         \
+} while (0)
+
+/* blocked conv for LARGE m (>= RP2_BLK_MIN): j in tiles of 8 register
+ * accumulators, the i loop ROLLED -- per i: 1 stack load + 8 broadcast
+ * loads + 8 FMA, the dense engine's proven k-quad shape on 5m^2 work.
+ * The fully-unrolled RP3_CONV at m >= ~22 spills catastrophically (m = 25:
+ * 7400 vmovapd vs 3900 FMA, +70% wall on the node-class sizes); this form
+ * keeps ~10 live zmm.  Tiles overread the kernel block by up to 7 slots:
+ * rp2_build zero-pads each block to K + 7 (0 lands in DST slots >= m,
+ * which are never stored).
+ * gen_r7: the i loop is PINNED rolled (unroll 1).  -funroll-loops was
+ * unrolling it 8x behind the r6 race's back: rp2_chunk_28 compiled to
+ * 10820 instructions / ~75 KB of straight-line code PER CHUNK (objdump:
+ * 2443 stack vmovapd) -- past L1I, so every chunk refetched its own code
+ * from L2.  That, not DRAM, was why the y-pass ran 6.7 ms/step on an
+ * L2/L3-resident plane at p=113 (load-port model: ~2.4).  Rolled, the tile
+ * body is ~15 instructions, DSB-resident; accumulation order unchanged =>
+ * bit-identical.  Node-raced per m (same-core interleaved, 3 rounds):
+ * rolled wins 61 -9..11%, 73 -2%, 103 -1%, 89 -7%, 101 -19%, 113 -8%;
+ * WASH at 41; LOSES +1% at 53 (m=13, 3/3) -- so m=13 alone keeps the gcc
+ * default via the RP2_BLK_IUNROLL redefinition at its instantiation. */
+#define RP2_BLK_IUNROLL _Pragma("GCC unroll 1")
+#define RP2_CONV_BLK(DST, SRC, KB, M) do {                                    \
+    RP_UNROLL                                                                 \
+    for (int jb_ = 0; jb_ < (M); jb_ += 8) {                                  \
+        __m512d c0_, c1_, c2_, c3_, c4_, c5_, c6_, c7_;                       \
+        {                                                                     \
+            const double *kk_ = (KB) + (M) - 1 + jb_;                         \
+            __m512d s_ = SRC[0];                                              \
+            c0_ = _mm512_mul_pd(s_, _mm512_set1_pd(kk_[0]));                  \
+            c1_ = _mm512_mul_pd(s_, _mm512_set1_pd(kk_[1]));                  \
+            c2_ = _mm512_mul_pd(s_, _mm512_set1_pd(kk_[2]));                  \
+            c3_ = _mm512_mul_pd(s_, _mm512_set1_pd(kk_[3]));                  \
+            c4_ = _mm512_mul_pd(s_, _mm512_set1_pd(kk_[4]));                  \
+            c5_ = _mm512_mul_pd(s_, _mm512_set1_pd(kk_[5]));                  \
+            c6_ = _mm512_mul_pd(s_, _mm512_set1_pd(kk_[6]));                  \
+            c7_ = _mm512_mul_pd(s_, _mm512_set1_pd(kk_[7]));                  \
+        }                                                                     \
+        RP2_BLK_IUNROLL                                                       \
+        for (int i_ = 1; i_ < (M); ++i_) {                                    \
+            const double *kk_ = (KB) + (M) - 1 + jb_ - i_;                    \
+            __m512d s_ = SRC[i_];                                             \
+            c0_ = _mm512_fmadd_pd(s_, _mm512_set1_pd(kk_[0]), c0_);           \
+            c1_ = _mm512_fmadd_pd(s_, _mm512_set1_pd(kk_[1]), c1_);           \
+            c2_ = _mm512_fmadd_pd(s_, _mm512_set1_pd(kk_[2]), c2_);           \
+            c3_ = _mm512_fmadd_pd(s_, _mm512_set1_pd(kk_[3]), c3_);           \
+            c4_ = _mm512_fmadd_pd(s_, _mm512_set1_pd(kk_[4]), c4_);           \
+            c5_ = _mm512_fmadd_pd(s_, _mm512_set1_pd(kk_[5]), c5_);           \
+            c6_ = _mm512_fmadd_pd(s_, _mm512_set1_pd(kk_[6]), c6_);           \
+            c7_ = _mm512_fmadd_pd(s_, _mm512_set1_pd(kk_[7]), c7_);           \
+        }                                                                     \
+        DST[jb_] = c0_;                                                       \
+        if (jb_ + 1 < (M)) DST[jb_ + 1] = c1_;                                \
+        if (jb_ + 2 < (M)) DST[jb_ + 2] = c2_;                                \
+        if (jb_ + 3 < (M)) DST[jb_ + 3] = c3_;                                \
+        if (jb_ + 4 < (M)) DST[jb_ + 4] = c4_;                                \
+        if (jb_ + 5 < (M)) DST[jb_ + 5] = c5_;                                \
+        if (jb_ + 6 < (M)) DST[jb_ + 6] = c6_;                                \
+        if (jb_ + 7 < (M)) DST[jb_ + 7] = c7_;                                \
+    }                                                                         \
+} while (0)
+
+#define RP3_WINO(KT, M, WANT_ESUM, CONV) do {                                       \
+    RP_UNROLL                                                                 \
+    for (int j_ = 0; j_ < (M); ++j_) {                                        \
+        E[j_] = _mm512_add_pd(_mm512_add_pd(S[j_], S[(M) + j_]),              \
+                              S[2 * (M) + j_]);                               \
+        A[j_] = _mm512_sub_pd(S[j_], S[2 * (M) + j_]);                        \
+        B[j_] = _mm512_sub_pd(S[(M) + j_], S[2 * (M) + j_]);                  \
+        C[j_] = _mm512_sub_pd(S[j_], S[(M) + j_]);                            \
+        if (WANT_ESUM) esum = _mm512_add_pd(esum, E[j_]);                     \
+    }                                                                         \
+    CONV(M0, E, (KT), M);                                                 \
+    CONV(M1, A, (KT) + (2 * (M) - 1), M);                                 \
+    CONV(M2, B, (KT) + 2 * (2 * (M) - 1), M);                             \
+    CONV(M3, C, (KT) + 3 * (2 * (M) - 1), M);                             \
+    RP_UNROLL                                                                 \
+    for (int j_ = 0; j_ < (M); ++j_) {                                        \
+        __m512d t01 = _mm512_add_pd(M0[j_], M1[j_]);                          \
+        Y[j_] = _mm512_fnmadd_pd(M2[j_], TWO, _mm512_add_pd(t01, M3[j_]));    \
+        Y[(M) + j_] = _mm512_fnmadd_pd(M3[j_], TWO,                           \
+                                       _mm512_add_pd(t01, M2[j_]));           \
+        __m512d t23 = _mm512_add_pd(M2[j_], M3[j_]);                          \
+        Y[2 * (M) + j_] = _mm512_fnmadd_pd(M1[j_], TWO,                       \
+                                           _mm512_add_pd(M0[j_], t23));       \
+    }                                                                         \
+} while (0)
+
+/* -DRP3_FOLD1 switches the rp3 kernels to the one-pass fold the rp2 kernels
+ * use (rows loaded once, U/V + negated mirror on the stack).  RACED AND LOST
+ * on the node (gen_r6): +15% at 43, +29% at 67, +39% at 103 -- the WINO
+ * working set (S/Y/T + 8 block arrays) is already spill-saturated, so the
+ * extra 9m stack slots and the fill indirection cost more than the 2h row
+ * loads they save (the rows hit L2 and the two load ports absorb them).
+ * Outputs bit-identical either way (cmp-verified at 67). */
+#ifdef RP3_FOLD1
+#define RP3_FOLD1_ 1
+#else
+#define RP3_FOLD1_ 0
+#endif
+
+#define RP3_DEFINE(M, CONV)                                                   \
+static void rp3_chunk_##M(const double *sx, double *dx, const double *mapc,   \
+                          const ptrdiff_t rs, const fft3d_plan *pl,           \
+                          int full, __mmask8 msk)                             \
+{                                                                             \
+    enum { H_ = 3 * (M), P_ = 6 * (M) + 1 };                                  \
+    const __m512d SG = _mm512_setr_pd(1.0, -1.0, 1.0, -1.0,                   \
+                                      1.0, -1.0, 1.0, -1.0);                  \
+    const __m512d TWO = _mm512_set1_pd(2.0);                                  \
+    const int *js = pl->j3, *js2 = js + H_, *jdp = js2 + H_,                  \
+              *jdm = jdp + H_, *kp = jdm + H_, *km = kp + H_,                 \
+              *jv = km + H_;                                                  \
+    __m512d S[H_], Y[H_], T[H_], UF[H_], VF[2 * H_];                          \
+    __m512d E[M], A[M], B[M], C[M], M0[M], M1[M], M2[M], M3[M];               \
+    __m512d esum = _mm512_setzero_pd();                                       \
+    __m512d x0 = RP3_LD(sx, 0);                                               \
+    if (RP3_FOLD1_) {                                                         \
+        RP_UNROLL                                                             \
+        for (int j_ = 1; j_ <= H_; ++j_) {                                    \
+            __m512d a_ = RP3_LD(sx, (ptrdiff_t)j_ * rs);                      \
+            __m512d b_ = RP3_LD(sx, (ptrdiff_t)(P_ - j_) * rs);               \
+            UF[j_ - 1] = _mm512_add_pd(a_, b_);                               \
+            VF[j_ - 1] = _mm512_sub_pd(a_, b_);                               \
+            VF[H_ + j_ - 1] = _mm512_sub_pd(b_, a_);                          \
+        }                                                                     \
+        RP_UNROLL                                                             \
+        for (int n = 0; n < H_; ++n) S[n] = UF[js[n] - 1];                    \
+    } else {                                                                  \
+        RP_UNROLL                                                             \
+        for (int n = 0; n < H_; ++n)                                          \
+            S[n] = _mm512_add_pd(RP3_LD(sx, (ptrdiff_t)js[n] * rs),           \
+                                 RP3_LD(sx, (ptrdiff_t)js2[n] * rs));         \
+    }                                                                         \
+    RP3_WINO(pl->k3e, M, 1, CONV);                                            \
+    __m512d X0 = _mm512_add_pd(x0, esum);                                     \
+    if (RP_MAPARM && mapc)                                                    \
+        X0 = r31_map1(_mm512_add_pd(X0, RP3_LD(mapc, 0)), R31_FMDIV);         \
+    RP3_ST(0, X0);                                                            \
+    RP_UNROLL                                                                 \
+    for (int n = 0; n < H_; ++n) T[n] = _mm512_add_pd(x0, Y[n]);              \
+    if (RP3_FOLD1_) {                                                         \
+        RP_UNROLL                                                             \
+        for (int n = 0; n < H_; ++n) S[n] = VF[jv[n]];                        \
+    } else {                                                                  \
+        RP_UNROLL                                                             \
+        for (int n = 0; n < H_; ++n)                                          \
+            S[n] = _mm512_sub_pd(RP3_LD(sx, (ptrdiff_t)jdp[n] * rs),          \
+                                 RP3_LD(sx, (ptrdiff_t)jdm[n] * rs));         \
+    }                                                                         \
+    RP3_WINO(pl->k3o, M, 0, CONV);                                            \
+    RP_UNROLL                                                                 \
+    for (int n = 0; n < H_; ++n) {                                            \
+        __m512d o = _mm512_permute_pd(Y[n], 0x55);                            \
+        __m512d xp = _mm512_fmadd_pd(o, SG, T[n]);                            \
+        __m512d xm = _mm512_fnmadd_pd(o, SG, T[n]);                           \
+        if (RP_MAPARM && mapc) {                                              \
+            xp = _mm512_add_pd(xp, RP3_LD(mapc, (ptrdiff_t)kp[n] * rs));      \
+            xm = _mm512_add_pd(xm, RP3_LD(mapc, (ptrdiff_t)km[n] * rs));      \
+            r31_map2(xp, xm, &xp, &xm, R31_FMDIV);                            \
+        }                                                                     \
+        RP3_ST((ptrdiff_t)kp[n] * rs, xp);                                    \
+        RP3_ST((ptrdiff_t)km[n] * rs, xm);                                    \
+    }                                                                         \
+}
+
+/* conv form per m, node-raced (gen_r6, re-raced gen_r7 against the FIXED
+ * blocked codegen): the rp3 WINO makes 4 conv calls of m^2 each, so its
+ * full-unroll spill ceiling sits higher than rp2's.  -DRP3_BLK11/-DRP3_BLK13
+ * race the rolled-blocked form at 67/79. */
+RP3_DEFINE(7,  RP3_CONV)      /* p = 43 */
+#ifdef RP3_BLK11
+RP3_DEFINE(11, RP2_CONV_BLK)
+#else
+RP3_DEFINE(11, RP3_CONV)      /* p = 67 */
+#endif
+#ifdef RP3_BLK13
+RP3_DEFINE(13, RP2_CONV_BLK)
+#else
+RP3_DEFINE(13, RP3_CONV)      /* p = 79 */
+#endif
+RP3_DEFINE(17, RP2_CONV_BLK)  /* p = 103 */
+
+/* ---------------- even-h split chunk kernel (gen_r6) ----------------
+ * See rp2_build for the arithmetic.  Instantiated per m so every loop bound
+ * is compile-time and the five dense m^2-FMA block products unroll register-
+ * resident (the rp3/dense_prime exact-tile doctrine).  5m^2 + ~12m FMA-class
+ * per chunk per system pair vs the dense engine's 8m^2.  Rows are folded
+ * ONCE into stack U/V arrays (2h row loads at compile-time offsets, p = 4m+1
+ * known per instantiation; the rp3 kernels load every row twice through
+ * runtime index tables) with a negated V mirror so both conv fills are pure
+ * stack loads.  In-place safe: the fold loads every row before the only
+ * store the sweep makes to row 0; all other stores follow all loads. */
+
+#define RP2_DEFINE(M, CONV)                                                   \
+static void rp2_chunk_##M(const double *sx, double *dx, const double *mapc,   \
+                          const ptrdiff_t rs, const fft3d_plan *pl,           \
+                          int full, __mmask8 msk)                             \
+{                                                                             \
+    enum { H_ = 2 * (M), K_ = 2 * (M) - 1, KS_ = K_ + 7, P_ = 4 * (M) + 1 };  \
+    const __m512d SG = _mm512_setr_pd(1.0, -1.0, 1.0, -1.0,                   \
+                                      1.0, -1.0, 1.0, -1.0);                  \
+    const int *js = pl->j2, *jv = js + H_, *kp = jv + H_, *km = kp + H_;      \
+    const double *kc = pl->k2, *kn = kc + KS_, *kb0 = kn + KS_,               \
+                 *kb1 = kb0 + KS_, *kb2 = kb1 + KS_;                          \
+    __m512d UF[H_], VF[2 * H_], T[H_], O_[H_];                                \
+    __m512d Q0[M], Q1[M], P0[M], P1[M], P2[M];                                \
+    __m512d x0 = RP3_LD(sx, 0);                                               \
+    RP_UNROLL                                                                 \
+    for (int j_ = 1; j_ <= H_; ++j_) {       /* one-pass fold: rows at        \
+                                              * COMPILE-TIME offsets */       \
+        __m512d a_ = RP3_LD(sx, (ptrdiff_t)j_ * rs);                          \
+        __m512d b_ = RP3_LD(sx, (ptrdiff_t)(P_ - j_) * rs);                   \
+        UF[j_ - 1] = _mm512_add_pd(a_, b_);                                   \
+        VF[j_ - 1] = _mm512_sub_pd(a_, b_);                                   \
+        VF[H_ + j_ - 1] = _mm512_sub_pd(b_, a_);                              \
+    }                                                                         \
+    __m512d esum = _mm512_setzero_pd();                                       \
+    RP_UNROLL                                                                 \
+    for (int j_ = 0; j_ < (M); ++j_) {                                        \
+        __m512d slo = UF[js[j_] - 1], shi = UF[js[(M) + j_] - 1];             \
+        Q0[j_] = _mm512_add_pd(slo, shi);                /* mod z^m - 1 */    \
+        Q1[j_] = _mm512_sub_pd(slo, shi);                /* mod z^m + 1 */    \
+        esum = _mm512_add_pd(esum, Q0[j_]);                                   \
+    }                                                                         \
+    CONV(P0, Q0, kc, M);                                                      \
+    CONV(P1, Q1, kn, M);                                                      \
+    __m512d X0 = _mm512_add_pd(x0, esum);                                     \
+    if (RP_MAPARM && mapc)                                                    \
+        X0 = r31_map1(_mm512_add_pd(X0, RP3_LD(mapc, 0)), R31_FMDIV);         \
+    RP3_ST(0, X0);                                                            \
+    RP_UNROLL                                                                 \
+    for (int j_ = 0; j_ < (M); ++j_) {                                        \
+        T[j_] = _mm512_add_pd(x0, _mm512_add_pd(P0[j_], P1[j_]));             \
+        T[(M) + j_] = _mm512_add_pd(x0, _mm512_sub_pd(P0[j_], P1[j_]));       \
+    }                                                                         \
+    RP_UNROLL                                                                 \
+    for (int j_ = 0; j_ < (M); ++j_) {                                        \
+        Q0[j_] = VF[jv[2 * j_]];                         /* A0: even slots */ \
+        Q1[j_] = VF[jv[2 * j_ + 1]];                     /* A1: odd slots  */ \
+    }                                                                         \
+    CONV(P0, Q0, kb0, M);                                                     \
+    CONV(P1, Q1, kb1, M);                                                     \
+    RP_UNROLL                                                                 \
+    for (int j_ = 0; j_ < (M); ++j_)                                          \
+        Q0[j_] = _mm512_add_pd(Q0[j_], Q1[j_]);                               \
+    CONV(P2, Q0, kb2, M);                                                     \
+    O_[0] = _mm512_sub_pd(P0[0], P1[(M) - 1]);           /* y-wrap sign */    \
+    RP_UNROLL                                                                 \
+    for (int j_ = 1; j_ < (M); ++j_)                                          \
+        O_[2 * j_] = _mm512_add_pd(P0[j_], P1[j_ - 1]);                       \
+    RP_UNROLL                                                                 \
+    for (int j_ = 0; j_ < (M); ++j_)                                          \
+        O_[2 * j_ + 1] = _mm512_sub_pd(P2[j_],                                \
+                                       _mm512_add_pd(P0[j_], P1[j_]));        \
+    RP_UNROLL                                                                 \
+    for (int n = 0; n < H_; ++n) {                                            \
+        __m512d o = _mm512_permute_pd(O_[n], 0x55);                           \
+        __m512d xp = _mm512_fmadd_pd(o, SG, T[n]);                            \
+        __m512d xm = _mm512_fnmadd_pd(o, SG, T[n]);                           \
+        if (RP_MAPARM && mapc) {                                              \
+            xp = _mm512_add_pd(xp, RP3_LD(mapc, (ptrdiff_t)kp[n] * rs));      \
+            xm = _mm512_add_pd(xm, RP3_LD(mapc, (ptrdiff_t)km[n] * rs));      \
+            r31_map2(xp, xm, &xp, &xm, R31_FMDIV);                            \
+        }                                                                     \
+        RP3_ST((ptrdiff_t)kp[n] * rs, xp);                                    \
+        RP3_ST((ptrdiff_t)km[n] * rs, xm);                                    \
+    }                                                                         \
+}
+
+/* conv form per m, measured (see strategy record): full unroll wins while
+ * the spill traffic stays under the FMA plateau, the 8-accumulator blocked
+ * form wins once it does not. */
+RP2_DEFINE(3,  RP3_CONV)      /* p = 13 */
+RP2_DEFINE(4,  RP3_CONV)      /* p = 17 */
+RP2_DEFINE(7,  RP3_CONV)      /* p = 29 */
+#ifdef RP2_BLK9
+RP2_DEFINE(9,  RP2_CONV_BLK)
+#else
+RP2_DEFINE(9,  RP3_CONV)      /* p = 37 */
+#endif
+RP2_DEFINE(10, RP2_CONV_BLK)  /* p = 41 */
+#undef RP2_BLK_IUNROLL
+#define RP2_BLK_IUNROLL       /* p = 53: the gcc-unrolled i loop raced better
+                               * (+1% rolled, 3/3) -- keep the r6 codegen here */
+RP2_DEFINE(13, RP2_CONV_BLK)  /* p = 53 */
+#undef RP2_BLK_IUNROLL
+#define RP2_BLK_IUNROLL _Pragma("GCC unroll 1")
+RP2_DEFINE(15, RP2_CONV_BLK)  /* p = 61 */
+RP2_DEFINE(18, RP2_CONV_BLK)  /* p = 73 */
+RP2_DEFINE(22, RP2_CONV_BLK)  /* p = 89 */
+RP2_DEFINE(24, RP2_CONV_BLK)  /* p = 97 */
+RP2_DEFINE(25, RP2_CONV_BLK)  /* p = 101 */
+RP2_DEFINE(27, RP2_CONV_BLK)  /* p = 109 */
+RP2_DEFINE(28, RP2_CONV_BLK)  /* p = 113 */
+
+/* chunk dispatch: even-h split / outer-C3 when the plan built tables, dense
+ * otherwise (m2 and m3 are mutually exclusive by h's parity) */
+static inline void rp_chunk_any(const double *sx, double *dx, const double *mapc,
+                                const ptrdiff_t rs, const fft3d_plan *pl,
+                                int full, __mmask8 msk)
+{
+    switch (pl->m2) {
+    case 3:  rp2_chunk_3(sx, dx, mapc, rs, pl, full, msk);  return;
+    case 4:  rp2_chunk_4(sx, dx, mapc, rs, pl, full, msk);  return;
+    case 7:  rp2_chunk_7(sx, dx, mapc, rs, pl, full, msk);  return;
+    case 9:  rp2_chunk_9(sx, dx, mapc, rs, pl, full, msk);  return;
+    case 10: rp2_chunk_10(sx, dx, mapc, rs, pl, full, msk); return;
+    case 13: rp2_chunk_13(sx, dx, mapc, rs, pl, full, msk); return;
+    case 15: rp2_chunk_15(sx, dx, mapc, rs, pl, full, msk); return;
+    case 18: rp2_chunk_18(sx, dx, mapc, rs, pl, full, msk); return;
+    case 22: rp2_chunk_22(sx, dx, mapc, rs, pl, full, msk); return;
+    case 24: rp2_chunk_24(sx, dx, mapc, rs, pl, full, msk); return;
+    case 25: rp2_chunk_25(sx, dx, mapc, rs, pl, full, msk); return;
+    case 27: rp2_chunk_27(sx, dx, mapc, rs, pl, full, msk); return;
+    case 28: rp2_chunk_28(sx, dx, mapc, rs, pl, full, msk); return;
+    default: break;
+    }
+    switch (pl->m3) {
+    case 7:  rp3_chunk_7(sx, dx, mapc, rs, pl, full, msk);  return;
+    case 11: rp3_chunk_11(sx, dx, mapc, rs, pl, full, msk); return;
+    case 13: rp3_chunk_13(sx, dx, mapc, rs, pl, full, msk); return;
+    case 17: rp3_chunk_17(sx, dx, mapc, rs, pl, full, msk); return;
+    default:
+        rp_chunk(sx, dx, mapc, rs, pl->L, pl->h, pl->gct, pl->gst, full, msk);
+    }
+}
+
+/* one p x ncols pass, rows `pitch` complex apart; in-place safe (dst may ==
+ * src); c != NULL fuses the map at every store (c rows at the same pitch).
+ * pf != 0: software-prefetch every row's line `pf` BYTES ahead of the current
+ * chunk's loads (gen_layout gen_r4's fold-prefetch recipe).  The x-pass at
+ * DRAM-resident p walks p+1 concurrent row streams at plane-pitch stride --
+ * far past what the L2 streamer tracks (~32) -- so most rows' next line is a
+ * demand miss every chunk; T0 prefetch issued a chunk early hides it on the
+ * load ports the conv leaves partly idle.  At 31 the same recipe LOST (+0.7%,
+ * gen_r4): the state there is L2-resident.  Off for y/z (row count is the
+ * same but the streams live inside one L2-resident plane). */
+static void rp_pass(const fft3d_plan *pl, const cplx *src, cplx *dst,
+                    const cplx *c, const ptrdiff_t ncols, const ptrdiff_t pitch,
+                    const int pf)
+{
+    const ptrdiff_t rs = 2 * pitch, nd = 2 * ncols;
+    const int p = pl->L;
+    const double *sx = (const double *)src;
+    const double *cx = (const double *)c;
+    double *dx = (double *)dst;
+    ptrdiff_t d = 0;
+    for (; d + 8 <= nd; d += 8) {
+        if (pf)
+            for (int j = 0; j <= p - 1; ++j)
+                _mm_prefetch((const char *)(sx + (ptrdiff_t)j * rs + d) + pf,
+                             _MM_HINT_T0);
+        rp_chunk_any(sx + d, dx + d, cx ? cx + d : NULL, rs, pl,
+                     1, (__mmask8)0xFF);
+    }
+    if (d < nd)
+        rp_chunk_any(sx + d, dx + d, cx ? cx + d : NULL, rs, pl,
+                     0, (__mmask8)((1u << (nd - d)) - 1));
+}
+
+/* z-axis: up to 4 contiguous rows via 4x4-complex transposes into a stack
+ * pencil array, the SAME chunk kernel at rs = 8, transpose back (r31_zquad
+ * generalized to runtime p and a row count 1..4).  All loads precede all
+ * stores => in-place safe. */
+static void rp_zquad(const fft3d_plan *pl, const cplx *src, cplx *dst,
+                     int nrows, const ptrdiff_t srd, const ptrdiff_t drd)
+{
+    const int p = pl->L;
+    /* 4*ceil(p/4) <= 128 pencil rows of 8 doubles each */
+    __attribute__((aligned(64))) double xt[128 * 8], yt[128 * 8];
+    const int nt = (p + 3) / 4;            /* 4-complex tiles per row */
+    const int tail = p & 3;                /* complex in the last tile (0 = full) */
+    const __mmask8 tmsk = tail ? (__mmask8)((1u << (2 * tail)) - 1) : (__mmask8)0xFF;
+    const double *x = (const double *)src;
+    double *y = (double *)dst;
+    for (int t = 0; t < nt; ++t) {
+        const int ft = (t < nt - 1) || !tail;
+        const __mmask8 mk = ft ? (__mmask8)0xFF : tmsk;
+        __m512d r0 = _mm512_setzero_pd(), r1 = r0, r2 = r0, r3 = r0;
+        r0 = _mm512_maskz_loadu_pd(mk, x + 8 * t);
+        if (nrows > 1) r1 = _mm512_maskz_loadu_pd(mk, x + srd + 8 * t);
+        if (nrows > 2) r2 = _mm512_maskz_loadu_pd(mk, x + 2 * srd + 8 * t);
+        if (nrows > 3) r3 = _mm512_maskz_loadu_pd(mk, x + 3 * srd + 8 * t);
+        __m512d o0, o1, o2, o3;
+        r31_tp4(r0, r1, r2, r3, &o0, &o1, &o2, &o3);
+        _mm512_store_pd(xt + (4 * t) * 8, o0);
+        _mm512_store_pd(xt + (4 * t + 1) * 8, o1);
+        _mm512_store_pd(xt + (4 * t + 2) * 8, o2);
+        _mm512_store_pd(xt + (4 * t + 3) * 8, o3);
+    }
+    rp_chunk_any(xt, yt, NULL, 8, pl, 1, (__mmask8)0xFF);
+    for (int t = 0; t < nt; ++t) {
+        const int ft = (t < nt - 1) || !tail;
+        const __mmask8 mk = ft ? (__mmask8)0xFF : tmsk;
+        __m512d o0, o1, o2, o3;
+        /* rows >= p of yt are never written by rp_chunk; their lanes land in
+         * masked-out columns (shuffles only -- no arithmetic on them) */
+        r31_tp4(_mm512_load_pd(yt + (4 * t) * 8),
+                _mm512_load_pd(yt + (4 * t + 1) * 8),
+                _mm512_load_pd(yt + (4 * t + 2) * 8),
+                _mm512_load_pd(yt + (4 * t + 3) * 8),
+                &o0, &o1, &o2, &o3);
+        _mm512_mask_storeu_pd(y + 8 * t, mk, o0);
+        if (nrows > 1) _mm512_mask_storeu_pd(y + drd + 8 * t, mk, o1);
+        if (nrows > 2) _mm512_mask_storeu_pd(y + 2 * drd + 8 * t, mk, o2);
+        if (nrows > 3) _mm512_mask_storeu_pd(y + 3 * drd + 8 * t, mk, o3);
+    }
+}
+
+/* forward 3D volume, generic prime: z rows (quads + tail), x in place
+ * (inner = p^2), y in place per plane (inner = p) */
+static void rp_volume(const fft3d_plan *pl, const cplx *src, cplx *dst)
+{
+    const int p = pl->L;
+    const size_t LL = (size_t)p * p;
+    size_t r = 0;
+    for (; r + 4 <= LL; r += 4)
+        rp_zquad(pl, src + r * p, dst + r * p, 4, 2 * p, 2 * p);
+    if (r < LL)
+        rp_zquad(pl, src + r * p, dst + r * p, (int)(LL - r), 2 * p, 2 * p);
+    rp_pass(pl, dst, dst, NULL, (ptrdiff_t)LL, (ptrdiff_t)LL, pl->xpf);
+    for (int xpl = 0; xpl < p; ++xpl)
+        rp_pass(pl, dst + (size_t)xpl * LL, dst + (size_t)xpl * LL, NULL, p, p, 0);
+}
+
+#endif /* __AVX512F__ */
+
+/* ---------------- dense fallback / reference (the round-0 stub engine) ---------------- */
+
+static void ref_contract(const cplx *w, int L, const cplx *in, cplx *out, int inner)
+{
+    for (int k = 0; k < L; ++k)
+        for (int c = 0; c < inner; ++c) {
+            cplx acc = 0.0;
+            for (int j = 0; j < L; ++j)
+                acc += w[(size_t)k * L + j] * in[(size_t)j * inner + c];
+            out[(size_t)k * inner + c] = acc;
+        }
+}
+
+/* full reference volume: src -> dst (src untouched; uses p->tmp) */
+static void ref_volume(fft3d_plan *p, const cplx *src, cplx *dst)
+{
+    const int L = p->L;
+    const size_t LL = (size_t)L * L;
+    ref_contract(p->w, L, src, dst, (int)LL);
+    for (int x = 0; x < L; ++x)
+        ref_contract(p->w, L, dst + (size_t)x * LL, p->tmp + (size_t)x * LL, L);
+    for (size_t row = 0; row < LL; ++row)
+        ref_contract(p->w, L, p->tmp + row * L, dst + row * L, 1);
+}
+
+/* ---------------- one volume, forward 3D (fast path) ----------------
+ * z rows: src -> dst (row-local, out-of-place or in-place safe); x and y IN
+ * PLACE on dst (the chunk kernel loads every row before storing any). */
+static void fast_volume(fft3d_plan *p, const cplx *src, cplx *dst)
+{
+#ifdef __AVX512F__
+    if (p->L != 31) { rp_volume(p, src, dst); return; }
+    const size_t LL = 31 * 31;
+    r31_zpass_main(p, src, dst, LL);
+    r31_pass_x(dst, dst, p->ke, p->ko);
+    for (int x = 0; x < 31; ++x)
+        r31_pass_y(dst + (size_t)x * LL, dst + (size_t)x * LL, p->ke, p->ko);
+#else
+    (void)p; (void)src; (void)dst;
+#endif
+}
+
+void fft3d_execute(fft3d_plan *p, const cplx *in, cplx *out)
+{
+    const size_t vol = (size_t)p->L * p->L * p->L;
+    for (int b = 0; b < p->batch; ++b) {
+        if (p->fast)
+            fast_volume(p, in + (size_t)b * vol, out + (size_t)b * vol);
+        else
+            ref_volume(p, in + (size_t)b * vol, out + (size_t)b * vol);
+    }
+}
+
+/* ---------------- fused map chain (shape from gen_dense_prime / ice s6) ---------------- */
+
+/* z and o may alias (in-place map): elementwise, loads precede the store per
+ * point -- deliberately NOT restrict-qualified */
+static void map_volume(const cplx *z, const cplx *restrict c,
+                       cplx *o, size_t npts)
+{
+    const double *zp = (const double *)z;
+    const double *cp = (const double *)c;
+    double *op = (double *)o;
+    size_t i = 0;
+#ifdef __AVX512F__
+    const __m512d ONE  = _mm512_set1_pd(1.0);
+    const __m512d TH   = _mm512_set1_pd(1.5);
+    const __m512d HALF = _mm512_set1_pd(0.5);
+    const __m512d TINY = _mm512_set1_pd(1e-300);
+    for (; i + 8 <= npts; i += 8) {
+        __m512d w0 = _mm512_add_pd(_mm512_loadu_pd(zp + 2 * i),
+                                   _mm512_loadu_pd(cp + 2 * i));
+        __m512d w1 = _mm512_add_pd(_mm512_loadu_pd(zp + 2 * i + 8),
+                                   _mm512_loadu_pd(cp + 2 * i + 8));
+        __m512d p0 = _mm512_mul_pd(w0, w0), p1 = _mm512_mul_pd(w1, w1);
+        __m512d m2 = _mm512_add_pd(_mm512_unpacklo_pd(p0, p1),
+                                   _mm512_unpackhi_pd(p0, p1));
+        __m512d m2c = _mm512_max_pd(m2, TINY);
+        __m512d r = _mm512_rsqrt14_pd(m2c);
+        __m512d hm = _mm512_mul_pd(m2c, HALF);
+        r = _mm512_mul_pd(r, _mm512_fnmadd_pd(_mm512_mul_pd(hm, r), r, TH));
+        r = _mm512_mul_pd(r, _mm512_fnmadd_pd(_mm512_mul_pd(hm, r), r, TH));
+        __m512d d = _mm512_fmadd_pd(m2c, r, ONE);           /* 1 + |w| */
+        __m512d rec = _mm512_div_pd(ONE, d);                /* the one divide */
+        _mm512_storeu_pd(op + 2 * i,     _mm512_mul_pd(w0, _mm512_unpacklo_pd(rec, rec)));
+        _mm512_storeu_pd(op + 2 * i + 8, _mm512_mul_pd(w1, _mm512_unpackhi_pd(rec, rec)));
+    }
+#endif
+    for (; i < npts; ++i) {
+        double re = zp[2 * i] + cp[2 * i];
+        double im = zp[2 * i + 1] + cp[2 * i + 1];
+        double sc = 1.0 / (1.0 + sqrt(re * re + im * im));
+        op[2 * i] = re * sc;
+        op[2 * i + 1] = im * sc;
+    }
+}
+
+#ifdef __AVX512F__
+/* env-gated per-pass profile of the flat generic chain (RP_PROF=1): dev-only
+ * diagnostics on the DRAM-resident primes; zero timing calls when unset. */
+static double rp_now(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec;
+}
+static int rp_prof_on(void)
+{
+    static int v = -1;
+    if (v < 0) v = getenv("RP_PROF") != NULL;
+    return v;
+}
+
+/* One volume's whole fused chain on the padded private state (raw engine; the
+ * caller gates on p->fast).  Step 0's z pass reads flat x0 straight into the
+ * arena; steps run z (8 uniform quads/plane -- the 32nd "row" is the zeroed
+ * pad row, DFT(0)=0), x across planes at the anti-alias pitch, then per plane
+ * y + map (c from the padded mirror, filled once per volume).  The last step's
+ * map stays in the arena and the rows are copied out flat. */
+static void r31_chain_volume(fft3d_plan *p, const cplx *x0v, const cplx *cv,
+                             cplx *outv, int m)
+{
+    const size_t LL = 31 * 31;
+    cplx *st = p->st, *cp = p->cpad;
+    for (int x = 0; x < 31; ++x)
+        for (int y = 0; y < 31; ++y)
+            memcpy(cp + (size_t)x * R31_PP + (size_t)y * R31_ZP,
+                   cv + (size_t)x * LL + (size_t)y * 31, 31 * sizeof(cplx));
+#ifdef R31_R3CHAIN
+    /* gen_r3 pass order (control arm): z sweep / x sweep / y+map sweep --
+     * step s+1's z re-reads the whole state from L2 after the map sweep. */
+    for (int s = 0; s < m; ++s) {
+        for (int x = 0; x < 31; ++x) {
+            cplx *pl = st + (size_t)x * R31_PP;
+            if (s == 0) {
+                const cplx *sp = x0v + (size_t)x * LL;
+                for (int q = 0; q < 7; ++q)
+                    r31_zquad_fp(sp + (size_t)q * 4 * 31,
+                                 pl + (size_t)q * 4 * R31_ZP, p->ke, p->ko);
+                r31_zpass(sp + 28 * 31, pl + 28 * R31_ZP, 3, 31, R31_ZP,
+                          p->ctd, p->std_);
+            } else {
+                for (int q = 0; q < 8; ++q)
+                    r31_zquad_pp(pl + (size_t)q * 4 * R31_ZP,
+                                 pl + (size_t)q * 4 * R31_ZP, p->ke, p->ko);
+            }
+        }
+        r31_pass_xp(st, p->ke, p->ko);
+        for (int x = 0; x < 31; ++x) {
+            cplx *pl = st + (size_t)x * R31_PP;
+            r31_pass_yp(pl, p->ke, p->ko);
+            map_volume(pl, cp + (size_t)x * R31_PP, pl, 31 * R31_ZP);
+            if (s == m - 1) {
+                cplx *op = outv + (size_t)x * LL;
+                for (int y = 0; y < 31; ++y)
+                    memcpy(op + (size_t)y * 31, pl + (size_t)y * R31_ZP,
+                           31 * sizeof(cplx));
+            }
+        }
+    }
+#else
+    /* gen_r4 PLANE CUSTODY (gen_layout r3's window idea, gen_bluestein r4's
+     * confirmation): z contracts within a plane, so step s+1's z-pass runs on
+     * each plane RIGHT AFTER that plane's map, while it is still L1/L2-hot --
+     * one full-state L2 read per step deleted vs the r3 order.  Identical
+     * arithmetic, identical per-pass order within each plane => bit-identical.
+     * -DR31_ZMAPF additionally fuses the map into the z-quads' transpose-in
+     * loads (deletes the separate map sweep; vdivpd form => still
+     * bit-identical). */
+    for (int x = 0; x < 31; ++x) {          /* prologue: z_0 from flat x0 */
+        cplx *pl = st + (size_t)x * R31_PP;
+        const cplx *sp = x0v + (size_t)x * LL;
+        for (int q = 0; q < 7; ++q)
+            r31_zquad_fp(sp + (size_t)q * 4 * 31,
+                         pl + (size_t)q * 4 * R31_ZP, p->ke, p->ko);
+        r31_zpass(sp + 28 * 31, pl + 28 * R31_ZP, 3, 31, R31_ZP,
+                  p->ctd, p->std_);
+    }
+    for (int s = 0; s < m; ++s) {
+        r31_pass_xp(st, p->ke, p->ko);
+        for (int x = 0; x < 31; ++x) {
+            cplx *pl = st + (size_t)x * R31_PP;
+            const cplx *cpl = cp + (size_t)x * R31_PP;
+            r31_pass_yp(pl, p->ke, p->ko);
+            if (s == m - 1) {
+                map_volume(pl, cpl, pl, 31 * R31_ZP);
+                cplx *op = outv + (size_t)x * LL;
+                for (int y = 0; y < 31; ++y)
+                    memcpy(op + (size_t)y * 31, pl + (size_t)y * R31_ZP,
+                           31 * sizeof(cplx));
+            } else {
+#ifdef R31_ZMAPF
+                for (int q = 0; q < 8; ++q)
+                    r31_zquad_mp(pl + (size_t)q * 4 * R31_ZP,
+                                 pl + (size_t)q * 4 * R31_ZP,
+                                 cpl + (size_t)q * 4 * R31_ZP, p->ke, p->ko);
+#else
+                map_volume(pl, cpl, pl, 31 * R31_ZP);
+                /* -DR31_ZMIX=q (< 8): rows 4q..30 through the dense zrow
+                 * kernel instead of transpose quads -- moves z work from the
+                 * quad's binding port 5 onto the load ports (r4 next-step 1).
+                 * Default 8 = the all-quad r4 form, bit-identical. */
+                for (int q = 0; q < R31_ZMIX; ++q)
+                    r31_zquad_pp(pl + (size_t)q * 4 * R31_ZP,
+                                 pl + (size_t)q * 4 * R31_ZP, p->ke, p->ko);
+                if (R31_ZMIX < 8)
+                    r31_zpass(pl + (size_t)R31_ZMIX * 4 * R31_ZP,
+                              pl + (size_t)R31_ZMIX * 4 * R31_ZP,
+                              (size_t)(31 - 4 * R31_ZMIX), R31_ZP, R31_ZP,
+                              p->ctd, p->std_);
+#endif
+            }
+        }
+    }
+#endif
+}
+
+/* generic-prime fused chain: fully in place on the out volume (the r1 form;
+ * every rp pass and the map are in-place safe), map per plane right after its
+ * y pass while the plane is cache-hot.  -DRP_YMAPFUSE instead fuses the map
+ * into the y-pass stores (raceable; the r31 engine lost this one to register
+ * pressure -- the generic kernel's combine is leaner, so it stays a knob). */
+/* z-pass over one plane's p pencils, in place: quads + a per-plane tail;
+ * rowp = row pitch in complex (p flat, zp padded) */
+static void rp_zplane(const fft3d_plan *pl, cplx *plane, const ptrdiff_t rowp)
+{
+    const int p = pl->L;
+    int r = 0;
+    for (; r + 4 <= p; r += 4)
+        rp_zquad(pl, plane + (size_t)r * rowp, plane + (size_t)r * rowp, 4,
+                 2 * rowp, 2 * rowp);
+    if (r < p)
+        rp_zquad(pl, plane + (size_t)r * rowp, plane + (size_t)r * rowp, p - r,
+                 2 * rowp, 2 * rowp);
+}
+
+static void rp_chain_volume(fft3d_plan *pl, const cplx *x0v, const cplx *cv,
+                            cplx *stv, int m)
+{
+    const int p = pl->L;
+    const size_t LL = (size_t)p * p, vol = LL * p;
+    if (pl->gs) {
+    /* gen_r5: PADDED ARENA custody chain (the r2 lesson at 31 paid at the
+     * mid primes; create() only allocates the arena for p <= RP_PAD_MAX).
+     * Rows p -> zp complex (64B-aligned, y tail-free), planes at the
+     * alias-free pitch pp (see rp_pick_pp), state + c mirror in one
+     * huge-page arena at a +2048B relative page phase.  Pad slots were
+     * zeroed at create() and stay zero: no pass mixes columns, DFT(0)=0,
+     * map(0+0)=0.  Pass order is the r4 custody order (prologue z, then per
+     * step x, per plane y+map+z_next).  Per-point arithmetic is lanewise
+     * everywhere, so outputs are BIT-IDENTICAL to the flat chain (cmp-
+     * verified at 13/37/61). */
+    const int zp = pl->zp;
+    const size_t PP = (size_t)pl->pp;
+    const ptrdiff_t live = (ptrdiff_t)p * zp;            /* mult of 4 complex */
+    const size_t mpts = ((size_t)live + 7) & ~(size_t)7; /* map window, <= PP */
+    cplx *st = pl->gs, *cp = pl->gc;
+    for (int x = 0; x < p; ++x)                          /* c mirror, once per volume */
+        for (int y = 0; y < p; ++y)
+            memcpy(cp + (size_t)x * PP + (size_t)y * zp,
+                   cv + (size_t)x * LL + (size_t)y * p, (size_t)p * sizeof(cplx));
+    for (int x = 0; x < p; ++x) {                        /* prologue: z_0 flat -> padded */
+        const cplx *sp = x0v + (size_t)x * LL;
+        cplx *plane = st + (size_t)x * PP;
+        int r = 0;
+        for (; r + 4 <= p; r += 4)
+            rp_zquad(pl, sp + (size_t)r * p, plane + (size_t)r * zp, 4,
+                     2 * p, 2 * zp);
+        if (r < p)
+            rp_zquad(pl, sp + (size_t)r * p, plane + (size_t)r * zp, p - r,
+                     2 * p, 2 * zp);
+    }
+    for (int s = 0; s < m; ++s) {
+        rp_pass(pl, st, st, NULL, live, (ptrdiff_t)PP, pl->xpf);  /* x: planes at pitch PP */
+        for (int xpl = 0; xpl < p; ++xpl) {
+            cplx *plane = st + (size_t)xpl * PP;
+            const cplx *cpl = cp + (size_t)xpl * PP;
+#ifdef RP_YMAPFUSE
+            rp_pass(pl, plane, plane, cpl, zp, zp, 0);
+#else
+            rp_pass(pl, plane, plane, NULL, zp, zp, 0);
+            map_volume(plane, cpl, plane, mpts);
+#endif
+            if (s < m - 1) {
+                rp_zplane(pl, plane, zp);
+            } else {
+                cplx *op = stv + (size_t)xpl * LL;
+                for (int y = 0; y < p; ++y)
+                    memcpy(op + (size_t)y * p, plane + (size_t)y * zp,
+                           (size_t)p * sizeof(cplx));
+            }
+        }
+    }
+    return;
+    }
+    memcpy(stv, x0v, vol * sizeof(cplx));
+#ifdef RP_R3CHAIN
+    /* gen_r3 order (control arm): global z sweep per step */
+    for (int s = 0; s < m; ++s) {
+        size_t r = 0;
+        for (; r + 4 <= LL; r += 4)
+            rp_zquad(pl, stv + r * p, stv + r * p, 4, 2 * p, 2 * p);
+        if (r < LL)
+            rp_zquad(pl, stv + r * p, stv + r * p, (int)(LL - r), 2 * p, 2 * p);
+        rp_pass(pl, stv, stv, NULL, (ptrdiff_t)LL, (ptrdiff_t)LL, pl->xpf);
+        for (int xpl = 0; xpl < p; ++xpl) {
+            cplx *plane = stv + (size_t)xpl * LL;
+            const cplx *cpl = cv + (size_t)xpl * LL;
+#ifdef RP_YMAPFUSE
+            rp_pass(pl, plane, plane, cpl, p, p, 0);
+#else
+            rp_pass(pl, plane, plane, NULL, p, p, 0);
+            map_volume(plane, cpl, plane, LL);
+#endif
+        }
+    }
+#else
+    /* gen_r4 PLANE CUSTODY (same move as the r31 chain): step s+1's z runs
+     * per plane right after that plane's map, while the plane is cache-hot.
+     * At DRAM-resident sizes (p >= ~50, volume > L2) this deletes a whole
+     * volume read per step.  Per-pencil arithmetic identical; only the quad
+     * GROUPING changes at p % 4 != 0 (pencils are lane-independent =>
+     * bit-identical outputs). */
+    for (int xpl = 0; xpl < p; ++xpl)       /* prologue: z_0 per plane */
+        rp_zplane(pl, stv + (size_t)xpl * LL, p);
+    const int prof = rp_prof_on();
+    double tx = 0, ty = 0, tmp_ = 0, tz = 0, t0 = 0, t1;
+    for (int s = 0; s < m; ++s) {
+        if (prof) t0 = rp_now();
+        rp_pass(pl, stv, stv, NULL, (ptrdiff_t)LL, (ptrdiff_t)LL, pl->xpf);
+        if (prof) { t1 = rp_now(); tx += t1 - t0; }
+        for (int xpl = 0; xpl < p; ++xpl) {
+            cplx *plane = stv + (size_t)xpl * LL;
+            const cplx *cpl = cv + (size_t)xpl * LL;
+            if (prof) t0 = rp_now();
+#ifdef RP_YMAPFUSE
+            rp_pass(pl, plane, plane, cpl, p, p, 0);
+            if (prof) { t1 = rp_now(); ty += t1 - t0; t0 = t1; }
+#else
+            rp_pass(pl, plane, plane, NULL, p, p, 0);
+            if (prof) { t1 = rp_now(); ty += t1 - t0; t0 = t1; }
+            map_volume(plane, cpl, plane, LL);
+            if (prof) { t1 = rp_now(); tmp_ += t1 - t0; t0 = t1; }
+#endif
+            if (s < m - 1)
+                rp_zplane(pl, plane, p);
+            if (prof) { t1 = rp_now(); tz += t1 - t0; }
+        }
+    }
+    if (prof)
+        fprintf(stderr, "[rp_prof p=%d m=%d] x %.3f ms/step  y %.3f  map %.3f  z %.3f\n",
+                p, m, 1e3 * tx / m, 1e3 * ty / m, 1e3 * tmp_ / m, 1e3 * tz / m);
+#endif
+}
+#endif /* __AVX512F__ */
+
+void fft3d_chain(fft3d_plan *p, const cplx *x0, const cplx *c,
+                 cplx *final_out, int m)
+{
+    const size_t LL = (size_t)p->L * p->L, vol = LL * p->L;
+    for (int b = 0; b < p->batch; ++b) {
+        cplx *stv = final_out + (size_t)b * vol;    /* state lives in the out volume */
+        const cplx *cv = c + (size_t)b * vol;
+        if (p->fast && m > 0 && p->L != 31) {
+#ifdef __AVX512F__
+            rp_chain_volume(p, x0 + (size_t)b * vol, cv, stv, m);
+#endif
+        } else if (p->fast && m > 0) {
+#ifdef __AVX512F__
+#if defined(R31_FLATCHAIN) || defined(R31_FUSEMAP)
+            /* gen_r1 shipped form: all passes in place on the FLAT state in the
+             * out volume (953 KB working set).  Kept for A/B (-DR31_FLATCHAIN);
+             * the natural 961-complex plane pitch makes every x-pass access
+             * line-split AND 4K-aliases each chunk's stores against the next
+             * chunk's loads at row distance 4 (961*16*4 == 64 mod 4096). */
+            memcpy(stv, x0 + (size_t)b * vol, vol * sizeof(cplx));
+            for (int s = 0; s < m; ++s) {
+                r31_zpass_main(p, stv, stv, LL);
+                r31_pass_x(stv, stv, p->ke, p->ko);
+#ifdef R31_FUSEMAP
+                for (int x = 0; x < 31; ++x)
+                    r31_pass_ym(stv + (size_t)x * LL, p->t1 + (size_t)x * LL,
+                                cv + (size_t)x * LL, p->ke, p->ko);
+                memcpy(stv, p->t1, vol * sizeof(cplx));
+#else
+                for (int x = 0; x < 31; ++x)
+                    r31_pass_y(stv + (size_t)x * LL, stv + (size_t)x * LL,
+                               p->ke, p->ko);
+                map_volume(stv, cv, stv, vol);
+#endif
+            }
+#else
+            /* gen_r2 form: fully padded/aligned private state -- see
+             * r31_chain_volume.  Working set st + cpad = 1.14 MB < L2. */
+            r31_chain_volume(p, x0 + (size_t)b * vol, cv, stv, m);
+#endif
+#endif
+        } else {
+            memcpy(stv, x0 + (size_t)b * vol, vol * sizeof(cplx));
+            for (int s = 0; s < m; ++s) {
+                ref_volume(p, stv, p->t1);
+                map_volume(p->t1, cv, stv, vol);
+            }
+        }
+    }
+}
+
+/* ---------------- plan lifecycle ---------------- */
+
+static void *xalloc(size_t bytes)
+{
+    return aligned_alloc(64, (bytes + 63) & ~(size_t)63);
+}
+
+/* deterministic pseudo-random volume; compare fast engine vs dense reference
+ * for both execute AND one padded chain step (a pad/stride bug must fall back,
+ * not ship).  Transcription bugs in the Rader tables would show at ~1e0; the
+ * correct engines differ by rounding only (~1e-15). */
+static int self_check(fft3d_plan *p)
+{
+#ifdef __AVX512F__
+    const size_t vol = (size_t)p->L * p->L * p->L;
+    cplx *a = xalloc(vol * sizeof(cplx));
+    cplx *cc = xalloc(vol * sizeof(cplx));
+    cplx *rf = xalloc(vol * sizeof(cplx));
+    cplx *ff = xalloc(vol * sizeof(cplx));
+    if (!a || !cc || !rf || !ff) { free(a); free(cc); free(rf); free(ff); return 0; }
+    unsigned long long st = 0x9e3779b97f4a7c15ull;
+    double *ad = (double *)a, *cd = (double *)cc;
+    for (size_t i = 0; i < 2 * vol; ++i) {
+        st ^= st << 13; st ^= st >> 7; st ^= st << 17;
+        ad[i] = (double)(long long)(st % 2000001ull) / 1000000.0 - 1.0;
+        st ^= st << 13; st ^= st >> 7; st ^= st << 17;
+        cd[i] = (double)(long long)(st % 2000001ull) / 1000000.0 - 1.0;
+    }
+    ref_volume(p, a, rf);
+    fast_volume(p, a, ff);
+    long double num = 0, den = 0;
+    for (size_t i = 0; i < vol; ++i) {
+        cplx dd = ff[i] - rf[i];
+        num += creal(dd) * creal(dd) + cimag(dd) * cimag(dd);
+        den += creal(rf[i]) * creal(rf[i]) + cimag(rf[i]) * cimag(rf[i]);
+    }
+    int ok = den > 0 && sqrtl(num / den) < 1e-13L;
+    if (ok) {
+        for (size_t i = 0; i < vol; ++i) {      /* scalar-map the reference */
+            double re = creal(rf[i]) + creal(cc[i]);
+            double im = cimag(rf[i]) + cimag(cc[i]);
+            double sc = 1.0 / (1.0 + sqrt(re * re + im * im));
+            rf[i] = re * sc + I * im * sc;
+        }
+        int do_chain_leg = 1;
+#if defined(R31_FLATCHAIN) || defined(R31_FUSEMAP)
+        if (p->L == 31) do_chain_leg = 0;
+#endif
+        if (do_chain_leg) {
+            if (p->L == 31) r31_chain_volume(p, a, cc, ff, 1);
+            else            rp_chain_volume(p, a, cc, ff, 1);
+            num = den = 0;
+            for (size_t i = 0; i < vol; ++i) {
+                cplx dd = ff[i] - rf[i];
+                num += creal(dd) * creal(dd) + cimag(dd) * cimag(dd);
+                den += creal(rf[i]) * creal(rf[i]) + cimag(rf[i]) * cimag(rf[i]);
+            }
+            ok = den > 0 && sqrtl(num / den) < 1e-13L;
+        }
+    }
+    free(a); free(cc); free(rf); free(ff);
+    return ok;
+#else
+    (void)p;
+    return 0;
+#endif
+}
+
+/* st + cpad in ONE 2MiB huge-page arena, c mirror at page phase +2048 B
+ * (gen_layout gl_map_huge recipe; kills the map's c-load / y-store 4K alias
+ * two same-phase aligned_allocs produce).  Heap fallback keeps r2 behavior. */
+static void r31_arena_init(fft3d_plan *p)
+{
+    const size_t one = (size_t)31 * R31_PP * sizeof(cplx);
+    const size_t stb = (one + 4095) & ~(size_t)4095;
+    const size_t HP = (size_t)2 << 20;
+    const size_t len = (stb + 2048 + one + HP - 1) & ~(HP - 1);
+    void *raw = mmap(0, len + HP, PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (raw != MAP_FAILED) {
+        char *al = (char *)(((uintptr_t)raw + HP - 1) & ~(uintptr_t)(HP - 1));
+        size_t head = (size_t)(al - (char *)raw);
+        if (head) munmap(raw, head);
+        size_t tl = (size_t)(((char *)raw + len + HP) - (al + len));
+        if (tl) munmap(al + len, tl);
+        madvise(al, len, MADV_HUGEPAGE);
+        memset(al, 0, len);            /* prefault now: faults belong in create() */
+        p->arena = al;
+        p->alen = len;
+        p->st = (cplx *)al;
+        p->cpad = (cplx *)(al + stb + 2048);
+        return;
+    }
+    p->st = xalloc(one);
+    p->cpad = xalloc(one);
+}
+
+fft3d_plan *fft3d_create(int L, int batch)
+{
+    if (!fft3d_supports(L)) return NULL;
+    fft3d_plan *p = calloc(1, sizeof *p);
+    if (!p) return NULL;
+    p->L = L;
+    p->batch = batch;
+    p->h = (L - 1) / 2;
+
+    const size_t vol = (size_t)L * L * L;
+    p->t1 = xalloc(vol * sizeof(cplx));
+    p->w = xalloc((size_t)L * L * sizeof(cplx));
+    p->tmp = xalloc(vol * sizeof(cplx));
+    int okm = p->t1 && p->w && p->tmp;
+    if (L == 31) {
+        p->ke = xalloc(20 * sizeof(double));
+        p->ko = xalloc(20 * sizeof(double));
+        p->ctd = r31_trig_dup(0);
+        p->std_ = r31_trig_dup(1);
+        r31_arena_init(p);
+        okm = okm && p->ke && p->ko && p->ctd && p->std_ && p->st && p->cpad;
+        if (okm) {
+            /* pad slots must be zero (not garbage/denormals) and then stay zero */
+            memset(p->st, 0, (size_t)31 * R31_PP * sizeof(cplx));
+            memset(p->cpad, 0, (size_t)31 * R31_PP * sizeof(cplx));
+            r31_build_kernels(p->ke, p->ko);
+        }
+    } else {
+        p->gct = rp_trig(L, p->h, 0);
+        p->gst = rp_trig(L, p->h, 1);
+        /* outer-C3 Rader where the quotient group order is h = 3m, h odd,
+         * gcd(3,m) = 1 (43/67/79/103): ~2.25x fewer conv FMA than the dense
+         * half-system.  -DRP_NOC3 keeps the dense engine (control arm).
+         * Correctness gated by the same create() self-check as everything. */
+#ifndef RP_NOC3
+        {
+            const int hh = p->h, mm = hh / 3;
+            if ((hh & 1) && hh % 3 == 0 && mm % 3 != 0 &&
+                (mm == 7 || mm == 11 || mm == 13 || mm == 17) && rp3_build(p))
+                p->m3 = mm;
+        }
+#endif
+        /* even-h split Rader (gen_r6): 5m^2 vs dense 8m^2 conv FMA for every
+         * p == 1 mod 4 in class (13..113).  -DRP_NO2 keeps the dense engine
+         * (control arm).  Gated by the same create() self-check. */
+#ifndef RP_NO2
+        if (!p->m3) {
+            const int hh = p->h, mm = hh / 2;
+            if (!(hh & 1) &&
+                (mm == 3 || mm == 4 || mm == 7 || mm == 9 || mm == 10 ||
+                 mm == 13 || mm == 15 || mm == 18 || mm == 22 || mm == 24 ||
+                 mm == 25 || mm == 27 || mm == 28) && rp2_build(p))
+                p->m2 = mm;
+        }
+#endif
+        /* padded chain arena: state + c mirror in one huge-page mapping
+         * (gl_map_huge zeroes it -- the pad slots MUST start zero), c at a
+         * +2048B relative page phase (the r3 anti-alias trick at 31).  Only
+         * for p <= RP_PAD_MAX (see there); allocation failure falls back to
+         * the flat chain (gs stays NULL), never fails create(). */
+#ifndef RP_FLATCHAIN
+        if (L <= RP_PAD_MAX) {
+            p->zp = rp_zpc(L);
+            p->pp = rp_pick_pp(L * p->zp);
+            const size_t one = (size_t)L * p->pp * sizeof(cplx);
+            const size_t stb = (one + 4095) & ~(size_t)4095;
+            char *al = gl_map_huge(&p->gmap, stb + 2048 + one);
+            if (al) {
+                p->gs = (cplx *)al;
+                p->gc = (cplx *)(al + stb + 2048);
+            }
+        }
+#endif
+        /* x-pass software prefetch: only where the chain state is not
+         * cache-resident (the p+1 row streams then miss past the L2
+         * streamer's tracking).  state + c = 2 * 16 L^3 bytes vs the 24 MB
+         * LLC; RP_PFMIN_KB / RP_PFD are race knobs. */
+#ifndef RP_PFD
+#define RP_PFD 128
+#endif
+#ifndef RP_PFMIN_KB
+#define RP_PFMIN_KB 36864       /* enable when state+c > 36 MiB (p >= 107):
+                                 * node-raced -1.5% at 113, -0.5% at 127,
+                                 * wash-to-negative at 89/101 */
+#endif
+        if (2 * vol * sizeof(cplx) > (size_t)RP_PFMIN_KB * 1024)
+            p->xpf = RP_PFD;
+        okm = okm && p->gct && p->gst;
+    }
+    if (!okm) {
+        fft3d_destroy(p);
+        return NULL;
+    }
+    for (int k = 0; k < L; ++k)
+        for (int j = 0; j < L; ++j) {
+            long double th = -2.0L * PIL * (long double)((k * j) % L) / (long double)L;
+            p->w[(size_t)k * L + j] = (double)cosl(th) + I * (double)sinl(th);
+        }
+    p->fast = self_check(p);
+    return p;
+}
+
+void fft3d_destroy(fft3d_plan *p)
+{
+    if (!p) return;
+    free(p->ke); free(p->ko); free(p->ctd); free(p->std_);
+    free(p->gct); free(p->gst);
+    free(p->j3); free(p->k3e); free(p->k3o);
+    free(p->j2); free(p->k2);
+    free(p->t1); free(p->w); free(p->tmp);
+    gl_unmap(&p->gmap);
+    if (p->arena) munmap(p->arena, p->alen);
+    else { free(p->st); free(p->cpad); }
+    free(p);
+}

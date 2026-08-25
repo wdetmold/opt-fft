@@ -1,0 +1,9 @@
+Round complete. Summary of what I did:
+
+**The find:** my own r6 record declined the 7·2^k convolution grid claiming its slice "contains no graded size" — but L=50 (M 128→112) and L=100 (M 256→224) are both graded. This round implemented it: twiddle-free DFT-7 and PFA(2×7) DFT-14 tails with fused AVX-512 middles (`conv_mid7`/`conv_mid14`), extending the r6 machinery unchanged — no bit-reversal, structural bh consistency, S=M/4 stays 4-aligned so the transpose paths needed zero changes. All other sizes take byte-identical code paths (verified at parity: L=40 619 vs 619 µs, L=25 ~181 both arms, same core).
+
+**Measured (a80n0, held lease, control-first same-core pairs vs a `-DBST_NO7` control build):** L=50 B=4 −21% (1393.6 vs 1795 µs, 3/3 pairs; board was 1771.7, now 1.49x MKL from 1.87x), L=100 B=1 −7.0% (14352 vs 15435, 3/3; board ~15479).
+
+**Gates all pass:** 18-size node generality sweep ≤ 1.0e-15 singles (tol 1e-12), two-step m=2 gates 3.2–4.1e-15 (tol 3e-14, ≥7x margin), full graded chains L=50 6.13e-14 / L=100 3.56e-14 (≤2.1x honest anchors, tol 1e-10), bit-repeatable, scalar build passes end to end, create() still ~0 s. Strategy record appended with the A/B numbers, the coverage-check lesson, declined ideas (15·2^k no graded coverage; 13·2^k queued; M=24 scoped and declined again), and named borrows.
+
+**One line:** 7·2^k Bluestein grid (DFT-7/PFA-14 twiddle-free tails, M 128→112 / 256→224) — best node reads 14352 µs/xform at B=1 (L=100, was 15435) and 1393.6 µs at B=4 (L=50, was 1795), rel L2 ≤ 1.0e-15 singles / all chain gates passed.

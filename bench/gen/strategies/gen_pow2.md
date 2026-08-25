@@ -830,3 +830,161 @@ same.  2^k regression L=2/4/8/128 singles: PASS at 0 / 0 / 1.4e-16 /
    Coordinate with gen_powp/gen_pfa_large before anyone burns a round.
 4. L=128 custody engine as library hygiene if the campaign continues past
    the draw.
+
+## Round gen_r7 — the backlog spent: constant-per-site twiddle routing LOSES
+## on this engine (-1%, both arms), the TLB theory of the x-pass residual
+## dies, and the ship stays bit-identical to r6
+
+Standings into the round: led L=32 at 56.524 us (3.04x MKL 2022, r6 board;
+1.87x ahead of gen_race, the next entry).  The rounds-7/8 brief assigns the
+queued literature backlog; its item 2 — **constant-per-site twiddle routing
+(Garrido, literature 11 Tier 1), "try it on one mid-size cell (25/27/32)
+where twiddle loads are measurable"** — names my scored size, and no other
+record had touched it (grep confirmed).  My r5 wall analysis predicted a
+wash; the honest thing was to build the strongest feasible form and measure.
+Second thrust: one genuinely untested lever on the x-pass residual (TLB).
+Session protocol: slot lease 2 / core 4 on a80n0 held for the session (ssh
+replication of tryout.sh's exact steps — reserve.sh --status still dies on
+wallaby, the r4-documented breakage), rotated-order same-core interleaved
+pairs throughout, asm audit before racing.
+
+### GP2_CPS: constant-per-site twiddle routing, the strongest x86 form
+
+What the idea can even mean here: the site->constant BINDING has been
+compile-time since r5's FTW (every unrolled site indexes tables with a
+constant j); what remained runtime was the table VALUES.  gcc cannot prove
+heap stores (S comes from posix_memalign, not a tracked allocator) never
+alias a filled static double array, so every k2-group's broadcast twiddles
+are re-loaded per column and nothing hoists.  GP2_CPS=1 compiles the L=32
+hot-path tables in as LITERAL static const arrays: %a-exact doubles
+generated on the node by the exact fill_fast_tables expressions (long-double
+cosl/sinl, dual-select ratios), verified equal to the runtime fill by a
+create-time memcmp (it passes: chain output is bit-identical to the r6
+arithmetic).  On x86 that is the whole idea: no 64-bit vector immediates
+exist, so a .rodata broadcast IS the compiled-in constant; the only thing
+routing can add is aliasing-free hoist/CSE freedom.  =2 scopes it to the
+pass-2 scalars only (z-pass vector tables stay runtime).
+
+**Asm audit (the reason the race happened at all)**: fused step body
+fft_step_xmap 2350 -> 2243 insns (-4.6%), vbroadcastsd 33 -> 7, packed
+loads 289 -> 240, FMA count IDENTICAL (428) — gcc really does hoist and
+share the constants once the aliasing hazard is gone.  Front-end-wise this
+looked like free money (my own r3 DSB result), so it was raced properly.
+
+**Result: a consistent LOSS, both arms.**
+* =1: +0.7-1.6% in 5/5 clean rotated same-core pairs (57.1-57.9 vs ctl
+  56.0-56.8 us adjacent; round-0 discarded, ctl median 74.5 sd 11.7% —
+  neighbor burst).
+* =2 (scalars only): +1.1-2.7% in 6/6 (56.6-57.3 vs 55.5-56.7).  The loss
+  is IN the scalar folding, not the z-table hoist.
+
+Mechanism, recorded because it inverts a naive front-end intuition: the
+runtime tables' per-iteration broadcast re-loads were L1-hot issues on
+half-idle load ports — free by r5's non-port-bound verdict — and they kept
+every twiddle constant's live range ONE k2-group long: compiler-enforced
+REMATERIALIZATION.  Compiled-in constants let gcc stretch those live ranges
+across the column body (fewer instructions, more concurrent live values),
+and in a body that already runs the register file at the edge (r1 vfft32x2
++15%, r7 confirms from the other side) the pressure costs more than the
+loads ever did.  Garrido's routing pays where twiddles are per-butterfly
+TRAFFIC; this engine converted them to site-constant L1 broadcasts in r5,
+after which the loads themselves are the cheap half of the bargain.
+Verdict for the campaign record: **constant-per-site twiddle routing is
+already structurally present in any fully-unrolled FTW-style codelet; the
+literal-constant final step is a small loss on ICL.**  Ships DEFAULT 0 —
+bit- AND codegen-identical to the r6 ship; both arms kept compilable as
+cross-arch race axes (CLX's port-bound downclock could flip the trade).
+
+### GP2_HP32: the TLB theory of the x-pass residual, tested and dead
+
+The x-pass's pass 1 touches 32 SCATTERED 4-KB pages per column (XS = 18.5 KB
+stride; 145 state pages cycled by 128 columns against the 64-entry DTLB) —
+a TLB profile neither batchlane's r2 THP-null (sequential streams) nor my r4
+GP64_HP loss (L3-bandwidth regime) ever tested, and the S+C block is 1.11 MB
+= ONE 2-MB frame.  GP2_HP32=1: 2-MB-aligned block + MADV_HUGEPAGE + touch.
+Bit-identical output.  **A WASH: +-0.3%, mixed signs, 6 rotated rounds**
+(e.g. 56.93/56.86/56.53/55.94/55.94/56.48 vs ctl 57.43/56.83/56.41/56.03/
+55.64/56.12).  The OOO core hides the STLB-hit latency, same as it hides
+everything else ever thrown at this residual.  With the r5 L2-capacity-edge
+theory and seven prefetch results, every cheap theory of the ~50 cyc/column
+x-pass slack is now dead: the r5 structural-ceiling verdict stands
+unqualified.  Default 0 by simplest-wins; knob kept (CLX's smaller STLB is
+the one host that might flip it).
+
+### Ship state and measured numbers (a80n0 core 4, same-core windows)
+
+Ship = flagless default = the r6 arithmetic and codegen exactly (chain
+output cmp-identical to a -DGP2_CPS=0 control build and to r6's).
+
+| case | gen_r7 ship | same-window MKL 2022 | ratio |
+|---|---|---|---|
+| L=32 B=8 m=250 (graded) | **55.51-56.80 us** (best 55.51, typical-window sd 0.01%) | 171.2-171.5 | **0.325** |
+| L=32 B=1 m=250 | **55.82-56.19** (best 55.82) | — | |
+| L=16 B=8 m=300 chain | 6.428 (path untouched) | — | |
+| L=64 B=2 m=64 chain | 678.0 (path untouched; r4 quiet floor 678) | — | |
+
+Gates (ship build, node, check.py on the node this round — its map-check leg
+works when invoked by hand with explicit --cin): L=32 single 2.902e-16 (B=8)
+/ 2.915e-16 (B=1), tol 1e-12; two-step fused m=2 **1.338e-15 / 1.393e-15**
+(tol 3e-14, 21x margin); chain end m=250 3.328e-14 / 2.948e-14 (tol 1e-10);
+repeatable (cmp-identical) both batches.  All EXACTLY r6's digits, as they
+must be for an arithmetic-identical ship.  L=16: single 2.367e-16, m=2
+9.376e-16, chain m=300 2.351e-14.  L=64: single 3.214e-16, m=2 1.723e-15,
+chain m=64 2.342e-14.  2^k regression L=2/4/8/128 singles: PASS at 0 / 0 /
+1.3e-16 / 4.1e-16.
+
+### What was considered and NOT built, with the reasoning
+
+* **Flap-count 2,8-split-radix restructure of vfft32** (lit 11 Tier 1): op
+  cuts are proven wall-neutral on this engine by r5's FTW subtraction
+  (-7% ops, zero wall).  Declined on my own measurement.
+* **Stage-as-outer-product at 32** (lit 11 Tier 2): gen_batchlane's r7
+  decline argument transfers verbatim — the win claimed comes from
+  eliminating twiddle loads/shuffles, and r7 just measured what happens
+  when this engine's (already minimal) twiddle loads are optimized further:
+  it LOSES.  A dense stage matrix would inflate ops into a port-floor
+  ceiling that is only 30% away.
+* **Two-axes-per-pass at 32/64**: paper-checked again — at 32 the tile
+  intermediate necessarily materializes at L2 anyway (no traffic to save; the set is
+  L2-resident); at 64 it is the r5 cross-step-fusion argument (traffic-
+  neutral, two sweeps stay two sweeps).  The lever remains real only where
+  tiles spill L3 (L=100 — gen_pfa_large territory).
+* **L=16 ZQ_SCAT fold, L=128 G=16 engine**: unscored sizes, no draw ahead;
+  parked again in favor of not risking the scored cell in a
+  negative-results round.
+
+### Borrowed / attribution (gen_r7)
+
+* **Literature 11 Tier 1 (Garrido constant-per-site routing)**: built in its
+  strongest x86 form and raced out; first measurement of this citation in
+  any corpus, verdict "structurally already present in unrolled FTW
+  codelets; the final literal-constant step is -4.6% instructions and +1%
+  wall on ICL."  Peers with FULLY-UNROLLED constant-j codelets (gen_powp's
+  25/27 pencils, gen_pfa_large's DFT25M) should NOT spend a round on it on
+  ICL; it is one build flag for them if they want the CLX race axis.
+* **gen_twiddle gen_r5**: their tanl-based dual-select constant generator
+  was considered for the literal tables; my quotient form is what the
+  runtime fill uses, so the literals reproduce it exactly instead (bit-
+  identity beats 0.1 ulp here; gates have 21x margin either way).
+* **gen_batchlane gen_r7**: the stage-as-GEMM decline logic (cited above).
+* Session protocol: rotated-order same-core pairs (my r5), asm-audit-before-
+  racing (ice discipline, and the reason the CPS race was even justified),
+  one-lease-one-core (gen_dense_prime r5 / gen_batchlane r4).
+
+### What I would do next
+
+1. **The scored cell is closed** short of a step-factorization rewrite:
+   every scheduling, prefetch, layout, TLB, op-count, and constant-routing
+   lever is now measured against the [port ∥ L2] ceiling with <8% residual.
+   If a future round demands more at 32, the only unspent structural idea
+   in any record is register-resident stage matrices with the H-buffer
+   eliminated — and r7's pressure finding says it will spill; require a
+   paper register budget BEFORE building.
+2. **Cross-arch (the real home for this round's knobs)**: {CPS, HP32} join
+   {FTW, MAPDIV, PREMAP, XU, ZU1, ZYIL, KS} as race axes.  CPS on CLX is
+   the interesting one: a port-bound downclocked host values the -107
+   instructions differently.
+3. **If a 2^k library size ever matters beyond 64**: the L=128 G=16 engine
+   remains the one unbuilt structure (63-ms generic hole).
+4. gen_race adoption: these knobs are compile-time; if the trunk ever
+   builds per-host variants of class entries, hand it the axis list above.

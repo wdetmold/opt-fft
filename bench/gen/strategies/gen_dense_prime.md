@@ -966,3 +966,173 @@ knob variants relocate (never add) map/z work.
    build/tryout/gen_dense_prime/ holds this round's whole protocol
    (build / gen / gates / check / time phases) and the in/c pairs for
    5,7,11,13,15,17,19,23,29 (B=4 and graded B) are current there.
+
+## Round gen_r7
+
+### Where this round started
+
+r6 leaderboard: **120.708** at the graded cell (L=31 B=16 m=140; gen_rader
+84.801 — the settled arithmetic crossover, both engines at their plateaus);
+roster composites 5.431 / 7.958 / 14.846 / 38.872 at 10/12/15/20.  The r7-8
+extension brief queues four literature plays; my own r6 verdict was "the
+generic-prime engineering space is exhausted on ICX".  This round (a) mapped
+the brief's backlog onto this class (mostly N/A, reasons below), (b) built
+and raced THREE never-tried levers at 31 — all bit-identical by construction,
+all measured LOSERS — and (c) finally DECOMPOSED the plateau with microbenches
+and a padded-chain phase profiler, so the residual gap is now an explained
+mechanism, not a mystery.  Ships: **defaults unchanged, source comment-only
+edit, binary behavior identical to r6.**  All numbers: a80n0, ONE held lease
+(slot 1, core 3), interleaved same-core min-sets (the r4/r5 protocol); node
+quiet (control windows 119.5-121, matching r4-r6 quiet levels).
+
+### The r7-8 brief backlog, mapped onto this class
+
+1. **Two-axes-per-pass fusion** (lit 11 Tier 2): targets cells that spill L3
+   (100/50/40).  Every cell of mine is L2-resident; r6's custody negative
+   already established that fusion inside a covered cache level buys nothing
+   here.  Not attempted, per that measured boundary.
+2. **Constant-per-site twiddle routing** (Garrido, lit 11 Tier 1): struck at
+   the whiteboard.  My GEMM twiddle feeds are already consumption-ordered
+   single-uop memory-form broadcasts at 0.5 loads/FMA with no gathers and no
+   angle-sorting to delete; compiling constants in still means .rodata loads.
+   The lever exists for CT engines with twiddle SCHEDULING problems (powp/
+   pow2), not for a real-constant folded-dense GEMM.
+3. **Stage-as-outer-product / dense-GEMM crossover at L<=16** (lit 11 Tier 2):
+   this engine IS that design (per-stage constant matrices applied by
+   broadcast-FMA), and the r6 board already measures the crossover claim's
+   answer on AVX-512: dense-GEMM sits 3.4-4.7x behind PFA/batch-lane at
+   10/12/15.  The Ascend-study claim ("L<=16 may prefer pure GEMM") does NOT
+   hold against a good PFA on this ISA — citable negative, no window needed.
+4. **REFFT plan enumeration**: gen_race's lane.
+
+### What was built and raced (all three: gates PASS, outputs bit-identical
+### to r6 by construction, cmp-verified at 14 cells single + chain m=4)
+
+1. **-falign-loops=32 at L=31** (the r6 datum that won ~1.5% at 29, raced as
+   a build flag via tryout's extra-flags argument; also a +falign-functions=64
+   arm).  L=31 B=16: ctl 119.7/120.0/119.5/120.4 vs al 119.7/120.5/121.3/
+   121.3 vs alf 120.2/119.8/121.4 — a wash leaning negative.  **The 29 win
+   does not transfer to the fold31zx path**; confirms the r6 conclusion that
+   code-alignment is a per-size, per-path race axis (gen_race's job).
+2. **Pair-level software-pipelined z-phase** (gdp_r7zp.c): split zpair31_uv/
+   zsingle31_p into fold and GEMM halves; fold row-pair n+1 into rotating
+   64B-aligned 136-double buffers BEFORE pair n's GEMM (pure reordering of
+   independent ops — bit-identical).  Rationale: one fused z call is ~620
+   uops > the ~352-entry ROB, so consecutive calls cannot fully overlap and
+   each map-ladder+fold head (~50-60 cyc of latency, little port work) sits
+   at the window frontier 16x per block.  **Measured: +0.5-1%, 4/4 pairwise**
+   (119.7/120.2/120.9/120.4 vs 120.0/120.7/121.3/122.5).  The head was NOT
+   exposed: the ROB reaches it across the previous GEMM's drain already, and
+   the restructure adds buffer traffic.  Extends the r6 "OoO already covers
+   it" doctrine to intra-block software pipelining.  (Build bug worth
+   recording: the rotating buffer slots must be 64B-multiples — [2][132]
+   puts slot 1 at +1056 B and the aligned zmm stores fault; [2][136].)
+3. **Merged C+S GEMM with fused combine drain** (gdp_r7cs.c) — my r1
+   next-list item 1, costed then but never built.  One j-loop per k-PAIR
+   computes C_k, C_k+1, S_k, S_k+1 in 16 accumulators and combines to the
+   four dst rows IN REGISTERS at the drain; the k=0 block is an irregular
+   12-acc triple (C_0, C_1, S_1) so total FMA is EXACTLY the split form's;
+   op order per accumulator identical => bit-identical (verified).  Deletes
+   the Cblk round trip (128 stores + ~120 reloads per plane/block), the
+   separate S+combine phase, and Cblk's 8 KB of L1 footprint.
+   **Measured: +2.3%, 4/4** (120.8/120.5/119.7/120.4 vs 123.1/123.1/122.4/
+   123.6).  objdump: zero spills — the loss is the SHAPE: 12 loads/16 FMA
+   per j (0.75) vs the split form's 8/16 (0.5).  r1's whiteboard rejection
+   is now a measured negative; **the split 0.5-loads/FMA k-quad x 4-zmm
+   shape is a measured local optimum** (third shape point: a k-octet x
+   2-zmm bench variant sits between at 0.625 and also does not beat it).
+
+### The round's real product: the plateau, decomposed (first counters-free
+### mechanism study; perf is absent on both hosts — paranoid=4, no binary)
+
+Phase profile of the SHIPPED padded chain (prof2.c, node core 3; the prof
+harness reads ~15% above the driver from per-phase timer serialization —
+use the SPLIT, not the absolute):
+
+| phase | us | note |
+|---|---|---|
+| zx_pm (z+x, lazy map) | 97.35 | 70% of step |
+| zx_p (same, no map) | 74.02 | => fused map costs 23.3 |
+| y (31x fold31_p) | 40.32 | vs ~20 us FMA-port floor |
+| map standalone | 25.96 | vs ~21 us divider floor |
+
+- **The map is divider-throughput-locked**: 3844 vdivpd(zmm)/volume x ~16 cyc
+  = ~21 us floor; fused-on-load it still costs 23.3 vs 26 standalone.  The
+  r4 lazy-map lever nets ~2.6 us and CANNOT net more — the divider is the
+  binder wherever the ops sit.  (And rcp/sqrt alternatives lost r1/r2/r5.)
+- **Both GEMM passes run ~1.0 zmm-FMA/cyc in situ** vs the machine's 2.0
+  (fmabench: 5.76 GFMA/s = 2/cyc at 2.88 GHz, pure register FMA).
+- **The bare C-GEMM isolated runs 1.4-1.6 FMA/cyc** (408-479 ns / 1920 FMA,
+  gemmb.c/gemmb2.c): ~25-30% of even the isolated GEMM is TILE-BLOCK
+  BOUNDARY DRAIN — 16-accumulator init, last-FMA latency, 16 stores every
+  240 FMAs — and the in-situ remainder is phase-junction bubbles (fold ->
+  GEMM -> combine phases of 350-1000 uops vs the 352-entry ROB).
+- **Boundary count is INVARIANT**: total_FMA / (16 acc x 15 j) — fixed by
+  the 32-register file.  Any 32-register tiling only moves the feed ratio
+  (0.5 / 0.625 / 0.75 all measured or benched this round; 0.5 wins).
+- **Conclusion**: the residual ~1.6-2x over the FMA-port floor at 31 is
+  register-file/ROB physics at 240-FMA drain granularity.  It is not
+  reachable from C intrinsics.  The one identified lever left is a
+  hand-scheduled asm kernel using all 32 zmm as accumulators with
+  software-pipelined drains (est. ceiling 15-25%, a full round of work and
+  risk).  Six rounds of shape tuning bought 3% because this wall was the
+  binder all along.
+
+### Measured on the node (shipped binary = r6 source, this round's windows)
+
+L=31 B=16 m=140: **119.5-120.9 across 11 control windows, best 119.534**
+(matches the r6 board's 120.708 quiet level).  B=1: 121.4 warm (first reads
+138-140 are the documented short-unit clock ramp; batch-invariant path).
+Gates, run fresh on the control this round: single rel_l2 3.917e-16 (B=16) /
+3.920e-16 (B=1), tol 1e-12; **two-step 1.724e-15** (tol 3e-14, 17x margin);
+m=140 map-chain 2.551e-14 (anchor 2.312e-14) / B=1 1.710e-14 (anchor
+1.178e-14), tol 1e-10.  Repeatability cmp-identical.  Small sizes untouched
+(bit-identity sweep rebuilt and passed at all 14 dev cells).
+
+### What did NOT work, with the number that killed it
+
+- -falign-loops=32 (+/- functions=64) at 31: wash to -1% (table above).
+- Pair-pipelined z-phase: +0.5-1%, 4/4.
+- Merged C+S GEMM: +2.3%, 4/4 (and NOT a codegen artifact — zero spills).
+- (bench-level) k-octet x 2-zmm GEMM shape: no win over k-quad x 4-zmm;
+  an apparent 2x in the first bench was a tiling BUG (t stepped by 2 and
+  covered half the row) — recorded so nobody chases it.
+
+### Borrowed this round, named
+
+- **gen_batchlane gen_r4**: one-lease same-core interleave protocol, again.
+- **gen_rader gen_r4/r6**: port-model-first discipline; their r6 codegen
+  audit prompted my objdump pass (result: my intrinsics kernels are clean —
+  no spills, memory-form 231 FMAs, x3-unrolled j-loops in the DSB).
+- **docs/literature 11** Tier 1 (Garrido routing — struck with mechanism)
+  and Tier 2 (dense-GEMM crossover claim — refuted on-board; stage-as-
+  outer-product — already this engine's design), cited per the brief.
+- My own r1 next-list (C+S fusion) and r3 list (software pipelining):
+  both now closed with measurements instead of standing as open items.
+
+### Operation count (shipped)
+
+Identical to r6/r5 at every size (the shipped source differs from r6 by a
+comment block only).
+
+### What I would do next
+
+1. **The only >5% lever left at 31 is a hand-scheduled asm GEMM** (32-acc,
+   pipelined drains).  High risk, full-round scope, and the cell is a
+   settled Rader win — spend it only if the crossover fight itself becomes
+   scored again.
+2. **gen_race**: two more per-host/per-size race axes from this round —
+   code alignment (wins at 29, wash at 31) and GEMM feed-shape (0.5 vs
+   0.625 vs 0.75 loads/FMA); the r7dev variant sources (gdp_r7zp.c,
+   gdp_r7cs.c, build lines in r7_ab.sh) are ready-made candidates for the
+   CLX/SPR advisory re-races — CLX's narrower front-end may flip the
+   pipelining verdict; do not re-derive them, rebuild and race.
+3. **The divider floor (~21 us/step at 31) is closed** on ICX arithmetic
+   grounds; on SPR (stronger divider) GDP_MAP_SQRT is still the knob to
+   re-race, per r5.
+4. Harness notes: tryout.sh accepts extra gcc FLAGS after L and B (used
+   for the align race — no Makefile changes needed); perf is unavailable
+   on a80n0 AND wallaby (perf_event_paranoid=4, no binary) — the r7dev
+   microbench trio (prof2.c, gemmb.c, gemmb2.c) is the working substitute;
+   r7_ab.sh generalizes r6_ab.sh with parametrized arms (build SRC OUT
+   [flags] / gates A B / check ARM L B M / time L B M SAMP ROUNDS ARMS...).

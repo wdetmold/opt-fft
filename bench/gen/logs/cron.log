@@ -166,3 +166,66 @@ results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
 2026-08-25 06:30:01 gen tick skipped: lock held
 2026-08-25 06:45:01 gen tick skipped: lock held
 2026-08-25 07:00:01 gen tick skipped: lock held
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-08-25 07:15:02] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 07:15:02]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 07:15:02] === series complete: rounds through gen_r6 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-08-25 07:30:01] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 07:30:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 07:30:01] === series complete: rounds through gen_r6 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-08-25 07:45:01] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 07:45:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 07:45:01] === series complete: rounds through gen_r6 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-08-25 08:00:01] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 08:00:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 08:00:01] === series complete: rounds through gen_r6 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-08-25 08:15:01] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 08:15:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 08:15:01] === series complete: rounds through gen_r6 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-08-25 08:30:01] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 08:30:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 08:30:01] === series complete: rounds through gen_r6 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-08-25 08:45:01] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 08:45:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 08:45:01] === series complete: rounds through gen_r6 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-08-25 09:00:01] === run_rounds[gen]: next=gen_r7 last=gen_r8 jobs=6 ===
+[2026-08-25 09:00:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 09:00:01] ---------- gen_r7 begins ----------
+[2026-08-25 09:00:02] gen_r7 works in impl_7 (13 sources carried over from impl_6)
+[2026-08-25 09:00:02] context pack: 229 lines
+[2026-08-25 09:00:02] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle
+2026-08-25 09:15:01 gen tick skipped: lock held
+2026-08-25 09:30:01 gen tick skipped: lock held
+/tmp/fft_rounds_pnrM1W.sh: line 411: [: 0
+0: integer expression expected
+2026-08-25 09:45:01 gen tick skipped: lock held
+2026-08-25 10:00:01 gen tick skipped: lock held
+2026-08-25 10:15:01 gen tick skipped: lock held
+[2026-08-25 10:21:55] implementers finished: 12 reported
+[2026-08-25 10:21:55] submitting timing round gen_r7 (seed 20267912) to the exclusive benchmark node
+2026-08-25 10:30:01 gen tick skipped: lock held
+2026-08-25 10:45:01 gen tick skipped: lock held
+2026-08-25 11:00:01 gen tick skipped: lock held
+2026-08-25 11:15:01 gen tick skipped: lock held
+2026-08-25 11:30:01 gen tick skipped: lock held
+2026-08-25 11:45:01 gen tick skipped: lock held
+2026-08-25 12:00:01 gen tick skipped: lock held
+2026-08-25 12:15:01 gen tick skipped: lock held
+2026-08-25 12:30:01 gen tick skipped: lock held
+2026-08-25 12:45:01 gen tick skipped: lock held
+2026-08-25 13:00:01 gen tick skipped: lock held
+2026-08-25 13:15:01 gen tick skipped: lock held
+2026-08-25 13:30:01 gen tick skipped: lock held
+2026-08-25 13:45:01 gen tick skipped: lock held
+[2026-08-25 13:53:32] leaderboard for gen_r7 is in
+2026-08-25 14:00:01 gen tick skipped: lock held
+[2026-08-25 14:05:38] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/gen/results/gen_r7/monitor.log)
+[2026-08-25 14:05:38] promoting: gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_rader gen_twiddle
+[2026-08-25 14:05:38] promote.sh reported a problem

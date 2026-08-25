@@ -1,0 +1,10 @@
+Round gen_r7 is complete. Both deliverable files are written and everything was verified on the node under the held-lease same-core protocol.
+
+**Lifted DFT5 v-pair (golden-ratio factoring, lit 08 §6.3) + hybrid L=15 form; batched best: 1.150/1.917/4.385/13.53 us at L=10/12/15/20 (−0.7…−1.0% vs r6, MKL 4.1–4.8x); B=1: 10.58/17.68/40.27 us at 10/12/15; rel L2 single-call 2.8–3.9e-16, two-step gate ≤1.8e-15 (tol 3e-14), all chains pass.**
+
+Supporting detail:
+
+- **What shipped**: since sin(2π/5) = φ·sin(π/5) exactly, the Winograd DFT5 v-pair factors from 8 vector ops to 6 at the same dependency depth (`u = sa − φ·sb; v2 = KS2·u; v1 = KS1·u + KL5·sb`, constants exact to the last bit). Wins every same-core pair at 10 (−0.8%), 15 (−0.7%), 20 (−1.0%); wash at the memory-bound 35. It also **flipped the r5 hybrid verdict at 15**: register-explicit sweeps + memory map x-pass now wins 9 of 12 pairs, so `BL_MEM15=2` is the new default.
+- **Built and rejected**: DFT7X2 fusion at L=14 (my own r6 top next-step) loses +6–10% — two DFT7 cores spill far past 32 zmm; the DFT5X2 ILP win doesn't transfer to modules that wide. Kept as a knob, default off. The brief's dense-GEMM crossover at L≤16 was declined on arithmetic (4.8x op inflation with no twiddle/shuffle traffic to buy back), documented in the record.
+- **Flagged for the monitor/race owners**: the surprise round ran L=21 B=32 through the trunk at 37.4 us while this entry has supported L=21 at ~18.5 us since r6 — a 2x routing gap, exactly the "planner/race bug" the brief prioritizes.
+- All eight supported sizes pass all three gates (single, m=2, full chain vs anchor), B=1 and mixed-remainder paths pass, outputs bit-repeatable; 12/21/28 chains bit-identical to r6. No slurm jobs were submitted; the slot lease is released.

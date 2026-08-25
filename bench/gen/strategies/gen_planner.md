@@ -908,3 +908,162 @@ stage stores + n stage loads (L1-resident); FFT arithmetic identical to
 4. **Winograd/real-factor DFT9 and DFT25 modules** inside the fused
    codelets: powp's 218-op hand lines vs my ~500 at 27 says the remaining
    1.16x at 27 is arithmetic, not scheduling.
+
+## Round gen_r7 -- fused Good-Thomas codelets (PFA economics, hosted generically) and DFT7 joins the hard-leaf set
+
+### The round in one line
+
+A PFA node whose two coprime factors are both hard leaves and whose product
+is <= 25 now runs as a register-resident TWIDDLE-FREE codelet (pv and pw
+forms) -- the CRT permutations become compile-time index selection, so the
+gather/scatter passes that made generic PFA lose in gen_r1 do not exist --
+and 7 is a hard leaf: 10/12/15/20 drop 2-5%, 40 drops 2% (GT child), and
+the 7-containing surprise-class sizes drop 27-80% (L=14: 5x).
+
+### What changed (all in impl/gen_planner.c; pln_* public surface additive)
+
+1. **Fused GT codelets** (`pln_gtv` / `pln_gtw` + wrappers for the 8
+   canonical coprime hard pairs (2,3),(2,5),(2,7),(3,4),(3,5),(3,7),(3,8),
+   (4,5) -> n = 6,10,14,12,15,21,24,20).  Ruritanian maps both sides:
+   input n = (M n1 + R n2) % N, output k = (M k1 + R k2) % N, which makes
+   the factorization twiddle-free with PLAIN child DFTs read/written at
+   permuted frequency indices ((R k2) % M, (M k1) % R) -- all index
+   arithmetic on compile-time constants, so it folds to immediates and the
+   permutation costs ZERO instructions.  vs the fused CT on the same pair:
+   the (R-1)(M-1) twiddle cmuls are deleted (-20..25% of pencil arithmetic
+   at 10..20) and register pressure drops (no twiddle broadcasts).  The pw
+   form has the R=2 no-double-buffer specialization and the same ics/ocs +
+   fused-map surface as pln_fusedw, so fused-GT nodes serve as @s1 roots
+   and as @s2/@s4 children; in pv they serve as executor roots and CT
+   children (50 = c5(gt(d2,d5)), 100 = c5(gt(d4,d5))).  Enumeration: a
+   PFA candidate with pln_gt_fused children costs the fused-CT model minus
+   its 4(m-1)(r-1) twiddle term; the PLN_PFA name ("gt(dR,dM)") and the
+   wisdom machinery are unchanged.
+2. **DFT7 is a hard leaf** (scalar pair, pv pln_lv7 with HAS-twiddle flag,
+   pv_dft7r, pw_dft7s, pw_l7; symmetric fold t_j = x_j+x_{7-j},
+   u_j = x_j-x_{7-j}, X_k = E_k -+ iO_k, exact 20-digit constants): the r6
+   surprise test ran d7 as an 8n^2 dense matrix inside L=21/44-class sizes
+   and the addendum priced that hole at 2-3x.  New fused pairs (2,7),(7,2),
+   (3,7),(7,3) instantiate in both CT and GT forms; leaf-7 CT covers
+   28/35/42/49/56/63... through the ordinary planner.
+3. **The DFT7 leaf dispatch entries are NOINLINE wrappers** (pln_lv7_nt /
+   pln_lv7_tw) -- see dead-ends below for the +1..3% regression this fixed.
+4. Race pool and everything else unchanged; setup stayed 0.001-0.245 s
+   cold (60 s budget), wisdom warm path untouched.
+
+### Measured on the node (a80n0 core 2, held lease slot 0, interleaved
+### r6-binary-vs-r7-binary adjacent pairs, graded chains, min us/xform)
+
+| case | r6ref same-window | gen_r7 | delta | pick |
+|---|---|---|---|---|
+| L=10  B=64 m=1000 | 1.395-1.594 | **1.337-1.343** | **-4.4%** (6/6) | gt(d2,d5)@s1 |
+| L=12  B=64 m=600  | 2.467-2.517 | **2.341-2.368** | **-5.2%** (6/6) | gt(d3,d4)@s1 |
+| L=15  B=32 m=600  | 5.547-5.783 | **5.525-5.647** | -1% (3/3 after pin; wash before) | gt(d3,d5)@s1 |
+| L=20  B=32 m=256  | 18.90-19.85 | **18.31-18.82** | **-2..4%** | gt(d4,d5)@s1 |
+| L=25  B=16 m=256  | 42.48-44.19 | 42.28-43.20 | tie/slight win | c5(d5)@s1 (unchanged) |
+| L=27  B=16 m=200  | 64.31-64.43 | 64.09-64.38 | tie (3/4 by <=0.4%) | c3(c3(d3))@s4 (unchanged) |
+| L=31  B=16 m=140  | 144.6-150.0 | 144.7-150.0 | tie | d31@s3 (unchanged) |
+| L=32  B=8  m=250  | 108.6-109.2 | **107.4-108.2** | -1.4% (layout luck; same tree) | c4(d8) pv |
+| L=40  B=8  m=128  | 248.3-250.0 | **243.5-245.3** | **-2%** (3/3) | c4(gt(d2,d5)) pv (NEW tree) |
+| L=50  B=4  m=128  | 578.8-582.7 | **574.3-579.2** | -0.7% (2/2) | c5(gt(d2,d5)) pv |
+| L=100 B=1  m=64   | 5212-5224 | **5168-5180** | -0.9% (2/2) | c5(gt(d4,d5)) pv |
+
+Surprise-class sizes (the round's real payoff; same protocol):
+L=14 B=8: 23.58 -> **4.71-5.42** (gt(d2,d7)@s1, ~**5x**; r6 ran c7(d2) with a
+dense-7 radix); L=21 B=8: 38.9-39.2 -> **24.3-24.8** (c3(d7)@s1, **-38%**);
+L=35 B=8: 254.7-255.6 -> **162.5-163.1** (c5(d7)@s4, **-36%**); L=63 B=2:
+1832-1851 -> **1338-1342** (**-27%**, SAME tree c7(c3(d3)) -- the win is
+purely dense-radix-7 -> hard-leaf-7 with fused twiddles).  B=1 (pv path):
+10: 3.17 -> **2.94-2.98** (gt, -6.5%); 20: 18.9 -> **17.8-18.3** (gt, -4%).
+
+Gates, final binary, all on the node: single call 2.8-4.6e-16 at all 11
+acceptance cases + 14/21/35/63 (tol 1e-12); two-step m=2 gate
+0.90-2.90e-15 everywhere (tol 3e-14, >10x margin); full graded chains
+PASS at all 15 cases (e.g. 3.10e-14 at 27, 2.60e-14 at 31, 4.06e-14 at
+100), all within ~2x of honest anchors (tol 1e-10); wisdom-pinned
+cross-process chains bit-identical (cmp) at every case, scratch wisdom
+file (GEN_RACE_WISDOM override), removed after; node sweep L=2..128
+single-call vs numpy ALL 127 PASS (and the same sweep on wallaby/SPR);
+non-AVX512 build (-march=x86-64-v2, scalar leaf7 + generic PFA paths)
+passes m=6 chains at 7/10/14/21/27; GEN_PLANNER_LIB adoption mode and
+gen_race's include both compile.  Shared results/wisdom_a80n0.json checked
+clean of gen_planner keys (whole session under GEN_RACE_NO_WISDOM).
+
+### What did NOT work / went wrong, with the numbers
+
+- **Adding `case 7: pln_lv7(...)` inline to the two leaf dispatchers cost
+  the 7-FREE tree c8(d5) at L=40 +1..3% (3/3 RACE=0 same-tree pairs:
+  253.9/255.5/254.7 r6 vs 257.7/257.9/262.4 r7)** -- pure code-layout
+  drift: the constprop clones of pln_leaf_apply/_tw grew 3198 -> 3867
+  bytes and gcc rebalanced inlining across pln_xexec.  With the race on,
+  this compounded: the pv arms' trials slowed enough that the race
+  mis-picked c5(d8)@s4 at 40 (252.3 vs r6's pv 242-248, +3-4% on the
+  cell).  FIX: the DFT7 dispatch entries are noinline wrappers
+  (pln_lv7_nt/_tw) -- dispatcher clones return to r6 size (3116), the
+  RACE=0 gap collapses to +0.2..0.5%, and the raced cell flips to a 3/3
+  WIN at 243.5-245.3 picking c4(gt(d2,d5)).  This is gen_twiddle r5's
+  case-bloat hazard + gen_pfa_large r6's pin-structurally lesson, now
+  measured in this entry: a new leaf must enter hot dispatchers as a CALL,
+  not a body.
+- **nm -S symbol-size diff against the previous binary found it before
+  the benchmarks did** (pln_leaf_apply.constprop 3198->3867 was visible
+  immediately); the audit also showed pln_s8_ct2_set halving (2463->1206,
+  pw leaves un-inlined) -- @s2 is not on any scored path and 27 (@s4)
+  A/B'd clean, so that one was left alone.  Diff the symbol table after
+  ANY dispatch growth; it is a 5-second test that localizes layout drift.
+- **ssh sessions land in $HOME** (r2 lesson, bitten AGAIN by an inline
+  ssh sweep -- two wasted node runs): every remote command block must
+  start with the explicit cd.  My r7ab.sh/r7gates.sh scripts cd
+  internally; inline ssh one-liners are where it keeps happening.
+- GT at 15 was a wash BEFORE the noinline pin (5.55-5.63 vs 5.55-5.78
+  mixed signs) and only a small win after (-1%): at (3,5) the y[15]+v[5]
+  pw working set already spills, so the 8 deleted cmuls partly hide under
+  spill traffic -- the GT gain shrinks as the pair's register pressure
+  grows (10/12 spill-free: -4..5%; 20 spilling: -2..4%; 15: -1%).
+
+### Borrowed this round, named
+
+- **gen_pfa_small / gen_batchlane**: the entire premise -- their PFA/GT
+  engines are why 10/12/15/20 belonged to them; this round hosts their
+  twiddle-free economics in the generic engine (my r1 record already
+  noted "a class engine with fused permutations has the opposite
+  economics"; literature 11 Tier 1's GT-as-vectorization-first is the
+  citation).  Gap to gen_batchlane at 10 narrows from 1.23x to ~1.16x.
+- **gen_pfa_large gen_r6**: DFTODDM's direct symmetric odd-N form is the
+  same fold my DFT7 uses (independently the ice-era standard); more
+  importantly their "pin hot callsites structurally, diff nm -S per
+  function" discipline is what turned the L=40 incident from a shipped
+  regression into a one-hour fix.
+- **gen_twiddle gen_r5** (via gen_pow2 r6's citation): the case-bloat /
+  code-layout hazard -- new code moves sizes that never execute it.
+- **gen_batchlane gen_r4 / the panel standard**: held-lease same-core
+  interleaved adjacent-pair A/B for every verdict above.
+- **The surprise-test addendum** (monitor, r6): the explicit pricing of
+  the missing 7-point module is what put DFT7 at the top of this round.
+
+### Operation count (deltas vs gen_r6)
+
+Fused GT (R,M), per pencil: n row loads + R x DFT_M + M x DFT_R + n row
+stores, ZERO twiddle ops, ZERO permutation instructions (index selection
+folds at compile time) -- vs fused CT: -(R-1)(M-1) cmuls (pv: 3 FMA-class
++ 2 broadcast loads each; pw: 4 FMA-port ops + 2 broadcasts).  At n=20
+that is -48 of ~192 FMA-port pencil ops (-25%).  DFT7 leaf (pv): 7 masked
+loads, 6 add/sub fold, 3 adds (X0), 3 x (6 FMA + 1 mul + 2 shuffle-class
++-i combines), 7 masked stores, ~40 FMA-class total -- vs the old d7
+dense: 8n^2-model matrix with arena staging (the register-tiled kernel's
+~2n^2 real FMA + staging + per-node dispatch).  Everything else unchanged.
+
+### What I would do next (ranked)
+
+1. **B=1 lane-spatial split engine** -- seventh round on this list; the
+   B=1 cells still run 1.5-2x behind their batched selves and round-8
+   draws unknown batches.
+2. **Winograd/real-factor DFT9/DFT25 modules** in the fused codelets
+   (unchanged from r6; 25/27 are now my largest arithmetic gaps to powp).
+3. **GT pairs above the 25-cap** ((4,7)=28, (5,7)=35, (5,8)=40 as
+   two-level @s4-style staged GT: child pass + root pass, still
+   twiddle-free): 35 already dropped 36% just from leaf-7; a staged GT
+   would delete its 24 root cmuls too.  Needs the ct1_set machinery
+   generalized from CT to GT maps -- moderate.
+4. **Race the fusemap axis per host** (r6 item, still open; CLX/SPR
+   advisories will move the 12/80 boundaries).

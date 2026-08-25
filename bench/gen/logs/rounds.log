@@ -157,3 +157,45 @@ scoring window open: all 24 slots held
 [2026-08-25 07:03:06] promoting: gen_batchlane gen_pfa_small gen_powp gen_rader gen_pow2 gen_pfa_large gen_twiddle gen_planner gen_layout gen_dense_prime gen_bluestein
 /tmp/fft_rounds_RFPXs9.sh: line 512: ./promote.sh: No such file or directory
 [2026-08-25 07:03:06] promote.sh reported a problem
+[2026-08-25 07:03:11] committed round gen_r6
+[2026-08-25 07:03:11] ---------- gen_r6 complete; next is gen_r7 of gen_r6 ----------
+[2026-08-25 07:03:11] === series complete: rounds through gen_r6 are done ===
+[2026-08-25 07:15:02] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 07:15:02]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 07:15:02] === series complete: rounds through gen_r6 are done ===
+[2026-08-25 07:30:01] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 07:30:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 07:30:01] === series complete: rounds through gen_r6 are done ===
+[2026-08-25 07:45:01] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 07:45:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 07:45:01] === series complete: rounds through gen_r6 are done ===
+[2026-08-25 08:00:01] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 08:00:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 08:00:01] === series complete: rounds through gen_r6 are done ===
+[2026-08-25 08:15:01] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 08:15:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 08:15:01] === series complete: rounds through gen_r6 are done ===
+[2026-08-25 08:30:01] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 08:30:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 08:30:01] === series complete: rounds through gen_r6 are done ===
+[2026-08-25 08:45:01] === run_rounds[gen]: next=gen_r7 last=gen_r6 jobs=6 ===
+[2026-08-25 08:45:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 08:45:01] === series complete: rounds through gen_r6 are done ===
+[2026-08-25 09:00:01] === run_rounds[gen]: next=gen_r7 last=gen_r8 jobs=6 ===
+[2026-08-25 09:00:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-25 09:00:01] ---------- gen_r7 begins ----------
+[2026-08-25 09:00:02] gen_r7 works in impl_7 (13 sources carried over from impl_6)
+[2026-08-25 09:00:02] context pack: 229 lines
+[2026-08-25 09:00:02] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle
+[2026-08-25 10:21:55] implementers finished: 12 reported
+[2026-08-25 10:21:55] submitting timing round gen_r7 (seed 20267912) to the exclusive benchmark node
+scoring gen_r7 on reserved Ice Lake node a80n0
+scoring window open: all 24 slots held
+   mkl2026_dfti             oneMKL 2026.1 (pip wheel) DFTI, sequential, batched
+   mkl_dfti                 oneMKL 2022.0.2 DFTI, sequential, batched
+== round gen_r7 complete: results/gen_r7 ==
+[2026-08-25 13:53:32] leaderboard for gen_r7 is in
+[2026-08-25 14:05:38] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/gen/results/gen_r7/monitor.log)
+[2026-08-25 14:05:38] promoting: gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_rader gen_twiddle
+/tmp/fft_rounds_pnrM1W.sh: line 512: ./promote.sh: No such file or directory
+[2026-08-25 14:05:38] promote.sh reported a problem

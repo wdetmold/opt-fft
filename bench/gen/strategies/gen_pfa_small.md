@@ -826,3 +826,153 @@ map unchanged (GMT=2: 12 FMA + 1 vdivpd per site, fused in x-pass stores).
 4. **Cross-arch**: race GMODPFA/GM15PFA and the MT knobs per host; the
    module-15 fold-vs-nested margin (+10% ICL) is exactly the kind of
    port-pressure verdict CLX/SPR flip.
+
+## Round gen_r7
+
+### Headline
+The round's mandate was spending the queued backlog: my class's assigned literature
+item (stage-as-outer-product / the "dense GEMM wins at L<=16" crossover, lit 11
+Tier 2) and the six-round-old B=1 gap. Both were spent on the same target -- the
+split (B=1, B%8) path -- and the B=1 graded chains dropped 23-37%:
+
+| case (B=1, graded m) | r6 ship | gen_r7 ship | MKL same core, same minutes | ratio |
+|---|---|---|---|---|
+| L=10 m=1000 | 3.877 | **2.572-2.582** | 4.34-4.93 | **1.7x** |
+| L=12 m=600  | 5.305 | **3.357-3.375** | 7.32      | **2.2x** |
+| L=15 m=600  | 14.031 | **10.761-10.791** | 15.84-16.68 | **1.5x** |
+| L=20 m=256  | 32.330 | **21.690-22.133** | 55.05-55.24 | **2.5x** |
+
+The split path had lost to MKL at B=1 plain execute since r1; in the graded chain
+shape it now beats MKL 1.5-2.5x at every tuned size. ALL batched paths ship
+BIT-IDENTICAL to r6 (cmp on full graded chains at 10 B=64 and 20 B=32 against a
+fresh impl_6 build; same-session batched tryouts 1.155 / 1.917 / 4.436 / 12.953).
+The dense-GEMM crossover claim was implemented honestly, measured at every size,
+and is DEAD on AVX-512 (numbers below) -- being first to kill it in performant
+code is this round's literature contribution.
+
+### What changed (all in the split path; the batched engine is untouched)
+
+1. **Fused-map ROTATION step** (step_<L>, SPLITZ<L>=1, the ship default).
+   Three ping-pong passes: pass 1 = stride-L^2 dim, flat 8-lanes over the inner
+   L^2 (4% overlap waste); pass 2 = stride-L dim, lanes = 8 contiguous stride-1
+   positions (unchanged, see "closed" below); pass 3 = stride-1 dim with the
+   volume stored ROTATED ([P0][P1][P2] -> [P2][P0][P1]) and the graded map fused
+   into its stores. Two structural effects:
+   - Because the rotated store writes site k of row R to k*L^2 + R, pass-3 lane
+     blocks are 8 CONSECUTIVE rows R of the whole volume regardless of slab
+     boundaries: ceil(L^2/8) blocks with one overlap tail instead of
+     L*ceil(L/8) per-slab blocks (13 vs 20 at L=10, 18 vs 24 at 12, 29 vs 30 at
+     15, 50 vs 60 at 20), and only the IN-transposes remain -- the r1-r6
+     sandwich's back-transposes are gone. tr8 count per volume-step at L=10:
+     160 -> 52 (-67% of the port-5 bill, the thing the r1 record flagged as
+     "~3840 port-5 shuffles/volume").
+   - The map rides pass-3's stores (map8c = map_span's exact ladder on
+     pre-loaded c vectors), so the separate map_span pass -- a full state+c
+     round trip per step, the r2 batched lesson never applied here -- is gone.
+   Layout cycles with period 3 (natural -> [z][x][y] -> [y][z][x] -> natural);
+   the chain builds c in all three rotations at chain start (scalar, once per
+   chain) and un-rotates the final state once if m % 3 != 0. Overlapped blocks
+   stay idempotent with the map fused because the map is a pure function of the
+   recomputed pencil output and c.
+2. **Isolation of the two effects, same-core interleaved** (one held lease,
+   adjacent alternated runs, min-of-mins): per-slab half-turn (transpose-in
+   only, inner-dim swap, fused map -- the intermediate form) beat the r6
+   sandwich+map_span by 9-14% (10: 3.077 vs 3.385; 12: 4.121 vs 4.675; 15:
+   10.763 vs 12.154; 20: 24.340 vs 28.295); the full rotation then beat the
+   per-slab half-turn by another 10-26% where per-slab blocking wastes lanes
+   (10: 2.592 vs 3.497; 12: 3.358 vs 4.126; 20: 21.766 vs 24.096) and is a wash
+   at 15 (10.776 vs 10.698 -- 29 vs 30 blocks, nothing to save). Rotation ships
+   everywhere (one maintained path).
+3. **supports()/batched/generic engines untouched.** Plan struct grew the two
+   rotated c copies (4 svol, tuned sizes only) and the dense DFT-matrix tables.
+
+### The literature item: dense stage-matrix broadcast-FMA, measured and REJECTED
+
+Implemented as dense3_slab (-DSPLITZ<L>=2, kept buildable): per stride-1 pencil,
+broadcast each input scalar and FMA rows of the compiled DFT matrix (create()-time
+long-double tables, zero-padded columns so masked-out lanes stay exactly 0 through
+the map ladder), masked stores, map fused, ZERO shuffles. This is the
+stage-as-outer-product form (lit 11 Tier 2) in its most favorable regime -- the
+B=1 cross-lane pass, where the PFA alternative pays port-5 transposes and masked
+lane waste. Same-core interleaved, min-of-mins, vs the half-turn (and vs the r6
+sandwich):
+
+| L | dense | half-turn | r6 sandwich | dense verdict |
+|---|---|---|---|---|
+| 10 | 4.165 | 3.077 | 3.385 | +35% / +23% |
+| 12 | 6.585 | 4.121 | 4.675 | +60% / +41% |
+| 15 | 15.370 | 10.763 | 12.154 | +43% / +26% |
+| 20 | 39.727 | 24.340 | 28.295 | +63% / +40% |
+
+The claim's arithmetic never closes: dense costs 4*L*ceil(L/8) FMAs/pencil (80 at
+L=10) vs the PFA pencil's ~11 FMA + ~20 port-5 shuffles amortized -- moving work
+off port 5 onto the FMA ports only pays until the FMA ports are the binding
+resource, which they already are (the r3 rcp-ladder lesson, again). For the
+BATCHED path I declined even building it: lanes are volumes there (no masking
+waste, no shuffles anywhere), so dense = 4*L^2 vs 88 vector FP per pencil, a
+4.5x op increase on an engine measured at 43-48 GF/s of the ~93 GF/s FMA peak --
+the crossover cannot exist. Anyone tempted by DFT-by-GEMM on x86: these are the
+numbers that kill it; the claim's home (Ascend/SME) has matrix units, we do not.
+
+### What else did NOT work / was declined, with the number or argument
+* **Two rotation passes per step** (pass 2's per-slab lane waste at 10/12 is 60%/
+  33%; replacing pass 2 with a second rotation pass would make it ceil(L^2/8)
+  blocks too): declined by arithmetic -- at L=10 it saves 7 pencils (~450 FMA-
+  cycles) and adds 52 tr8 (~1250 port-5 cycles). The r6 module-15 lesson shape:
+  do not replace straight-line FMA streams with shuffle traffic.
+* **Half-width (ymm/xmm) tail pencils for pass 2** (the r1 next-step idea):
+  declined -- instruction COUNT per pencil call is width-independent, so a v4/v2
+  tail costs the same cycles as the overlapped v8 chunk it would replace. Pass-2
+  waste at 10/12 is structural under 8-lane pencils; closed.
+* The dense table above.
+
+### Gates (ship build, all run on the node by hand; tryout's map-check leg still
+### gets the unexpanded '$W/c.bin' -- unchanged harness bug)
+Single call 2.6-3.2e-16 at 10/12/15/20 (B=1 and graded batched). Two-step m=2
+gate at B=1: 1.222e-15 / 8.948e-16 / 1.145e-15 / 1.175e-15 (tol 3e-14, >= 25x
+margin; m=2 ends in rotation p=2, so the gate exercises the un-rotate). Graded-m
+B=1 chains: 2.233e-13 / 2.464e-14 / 4.575e-14 / 3.175e-14 vs anchors 1.779e-13 /
+5.797e-14 / 2.405e-14 / 2.300e-14 (tol 300x/1e-10). m=3 chain (ends natural,
+p=0) PASS at 10. Mixed-batch remainder-through-new-path: L=12 B=12 m=50 and
+L=20 B=9 m=20 PASS. Repeatable bit-identical across processes. Batched graded
+chains BIT-IDENTICAL to the r6 ship (cmp at 10 B=64 m=1000, 20 B=32 m=256).
+
+### Borrowed, plainly
+* My own r2 batched lesson (map placement, not arithmetic: fuse at the last
+  axis's stores) -- five rounds late, applied to the split path.
+* **gen_batchlane gen_r4 / gen_pfa_large gen_r4**: the held-lease same-core
+  interleaved protocol, used for every verdict above (standing method).
+* The rotation itself is the transpose-free ordering vein of lit 11 Tier 2
+  (MDFFT column-order): cite it as partially validated here -- rotating the
+  STORE side of the turn pass is what made the block count minimal.
+
+### Operation count (split path, per volume per step)
+Pass 1: ceil(L^2/8) pencils at stride L^2; pass 2: L*ceil(L/8) pencils at stride
+L; pass 3: ceil(L^2/8) x [2*ceil(L/8) tr8 + 1 pencil + L fused map8c stores].
+tr8 per step: 52/72/116/300 at 10/12/15/20 (r6: 160/192/240/720 + a full
+map_span round trip). Map: ceil(L^2/8)*L v8 ladders (130 at L=10; minimum 125),
+map_span's hs-form + one vdivpd, now in-register at the stores. Batched pencils
+unchanged (88/96/162/216 vector FP per pencil per 8 vols).
+
+### Notes for the panel
+* **The rotation split step is generic and adoptable**: any entry whose split/
+  remainder path still does sandwich-transposes + a separate map pass
+  (gen_batchlane's B=1 gap now spans 8 sizes; the generic engines lane-replicate)
+  can take DEF_STEP + interleave_rot + the three c copies wholesale. The pencil
+  codelet plugs in unchanged -- it only ever sees (src, dst, stride).
+* **B=1 at my GENERIC sizes still lane-replicates** (7th round on the list, now
+  explicitly the remaining B=1 hole): the rotation step would work there too
+  (gpencil is stride-agnostic), but needs an out-of-place gpencil variant; the
+  round-6 surprise draw went to the trunk at B>=2, so I spent the round where
+  the graded reply asks for numbers. Next round: port the rotation step to the
+  generic engine if any evidence appears that small-B generic draws matter.
+* Dense-GEMM-on-x86 is dead (table above); do not rediscover.
+
+### What I would do next (ranked)
+1. Port the rotation split step to the generic coprime engine (kills the 8x
+   lane-replication waste at B<8 for 64 sizes; mechanical now that the tuned
+   version exists).
+2. Cross-arch: race SPLITZ<L> in {0,1} per host (the tr8-vs-FMA balance is
+   exactly what CLX's port structure flips; dense=2 stays buildable but is
+   30%+ behind on ICL -- only race it if a machine shows a port-5 famine).
+3. The batched cells are saturated (r5/r6 verdicts stand); protect, don't chase.

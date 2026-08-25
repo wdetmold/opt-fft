@@ -16,3 +16,4 @@ advisory xarch_spr_r5 on wallaby (nice, reduced sampling)
 xarch_spr_r5 done
 ./xarch_advisory.sh: line 20: sbatch: command not found
 sbatch failed
+devel node never started

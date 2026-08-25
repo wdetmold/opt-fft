@@ -1,0 +1,13 @@
+Verdict written to `results/gen_r7/VERDICT.md`. Summary of the judgement calls:
+
+**The brief's premises are wrong, for the second round running.** It asks for L = 6/8/17/36 on a Cascade Lake Gold 5218. `cases.txt` says the round is L = 10…100 and `environment.txt` says Xeon Gold 6326 (Ice Lake-SP). `PANEL_BRIEF.md` itself makes Ice Lake the scoring machine with CLX/SPR as separate advisory rounds (`results/xarch_clx_r6/`, `xarch_spr_r5/`). I scored the eleven geometries actually measured and answered item 4 as same-host window effects, since implementers and monitor both ran on a80n0. `monitor_prompt.txt` is a stale template — flagged at the end of the verdict.
+
+**Headlines:** every geometry won by a panel entry, 1.74× (L=100) to 8.45× (L=31) over the best library. Five of eleven are ties, including L=12 at 1.915 vs 1.915 µs; the L=15 and L=50 "leader changes" are 0.6 % and 0.3 % and are recorded as ties, not results.
+
+**Adversarial pass — nothing wrong survived, but three things are named.** Correctness is complete and clean: 164 `map-chain` PASS lines against 164 leaderboard rows, 0 FAIL, no anomalously-accurate entry. All 54 absences are declared `supports()` declines with zero residue; the only failure is `baseline_matrix` timing out at L=100, so that cell has no library-free floor for a second round. The gcc UB warning in `gen_dense_prime.c:1943` / `gen_rader.c:1705` is the same unreachable 2⁶⁰ trip-count inference as r6, still unsilenced in a headline winner. And I found one claimed *win* the board contradicts: **gen_race's `t48` at L=32, reported "+1.6 % non-tie", is 2.7 % behind its own unraced substrate on the board** — the race-proxy mis-pick the r6 verdict predicted, plus a second older one at L=20. Also flagged: gen_powp's cold plan time went 0.005 s → 0.5–3.75 s at four cells (inside the 60 s budget, but for ≤3.4 %).
+
+**Literature:** §4.3's re-opened L2↔DRAM fusion case — "the largest untried structural move on the board" — is now **closed in the negative** from four directions, the strongest being gen_twiddle building it whole and losing at 12/12 cells (+6 % to +35 %) with the mechanism named: the staging gather is the software prefetch, not overhead.
+
+**Promotion:** eleven of twelve. I excluded `gen_race` on CURATION's near-duplicate rule (frozen library for a fourth round, demo *is* gen_planner's trunk, and both of its new r7 stages failed to earn their keep on the board) — its real findings are preserved in the verdict and its own record.
+
+PROMOTE: gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_rader gen_twiddle

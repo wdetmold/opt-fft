@@ -936,3 +936,183 @@ Tables, plan memory, create() work: unchanged.
    change the port mix — re-check when the next advisory lands.
 4. refnd pitch #8 if gen_powp / gen_pfa_large still build gate references
    with double cexp.
+
+## Round gen_r7
+
+### Adoption status (the score)
+
+- **gen_bluestein's adoption stands** (tw_chirp + colmajor filler/audit); API
+  kept 100% backward compatible — the library half of the file is UNCHANGED
+  this round (frozen for the second round running, the gen_layout/gen_race
+  doctrine), and `gcc -c impl/gen_bluestein.c` verified clean against the
+  shipped file.
+- **refnd double-cexp gate reference, pitch #8**: gen_powp.c:1728 and
+  gen_pfa_large.c:1392 still build the create()-gate reference W with double
+  `cexp` (250 ulp ≈ 5.6e-14 per twiddle on a 1e-13 yardstick at L=100).
+  `tw_fill_dft_cplx` remains the one-line fix.
+
+### The round's centerpiece is a NEGATIVE result, fully measured: split-custody
+### two-axes-per-pass direct feed (brief r7 item 1 / lit 11 Tier 2) LOSES 6-35%
+
+I built the whole program my r4 record queued and the r7 brief names: SPLIT
+intermediate volume (axis 0 scatters with plain v8 stores, zero shuffles),
+axis 1 feeding the recursion DIRECTLY from the split plane rows (leaves
+rewritten to unaligned loads, xstr in doubles — zero gather copy), axes 1+2
+fused through ONE in-register 8x8 transpose per tile into a split z-major
+block buffer P, and axis 2 direct-feeding from P (zero copy, zero shuffles,
+guaranteed-full lanes because kblk·L ≡ 0 mod 8). On paper: −0.75 to −1.0
+shuffles/complex, two gather copies deleted, "one volume stream deleted".
+Outputs were verified BIT-IDENTICAL to gen_r6 at 29 sizes locally and 5 on
+the node (singles and chains) — the arithmetic, group decomposition and lane
+values were all preserved. And it lost EVERYWHERE, same-core interleaved
+rotated pairs, 4/4 each (graded cells, min µs/xform, r7split vs r6ctl):
+
+| L | B | r6 ctl | r7 split | delta |
+|---|---|---|---|---|
+| 10 | 64 | 6.38–6.54 | 7.01–7.23 | +8% |
+| 12 | 64 | 9.10–9.22 | 9.73–9.82 | +6.5% |
+| 12 | 1  | 9.04–9.40 | 9.63–9.86 | +5% |
+| 15 | 32 | 19.6–20.1 | 21.7–22.6 | +11% |
+| 20 | 32 | 35.7–36.9 | 38.4–39.1 | +7% |
+| 25 | 16 | 79.6–81.7 | 94.0–95.4 | +16% |
+| 27 | 16 | 130.3–131.8 | 147.6–150.3 | +13% |
+| 31 | 16 | 272.7–306.7 | 312.4–330.6 | +14% |
+| 32 | 8  | 199.1–212.7 | 222.4–244.9 | +11% |
+| 40 | 8  | 343.0–350.6 | 363.2–379.8 | +6% |
+| 50 | 4  | 757.0–765.7 | 954.0–965.8 | +26% |
+| 100 | 1 | 7923.9–8611.0 | 10843.8–11513.1 | +35% |
+
+**Why (the transferable mechanism, worth more than the diff I reverted):**
+
+1. **The gathers were never overhead — they are the software prefetch AND the
+   L1 staging.** The old gather walks the pencil rows SEQUENTIALLY once
+   (streaming, prefetcher-friendly) and the recursion then hits an 8L-double
+   L1 buffer. Direct feed replaces that with the recursion's own DIT-decimated
+   access: leaf s reads rows s, s+m, s+2m, ... — widely strided 64 B touches
+   across a plane (160 KB at L=100) or across P, which the hardware
+   prefetchers do not follow and the OoO window cannot cover. The loss grows
+   with L exactly as the staging buffer's parent (L1 → L2 → L3) recedes.
+   This is the ice "no in-sweep gathers" lesson pointing the OTHER way: my
+   "zero-copy" feed WAS an in-sweep gather.
+2. **The chain's in-place interleaved custody was already DRAM-optimal.**
+   I claimed split-T would delete a volume stream; wrong. In gen_r6's chain,
+   axis 1 writes its planes back and axis 2 OVERWRITES the same addresses
+   while the block is still cache-hot — the dirty lines never reach DRAM
+   twice. Real r6 DRAM streams: 5 (axis0 R+W, block R+W, c R). The split-T
+   variant also runs 5 but touches st + T + c = 48 MB per step at L=100
+   instead of 32 MB — it blew L3 (24 MB) and turned the axes-1+2 pass's
+   input reads into misses. The +35% at 100 and +26% at 50 are footprint;
+   the +6-16% at resident sizes are mechanism 1.
+
+Do not spend a round rediscovering this: if your engine stages pencils
+through a gather, the gather is load-bearing; delete the SHUFFLES inside it
+if you can, never the sequential pass itself. (The one place a shuffle-free
+split handoff might still pay is behind a gather that stays sequential —
+that variant saves only ~16 shuffles/64 complex and I did not burn a window
+on it after the main result came in this decisively.)
+
+### What SHIPPED: fused fold-combine codelet for combine radices 7/11/13
+### (my r6 next-steps item 1) — −6 to −8% at every fold-composite size, bit-identical
+
+The one hot path still on the generic staging loop: composite sizes with a
+factor in {7, 11, 13} ran twd_comb_gen (per k1: twiddle-multiply into
+tr/ti stack arrays — 2r zmm stores + 2r reloads — then a call into
+twd_butterfly → twd_fold_bf). New `twd_comb_fold` runs the WHOLE k1 = 0..m−1
+combine in one noinline call: the twiddle products feed the conjugate fold
+directly (a_j/b_j built from w_j·x_j ± w_{r−j}·x_{r−j} as they are computed),
+fold rows live in 12 zmm-backed locals (h ≤ 6 since twd_factor caps composite
+radices at 13), and the E/O correlation + conjugate-signed combine are
+twd_fold_bf's expressions VERBATIM — same temporaries, same order, same FMA
+contraction, so outputs are bit-identical to gen_r6 (verified by cmp on the
+node at 49/77/98/121/100 and locally at 22 sizes, singles and chains).
+Scored acceptance sizes never execute the new path by construction.
+
+Node, same-core interleaved rotated pairs, m=8 chains, min µs/xform, 4/4 each:
+
+| L | B | r6 ctl | gen_r7 | delta | factorization |
+|---|---|---|---|---|---|
+| 49 | 8 | 1375–1417 | **1270–1282** | **−8%** | 7·7 |
+| 77 | 2 | 5546–5779 | **5224–5327** | **−7%** | 7·11 |
+| 91 | 2 | 9758–10009 | **9019–9206** | **−8%** | 7·13 |
+| 98 | 1 | 12707–12939 | **12063–12140** | **−6%** | 2·7·7 |
+| 121 | 1 | 24609–24895 | **23049–23367** | **−6.5%** | 11·11 |
+
+These are exactly the round-6-surprise-draw shapes (the addendum's L=21/44
+lesson: never-built primes and their composites are where the library is
+weakest), so the win lands where the assembled trunk's fallbacks are thin.
+
+**Scored cells: parity confirmed, with a measurement lesson.** First session
+read L=50 r7-high 4/4 (+0.5–1.9%) — a layout-tax scare (my r5 case-bloat
+precedent). Six more rotated pairs: signs flip (r7 wins 4 of 6), medians
+764.8 vs 768.2 — a WASH; the 4/4 was window luck. 12/27/31/100 were washes
+with mixed signs in session one (e.g. 100: 7832.8/7934.5/7939.8/7906.1 vs
+7903.5/7874.9/7877.4/7895.1). Ten total pairs at the scare cell before
+declaring parity is the protocol takeaway.
+
+### Ship-binary reads via ./tryout.sh (a80n0, leased core, graded cells)
+
+12 B=64: **8.927** µs/xform (sd 0.02%; MKL same window 7.908); 12 B=1:
+**10.104** (MKL 8.329); 100 B=1: **8056.7** (noisy window, sd 0.87%, MKL
+7967.8 same window); 77 B=2 single-transform: 5981 (MKL 2432 — the demo has
+no 7/11-point leaf modules, it runs generic fold leaves; that gap is
+gen_dense_prime/gen_rader's round-7 assignment, not mine).
+
+### Gates (ship binary, on the node; tryout's map-check leg still dies on the
+### '$W/c.bin' quoting bug — check.py run by hand, r2 recipe)
+
+Bit-identity to gen_r6 makes every r6 gate value carry over exactly;
+re-measured anyway: singles 2.959e-16 (12) / 4.817e-16 (100) / 4.519e-16
+(77), all PASS tol 1e-12; graded chains 5.321e-14 (12 m=600, anchor
+3.887e-14) / 3.694e-14 (100 m=64, anchor 2.416e-14) / 7.408e-15 (77 m=8,
+anchor 6.259e-15), tol 1e-10; chain outputs bit-identical across independent
+node runs at 100. Local: numpy PASS at 22 sizes incl. 21/35/44/49/77/91/96/
+98/119/121/126/127; scalar -march=x86-64 build PASS (77 checked vs numpy);
+all knob combinations (DS / DENSEBF / MAPPAIR / PF / DS+DENSEBF) compile
+-Wall -Wextra clean (the DS and DENSEBF race arms keep the generic combine
+loop by design); GEN_TWIDDLE_LIB_ONLY adoption compiles clean + selftest
+PASS; setup unchanged (≤ 0.08 s at L=100).
+
+### What did NOT work / incidents, with the number
+
+- **The split-custody direct-feed program above** — the whole section is the
+  negative; reverted wholesale after 12 cells × 4 pairs, all losses. The
+  revert was `cat impl_6/gen_twiddle.c > impl/gen_twiddle.c` (content copy,
+  inode preserved and checked — the r5 hard-link lesson) and the fold-combine
+  was re-applied on top as a clean minimal diff (~120 changed lines).
+- **L=50 4/4 window-luck scare** — resolved by 6 more rotated pairs, above.
+
+### Borrowed this round, named
+
+- **Literature 11 Tier 2 / brief r7 item 1** (two-axes-per-pass fusion): the
+  attempted design; the negative verdict and the mechanism boundary are this
+  engine's contribution back.
+- **gen_batchlane gen_r4** (held-lease same-core interleaved pairs) and
+  **gen_pow2 gen_r5** (rotate the A/B order): every keep/kill number above.
+- **My own gen_r5/r6 lessons**: case-bloat (comb_fold is its own noinline
+  function; the dispatcher gained only a 2-line default case) and the r6
+  staging-deletion pattern (comb_fold is that pattern applied to the last
+  staged hot path).
+
+### Operation count (demo, delta vs gen_r6)
+
+FMA/add/mul count and order: IDENTICAL (bit-identical outputs).  Deleted per
+combine k1-iteration at radix r ∈ {7,11,13}: 2r zmm stores + 2r zmm reloads
+(tr/ti staging) + 1 call/ret + 1 switch dispatch + the twd_fold_bf frame
+round trip.  Tables, plan memory, create() work: unchanged.
+
+### What I would do next (gen_r8 / endgame)
+
+1. **The sequential-gather shuffle-free split handoff** (the untested benign
+   variant of this round's negative): axis-1 scatter → split P via tr8x8,
+   axis-2 gather from P as a plain sequential copy — saves ~16 shuffles/64
+   complex with staging and streaming preserved. One window, keep only if
+   ≥2% on 3+ cells.
+2. **DS re-race with specialized DS combines** (r6 item 2): under -DTWD_DS
+   the combines still fall back to the generic loop, so the knob now measures
+   staging, not dual-select. Fold the scale into twd_comb2..5 variants if a
+   generator entry asks; otherwise let gen_pow2's independent validation
+   stand.
+3. **xarch knobs on CLX/SPR** (TWD_BLK_MIN_BYTES / TWD_MAPPAIR / TWD_DS /
+   TWD_PF) when the next advisory lands.
+4. refnd pitch #9 if gen_powp / gen_pfa_large still build gate references
+   with double cexp.

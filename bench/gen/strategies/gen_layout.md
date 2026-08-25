@@ -942,3 +942,162 @@ long-double sincos).
 4. **Cross-arch**: the new sweep is load-port-balanced, so on CLX (2 load
    ports but heavier 512-bit downclock) the even-fold win should hold or
    grow; the NOEVEN knob exists for the race layer if SPR disagrees.
+
+## Round gen_r7
+
+### What changed
+
+**Library (`gl_*` API): frozen for the third consecutive round** (the r3
+doctrine: churn in a layer others `#include` is its own cost; no adopter r6
+record asked for a new primitive). All work is demo-side. The two new ideas
+below are written up here precisely because both are ADOPTABLE identities,
+not layer code.
+
+**Demo entry, two changes:**
+
+1. **Third-level k-fold ("quad kernel") for 4 | L.** The r6 even kernel paired
+   outputs (k, L−k) with one j-sweep over he2 ≈ L/4 second-fold columns. The
+   unspent symmetry was on the K side:
+
+       cos(2π(L/2−k)j/L) =  (−1)^j cos(2πkj/L)
+       sin(2π(L/2−k)j/L) = −(−1)^j sin(2πkj/L)
+
+   and when 4 | L, k and L/2−k have the SAME parity — same u/v blocks, same
+   base row. So with the second-fold columns PARITY-SORTED (odd-j run first,
+   then even-j; fold stores and Ct2/St2 fill share the map, `dm_pos2`), one
+   j-sweep accumulates E (even-j) and O (odd-j) partial sums and E ± O yields
+   FOUR outputs per sweep: (k, L−k) from E+O, (L/2−k, L/2+k) from E−O (sin
+   flips: S_{L/2−k} = O_s − E_s). Two same-class quads run per group: per
+   column 4 block loads + 4 broadcasts against 8 FMAs — the r6 port balance at
+   HALF the sweep per output. k = L/4 pairs with itself (lone r6-style pair);
+   k = 0 and L/2 merge into a table-free E/O add sweep of ue. The lone j = L/4
+   column sits at the end of its own parity's run, so its per-row zeroing (r6)
+   routes it correctly with zero extra ops. L ≡ 2 (mod 4) keeps the r6 kernel
+   (k and L/2−k straddle parity classes there — different data rows, no shared
+   coefficient, no saving; see boundaries). dm_kfold8e is an order-blind dot
+   product, so it runs unmodified on the sorted columns (knob
+   `-DGL_DEMO_NOQUAD=1` = r6 kernel on sorted columns, the clean A/B arm).
+   Math validated against numpy for a standalone pencil at L = 8..128 (all
+   4|L, incl. both parities of L/4) before any node window was spent.
+
+2. **Exit-map packing for partial tail chunks (kcnt = 4 and 2).** gl_map8's
+   pair-compress keeps every complex's result independent of its callmates
+   (the r5 gate evidence), so partially-filled exit vectors of ADJACENT
+   PENCILS share one ladder call bit-identically. kcnt=4 (L ≡ 4 mod 8: 12,
+   20, 36, 100...): each row is exactly one full lo[] vector — two rows per
+   gl_map8 call, zero shuffles. kcnt=2 (L ≡ 2 mod 8: 10, 18, 50...): four
+   rows pack via two vinsertf64x4 and return by 256-bit halves. This was the
+   r5-documented dead-lane divide residual (+33% map divs at L=12, +28% at
+   25). Plus `if (m1)` guards drop the mask-0 dead stores.
+
+### Operation count
+
+4 | L, per 8-pencil group per axis: kernel sweep ≈ 4·(L/4)·he2 vector FMAs —
+half of gen_r6, a quarter of gen_r5 (L=32: 480 → 272 incl. C-rows and the
+lone pair). Port shape per column per 2-quad group: 4 block loads + 4
+broadcasts vs 8 FMAs (4 cycles for 8 outputs where r6 spent 8 — balance
+unchanged, throughput doubled). Combines grow by 8 addsub per quadruple
+(E±O merge) — negligible against the sweep. Map calls at L≡4 mod 8 tails
+halve; at L≡2 mod 8 tails quarter (+2 inserts +2 extracts per 4 rows).
+Fold, staging, exit shuffles: unchanged. Tables: unchanged bytes, permuted
+columns. Spill audit: kernels stay clean; dm_exit8 now shows 46 rsp-relative
+zmm ops (the packing branches raise its pressure) and dm_axis_z/_win 21 each
+— watched, but every cell that executes them improved or held (numbers
+below), so not chased this round.
+
+### Measured on the node (a80n0, leased cores via tryout.sh, graded chain, min µs/xform)
+
+| L | B | r6 board | gen_r7 | note |
+|---|---|---|---|---|
+| 10 | 64 | 5.17 | **4.98** | −3.7%; kcnt=2 map packing (sd 0.02%) |
+| 12 | 64 | 8.30 | **8.00–8.02** | −3.6%; MKL 7.78–7.91 same windows |
+| 12 | 1 | 9.57 | **9.04** | −5.5% |
+| 15 | 32 | 18.81 | 19.74 | odd path unchanged; window/code-layout drift |
+| 20 | 32 | 38.93 | **34.67** | **−10.9%**; MKL same window 59.9 |
+| 25 | 16 | 97.6 | 98.9 | odd: +1.3% drift |
+| 27 | 16 | 124.6 | 126.5 | odd: +1.5% drift |
+| 31 | 16 | 200.7 | **200.6** | flat — the clean unchanged-path control |
+| 32 | 8 | 176.9 | **151.4–156.9** | −11..14%; MKL 170.6 |
+| 32 | 1 | 201.3 | **176.3** | −12% (a first read of 216.8 was the documented B=1 ramp bounce — rerun same session settled it) |
+| 40 | 8 | 396.3 | **336.4** | **−15.1%**; MKL 404.5 |
+| 50 | 4 | 946.2 | 961.7 | +1.6%, stable sd 0.02% but an MKL-fast window; L≡2 mod 4 = no quad kernel (see boundaries) |
+| 100 | 1 | 12357 | **9277–9417** | **−24..25%**; MKL same window 7977 |
+
+**Attribution, interleaved same-window knockouts (`-DGL_DEMO_NOQUAD=1` = r6
+kernel + sorted columns + map packing):** L=32 B=8: NOQUAD arm 181.6 vs quad
+156.9 → **the quad kernel alone is −13.6%**. L=100 B=1: NOQUAD arm 12238.7
+(≈ the r6 board, so sorting + packing ≈ wash there) vs quad 9416.6 →
+**−23.1%**. The L=100 win being LARGER than the pure-FMA share says the
+halved sweep also relieves what r5/r6 left binding there (fold-load misses
+overlap better under a shorter kernel shadow).
+
+The dense floor now beats MKL at 20, 25(-ish), 27, 31, 32, 40 and is within
+1–4% at 10, 12, 50; L=100 closed from 1.61× MKL to 1.17×.
+
+### Gates (map-chain legs by hand as always — tryout's '$W/c.bin' bug persists; r2 recipe verbatim)
+
+Single-call rel L2 2.3e-16–5.5e-16 at 10/12/15/20/25/27/31/32/40/50/100 and
+off-suite 8/14/16/24/28/36/44/64/96/128 (tol 1e-12); **two-step gate
+9.32e-16 / 1.59e-15 / 2.86e-15 at 12/32/100** (tol 3e-14 — the E/O
+reassociation costs nothing visible); full graded chains PASS at 10 (m=1000,
+1.35e-13), 12 (m=600, 4.74e-14), 20 (4.79e-14), 32 (3.51e-14), 40
+(3.19e-14), 50 (4.31e-14), 100 (m=64, 3.94e-14) vs tol 1e-10; off-suite m=3
+chains PASS at all ten sizes above; L=100 chain outputs bit-identical across
+independent node runs (NT determinism re-verified); scalar (x86-64 wallaby)
+build PASS singles + m=3 chains at 4/9/12/27 (scalar path untouched). All
+four build modes (entry/LIB_ONLY × icelake-server/x86-64) compile
+`-Wall -Wextra`-clean. Setup unchanged (≤ 5 ms at L=100).
+
+### What did NOT work / boundaries, with numbers
+
+- **The quad fold does NOT extend to L ≡ 2 (mod 4)** (50, 10 in-suite):
+  L/2 odd makes k and L/2−k opposite parity — different data blocks, so the
+  shared-coefficient saving vanishes; a cross-class variant would load both
+  block sets per sweep (12 loads vs 8 FMAs per column per 2 quads:
+  load-bound at exactly the old throughput). Worked out on paper, not built
+  — recorded so nobody burns a window on it. Same reason the odd-L cells
+  cannot use it at all (no k-parity classes without the r6 fold).
+- **L=50 read +1.6% vs board, stable, in a window where MKL read −5%.**
+  Only sorting + kcnt=2 packing touch that path, both µop-negative; the
+  binary's code layout shifted (gen_twiddle r5's hazard). The odd cells
+  drifted +1..5% in the same sessions with bit-identical code paths, and
+  L=31 sat exactly flat — treated as window/layout noise; the monitor's
+  quiet window decides.
+- **L=32 B=1 first read 216.8 (+8%)**: the known B=1 core-ramp bounce;
+  same-session rerun 176.3 (−12% vs board). Third campaign instance of a
+  single B=1 window nearly causing a wrong call.
+- **dm_exit8 spill count rose (0 → 46 rsp-relative zmm)** from the packing
+  branches. Every cell that executes the fused exit improved or held, so it
+  is watched, not chased; a split of dm_exit8 into per-kcnt variants is the
+  fix if a future round shows it binding.
+
+### Borrowed this round, named
+
+- Nothing external: the quad kernel extends MY r6 fold one symmetry deeper
+  (transitively the gen_dense_prime conjugate-pair fold from r2), and the
+  map packing builds on MY r5 gl_map8 lane-independence guarantee. The
+  same-window interleaved A/B protocol (gen_dense_prime r3) and the
+  code-layout-hazard reading of the odd-cell drift (gen_twiddle r5) are
+  reused as doctrine.
+- **For adopters**: the quad identity is not demo-specific — any dense
+  real-matrix stage over a length-4m axis gets the same 2× sweep cut
+  (gen_dense_prime's C/S GEMMs at 4|m composite lengths, gen_rader's dense
+  blocks at 4|m). The parity-sorted-column trick is the whole
+  implementation burden; dm_pos2/dm_fill_row2/dm_kfold8q are the worked
+  example. The exit-map packing applies verbatim to any gl_map8 exit with
+  partial vectors (gen_rader's 40/80 map stores, gen_pow2's custody exit
+  tails).
+
+### What I would do next (gen_r8)
+
+1. **kcnt=6 exit packing** (L ≡ 6 mod 8: pairs the half-full hi[] vectors;
+   L=14/22/30 class, off-suite today, surprise-relevant) and a kcnt=1
+   8-row pack for the L=25-style single-complex tail — same lane-independence
+   argument, diminishing returns, only if a scored case lands there.
+2. **dm_exit8 spill diet** (split per-kcnt bodies) if any fused-exit cell
+   stalls on it in the r7 board.
+3. **Adoption of the quad identity** by gen_dense_prime/gen_rader per above —
+   the offer stands with a measured −13.6..23% reference on this floor.
+4. The demo's odd-L cells are now the only ones untouched since r5; the
+   remaining odd-L symmetry is multiplicative (j → 2j mod L) — that is
+   Rader territory and stays out of this class.

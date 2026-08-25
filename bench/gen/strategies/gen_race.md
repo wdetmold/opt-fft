@@ -935,3 +935,202 @@ repeatability structural.
 4. **B=1 hole**: the panel's standing weakness (my 12/B1 is 1.8x MKL but
    1.83x my own batched cell). If planner ships their lane-spatial B=1
    engine (their r5 #2), it enters the chain race as more arms for free.
+
+## Round gen_r7
+
+### What changed
+
+**1. Library: FROZEN, zero changes** (fourth round running). No `gr_*`
+signature or wisdom-format change; every adopter recompiles against an
+identical API.
+
+**2. Salt bump chain6/tile6/chaingate6/fm6 -> chain7/tile7/chaingate7/fm7**
+(my r3 rule, fourth time running): gen_planner's engine generation moved
+again — fused GOOD-THOMAS codelets (register-resident, twiddle-free PFA
+nodes up to PLN_FUSEMAX=25, also usable as CT children and @s1 roots /
+@s2/@s4 children) and DFT7 promoted to a HARD LEAF (symmetric-fold
+codelet). Receipt that the bump was load-bearing AGAIN: with fresh races
+the tree pick changed at 8 of 12 graded cells (the gt() trees take
+10/12/15/20/40/50/100 in some position), and the fm boundary FLIPPED at
+L=15 (r6 fm1 -> r7 fm0, +4.2% non-tie) — a stale fm6 verdict replayed
+against the new engine would have shipped the slow form.
+
+**3. NEW fourth race stage "p47": the @s4 stage-block width p4.** Planner's
+`{n<=40:4, n<=64:2, else 1}` table is another host-tuned ICX constant
+(L1-residency of the @s4 staging block), i.e. the same knob class as the
+r3 tile and r6 fm moves. My r6 next-list #2 called this "blocked on a
+rebuild per candidate" — WRONG, and the unblocking is the round's one new
+trick: `pln_s8_ct1_set` derives the stage stride `16*p4+8` per call from
+the struct field, and p4 is pure blocking (the pencil loop carries the
+remainder, per-pencil arithmetic identical), so p4 races by IN-PLACE FLIP
+like fm, with candidates wider than the built width growing `stage4`
+lazily in their setup() (grow once to P=8; every 16P+8 stride stays an
+odd cache-line count, so planner's anti-4K row pad survives all widths).
+Numerics identical across widths => the group gate verdict holds for
+whatever wins; the picked name carries "@p<w>" only when the table was
+beaten. Candidates: table default first (tie doctrine), then {8,4,2,1}
+minus the default.
+
+**4. pv tile race widened {32,16,64} -> {32,16,48,64}** (my r5 next-list
+#4: widen when the engine generation moves — it moved twice since). t48's
+first win arrived immediately: L=32 c4(d8)@t48 (+1.6% non-tie).
+
+### Measured on the node (a80n0, held-lease same-core runs, graded chain, min us/xform; all timings SECOND invocation on the lease — see the cold-invocation note below)
+
+| case | r6 board | r7 | delta | pick (receipt) |
+|---|---|---|---|---|
+| L=10  B=64 | 1.421 | **1.339** | -5.8% | gt(d2,d5)@s1@fm0 (+2.9%) |
+| L=12  B=64 | 2.486 | **2.341** | -5.8% | gt(d3,d4)@s1@fm0 (+6.0%); same-core A/B vs FORCE'd r6-style c3(d4)@s1: 2.33-2.35 vs 2.47-2.50, 3/3 pairs |
+| L=12  B=1  | 4.560 | **3.817** | -16% | gt(d3,d4)@t32@fm1 (+3.9%) |
+| L=15  B=32 | 5.599 | **5.353** | -4.4% | gt(d3,d5)@s1@fm0 (tree tie; fm0 +4.2% NON-tie, r6's fm1 retired) |
+| L=20  B=32 | 19.370 | **17.727** | -8.5% | gt(d4,d5)@t32@fm1 — a PV win at B=32 (group arm within 0.6%, tie doctrine) |
+| L=25  B=16 | 41.547 | 41.671 | flat | c5(d5)@s1@fm1 (+46.6% margin; gt does NOT take 25) |
+| L=27  B=16 | 59.773 | 59.772 | flat | c3(c3(d3))@s4@fm1@p4 (p4 race: p8 0.5% faster, within noise -> table kept) |
+| L=31  B=16 | 149.50 | **139.24** | -6.9% | d31@s3@fm1 (+29.6%) |
+| L=32  B=8  | 111.33 | **111.01** | flat | c4(d8)@t48@fm1 (**t48's first win, +1.6% non-tie**) |
+| L=40  B=8  | 268.02 | **234.57** | -12.5% | **c4(gt(d2,d5))@s4@fm1 — @s4 takes 40 via a fused-GT child** (+3.7% non-tie; r5/r6's "vol>=32k stays pv" boundary moved by the GT child's smaller footprint) |
+| L=50  B=4  | 594.32 | **557.60** | -6.2% | c5(gt(d2,d5))@t16@fm1 (t16 +2.6%) |
+| L=100 B=1  | 5565.4 | **5222.4** | -6.2% | c5(gt(d4,d5))@t32@fm0 (fm0 +10.2%) |
+
+MKL same windows where sampled: 4.593 (10), 7.782 (12/B64), 8.329 (12/B1),
+16.480 (15), 144.64 (27) — flat vs the r6 board, so the deltas above are
+real, not window weather. Same honest split as every round: most of the
+raw movement is planner's r7 fused-GT/d7 engine; the pick's OWN receipts
+this round are the 8 non-tie stage wins in the table (fm0-at-15 flip, t48
+at 32, t16 at 50, @s4-at-40, fm margins 2.9-10.2%) plus everything the
+race REJECTED (gt does not take 25/27/31/32; the group arm does not take
+20).
+
+Surprise-class drill (cold create -> full manual gates, same protocol):
+
+| L,B | pick | us/xform | MKL same core | ratio | cold create |
+|---|---|---|---|---|---|
+| 21, 32 | gt(d3,d7)@s1@fm1 | 23.32 | 75.16 | **3.22x** | 0.048 s |
+| 44, 8  | c4(d11)@t16@fm1  | 478.7 | 642.5 | 1.34x | 0.062 s |
+| 96, 2  | c8(gt(d3,d4))@t64@fm0 | 5467 | 7702 | 1.41x | 0.676 s |
+| 61, 8  | d61@s3@fm1 | 1972 | 14972 | 7.6x | 0.869 s |
+
+The r6 surprise test scored L=21 at 1.99x through the trunk; with
+planner's d7 leaf + the race picking its GT form, the same cell now
+measures 3.22x — the addendum's "toward the 3-4x the built classes
+achieve" prediction, delivered for 21. L=44 moves 1.29x -> 1.34x only
+(d11 as a folded-dense CT child; an 11-point Rader/Winograd module is
+still the missing piece). Warm create 3-4 ms everywhere (budget 50 ms);
+worst cold create seen this round 0.87 s at L=61 (budget 60 s).
+
+Gates, shipped binary, run manually on the node (tryout's check.py leg
+still dies on the unexpanded '$W/c.bin', unchanged since r1): single-call
+rel L2 2.8-4.8e-16 at all 12 graded cases + 21/44/96/61 (tol 1e-12);
+map-chain at graded m PASS at 12/27/31/40/100 + mixed B=12 at L=10
+(4.4e-14 / 3.1e-14 / 2.6e-14 / 3.8e-14 / 4.1e-14 / 1.0e-13 vs anchors
+3.9/2.6/2.3/2.6/2.4/9.1e-14, tol 1e-10) and at 21/44/96/61; two-step m=2
+gate PASS at all six manual cases (9.0e-16..2.9e-15 vs tol 3e-14); chain
+outputs bit-identical across independent node runs at all six. Both build
+modes compile -Wall -Wextra clean on ICX and scalar (the only warnings
+are gen_planner.c's documented set).
+
+**Cross-arch receipts (carried FOUR rounds, finally captured).** The r6
+CLX advisory ran on p52n1; its wisdom file held my r6-salted verdicts
+before this round's strip, and they diverge from ICX exactly where
+predicted in r5/r6:
+
+| knob | ICX a80n0 (r6) | CLX p52n1 (r6 advisory) | note |
+|---|---|---|---|
+| chain6/L20 tree | c4(d5)@s1 (group) | **c5(d4) pv (tie)** | the @s1-vs-pv verdict at 20 flips on the 1 MB L2 — my r5 prediction, verbatim |
+| fm6/L20 | fm1 +3.5% | fm1 +7.7% | agrees, stronger on CLX |
+| fm6/L10,12 | fm0 | fm0 (ties) | agrees |
+| chain6/L27 | @s4 +30% | @s4 +22.8% | agrees |
+| chain6/L31 | d31@s3 | d31@s3 | agrees (planner's tree key too) |
+
+And the SPR r5 advisory (XARCH.md): entry-level winners flip at L=10, 15
+(gen_pfa_small -> gen_batchlane) and L=100 (gen_pfa_large -> gen_powp).
+Every one of these is a per-host measured verdict this layer exists to
+make; the r7 p47 stage extends the same insurance to the @s4 stage block
+before CLX/SPR ever measure it.
+
+### Operation count
+
+Library: unchanged, zero instructions in any hot path. Demo: the winning
+arm's cost on gen_planner's r7 engines (fused-GT nodes delete the
+(r-1)(m-1) twiddle cmuls of the equivalent CT and run the CRT permutations
+as compile-time index selection; d7 is a symmetric-fold hard leaf). The p4
+knob moves blocking only — zero arithmetic change. My contribution is the
+measured (tree, form, tile, fused-map, stage-block) pick per (L, B-bucket,
+host) and the persistence that keeps repeatability structural.
+
+### What did NOT work / honest boundaries
+
+* **The first invocation on a freshly-leased core reads 6-13% slow** —
+  quantified this round because it nearly sent me down a rabbit hole: my
+  initial tryout sweep read L=10-15 at +6-7% over the r6 board with MKL
+  flat, which pattern-matched "engine regression". Same-core A/B: the
+  race-path binary's FIRST run 2.676 us at L=12, runs 2-3 2.341/2.352 —
+  identical to a FORCE'd no-race run (2.346-2.359). It is the cold
+  i-cache/predictor effect (gen_batchlane/gen_pfa_small's r5
+  first-invocation-is-warmup rule), amplified by the race path touching
+  ~18 candidates' code before the chain. Every number in the tables above
+  is therefore a second-invocation-on-held-lease reading. If you dev with
+  single tryout.sh shots, add ~10% mental error bars — or run twice.
+* **p8 wins nowhere on ICX** (27: 0.5% inside noise; 40: table p4 +0.7%).
+  The p47 stage is 100% confirmation on this host — exactly like the r3
+  tile stage's 9/11 — and its value is the CLX/SPR L1/L2 divergence the
+  cross-arch table above documents for every other knob of this class.
+  Cold cost ~2 group-step timings; recorded so nobody calls it a ghost
+  stage.
+* **The fused-GT trees do NOT take 25/27/31/32** (margins in the table).
+  PLN_FUSEMAX=25 bounds the fused-GT codelet itself; where a prime-power
+  or dense form was already winning, it still wins.
+* **gen_planner's file churned during the session again** (three reads,
+  three different line offsets for the same functions). Shipped state
+  compiles and passes against their 09:34+ snapshot; if their final r7
+  file moves arm speeds again, the round-end strip (below) already
+  guarantees the monitor cold-races fresh verdicts. This is the fourth
+  round this pattern holds; it is now just how the panel works.
+* **Not attempted: REFFT-style full plan-lattice enumeration** (brief
+  backlog #4 names gen_race). Enumeration is gen_planner's layer — my
+  side of that play is what this round shipped: every memory-order knob
+  the engine exposes (tile, fm, p4) raced independently of the arithmetic
+  pick, per host, behind wisdom. A lattice without planner emitting
+  rotated trees would just be me re-implementing their enumeration; if
+  they emit rotations next round, the race consumes them for free (NK_MAX
+  headroom: 12 pv + 6 group = 18 of 32).
+
+### Borrowed, plainly
+
+* **gen_planner r7 (the substrate, as every round)**: fused Good-Thomas
+  codelets + the d7 hard leaf — most of the raw movement in the graded
+  table and all of the L=21 surprise jump. Their exposed `p4`/`stage4`
+  fields are what makes the p47 stage a flip-in-place race.
+* **gen_batchlane / gen_pfa_small r5**: the first-invocation-is-warmup
+  rule, this round promoted from "note" to "quantified protocol hazard"
+  (see above).
+* **gen_pfa_large r3**: the round-end strip protocol, third dogfood round
+  via gr_wisdom_drop_prefix.
+
+### Adoption status (the score)
+
+* **gen_planner** (full GEN_RACE_LIB_ONLY include), **gen_pfa_large**
+  (string wisdom, salted keys), **gen_powp** (keyf/sig/lookup/store):
+  all unchanged on the frozen API — zero churn charged this round.
+* Round end: **all gen_race/* wisdom stripped on all THREE hosts via
+  gr_wisdom_drop_prefix** — a80n0 (68 entries), p52n1 (36 r6-advisory
+  entries, captured in the cross-arch table above first), wallaby (0).
+  Files verified valid JSON after; foreign prefixes untouched (planner's
+  and powp's entries intact).
+
+### What I would do next (gen_r8)
+
+1. **Capture the r7 CLX/SPR wisdom when the advisories run**: p47 and the
+   fm7/L15 flip are the fresh predictions; the L=20 tree divergence is
+   already on record from r6. If p8 wins anywhere off-ICX, the p47 stage
+   pays for itself.
+2. **An 11-point module** would move L=44-class cells the way d7 moved 21
+   (1.34x is the panel's weakest surprise ratio) — that is
+   gen_dense_prime/gen_rader territory; my layer consumes it the moment
+   planner's enumeration emits it.
+3. **Race across class ENGINES via gr_pick_plan** (carried seven rounds):
+   still blocked — no class entry exposes a *_LIB_ONLY include. The
+   gr_plan_cand vtable has shipped since r1.
+4. **B=1 lane-spatial engine** (planner's r6 #1, still unshipped): enters
+   the chain race as arms for free when it lands; the 12/B1 cell's -16%
+   this round is engine-side, the structural B=1 hole remains.

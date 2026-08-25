@@ -800,3 +800,146 @@ twiddle tables and zero shuffle-port ops inside all transforms, still.
 4. **Cross-arch**: the new sizes ship with the Ice Lake verdicts baked in
    (div tail, stock sched, fused map); the knobs (-DBL_MAPRCP, BL_SAFE15)
    are the axes to race on CLX/SPR.
+
+## Round gen_r7 -- the lifted DFT5 v-pair: the golden ratio buys 2 ops per DFT5, and it flips the r5 hybrid verdict
+
+Standings into the round (r6 board): tied 10 (1.155 vs pfa_small 1.156), led
+12 (1.911 vs 1.917), trailed 15 by 0.006 us (4.412 vs 4.406), tied 20 to the
+third decimal (12.866 vs 12.867). All four cells are the same engine converged
+in two entries; only an op-count cut could move them. The brief's rounds-7/8
+mandate is to spend the queued literature backlog -- mine was the DFT5 op diet
+(queued since r2 as "budget an hour, expect ~0.5%").
+
+### The round's one idea: sin(2pi/5) = phi * sin(pi/5) EXACTLY, so the v-pair lifts
+
+Literature 08 6.3's 3-FMA lifting cuts rotations from 4 ops to 3. The Winograd
+DFT5's v-pair is not a rotation (it is a scaled reflection):
+
+    v1 = KS1*sa + KS2*sb        KS1 = sin(2pi/5), KS2 = sin(pi/5)
+    v2 = KS2*sa - KS1*sb
+
+but KS1/KS2 = 2cos(pi/5) = phi, the golden ratio, EXACTLY -- so it factors
+through one shared term at the same dependency depth (2):
+
+    u  = sa - PHI*sb            (FMA)
+    v2 = KS2*u                  (mul;  KS2*(sa - phi*sb) = KS2*sa - KS1*sb)
+    v1 = KS1*u + KL5*sb         (FMA;  KL5 = (KS1^2+KS2^2)/KS2 = 1.25/sin(pi/5))
+
+6 vector ops instead of 8 per DFT5 (r/i components), zero latency cost, one
+extra constant. PHI/KL5 computed exact to the last bit (50-digit Decimal
+series). Pencil FP: 10: 88 -> 84, 15: 162 -> 156, 20: 216 -> 208, 35: 568 ->
+554; 12/14/21/28 have no DFT5 and are untouched. This is NOT bit-transparent
+(same exact values, different rounding), so the round's gate work was real.
+
+### What shipped
+
+1. **BL_LIFT5=1 (default)**: the lifted v-pair in DFT5CORE, all DFT5 users
+   (10 stage-2, 15 stage-2, 20 stage-2, 35 stage-1+2). BL_LIFT5=0 restores
+   the r6 arithmetic for cross-arch races.
+2. **BL_MEM15 default flipped 1 -> 2 (hybrid)**: the r5 hybrid verdict
+   (register-explicit sweep pencils + memory-form fused-map x-pass, +0.35%,
+   rejected) REVERSES under the lift: hybrid wins 9 of 12 same-core pairs,
+   4.373-4.395 vs memory 4.385-4.411 (-0.25%). Reading: the lift's two fewer
+   live temps per DFT5 keep the register-explicit sweep pencil spill-free
+   where it previously tied. Bit-transparent vs the memory form (verified by
+   cmp on the m=600 chain), so the two knobs' gate numbers are shared.
+3. **BL_X214=0 (new knob, default OFF)**: fused DFT7X2 stage-2 at L=14,
+   built as my r6 next-step #1 -- and it LOSES (numbers below). Code kept
+   as a cross-arch race candidate.
+
+### Measured on the node (a80n0 core 2, ONE held slot lease, interleaved
+### --samples 4 minima, control first, first invocation discarded as warmup)
+
+Same-core A/B, r6 ship (bin_ctl) vs r7 ship:
+
+| case | ctl (r6 path) | r7 | delta | pairs |
+|---|---|---|---|---|
+| L=10 B=64 m=1000 | 1.155-1.157 | **1.145-1.146** | -0.8% | 4/4 |
+| L=15 B=32 m=600  | 4.414-4.430 | **4.384-4.398** (mem), 4.373-4.395 (hyb ship) | -0.7..-0.9% | 6/6, then 9/12 hyb vs mem |
+| L=20 B=32 m=256  | 13.61-13.66 | **13.48-13.52** | -1.0% | 4/4 |
+| L=35 B=32 m=128  | 106.6      | 106.5           | wash (memory-bound) | 3 |
+| L=12 B=64 m=600  | (bit-identical path) 1.917-1.922 | same | -- | -- |
+
+End-of-session ship minima, MKL 2022 same core same window: 10: 1.150 (MKL
+4.68, 4.1x), 12: 1.917 (7.95, 4.1x), 14: 3.618, 15: 4.385 (16.81, 3.8x),
+20: 13.53 (65.5, 4.8x -- window busier than the r6 board's 12.87; the A/B
+delta is the honest number), 35: 106.8.
+
+Gates (ship build, all run on the node): single call 2.8-3.9e-16 at all
+EIGHT sizes (tol 1e-12); two-step m=2 gate 9.0e-16..1.8e-15 (tol 3e-14,
+16-33x margin -- the lift moved 15's from 1.198e-15 to 1.272e-15, i.e.
+nothing); graded chains 1.673e-13 / 4.869e-14 / 5.824e-14 / 5.487e-14 /
+5.231e-14 / 3.540e-14 / 2.377e-14 / 3.474e-14 at 10/12/14/15/20/21/28/35 vs
+honest anchors 1.081e-13 / 3.887e-14 / 6.874e-14 / 4.784e-14 / 2.835e-14 /
+2.869e-14 / 1.953e-14 / 2.604e-14 (tol 1e-10; the largest drift ratio is
+20's 1.8x, same tier as before the lift); bit-repeatable at every size;
+B=1 single + m=2 PASS at all eight sizes; mixed remainder B=9 (15) and
+B=12 (10) PASS. 12/21/28 chains bit-identical to r6 (cmp); 14's fused-X2
+experimental path bit-identical to serial (cmp) before it lost the race.
+
+### What did NOT work, with the number that killed it
+
+- **DFT7X2 fusion at L=14** (my own r6 next-step #1, the DFT5X2-at-15
+  pattern): serial 3.622-3.641 vs fused 3.834-4.011 (+6-10%, five clean
+  same-core pairs). 28 slot loads + two DFT7COREs' ~24 temps each spill far
+  past 32 zmm; the X2 ILP win does not transfer to modules this wide. The
+  boundary is now measured from both sides on this engine: DFT5X2 (10 loads,
+  ~14 temps/core) wins ~1%, DFT7X2 loses 6-10%. Knob kept for CLX/SPR.
+- **BL_SAFE15 re-raced under the lift** (the lower-pressure fused-map pencil
+  might have flipped it): still loses, 4.412-4.430 vs 4.394-4.411 (~+0.5%,
+  four rounds). Closed again.
+- **Stage-as-dense-GEMM at 10/12/15** (brief backlog item 3, lit 11 Tier 2):
+  DECLINED on arithmetic, not measured. The claim's win comes from
+  eliminating twiddle loads/shuffles; this engine has neither -- its stage-2
+  groups already ARE register-resident constant matrices applied by
+  broadcast-FMA on batch lanes. A dense 10-point matrix apply costs 4L^2 =
+  400 FMA/pencil vs the PFA's 84 in an FP-throughput-bound kernel: a 4.8x op
+  inflation with nothing to buy back. If anyone wants the crossover claim
+  tested, test it on an engine that pays per-butterfly twiddle traffic.
+
+### For the monitor / gen_race / gen_planner: the surprise round exposed a routing gap at L=21
+
+gen_surprise drew L=21 B=32 and the trunk (gen_race/gen_planner) ran it at
+37.4-37.7 us/xform vs MKL 74.6 (2.0x). My entry has supported 21 since r6 and
+measured 18.4-18.6 us at B=16 in r6; this round's ship build does 3.6 us at
+14 and ~18.5 at 21 -- the trunk left ~2x on the table at a size my class
+covers. Whether the race never enumerated gen_batchlane's 21 candidate or the
+wisdom was cold, that is exactly the "surprise-size failure as planner/race
+bug" the r7 brief prioritizes. The class engine is sitting there; route to it.
+
+### Borrowed, plainly
+
+- **Literature 08 6.3** (Gustafsson ARITH-24): the lifting idea; adapted
+  rather than transplanted -- the v-pair is a scaled reflection, not a
+  rotation, and the exact phi ratio between sin(2pi/5) and sin(pi/5) is what
+  makes the 3-op factoring exact-constant clean. Cited as the round's
+  literature spend.
+- **gen_pfa_small r4's register-budget rule**, applied predictively this
+  time: it said DFT7X2 (28+48 live values) must spill -- built it anyway to
+  put a number on the boundary; the rule was right.
+- **Literature 10 / my r4**: the held-lease interleaved protocol, used for
+  every verdict above.
+
+### Operation count
+
+Per pencil per 8 volumes (vector FP, FMA-contracted): 84 / 96 / 160 / 156 /
+208 / 282 / 376 / 554 at L=10/12/14/15/20/21/28/35. Loads/stores: 10/12
+register 2L+2L; 15 hybrid = register sweeps (2L+2L) + memory map x-pass
+(4L+4L); 14/20/21/28/35 memory 4L+4L. Map unchanged (rcp ladder 10/12,
+vdivpd elsewhere). Zero twiddle tables, zero shuffle-port ops in the
+transforms, one new broadcast constant pair (PHI, KL5).
+
+### What I would do next (ranked)
+
+1. **Get L=21 (and 14/28/35) routed in the trunk** -- worth 2x at any
+   surprise draw my class covers, vs the ~1% left in my own cells. Needs
+   gen_race/gen_planner action, not mine; flagged above.
+2. **B=1 lane-spatial engine** (seventh round on the list, unchanged).
+3. **DFT7 op diet**: no phi-like exact ratio exists among sin(2pi k/7), but
+   the A-side (cosine) rows share x0 and the identity c1+c2+c3 = -1/2;
+   a Rader-style 7-point (lit 02) trades 66 straight-line ops for a cyclic
+   convolution -- only worth it if a surprise draw makes 14/21/28 scored.
+4. **Cross-arch**: new knobs to race per host: BL_LIFT5 (0/1), BL_MEM15
+   (1/2 -- the verdict moved once already), BL_X214 (0/1). CLX's weaker
+   FMA throughput could widen the lift's win; its smaller L1 could flip
+   the hybrid back.

@@ -871,3 +871,157 @@ arithmetic, now actually compiled straight-line (<= m=13) or 8-acc blocked
 5. Harness: r6_ab.sh under build/tryout/gen_rader/ holds the whole session
    (build/even/c3/l31/fold3/gates phases); in/c pairs now cover 13..127 incl.
    41 53 73 89 97 101 109 113 at the B the suite would use.
+
+## Round gen_r7
+
+### Where this round started
+
+r6 leaderboard: **84.801 us/step** at the graded cell (L=31 B=16 m=140), leading
+the crossover (gen_dense_prime 120.7, gen_bluestein 288.6, MKL/FFTW 833-883).
+The r6 surprise test proved the library generalizes; the rounds 7-8 brief says
+spend the queued backlog.  My queue: 19/127 sub-dense arithmetic, x-band custody
+blocking at DRAM sizes, store-order pass, UF/VF fill spills.  This round's first
+move was neither: I instrumented before choosing (env-gated RP_PROF per-pass
+timer in the flat chain, zero-cost when unset), because my own compute model
+said p=113 should cost ~8 ms/step and the node said 23.6 -- a 3x gap nobody had
+localized.  All node numbers: a80n0, ONE held lease (slot 2, core 4),
+interleaved arms (the gen_batchlane r4 protocol).
+
+### Closed BY ANALYSIS before spending windows (do not resurrect without new evidence)
+
+1. **x-band custody blocking is a structural no-op.**  With three contraction
+   axes + map, z/y/map are plane-local and x needs all planes, so ANY grouping
+   fuses the four ops into at most two memory-sweep groups; the floor is
+   2 state reads + 2 writebacks + 1 c read per step, and the r4 custody order
+   already sits ON that floor (verified by the RP_PROF numbers: map runs at
+   ~12 GB/s, the c stream).  Banding x by z-columns just makes z_next the lone
+   cold sweep -- same 5.  The r4/r5 next-step item is dead, closed-form.
+2. **gen_layout's NT-store -19% at L=100 cannot transfer here.**  Their win
+   killed RFO reads on OUT-OF-PLACE scratch streams.  My chain is fully in
+   place: every store hits a line the pass's own load just brought in E state
+   -- there is no RFO to eliminate.  (Their r4 attribution table also shows
+   prefetch was a WASH at their DRAM size; mine pays -- see below -- because my
+   in-place passes leave the LFBs free, theirs were store-occupied.)
+3. **The h = 3m, 3|m "last sub-dense holes" (p = 19, 127) stay dense.**  The
+   only split that exists is z^3m - 1 = (z^m - 1)(z^2m + z^m + 1); the Phi-part
+   product needs LINEAR length-m convolutions (2m-1 outputs = 2m^2 - m FMA each
+   in stretched-kernel form, NOT m^2), so Karatsuba gives m^2 + 3(2m^2 - m) =
+   7m^2 - 2m vs dense 9m^2 -- a 22% cut buried under ~19m reconstruction adds.
+   At p=19 (m=3) dense 81 beats the split's 63+57 outright.  Agarwal-Cooley
+   C7xC9 at h=63 needs a Winograd C7/C9 outer (16+ block products, add-heavy,
+   high table risk) for a DRAM-shaped size -- not worth a round.  Written down
+   with the op count so nobody re-derives it.
+
+### The profile, and the real finding: the large-m kernels were FRONT-END bound
+
+RP_PROF at p=113 m=4 (r6 binary, 23.5 ms/step): **x 7.6 / y 6.7 / map 2.0 /
+z 5.1 ms**.  The y-pass streams a 204 KB plane (L2-resident, 23 MB/step = 3.4
+GB/s -- nowhere near bandwidth) yet runs 2.8x above its ~2.4 ms load-port
+model.  Not memory.  objdump: **rp2_chunk_28 compiled to 10820 instructions /
+~75 KB PER CHUNK** (2443 stack vmovapd) -- `-funroll-loops` had peeled the
+blocked conv's inner i loop 8x behind the r6 race's back.  75 KB of
+straight-line code per chunk is past L1I (32 KB): every chunk re-fetched its
+own code from L2.  The r6 record's unroll-vs-blocked boundary was raced
+against MANGLED blocked codegen.
+
+### What shipped (arithmetic untouched; every chain output bit-identical to r6, cmp-verified at 31/89/113/127)
+
+1. **RP2_CONV_BLK's i loop pinned rolled** (`#pragma GCC unroll 1`): the tile
+   body becomes ~15 instructions, DSB-resident; accumulation order unchanged.
+   Node: **-7% at 89, -19% at 101, -8% at 113, -9..11% at 61, -2% at 73, -1%
+   at 103**; wash at 41; **+1% at 53 (3/3)** -- so m=13 alone keeps the gcc
+   default via an RP2_BLK_IUNROLL redefinition at its instantiation.
+2. **Dead map-fused arms compiled out (RP_MAPARM)**: RP_YMAPFUSE lost its race
+   in r3 and every caller passes mapc = NULL, yet ~57 never-executed
+   rsqrt/rcp ladders (~20 KB) sat inline in every rp2/rp3 chunk (64 KB -> 40
+   KB at m=28).  -0.6..-1.8% more at 61/101/103/113, wash at 89/53.  The r31
+   kernels keep their arms (31 is port-bound, closed, bit-frozen).
+3. **x-pass software prefetch** (rp_pass pf arg, gen_layout r4's fold-prefetch
+   recipe): the x-pass walks p+1 row streams at plane pitch -- past the L2
+   streamer's ~32 -- so each chunk's row loads demand-miss at DRAM sizes.
+   T0 one chunk (RP_PFD=128 B) ahead: x 7.6 -> 7.0 ms at 113 (-8% on the
+   pass).  Gated RP_PFMIN_KB = 36 MiB of state+c (p >= 107): raced
+   wash-to-NEGATIVE at 89/101, -1.5% at 113, -0.5% at 127.  Bit-identical
+   pf/nopf (cmp).
+
+### Measured on the node (same-window interleaved vs the r6 binary, min us/step, graded chain)
+
+| p | r6 (this window) | gen_r7 | delta | what moved it |
+|---|---|---|---|---|
+| 31 B=16 | 85.07-85.48 | **84.82-85.63 (wash; tryout 84.818)** | 0 | untouched, bit-identical |
+| 31 B=1 | -- | **85.63** held-lease (96.2 fresh-lease tryout = the documented ramp signature) | 0 | |
+| 61 (B=2 m=8) | 2044-2316 | **1758** | -9..14% | rolled conv + map-arm |
+| 73 (B=1 m=8) | 3894-3966 | **3802** | -2% | rolled conv |
+| 89 (B=1 m=4) | 8992-10027 | **8275** | -7% | rolled conv |
+| 101 (B=1 m=4) | 17176-17345 | **13546** | **-21%** | rolled conv + map-arm |
+| 103 (B=1 m=4) | 11426-12376 | **11021** | -3% | map-arm (conv already blocked) |
+| 113 (B=1 m=4) | 22777-23259 | **20170** | **-11%** | rolled + map-arm + pf |
+| 127 (B=1 m=4) | 48947-49002 | **48342** | -1% | pf only (dense engine) |
+
+Post-fix profile at 113: x 6.3 / y 5.9 / map 2.0 / z 4.8 ms (was 7.6/6.7/2.0/5.1).
+
+Correctness (final binary, all on the node by hand): single + TWO-STEP gates
+PASS at 13 29 37 41 43 53 61 67 73 79 89 101 103 109 113 127 (worst two-step
+5.3e-15 at 113 vs tol 3e-14); L=31 single 4.059e-16 (B=16) / 4.073e-16 (B=1),
+chain m=140 output **bit-identical to the r6 binary** (cmp), generic chains
+bit-identical and repeatable at 89/113/127.  Setup worst case 3.0 s (127).
+
+### What did NOT work, with the number that killed it
+
+- **Rolled-blocked conv where full-unroll rules (re-race of the r6 boundary
+  against FIXED blocked codegen)**: 37 +27% (330 vs 260), 67 +5..7% (2007 vs
+  1913), 79 +13..16% (3876 vs 3385), 3/3 each.  The r6 unroll-side boundary
+  SURVIVES; only the blocked side was mismeasured.  Boundary unchanged: rp2
+  unroll <= 9 / blocked >= 10 (m=13 on gcc-default), rp3 unroll <= 13.
+- **Prefetch below the DRAM gate**: 89/101 wash-to-negative (89: 8349 nopf vs
+  8377-8406 pf) -- their state+c (11-16 MB x2) still part-fits the 24 MB LLC.
+  Gate set at 36 MiB, knobs RP_PFD/RP_PFMIN_KB kept for the xarch race.
+- The 127 dense engine still runs ~2x above its load-port model with hot data
+  and small code (rp_chunk_any = 4.5 KB, L1I-resident) -- NOT a code-size
+  problem; suspicion is the 8 k-major table streams (63 KB re-walked per
+  chunk) plus the exactly-8-accumulator FMA latency balance.  Unspent; see
+  next steps.
+
+### Borrowed this round, named
+
+- **gen_layout gen_r4**: the fold-prefetch recipe (adopted, pays at my DRAM
+  sizes where their attribution said loads were NOT their binder -- the
+  difference is my in-place stores leave the LFBs free); their NT-store
+  eligibility analysis (used to PROVE non-transfer here, saving the window).
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol.
+- **gen_dense_prime r3**: the "never conclude from one window" discipline --
+  the 89/53 verdicts above took three windows each.
+- My own r6 codegen lesson, extended: "compile-time instantiation =>
+  register-resident" was false above m=11; NOW also "blocked form => small
+  code" was false under -funroll-loops.  Codegen claims get an objdump audit
+  EVERY round; the compiler re-litigates them per flag set.
+
+### Operation count (shipped)
+
+Identical to r6 everywhere (the round moved zero arithmetic).  Deltas are
+instruction-stream and memory-schedule only: m>=15 blocked kernels ~40 KB ->
+~26 KB hot path with rolled tiles (~15-instr loop bodies), all rp2/rp3 chunks
+lose ~20 KB of dead map arms, x-pass adds p+1 T0 prefetches per chunk at
+p >= 107.
+
+### What I would do next
+
+1. **The dense-engine residue at 127** (x 15.7 / y 14.5 ms vs ~7 ms model,
+   both 2x): race a j-major interleaved table layout (per j-step the 8
+   broadcast operands land on 2 lines instead of 8 streams), and/or 2-wide
+   column chunks (2 SRC loads + 8 broadcasts + 16 FMA -> load ratio 10/16,
+   FMA-bound) -- the latter also applies to the rp2 blocked kernels (9/8 ->
+   10/16), est. -10..20% on every conv pass, at the cost of doubling the
+   stack pencil arrays (watch 48 KB L1D at m >= 22).
+2. **Rolled fold/combine loops for m >= 22** (static hot path 26 KB -> ~8 KB,
+   fully DSB-resident); the index tables are already runtime arrays, so the
+   loops roll without new structure.
+3. Store-order pass: STILL unraced (two rounds queued); in-place E-state
+   stores make it low-expectation -- race once, then close it either way.
+4. The wisdom/race layer should own the RP_PFD/RP_PFMIN_KB and per-m conv-form
+   knobs on CLX/SPR (CLX's 1 MB L2 moves both the front-end story and the
+   prefetch gate).
+5. Harness: r7_ab.sh / r7_race2.sh / r7_race3.sh / r7_gates.sh / r7_final.sh
+   under build/tryout/gen_rader/ hold the whole session; in/c pairs now
+   include 109b1.  reserve.sh --status needs the slurm PATH prefix from the
+   dev host or it false-reports a dead reservation.

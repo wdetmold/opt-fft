@@ -895,3 +895,170 @@ found only my own keys present and left valid {host, format, entries}).
    CLX (smaller L2 sharpens the prepass economics) before touching ranks.
 5. The scored-size next-list stands from r5: PMU attribution of p1 at 100,
    and the 50 B=4 two-volume-pair schedule (still unmeasured by anyone).
+
+## Round gen_r7
+
+Standings into the round (r6 board): led 40 (160.6 vs next 237.0), led 100
+(4570.3 vs gen_powp 4617.5), trailed 50 B=4 by 1.1% (420.0 vs 415.5).  The
+rounds-7/8 extension brief names this entry's queued backlog explicitly:
+two-axes-per-pass fusion at 100/50/40 (lit 11 Tier 2).  Also on the desk at
+round start: gen_powp's r6 record (they ranked MY ipk1 c-flush bypass FIRST
+at 100 on 5/5 held-lease pairs and built a "challenger playoff" in their
+race), the SPR advisory flagging the 100 winner flipping to gen_powp there,
+and the surprise-round results (trunk won all three draws; L=44 B=8 rode
+this class's engine through gen_race at 480.4 vs MKL 620.3 — no planner
+or coverage bug to firefight, the r6 coverage sizes did their job).
+
+### What changed
+
+**1. CHALLENGER PLAYOFF in tune() (ADOPTED from gen_powp gen_r6, their
+design, ~35 lines).**  The R-step race trials systematically under-read
+candidates whose benefit accrues ACROSS steps — the c-flush bypass pays its
+flush cost in-step and collects on later steps' state re-reads; gen_powp
+measured ipk1 +5.3% in a 4-step cold race vs -0.6..-16% in 5/5 graded
+pairs.  When the rank-0 live candidate is not the trial best but within
+15%, the two are re-judged on long steady runs (24 steps/arm/round at
+<= 8 MiB volumes, 12 above; 3 rounds, alternating) and the results feed
+tc[] via min() — fair to both arms; the 3% simplest-first hysteresis still
+decides.  Portable by construction: it runs wherever the race runs, so the
+CLX/SPR cold races get the same long-horizon fairness without any
+host-specific rank hacks.  Setup cost measured: cold create at 100 went
+~4.4 -> 4.8 s (60 s budget untroubled); warm wisdom stays ~1 ms.
+
+**2. ipk1 rank-first at 100: TRIED (gen_powp's r6 evidence) and REFUTED on
+this engine — ipp1 keeps rank 0, ipk1 moves to rank 2.**  Held-lease
+same-core alternation, L=100 B=1 m=64, five pairs (ipk1 first in each
+pair): 5288.1/4836.6, 4843.2/5149.3, 5775.0/4938.0, 4804.5/4697.9,
+4805.9/4645.5 us/xform — **ipp1 wins 4/5, min-of-mins 4645.5 vs 4804.5
+(-3.3%)**, matching my r5 session (4/4 to ipp1) and CONTRADICTING
+gen_powp's 5/5 to ipk1 on their side of the shared shell.  Boundary
+recorded for everyone: the c-flush-vs-plain-prepass verdict at 100 is
+ENGINE-SPECIFIC (likely the flush uops interact differently with each
+engine's prepass/p1 port mix); do not import the rank, import the race
+machinery that measures it per host — which is what item 1 does.  ipk1 at
+rank 2 (ahead of plain ip*) keeps it the preferred bypass insurance for
+CLX/SPR wisdom races, where it has been trial-best repeatedly.
+
+**3. ipk1 extended to the 16 LEAN coverage sizes** (pool 6 -> 7 candidates,
+rank last): the L >= 91 volumes are 12-26 MB — the same beyond-L3
+c-pollution regime as 100.  p1pmk moved out of the non-lean guard and
+gained a masked odd-plane tail (`#if PLNDL % 8` map_span_tail — the r6
+odd-L truncation lesson applied BEFORE the bug this time; compiles out at
+the scored sizes).  Forced-pick verification at the two odd lean sizes:
+GENPFL_PF=18 chains m=8 pass at 75 (rel 2.377e-14 — EXACTLY r6's ip1 value,
+i.e. bit-identical family algebra through the new tail) and 117 (6.889e-15).
+Pool signatures change, so every lean size gets fresh wisdom keys by
+construction.  Wisdom tag chain5 -> chain6 (pool order + race shape both
+changed; no stale verdict can replay).
+
+**4. Two-axes-per-pass fusion (lit 11 Tier 2, section "Few-pass 3D +
+fusion") — worked through and CLOSED WITHOUT CODE; the accounting is the
+deliverable.**  This engine has fused two axes per DRAM pass since r1:
+phase 1 transforms z AND y of each x-plane through the L2-resident plane
+scratch (one state read, one state write for two axes).  The literature's
+proposed re-cut (pass A = z only in place; pass B = y+x fused over kz-slab
+tiles, 640 KB L2 buffer at 100) has BIT-IDENTICAL DRAM accounting per ipp
+step at L=100: pass A 16r state + 16r c + 16w state, pass B 16r + 16w —
+the same ~80 MB/step as today's map-prepass+z+y | x split.  A one-pass
+3-axis step is impossible at volume >> cache (the x-stage DFT25 alone
+couples 25 planes; full 3D data dependence), so two passes is the floor
+and two-axes-per-pass is already the optimum pass shape.  The ONLY
+reducible term is pass B's DRAM share via L3 custody of the state across
+the step — and that is precisely the c-bypass family built in r5 (ipk1/
+ipq1/iqn1), now playoff-protected per host.  gen_powp: this closes the
+"coordinate so only one of us burns the round" item from your r5/r6
+next-lists — the accounting transfers to your engine (your phase 1 is the
+same two-sweep shape); the per-host question is only ipk1-vs-ipp1, which
+your playoff and mine now both measure honestly.
+
+### Operation count
+
+Unchanged everywhere: 278/434/661/968 FMA-port vector ops per line at
+40/50/80/100, r6 coverage counts as listed in the r6 section.  The playoff
+moves no arithmetic; lean ipk1 adds none (flushes only).  Scored-size
+generated code verified UNCHANGED at the instruction level (below).
+
+### Measured on the node (a80n0, leased cores via tryout.sh, graded chain
+### min, same-window MKL 2022 alongside)
+
+| case | r6 board | gen_r7 (this window) | same-window MKL | pick |
+|---|---|---|---|---|
+| L=40 B=8 m=128 | 160.56 | 172.1 (window) | 406.7 (2.36x) | ip0.ch |
+| L=40 B=1 m=128 | — | 185.5 (r5-class: 185.8) | 441-class | ip0.ch |
+| L=50 B=4 m=128 | 420.02 | 437.9 (window) | 955.7 (2.18x) | ip1.ch |
+| L=50 B=1 m=128 | — | 433.9 | — | ip1.ch |
+| L=100 B=1 m=64 | 4570.27 | **4634.0 min, MKL 7872.3 same window (ratio 0.589 — the best ratio this cell has printed)** | 7872.3 | ipp1.ch |
+| L=75 B=1 m=1 (lean, unscored) | — | 2330.0 exec | 2071.3 | ip1.ch |
+| L=117 B=1 m=1 (lean, unscored) | — | 8869.7 exec | 10990.3 | ipp1.ch |
+
+Windows this session ran 4-7% hot by the MKL yardstick at 40/50 (406.7 vs
+the 380-class quiet MKL); the codegen identity check below is the real
+regression armor.  Gates, by hand (tryout's '$W/c.bin' map-check quoting
+bug is STILL there, sixth round): single call 3.578-5.035e-16 at every size
+measured (tol 1e-12); two-step m=2 at 100: 2.721e-15 (tol 3e-14) — the
+EXACT r3-r6 value; full chains 8.557e-14 (40 B=1 m=128), 2.538e-14 (50
+B=1), 3.804e-14 (40 B=8), 4.181e-14 (100 m=64) — all historical values,
+bit-identical algebra; chained output bit-repeatable across independent
+processes at 100.  Setup: cold 0.25-4.8 s, warm wisdom ~1 ms.  Round end:
+all gen_pfa_large keys stripped from results/wisdom_a80n0.json under flock
+(the file had again been wholesale-rewritten by concurrent create() races
+mid-session — my earlier L40/B8 verdict vanished on its own, the r5/r6
+incident pattern; absent entries are deliberate per protocol).
+
+### What did NOT work / verification notes, with the numbers
+
+1. **ipk1 rank-first at 100: refuted, 4/5 pairs to ipp1** (numbers in item
+   2).  The cross-engine contradiction with gen_powp r6 is the finding:
+   rank evidence does NOT transfer even between engines sharing the shell;
+   race machinery does.
+2. **The r6 codegen-drift check needs address normalization to be usable.**
+   nm -S sizes matched r6 for all 13 hot functions, but raw
+   objdump-text diffs showed 764-2470 changed lines — ALL of it
+   intra-function jump-target addresses shifted by the 16 new lean
+   functions moving .text around.  After stripping addresses/target labels
+   (sed on the operand column), xc_ipp1_100, xc_ip0_40, xc_ip1_50 and
+   x_pf1_100 are INSTRUCTION-IDENTICAL to the r6 object.  Protocol update
+   for everyone: `nm -S` first (cheap), then normalized objdump; a raw
+   objdump diff on a grown TU will cry wolf every time.
+3. The challenger playoff CAN still install ipk1 in a noisy window (my
+   first cold race this session did exactly that before the rank revert;
+   the verdict gate-passed, so it is a performance coin-flip, not a
+   correctness risk).  With ipp1 at rank 0 the quiet-floor evidence
+   (4645 vs 4804) says the monitor's full-quiet race installs ipp1.
+4. tryout's map-check leg still dies on the '$W/c.bin' quoting bug AND its
+   repeatability cmp never runs at chained sizes (it sits after the failed
+   check in the && chain) — run both by hand.  reserve.sh --status still
+   needs the slurm PATH shim on wallaby
+   (/opt/software/slurm-19.05.8.1-cuda-11.8/bin).
+
+### Borrowed, plainly
+
+- **gen_powp gen_r6**: the challenger-playoff design, adopted nearly
+  verbatim into tune() (their soa-playoff sibling does not apply — no SoA
+  arena here), and their ipk1-at-100 evidence, which motivated the try
+  that my pairs then refuted.  Both directions of that exchange are the
+  system working as intended.
+- **gen_batchlane gen_r4 (via everyone)**: held-lease same-core
+  alternation, again the arbiter for the round's one rank decision.
+- **gen_powp r2-r6 / this entry r3-r6**: the round-end wisdom-strip
+  protocol, executed under flock per my own r5 incident rule.
+- The two-axes-per-pass closure accounting, the lean ipk1 odd-tail
+  extension, and the normalized-objdump protocol update are mine.
+
+### What I would do next (ranked)
+
+1. **PMU attribution of p1 at 100** (queued since r3, now four rounds):
+   with the map placement, schedule, ranks and traffic accounting all
+   exhausted, port-5-vs-DRAM attribution of the remaining ~2.5 ms of p1 is
+   the only honestly unknown quantity left in the weakest cell.  Do it
+   before writing ANY new candidate.
+2. **Three-factor GT lines** (or composite modules DFT10/DFT15, DFT27/
+   DFT32) for the remaining class holes 60/84/90/96/105/108/120/126 — the
+   surprise round drew 96 and the trunk had to serve it from another class.
+3. **112 = 16x7 still loses to MKL** (r6: 0.91x raw execute) — three-stage
+   4x4x7 line or a pow2-grade DFT16 are the candidates.
+4. **50 B=4 two-volume-pair schedule**: still unmeasured by anyone, cell
+   still a ~1% coin flip with gen_powp.
+5. **XARCH**: SPR flagged the 100 winner flipping to gen_powp; the playoff
+   + rank-2 ipk1 are this round's answer — check the next advisory's picks
+   before touching anything else.
