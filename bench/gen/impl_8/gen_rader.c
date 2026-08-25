@@ -113,6 +113,25 @@
  * no-op (the custody chain already sits at the 5-sweep-per-step floor), and
  * gen_layout's NT-store win cannot transfer (in-place passes pay no RFO).
  *
+ * gen_r8: PAIRED-COLUMN (2-wide) chunks -- the r7 next-step-1 lever spent.
+ * The conv/k-quad inner loops were load-port bound with exactly-8 FMA chains
+ * (zero latency slack: 2 pipes x 4-cyc latency); processing two zmm columns
+ * per chunk shares every broadcast constant between the columns (gcc 11
+ * additionally 4x-unrolls the pinned-rolled i loop with broadcast ROTATION --
+ * the shifted kernel index reuses each broadcast across 4 iterations, so the
+ * steady state is ~2 loads + 2 broadcasts + 16 FMA per column-pair step).
+ * Node-raced (same-core interleaved, 3/3 per size): dense engine 2-wide
+ * -25.5% at 127 (47.2 -> 35.2 ms, ~10% of it from the paired z-quad); the
+ * fully-peeled 2-wide form loses EVERYWHERE (60 KB static at m=28 -- the r7
+ * front-end lesson again); with fold/combine ROLLED the 2-wide wins vs r7 at
+ * m >= 22, but the attribution race showed rolling those loops on the 1-WIDE
+ * kernel is the better form until m = 25.  Shipped: 1-wide rolled at
+ * m 15..24, 2-wide rolled + natural-store-order at m >= 25, dense pairing
+ * everywhere dense runs.  Per-column arithmetic order is unchanged, so all
+ * outputs stay bit-identical (cmp-verified at every prime).  Knobs for the
+ * xarch race: RP_NOW2 / RP_W2MIN / RP_NOW2D / RP_NOW2Z / RP_W2FULL /
+ * RP_W1ROLL / RP_W1FULL / RP2_NOSTORD.
+ *
  * create() SELF-CHECKS the fast engine against a dense reference volume at 1e-13
  * and falls back to the (slow, correct) dense-matrix path if the check fails --
  * a fast wrong answer scores nothing.
@@ -207,6 +226,9 @@ const char *fft3d_description(void)
            "arena for p<=61 (alias-free pitch, tail-free x/y), flat above; "
            "r7: blocked convs pinned rolled (front-end fix, -7..-21% at 61..113), "
            "dead map arms compiled out, x-pass stream prefetch at p>=107; "
+           "r8: paired-column (2-wide) chunks share broadcast constants (dense "
+           "engine -25.5% at 127; 2-wide+stord at m>=25), rolled fold/combine "
+           "on the 1-wide kernels at m=15..24 (-1..-10% at 61/73/89); "
            "self-check gated; s6 map from gen_dense_prime, arena from gen_layout";
 }
 static int rp_is_prime(int n)
@@ -452,7 +474,8 @@ static int rp2_build(fft3d_plan *pl)
      * signed V index (0..2h-1; the negacyclic reversal sign w'_n = -w_{h-n}
      * picks the mirror half).  -(a-b) == b-a exactly, so this is
      * bit-identical to the two-row-load form. */
-    int *js = pl->j2, *jv = js + h, *kp = jv + h, *km = kp + h;
+    int *js = pl->j2, *jv = js + h, *kp = jv + h, *km = kp + h,
+        *st2 = km + h;
     for (int n = 0; n < h; ++n) {
         const int q = a[(h - n) % h];        /* data reversal: slot n <- g^{-n} */
         js[n] = q <= h ? q : p - q;
@@ -462,6 +485,11 @@ static int rp2_build(fft3d_plan *pl)
         jv[n] = dp <= h ? dp - 1 : h + dm - 1;
         kp[n] = a[n];
         km[n] = p - a[n];
+        /* store-order table (gen_r8, -DRP2_STORD): output row min(a,p-a) in
+         * natural order <- source slot n; bit 16 set when that row is the
+         * km (X_{p-k}) side, which flips the +-SG combine */
+        if (a[n] <= h) st2[a[n] - 1] = n;
+        else           st2[p - a[n] - 1] = n | (1 << 16);
     }
     long double CC[64], SS[64];
     for (int r = 0; r < h; ++r) {
@@ -1153,6 +1181,103 @@ void rp_chunk(const double *sx, double *dx, const double *mapc,
 #undef RP_ST
 }
 
+/* gen_r8: PAIRED-COLUMN dense chunk (full chunks only; tails run rp_chunk).
+ * The 1-wide k-quad is per j: 2 stack loads + 8 broadcasts + 8 FMA -- load-
+ * bound AND exactly 8 accumulator chains (zero FMA-latency slack; the r7
+ * record's "127 runs 2x above its load-port model" residue).  Two columns
+ * share the 8 broadcasts: per j, 4 stack loads + 8 broadcasts + 16 FMA
+ * (FMA-bound, 16 chains), and the 8 k-major table streams (63 KB at p=127)
+ * are walked once per column PAIR instead of once per column. */
+static void rp_chunk2(const double *sx, double *dx,
+                      const ptrdiff_t rs, const int p, const int h,
+                      const double *ct, const double *st)
+{
+    const __m512d SG = _mm512_setr_pd(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
+    __m512d U[2 * (RP_MAXH + 1)], V[2 * (RP_MAXH + 1)];
+    __m512d x0a = _mm512_loadu_pd(sx), x0b = _mm512_loadu_pd(sx + 8);
+    __m512d e0a = x0a, e0b = x0b;
+    __m512d e1a = _mm512_setzero_pd(), e1b = _mm512_setzero_pd();
+    for (int j = 1; j <= h; ++j) {
+        const double *ra = sx + (ptrdiff_t)j * rs;
+        const double *rb = sx + (ptrdiff_t)(p - j) * rs;
+        __m512d a0 = _mm512_loadu_pd(ra), a1 = _mm512_loadu_pd(ra + 8);
+        __m512d b0 = _mm512_loadu_pd(rb), b1 = _mm512_loadu_pd(rb + 8);
+        U[2 * j] = _mm512_add_pd(a0, b0);
+        U[2 * j + 1] = _mm512_add_pd(a1, b1);
+        V[2 * j] = _mm512_sub_pd(a0, b0);
+        V[2 * j + 1] = _mm512_sub_pd(a1, b1);
+        if (j & 1) { e1a = _mm512_add_pd(e1a, U[2 * j]);
+                     e1b = _mm512_add_pd(e1b, U[2 * j + 1]); }
+        else       { e0a = _mm512_add_pd(e0a, U[2 * j]);
+                     e0b = _mm512_add_pd(e0b, U[2 * j + 1]); }
+    }
+    _mm512_storeu_pd(dx,     _mm512_add_pd(e0a, e1a));
+    _mm512_storeu_pd(dx + 8, _mm512_add_pd(e0b, e1b));
+#define RP_OUT2(KK, Ca, Cb, Sa, Sb) do {                                       \
+        __m512d oa_ = _mm512_permute_pd(Sa, 0x55);                             \
+        __m512d ob_ = _mm512_permute_pd(Sb, 0x55);                             \
+        const ptrdiff_t rp_ = (ptrdiff_t)(KK) * rs;                            \
+        const ptrdiff_t rm_ = (ptrdiff_t)(p - (KK)) * rs;                      \
+        _mm512_storeu_pd(dx + rp_,     _mm512_fmadd_pd(oa_, SG, Ca));          \
+        _mm512_storeu_pd(dx + rp_ + 8, _mm512_fmadd_pd(ob_, SG, Cb));          \
+        _mm512_storeu_pd(dx + rm_,     _mm512_fnmadd_pd(oa_, SG, Ca));         \
+        _mm512_storeu_pd(dx + rm_ + 8, _mm512_fnmadd_pd(ob_, SG, Cb));         \
+    } while (0)
+    int k = 1;
+    for (; k + 3 <= h; k += 4) {
+        const double *c0 = ct + (size_t)(k - 1) * h, *c1 = c0 + h,
+                     *c2 = c1 + h, *c3 = c2 + h;
+        const double *s0 = st + (size_t)(k - 1) * h, *s1 = s0 + h,
+                     *s2 = s1 + h, *s3 = s2 + h;
+        __m512d C0a = x0a, C1a = x0a, C2a = x0a, C3a = x0a;
+        __m512d C0b = x0b, C1b = x0b, C2b = x0b, C3b = x0b;
+        __m512d S0a = _mm512_setzero_pd(), S1a = S0a, S2a = S0a, S3a = S0a;
+        __m512d S0b = S0a, S1b = S0a, S2b = S0a, S3b = S0a;
+        for (int j = 1; j <= h; ++j) {
+            __m512d ua = U[2 * j], ub = U[2 * j + 1];
+            __m512d va = V[2 * j], vb = V[2 * j + 1];
+            __m512d kk;
+            kk = _mm512_set1_pd(c0[j - 1]);
+            C0a = _mm512_fmadd_pd(kk, ua, C0a); C0b = _mm512_fmadd_pd(kk, ub, C0b);
+            kk = _mm512_set1_pd(s0[j - 1]);
+            S0a = _mm512_fmadd_pd(kk, va, S0a); S0b = _mm512_fmadd_pd(kk, vb, S0b);
+            kk = _mm512_set1_pd(c1[j - 1]);
+            C1a = _mm512_fmadd_pd(kk, ua, C1a); C1b = _mm512_fmadd_pd(kk, ub, C1b);
+            kk = _mm512_set1_pd(s1[j - 1]);
+            S1a = _mm512_fmadd_pd(kk, va, S1a); S1b = _mm512_fmadd_pd(kk, vb, S1b);
+            kk = _mm512_set1_pd(c2[j - 1]);
+            C2a = _mm512_fmadd_pd(kk, ua, C2a); C2b = _mm512_fmadd_pd(kk, ub, C2b);
+            kk = _mm512_set1_pd(s2[j - 1]);
+            S2a = _mm512_fmadd_pd(kk, va, S2a); S2b = _mm512_fmadd_pd(kk, vb, S2b);
+            kk = _mm512_set1_pd(c3[j - 1]);
+            C3a = _mm512_fmadd_pd(kk, ua, C3a); C3b = _mm512_fmadd_pd(kk, ub, C3b);
+            kk = _mm512_set1_pd(s3[j - 1]);
+            S3a = _mm512_fmadd_pd(kk, va, S3a); S3b = _mm512_fmadd_pd(kk, vb, S3b);
+        }
+        RP_OUT2(k, C0a, C0b, S0a, S0b);
+        RP_OUT2(k + 1, C1a, C1b, S1a, S1b);
+        RP_OUT2(k + 2, C2a, C2b, S2a, S2b);
+        RP_OUT2(k + 3, C3a, C3b, S3a, S3b);
+    }
+    for (; k <= h; ++k) {
+        const double *c0 = ct + (size_t)(k - 1) * h;
+        const double *s0 = st + (size_t)(k - 1) * h;
+        __m512d Ca = x0a, Cb = x0b;
+        __m512d Sa = _mm512_setzero_pd(), Sb = Sa;
+        for (int j = 1; j <= h; ++j) {
+            __m512d kk;
+            kk = _mm512_set1_pd(c0[j - 1]);
+            Ca = _mm512_fmadd_pd(kk, U[2 * j], Ca);
+            Cb = _mm512_fmadd_pd(kk, U[2 * j + 1], Cb);
+            kk = _mm512_set1_pd(s0[j - 1]);
+            Sa = _mm512_fmadd_pd(kk, V[2 * j], Sa);
+            Sb = _mm512_fmadd_pd(kk, V[2 * j + 1], Sb);
+        }
+        RP_OUT2(k, Ca, Cb, Sa, Sb);
+    }
+#undef RP_OUT2
+}
+
 /* ---------------- outer-C3 chunk kernel (gen_r5) ----------------
  * The r31_chunk shape at runtime table indices: fold via js/jdp/jdm, TWO
  * Winograd-C3-over-dense-Cm cyclic-h convolutions (4 block products of m^2
@@ -1244,6 +1369,88 @@ void rp_chunk(const double *sx, double *dx, const double *mapc,
         if (jb_ + 5 < (M)) DST[jb_ + 5] = c5_;                                \
         if (jb_ + 6 < (M)) DST[jb_ + 6] = c6_;                                \
         if (jb_ + 7 < (M)) DST[jb_ + 7] = c7_;                                \
+    }                                                                         \
+} while (0)
+
+/* gen_r8: PAIRED-COLUMN (2-wide) blocked conv -- the r7 next-step-1 lever.
+ * The 1-wide blocked tile is per i: 1 stack load + 8 broadcasts + 8 FMA =
+ * 9 loads / 8 FMA -- load-port bound (4.5 vs 4 cyc on 2 ports) AND exactly
+ * 8 accumulator chains = 2 FMA pipes x 4-cyc latency with ZERO slack (the
+ * r7 profile's "y-pass 2x above its load-port model on L2-hot data").
+ * Processing TWO zmm columns per chunk shares the 8 broadcasts: per i,
+ * 2 stack loads + 8 broadcasts + 16 FMA = 10 loads / 16 FMA -- FMA-bound
+ * with 16 independent chains (2x latency slack).  SRC/DST hold column pairs
+ * interleaved: slot j's columns at [2j] and [2j+1].  Same K+7 kernel pad,
+ * same overread rule, i loop pinned rolled (the r7 front-end lesson). */
+#define RP2_CONV_BLK2(DST, SRC, KB, M) do {                                   \
+    RP_UNROLL                                                                 \
+    for (int jb_ = 0; jb_ < (M); jb_ += 8) {                                  \
+        __m512d d0a_, d0b_, d1a_, d1b_, d2a_, d2b_, d3a_, d3b_;               \
+        __m512d d4a_, d4b_, d5a_, d5b_, d6a_, d6b_, d7a_, d7b_;               \
+        {                                                                     \
+            const double *kk_ = (KB) + (M) - 1 + jb_;                         \
+            __m512d sa_ = SRC[0], sb_ = SRC[1], k_;                           \
+            k_ = _mm512_set1_pd(kk_[0]);                                      \
+            d0a_ = _mm512_mul_pd(sa_, k_); d0b_ = _mm512_mul_pd(sb_, k_);     \
+            k_ = _mm512_set1_pd(kk_[1]);                                      \
+            d1a_ = _mm512_mul_pd(sa_, k_); d1b_ = _mm512_mul_pd(sb_, k_);     \
+            k_ = _mm512_set1_pd(kk_[2]);                                      \
+            d2a_ = _mm512_mul_pd(sa_, k_); d2b_ = _mm512_mul_pd(sb_, k_);     \
+            k_ = _mm512_set1_pd(kk_[3]);                                      \
+            d3a_ = _mm512_mul_pd(sa_, k_); d3b_ = _mm512_mul_pd(sb_, k_);     \
+            k_ = _mm512_set1_pd(kk_[4]);                                      \
+            d4a_ = _mm512_mul_pd(sa_, k_); d4b_ = _mm512_mul_pd(sb_, k_);     \
+            k_ = _mm512_set1_pd(kk_[5]);                                      \
+            d5a_ = _mm512_mul_pd(sa_, k_); d5b_ = _mm512_mul_pd(sb_, k_);     \
+            k_ = _mm512_set1_pd(kk_[6]);                                      \
+            d6a_ = _mm512_mul_pd(sa_, k_); d6b_ = _mm512_mul_pd(sb_, k_);     \
+            k_ = _mm512_set1_pd(kk_[7]);                                      \
+            d7a_ = _mm512_mul_pd(sa_, k_); d7b_ = _mm512_mul_pd(sb_, k_);     \
+        }                                                                     \
+        _Pragma("GCC unroll 1")                                               \
+        for (int i_ = 1; i_ < (M); ++i_) {                                    \
+            const double *kk_ = (KB) + (M) - 1 + jb_ - i_;                    \
+            __m512d sa_ = SRC[2 * i_], sb_ = SRC[2 * i_ + 1], k_;             \
+            k_ = _mm512_set1_pd(kk_[0]);                                      \
+            d0a_ = _mm512_fmadd_pd(sa_, k_, d0a_);                            \
+            d0b_ = _mm512_fmadd_pd(sb_, k_, d0b_);                            \
+            k_ = _mm512_set1_pd(kk_[1]);                                      \
+            d1a_ = _mm512_fmadd_pd(sa_, k_, d1a_);                            \
+            d1b_ = _mm512_fmadd_pd(sb_, k_, d1b_);                            \
+            k_ = _mm512_set1_pd(kk_[2]);                                      \
+            d2a_ = _mm512_fmadd_pd(sa_, k_, d2a_);                            \
+            d2b_ = _mm512_fmadd_pd(sb_, k_, d2b_);                            \
+            k_ = _mm512_set1_pd(kk_[3]);                                      \
+            d3a_ = _mm512_fmadd_pd(sa_, k_, d3a_);                            \
+            d3b_ = _mm512_fmadd_pd(sb_, k_, d3b_);                            \
+            k_ = _mm512_set1_pd(kk_[4]);                                      \
+            d4a_ = _mm512_fmadd_pd(sa_, k_, d4a_);                            \
+            d4b_ = _mm512_fmadd_pd(sb_, k_, d4b_);                            \
+            k_ = _mm512_set1_pd(kk_[5]);                                      \
+            d5a_ = _mm512_fmadd_pd(sa_, k_, d5a_);                            \
+            d5b_ = _mm512_fmadd_pd(sb_, k_, d5b_);                            \
+            k_ = _mm512_set1_pd(kk_[6]);                                      \
+            d6a_ = _mm512_fmadd_pd(sa_, k_, d6a_);                            \
+            d6b_ = _mm512_fmadd_pd(sb_, k_, d6b_);                            \
+            k_ = _mm512_set1_pd(kk_[7]);                                      \
+            d7a_ = _mm512_fmadd_pd(sa_, k_, d7a_);                            \
+            d7b_ = _mm512_fmadd_pd(sb_, k_, d7b_);                            \
+        }                                                                     \
+        DST[2 * jb_] = d0a_; DST[2 * jb_ + 1] = d0b_;                         \
+        if (jb_ + 1 < (M)) { DST[2 * (jb_ + 1)] = d1a_;                       \
+                             DST[2 * (jb_ + 1) + 1] = d1b_; }                 \
+        if (jb_ + 2 < (M)) { DST[2 * (jb_ + 2)] = d2a_;                       \
+                             DST[2 * (jb_ + 2) + 1] = d2b_; }                 \
+        if (jb_ + 3 < (M)) { DST[2 * (jb_ + 3)] = d3a_;                       \
+                             DST[2 * (jb_ + 3) + 1] = d3b_; }                 \
+        if (jb_ + 4 < (M)) { DST[2 * (jb_ + 4)] = d4a_;                       \
+                             DST[2 * (jb_ + 4) + 1] = d4b_; }                 \
+        if (jb_ + 5 < (M)) { DST[2 * (jb_ + 5)] = d5a_;                       \
+                             DST[2 * (jb_ + 5) + 1] = d5b_; }                 \
+        if (jb_ + 6 < (M)) { DST[2 * (jb_ + 6)] = d6a_;                       \
+                             DST[2 * (jb_ + 6) + 1] = d6b_; }                 \
+        if (jb_ + 7 < (M)) { DST[2 * (jb_ + 7)] = d7a_;                       \
+                             DST[2 * (jb_ + 7) + 1] = d7b_; }                 \
     }                                                                         \
 } while (0)
 
@@ -1379,6 +1586,19 @@ RP3_DEFINE(17, RP2_CONV_BLK)  /* p = 103 */
  * stack loads.  In-place safe: the fold loads every row before the only
  * store the sweep makes to row 0; all other stores follow all loads. */
 
+/* 1-wide fold/reconstruct/combine unroll, per m (gen_r8): the attribution
+ * race showed ROLLING these loops (runtime index tables, ~20-instr bodies)
+ * is a win on its own from m = 15 up (61 -1..4%, 73 -1..10%, 89 -3..8% vs
+ * the peeled r7 form, 3/3 each) and a loss below (41 +8..14%, 53 +12..14%).
+ * Default: peeled <= m 13, rolled >= 15 (redefined at the instantiation
+ * boundary below).  -DRP_W1ROLL / -DRP_W1FULL force all-rolled/all-peeled
+ * for the xarch race. */
+#ifdef RP_W1ROLL
+#define RP2_FC1UNROLL _Pragma("GCC unroll 1")
+#else
+#define RP2_FC1UNROLL RP_UNROLL
+#endif
+
 #define RP2_DEFINE(M, CONV)                                                   \
 static void rp2_chunk_##M(const double *sx, double *dx, const double *mapc,   \
                           const ptrdiff_t rs, const fft3d_plan *pl,           \
@@ -1393,7 +1613,7 @@ static void rp2_chunk_##M(const double *sx, double *dx, const double *mapc,   \
     __m512d UF[H_], VF[2 * H_], T[H_], O_[H_];                                \
     __m512d Q0[M], Q1[M], P0[M], P1[M], P2[M];                                \
     __m512d x0 = RP3_LD(sx, 0);                                               \
-    RP_UNROLL                                                                 \
+    RP2_FC1UNROLL                                                                 \
     for (int j_ = 1; j_ <= H_; ++j_) {       /* one-pass fold: rows at        \
                                               * COMPILE-TIME offsets */       \
         __m512d a_ = RP3_LD(sx, (ptrdiff_t)j_ * rs);                          \
@@ -1403,7 +1623,7 @@ static void rp2_chunk_##M(const double *sx, double *dx, const double *mapc,   \
         VF[H_ + j_ - 1] = _mm512_sub_pd(b_, a_);                              \
     }                                                                         \
     __m512d esum = _mm512_setzero_pd();                                       \
-    RP_UNROLL                                                                 \
+    RP2_FC1UNROLL                                                                 \
     for (int j_ = 0; j_ < (M); ++j_) {                                        \
         __m512d slo = UF[js[j_] - 1], shi = UF[js[(M) + j_] - 1];             \
         Q0[j_] = _mm512_add_pd(slo, shi);                /* mod z^m - 1 */    \
@@ -1416,31 +1636,31 @@ static void rp2_chunk_##M(const double *sx, double *dx, const double *mapc,   \
     if (RP_MAPARM && mapc)                                                    \
         X0 = r31_map1(_mm512_add_pd(X0, RP3_LD(mapc, 0)), R31_FMDIV);         \
     RP3_ST(0, X0);                                                            \
-    RP_UNROLL                                                                 \
+    RP2_FC1UNROLL                                                                 \
     for (int j_ = 0; j_ < (M); ++j_) {                                        \
         T[j_] = _mm512_add_pd(x0, _mm512_add_pd(P0[j_], P1[j_]));             \
         T[(M) + j_] = _mm512_add_pd(x0, _mm512_sub_pd(P0[j_], P1[j_]));       \
     }                                                                         \
-    RP_UNROLL                                                                 \
+    RP2_FC1UNROLL                                                                 \
     for (int j_ = 0; j_ < (M); ++j_) {                                        \
         Q0[j_] = VF[jv[2 * j_]];                         /* A0: even slots */ \
         Q1[j_] = VF[jv[2 * j_ + 1]];                     /* A1: odd slots  */ \
     }                                                                         \
     CONV(P0, Q0, kb0, M);                                                     \
     CONV(P1, Q1, kb1, M);                                                     \
-    RP_UNROLL                                                                 \
+    RP2_FC1UNROLL                                                                 \
     for (int j_ = 0; j_ < (M); ++j_)                                          \
         Q0[j_] = _mm512_add_pd(Q0[j_], Q1[j_]);                               \
     CONV(P2, Q0, kb2, M);                                                     \
     O_[0] = _mm512_sub_pd(P0[0], P1[(M) - 1]);           /* y-wrap sign */    \
-    RP_UNROLL                                                                 \
+    RP2_FC1UNROLL                                                                 \
     for (int j_ = 1; j_ < (M); ++j_)                                          \
         O_[2 * j_] = _mm512_add_pd(P0[j_], P1[j_ - 1]);                       \
-    RP_UNROLL                                                                 \
+    RP2_FC1UNROLL                                                                 \
     for (int j_ = 0; j_ < (M); ++j_)                                          \
         O_[2 * j_ + 1] = _mm512_sub_pd(P2[j_],                                \
                                        _mm512_add_pd(P0[j_], P1[j_]));        \
-    RP_UNROLL                                                                 \
+    RP2_FC1UNROLL                                                                 \
     for (int n = 0; n < H_; ++n) {                                            \
         __m512d o = _mm512_permute_pd(O_[n], 0x55);                           \
         __m512d xp = _mm512_fmadd_pd(o, SG, T[n]);                            \
@@ -1473,6 +1693,11 @@ RP2_DEFINE(10, RP2_CONV_BLK)  /* p = 41 */
 RP2_DEFINE(13, RP2_CONV_BLK)  /* p = 53 */
 #undef RP2_BLK_IUNROLL
 #define RP2_BLK_IUNROLL _Pragma("GCC unroll 1")
+/* raced boundary (gen_r8): the fold/combine loops roll from here up */
+#if !defined(RP_W1ROLL) && !defined(RP_W1FULL)
+#undef RP2_FC1UNROLL
+#define RP2_FC1UNROLL _Pragma("GCC unroll 1")
+#endif
 RP2_DEFINE(15, RP2_CONV_BLK)  /* p = 61 */
 RP2_DEFINE(18, RP2_CONV_BLK)  /* p = 73 */
 RP2_DEFINE(22, RP2_CONV_BLK)  /* p = 89 */
@@ -1480,6 +1705,169 @@ RP2_DEFINE(24, RP2_CONV_BLK)  /* p = 97 */
 RP2_DEFINE(25, RP2_CONV_BLK)  /* p = 101 */
 RP2_DEFINE(27, RP2_CONV_BLK)  /* p = 109 */
 RP2_DEFINE(28, RP2_CONV_BLK)  /* p = 113 */
+
+/* ---------------- PAIRED-COLUMN (2-wide) even-h kernels (gen_r8) ----------------
+ * The full chunk kernel over TWO adjacent zmm columns (16 doubles = 8 complex
+ * columns): identical per-column op order (=> bit-identical outputs to two
+ * 1-wide calls), all stack slot arrays interleaved [slot][2].  What it buys:
+ * every broadcast constant (conv kernels; and the fold/combine index walks)
+ * is loaded ONCE per column PAIR -- see RP2_CONV_BLK2.  Only defined for the
+ * blocked-conv family (m >= 10); the full-unroll small-m kernels are already
+ * register-resident FMA-bound and doubling them would only add spills.
+ * Full chunks only (no mask arm -- the pass tail runs the 1-wide kernel);
+ * no map arm (dead since r3).  In-place safe: all loads precede all stores.
+ *
+ * Fold/reconstruct/combine loops are ROLLED by default (runtime index
+ * tables, ~15-25 instr bodies): the gen_r8 node race showed the fully-peeled
+ * 2-wide form (60 KB static at m=28) LOSES at every rp2 size (+6..28%),
+ * while rolled it wins at m >= 22 (-5.5..-7% at 89/101/113); -DRP_W2FULL
+ * restores the peeled form for the xarch race.
+ * -DRP2_STORD: stores in natural row order (rows 1..h ascending paired with
+ * p-1..p-h descending) with the slot permutation moved to the T/O_ READ side
+ * and the +-SG selection folded into a two-constant table -- the twice-queued
+ * store-order race, bit-identical by fmadd(o,-SG,T) == fnmadd(o,SG,T). */
+#ifdef RP_W2FULL
+#define RP2_FCUNROLL RP_UNROLL
+#else
+#define RP2_FCUNROLL _Pragma("GCC unroll 1")
+#endif
+
+#define RP2_DEFINE2(M)                                                        \
+static void rp2_chunk2_##M(const double *sx, double *dx,                      \
+                           const ptrdiff_t rs, const fft3d_plan *pl)          \
+{                                                                             \
+    enum { H_ = 2 * (M), K_ = 2 * (M) - 1, KS_ = K_ + 7, P_ = 4 * (M) + 1 };  \
+    const __m512d SG = _mm512_setr_pd(1.0, -1.0, 1.0, -1.0,                   \
+                                      1.0, -1.0, 1.0, -1.0);                  \
+    const int *js = pl->j2, *jv = js + H_, *kp = jv + H_, *km = kp + H_;      \
+    const double *kc = pl->k2, *kn = kc + KS_, *kb0 = kn + KS_,               \
+                 *kb1 = kb0 + KS_, *kb2 = kb1 + KS_;                          \
+    __m512d UF[2 * H_], VF[4 * H_], T[2 * H_], O_[2 * H_];                    \
+    __m512d Q0[2 * (M)], Q1[2 * (M)], P0[2 * (M)], P1[2 * (M)], P2[2 * (M)];  \
+    __m512d x0a = _mm512_loadu_pd(sx), x0b = _mm512_loadu_pd(sx + 8);         \
+    RP2_FCUNROLL                                                              \
+    for (int j_ = 1; j_ <= H_; ++j_) {                                        \
+        const double *ra_ = sx + (ptrdiff_t)j_ * rs;                          \
+        const double *rb_ = sx + (ptrdiff_t)(P_ - j_) * rs;                   \
+        __m512d a0 = _mm512_loadu_pd(ra_), a1 = _mm512_loadu_pd(ra_ + 8);     \
+        __m512d b0 = _mm512_loadu_pd(rb_), b1 = _mm512_loadu_pd(rb_ + 8);     \
+        UF[2 * (j_ - 1)]     = _mm512_add_pd(a0, b0);                         \
+        UF[2 * (j_ - 1) + 1] = _mm512_add_pd(a1, b1);                         \
+        VF[2 * (j_ - 1)]     = _mm512_sub_pd(a0, b0);                         \
+        VF[2 * (j_ - 1) + 1] = _mm512_sub_pd(a1, b1);                         \
+        VF[2 * (H_ + j_ - 1)]     = _mm512_sub_pd(b0, a0);                    \
+        VF[2 * (H_ + j_ - 1) + 1] = _mm512_sub_pd(b1, a1);                    \
+    }                                                                         \
+    __m512d esa = _mm512_setzero_pd(), esb = _mm512_setzero_pd();             \
+    RP2_FCUNROLL                                                              \
+    for (int j_ = 0; j_ < (M); ++j_) {                                        \
+        const int lo_ = js[j_] - 1, hi_ = js[(M) + j_] - 1;                   \
+        Q0[2 * j_]     = _mm512_add_pd(UF[2 * lo_], UF[2 * hi_]);             \
+        Q0[2 * j_ + 1] = _mm512_add_pd(UF[2 * lo_ + 1], UF[2 * hi_ + 1]);     \
+        Q1[2 * j_]     = _mm512_sub_pd(UF[2 * lo_], UF[2 * hi_]);             \
+        Q1[2 * j_ + 1] = _mm512_sub_pd(UF[2 * lo_ + 1], UF[2 * hi_ + 1]);     \
+        esa = _mm512_add_pd(esa, Q0[2 * j_]);                                 \
+        esb = _mm512_add_pd(esb, Q0[2 * j_ + 1]);                             \
+    }                                                                         \
+    RP2_CONV_BLK2(P0, Q0, kc, M);                                             \
+    RP2_CONV_BLK2(P1, Q1, kn, M);                                             \
+    _mm512_storeu_pd(dx,     _mm512_add_pd(x0a, esa));                        \
+    _mm512_storeu_pd(dx + 8, _mm512_add_pd(x0b, esb));                        \
+    RP2_FCUNROLL                                                              \
+    for (int j_ = 0; j_ < (M); ++j_) {                                        \
+        T[2 * j_]     = _mm512_add_pd(x0a, _mm512_add_pd(P0[2 * j_],          \
+                                                         P1[2 * j_]));        \
+        T[2 * j_ + 1] = _mm512_add_pd(x0b, _mm512_add_pd(P0[2 * j_ + 1],      \
+                                                         P1[2 * j_ + 1]));    \
+        T[2 * ((M) + j_)]     = _mm512_add_pd(x0a,                            \
+                                    _mm512_sub_pd(P0[2 * j_], P1[2 * j_]));   \
+        T[2 * ((M) + j_) + 1] = _mm512_add_pd(x0b,                            \
+                                    _mm512_sub_pd(P0[2 * j_ + 1],             \
+                                                  P1[2 * j_ + 1]));           \
+    }                                                                         \
+    RP2_FCUNROLL                                                              \
+    for (int j_ = 0; j_ < (M); ++j_) {                                        \
+        const int e_ = jv[2 * j_], o_ = jv[2 * j_ + 1];                       \
+        Q0[2 * j_]     = VF[2 * e_];                                          \
+        Q0[2 * j_ + 1] = VF[2 * e_ + 1];                                      \
+        Q1[2 * j_]     = VF[2 * o_];                                          \
+        Q1[2 * j_ + 1] = VF[2 * o_ + 1];                                      \
+    }                                                                         \
+    RP2_CONV_BLK2(P0, Q0, kb0, M);                                            \
+    RP2_CONV_BLK2(P1, Q1, kb1, M);                                            \
+    RP2_FCUNROLL                                                              \
+    for (int j_ = 0; j_ < 2 * (M); ++j_)                                      \
+        Q0[j_] = _mm512_add_pd(Q0[j_], Q1[j_]);                               \
+    RP2_CONV_BLK2(P2, Q0, kb2, M);                                            \
+    O_[0] = _mm512_sub_pd(P0[0], P1[2 * ((M) - 1)]);                          \
+    O_[1] = _mm512_sub_pd(P0[1], P1[2 * ((M) - 1) + 1]);                      \
+    RP2_FCUNROLL                                                              \
+    for (int j_ = 1; j_ < (M); ++j_) {                                        \
+        O_[2 * (2 * j_)]     = _mm512_add_pd(P0[2 * j_], P1[2 * (j_ - 1)]);   \
+        O_[2 * (2 * j_) + 1] = _mm512_add_pd(P0[2 * j_ + 1],                  \
+                                             P1[2 * (j_ - 1) + 1]);           \
+    }                                                                         \
+    RP2_FCUNROLL                                                              \
+    for (int j_ = 0; j_ < (M); ++j_) {                                        \
+        O_[2 * (2 * j_ + 1)]     = _mm512_sub_pd(P2[2 * j_],                  \
+                          _mm512_add_pd(P0[2 * j_], P1[2 * j_]));             \
+        O_[2 * (2 * j_ + 1) + 1] = _mm512_sub_pd(P2[2 * j_ + 1],              \
+                          _mm512_add_pd(P0[2 * j_ + 1], P1[2 * j_ + 1]));     \
+    }                                                                         \
+    RP2_W2_COMBINE(M)                                                         \
+}
+
+#ifndef RP2_NOSTORD
+/* natural-row-order stores (DEFAULT since the gen_r8 race: best 3/3 at 113,
+ * ties 89/101/127 -- never worse; -DRP2_NOSTORD restores scattered stores):
+ * st2[n] (built in rp2_build) = source slot for output row n+1, bit 16 =
+ * "row n+1 took the km side" => flip SG.  fmadd with -SG is the exact
+ * negation of the SG product, so results stay bit-identical to the
+ * kp/km-scattered order. */
+#define RP2_W2_COMBINE(M)                                                     \
+    const int *st2 = js + 4 * H_;                                             \
+    const __m512d SGN_ = _mm512_sub_pd(_mm512_setzero_pd(), SG);              \
+    RP2_FCUNROLL                                                              \
+    for (int n = 0; n < H_; ++n) {                                            \
+        const int e_ = st2[n], s_ = e_ & 0xffff;                              \
+        const __m512d sgv = (e_ >> 16) ? SGN_ : SG;                           \
+        __m512d oa = _mm512_permute_pd(O_[2 * s_], 0x55);                     \
+        __m512d ob = _mm512_permute_pd(O_[2 * s_ + 1], 0x55);                 \
+        const ptrdiff_t rl_ = (ptrdiff_t)(n + 1) * rs;                        \
+        const ptrdiff_t rh_ = (ptrdiff_t)(P_ - 1 - n) * rs;                   \
+        _mm512_storeu_pd(dx + rl_,     _mm512_fmadd_pd(oa, sgv, T[2 * s_]));  \
+        _mm512_storeu_pd(dx + rl_ + 8,                                        \
+                         _mm512_fmadd_pd(ob, sgv, T[2 * s_ + 1]));            \
+        _mm512_storeu_pd(dx + rh_,     _mm512_fnmadd_pd(oa, sgv, T[2 * s_])); \
+        _mm512_storeu_pd(dx + rh_ + 8,                                        \
+                         _mm512_fnmadd_pd(ob, sgv, T[2 * s_ + 1]));           \
+    }
+#else
+#define RP2_W2_COMBINE(M)                                                     \
+    RP2_FCUNROLL                                                              \
+    for (int n = 0; n < H_; ++n) {                                            \
+        __m512d oa = _mm512_permute_pd(O_[2 * n], 0x55);                      \
+        __m512d ob = _mm512_permute_pd(O_[2 * n + 1], 0x55);                  \
+        const ptrdiff_t rp_ = (ptrdiff_t)kp[n] * rs;                          \
+        const ptrdiff_t rm_ = (ptrdiff_t)km[n] * rs;                          \
+        _mm512_storeu_pd(dx + rp_,     _mm512_fmadd_pd(oa, SG, T[2 * n]));    \
+        _mm512_storeu_pd(dx + rp_ + 8,                                        \
+                         _mm512_fmadd_pd(ob, SG, T[2 * n + 1]));              \
+        _mm512_storeu_pd(dx + rm_,     _mm512_fnmadd_pd(oa, SG, T[2 * n]));   \
+        _mm512_storeu_pd(dx + rm_ + 8,                                        \
+                         _mm512_fnmadd_pd(ob, SG, T[2 * n + 1]));             \
+    }
+#endif
+
+RP2_DEFINE2(10)  /* p = 41 */
+RP2_DEFINE2(13)  /* p = 53 */
+RP2_DEFINE2(15)  /* p = 61 */
+RP2_DEFINE2(18)  /* p = 73 */
+RP2_DEFINE2(22)  /* p = 89 */
+RP2_DEFINE2(24)  /* p = 97 */
+RP2_DEFINE2(25)  /* p = 101 */
+RP2_DEFINE2(27)  /* p = 109 */
+RP2_DEFINE2(28)  /* p = 113 */
 
 /* chunk dispatch: even-h split / outer-C3 when the plan built tables, dense
  * otherwise (m2 and m3 are mutually exclusive by h's parity) */
@@ -1513,6 +1901,59 @@ static inline void rp_chunk_any(const double *sx, double *dx, const double *mapc
     }
 }
 
+/* gen_r8 pairing gates.  RP_NOW2 disables all pairing (control == the r7
+ * engine bit for bit).  RP_W2MIN: smallest m2 that runs the 2-wide kernel.
+ * Node-raced (3/3 per size, same-core interleaved, two sessions): the
+ * 2-wide+rolled form wins vs the r7 control at m >= 22 (89 -5.5%, 101 -6%,
+ * 113 -7%) -- but the second session's attribution race showed the 1-WIDE
+ * kernel with the SAME rolled fold/combine beats the 2-wide at 89 (-3..-8%)
+ * and ties it at 101, while sd (2-wide + store-order) is best 3/3 at 113.
+ * Final boundary: 1-wide rolled at m = 15..24, 2-wide+stord at m >= 25
+ * (101/109/113; 97 = m24 interpolated to the 1-wide side of its 89/101
+ * neighbors).  RP_NOW2D: dense engine stays 1-wide (dense pairing measured
+ * -25.5% at 127 -- the round's biggest win; the paired z-quad alone carries
+ * ~10% of it, RP_NOW2Z raced +11% at 127).  RP_NOW2Z: z quads stay 1-wide. */
+#ifndef RP_W2MIN
+#define RP_W2MIN 25
+#endif
+static inline int rp_w2_on(const fft3d_plan *pl)
+{
+#ifdef RP_NOW2
+    return 0;
+#else
+    if (pl->m2 >= RP_W2MIN) return 1;
+#ifndef RP_NOW2D
+    if (!pl->m2 && !pl->m3) return 1;      /* dense engine */
+#endif
+    return 0;
+#endif
+}
+
+/* one PAIR of adjacent full chunks (16 doubles).  For plans without a 2-wide
+ * kernel this decays to two 1-wide calls -- identical to the r7 path. */
+static inline void rp_chunk_any2(const double *sx, double *dx,
+                                 const ptrdiff_t rs, const fft3d_plan *pl)
+{
+    switch (pl->m2) {
+    case 10: rp2_chunk2_10(sx, dx, rs, pl); return;
+    case 13: rp2_chunk2_13(sx, dx, rs, pl); return;
+    case 15: rp2_chunk2_15(sx, dx, rs, pl); return;
+    case 18: rp2_chunk2_18(sx, dx, rs, pl); return;
+    case 22: rp2_chunk2_22(sx, dx, rs, pl); return;
+    case 24: rp2_chunk2_24(sx, dx, rs, pl); return;
+    case 25: rp2_chunk2_25(sx, dx, rs, pl); return;
+    case 27: rp2_chunk2_27(sx, dx, rs, pl); return;
+    case 28: rp2_chunk2_28(sx, dx, rs, pl); return;
+    default: break;
+    }
+    if (!pl->m2 && !pl->m3) {
+        rp_chunk2(sx, dx, rs, pl->L, pl->h, pl->gct, pl->gst);
+        return;
+    }
+    rp_chunk_any(sx, dx, NULL, rs, pl, 1, (__mmask8)0xFF);
+    rp_chunk_any(sx + 8, dx + 8, NULL, rs, pl, 1, (__mmask8)0xFF);
+}
+
 /* one p x ncols pass, rows `pitch` complex apart; in-place safe (dst may ==
  * src); c != NULL fuses the map at every store (c rows at the same pitch).
  * pf != 0: software-prefetch every row's line `pf` BYTES ahead of the current
@@ -1533,6 +1974,19 @@ static void rp_pass(const fft3d_plan *pl, const cplx *src, cplx *dst,
     const double *cx = (const double *)c;
     double *dx = (double *)dst;
     ptrdiff_t d = 0;
+    /* gen_r8: paired-column main loop (map-fused arms stay 1-wide) */
+    if (!cx && rp_w2_on(pl)) {
+        for (; d + 16 <= nd; d += 16) {
+            if (pf)
+                for (int j = 0; j <= p - 1; ++j) {
+                    const char *pr =
+                        (const char *)(sx + (ptrdiff_t)j * rs + d) + pf;
+                    _mm_prefetch(pr, _MM_HINT_T0);      /* next pair chunk: */
+                    _mm_prefetch(pr + 64, _MM_HINT_T0); /* two lines per row */
+                }
+            rp_chunk_any2(sx + d, dx + d, rs, pl);
+        }
+    }
     for (; d + 8 <= nd; d += 8) {
         if (pf)
             for (int j = 0; j <= p - 1; ++j)
@@ -1595,6 +2049,70 @@ static void rp_zquad(const fft3d_plan *pl, const cplx *src, cplx *dst,
     }
 }
 
+/* gen_r8: EIGHT contiguous rows through one paired chunk -- two 4-row
+ * transpose groups staged interleaved (element j of group g at
+ * xt + j*16 + 8g), the 2-wide kernel at rs = 16, transpose back.  Same
+ * per-column arithmetic and transposes as two rp_zquad calls =>
+ * bit-identical.  Full 8-row groups only; tails run rp_zquad. */
+static void rp_zquad2(const fft3d_plan *pl, const cplx *src, cplx *dst,
+                      const ptrdiff_t srd, const ptrdiff_t drd)
+{
+    const int p = pl->L;
+    __attribute__((aligned(64))) double xt[128 * 16], yt[128 * 16];
+    const int nt = (p + 3) / 4;
+    const int tail = p & 3;
+    const __mmask8 tmsk = tail ? (__mmask8)((1u << (2 * tail)) - 1) : (__mmask8)0xFF;
+    const double *x = (const double *)src;
+    double *y = (double *)dst;
+    for (int g = 0; g < 2; ++g) {
+        const double *xg = x + 4 * g * srd;
+        for (int t = 0; t < nt; ++t) {
+            const int ft = (t < nt - 1) || !tail;
+            const __mmask8 mk = ft ? (__mmask8)0xFF : tmsk;
+            __m512d r0 = _mm512_maskz_loadu_pd(mk, xg + 8 * t);
+            __m512d r1 = _mm512_maskz_loadu_pd(mk, xg + srd + 8 * t);
+            __m512d r2 = _mm512_maskz_loadu_pd(mk, xg + 2 * srd + 8 * t);
+            __m512d r3 = _mm512_maskz_loadu_pd(mk, xg + 3 * srd + 8 * t);
+            __m512d o0, o1, o2, o3;
+            r31_tp4(r0, r1, r2, r3, &o0, &o1, &o2, &o3);
+            _mm512_store_pd(xt + (4 * t) * 16 + 8 * g, o0);
+            _mm512_store_pd(xt + (4 * t + 1) * 16 + 8 * g, o1);
+            _mm512_store_pd(xt + (4 * t + 2) * 16 + 8 * g, o2);
+            _mm512_store_pd(xt + (4 * t + 3) * 16 + 8 * g, o3);
+        }
+    }
+    rp_chunk_any2(xt, yt, 16, pl);
+    for (int g = 0; g < 2; ++g) {
+        double *yg = y + 4 * g * drd;
+        for (int t = 0; t < nt; ++t) {
+            const int ft = (t < nt - 1) || !tail;
+            const __mmask8 mk = ft ? (__mmask8)0xFF : tmsk;
+            __m512d o0, o1, o2, o3;
+            r31_tp4(_mm512_load_pd(yt + (4 * t) * 16 + 8 * g),
+                    _mm512_load_pd(yt + (4 * t + 1) * 16 + 8 * g),
+                    _mm512_load_pd(yt + (4 * t + 2) * 16 + 8 * g),
+                    _mm512_load_pd(yt + (4 * t + 3) * 16 + 8 * g),
+                    &o0, &o1, &o2, &o3);
+            _mm512_mask_storeu_pd(yg + 8 * t, mk, o0);
+            _mm512_mask_storeu_pd(yg + drd + 8 * t, mk, o1);
+            _mm512_mask_storeu_pd(yg + 2 * drd + 8 * t, mk, o2);
+            _mm512_mask_storeu_pd(yg + 3 * drd + 8 * t, mk, o3);
+        }
+    }
+}
+
+/* z gating: pairing the quads doubles the transpose staging (32 KB) on top
+ * of the kernel's slot arrays -- raceable separately from the x/y pairing */
+static inline int rp_w2z_on(const fft3d_plan *pl)
+{
+#ifdef RP_NOW2Z
+    (void)pl;
+    return 0;
+#else
+    return rp_w2_on(pl);
+#endif
+}
+
 /* forward 3D volume, generic prime: z rows (quads + tail), x in place
  * (inner = p^2), y in place per plane (inner = p) */
 static void rp_volume(const fft3d_plan *pl, const cplx *src, cplx *dst)
@@ -1602,6 +2120,9 @@ static void rp_volume(const fft3d_plan *pl, const cplx *src, cplx *dst)
     const int p = pl->L;
     const size_t LL = (size_t)p * p;
     size_t r = 0;
+    if (rp_w2z_on(pl))
+        for (; r + 8 <= LL; r += 8)
+            rp_zquad2(pl, src + r * p, dst + r * p, 2 * p, 2 * p);
     for (; r + 4 <= LL; r += 4)
         rp_zquad(pl, src + r * p, dst + r * p, 4, 2 * p, 2 * p);
     if (r < LL)
@@ -1841,6 +2362,10 @@ static void rp_zplane(const fft3d_plan *pl, cplx *plane, const ptrdiff_t rowp)
 {
     const int p = pl->L;
     int r = 0;
+    if (rp_w2z_on(pl))
+        for (; r + 8 <= p; r += 8)
+            rp_zquad2(pl, plane + (size_t)r * rowp, plane + (size_t)r * rowp,
+                      2 * rowp, 2 * rowp);
     for (; r + 4 <= p; r += 4)
         rp_zquad(pl, plane + (size_t)r * rowp, plane + (size_t)r * rowp, 4,
                  2 * rowp, 2 * rowp);
@@ -1878,6 +2403,10 @@ static void rp_chain_volume(fft3d_plan *pl, const cplx *x0v, const cplx *cv,
         const cplx *sp = x0v + (size_t)x * LL;
         cplx *plane = st + (size_t)x * PP;
         int r = 0;
+        if (rp_w2z_on(pl))
+            for (; r + 8 <= p; r += 8)
+                rp_zquad2(pl, sp + (size_t)r * p, plane + (size_t)r * zp,
+                          2 * p, 2 * zp);
         for (; r + 4 <= p; r += 4)
             rp_zquad(pl, sp + (size_t)r * p, plane + (size_t)r * zp, 4,
                      2 * p, 2 * zp);

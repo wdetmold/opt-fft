@@ -237,3 +237,22 @@ results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
 [2026-08-25 14:07:36] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle
 2026-08-25 14:15:01 gen tick skipped: lock held
 2026-08-25 14:30:01 gen tick skipped: lock held
+2026-08-25 14:45:01 gen tick skipped: lock held
+2026-08-25 15:00:01 gen tick skipped: lock held
+2026-08-25 15:15:01 gen tick skipped: lock held
+2026-08-25 15:30:01 gen tick skipped: lock held
+2026-08-25 15:45:01 gen tick skipped: lock held
+2026-08-25 16:00:01 gen tick skipped: lock held
+2026-08-25 16:15:01 gen tick skipped: lock held
+2026-08-25 16:30:01 gen tick skipped: lock held
+2026-08-25 16:45:01 gen tick skipped: lock held
+2026-08-25 17:00:01 gen tick skipped: lock held
+2026-08-25 17:15:01 gen tick skipped: lock held
+2026-08-25 17:30:01 gen tick skipped: lock held
+2026-08-25 17:45:02 gen tick skipped: lock held
+2026-08-25 18:00:01 gen tick skipped: lock held
+2026-08-25 18:15:01 gen tick skipped: lock held
+2026-08-25 18:30:01 gen tick skipped: lock held
+2026-08-25 18:45:01 gen tick skipped: lock held
+2026-08-25 19:00:01 gen tick skipped: lock held
+2026-08-25 19:15:01 gen tick skipped: lock held

@@ -1149,3 +1149,195 @@ bit-identical to r6.
    two-column rejection plus gen_dense_prime's custody negatives say the
    OoO window already covers it.  I consider 27 saturated on this host;
    protect, don't chase.
+
+## Round gen_r8
+
+Standings into the round (r7 board): led 25 (30.882, 3.90x MKL) and 27
+(43.966, 3.28x) outright; trailed gen_pfa_large at 50 by 0.27% (415.066 vs
+413.958) and at 100 by 1.7% (4549.6 vs 4475.3) -- both inside the 3-6%
+window spreads those cells print, i.e. shared-shell coin flips.  The r8
+brief's new item is the static-analyzer tooling ("choose schedules with the
+models; SCORE with the node"), and mid-round the monitor turned the PMU ON
+(perf at /tmp/perf, paranoid=2, tools/pmu.sh -- announced via the new NOTICE
+broadcast).  This round is therefore the tools round: every number below is
+model + counter attribution, one model-refuted candidate ships as a
+cross-arch knob, and the shipped chain arithmetic is BIT-IDENTICAL to r7 at
+every size (verified below), so all r7 gate numbers carry over exactly.
+
+### What was built / measured (one candidate, one attribution pass)
+
+**1. n1_5 SPLIT-COMPLEX DFT5 (-DGENPWP_N15): BUILT, MODEL-REFUTED, NODE-
+CONFIRMED REFUTED, DEFAULT OFF.**  The interleaved DFT5M has used FFTW's
+n1_5 KIG factorization since r1 (B1 = KS5*(u1 + KIG*u2), B2 = -KS5*(u2 -
+KIG*u1); the KS5 scale folds into the +-i cross FMAs).  Ported to the SoA
+site layout it is 32 FP ops per DFT5 vs the Winograd split core's 36 --
+"-10% FP per 25-pencil", and the PMU (below) says the 25 cell is ~68%
+port-bound, so it looked like the round's headline.  The objdump/llvm-mca
+audit killed it BEFORE the first lease slot: every folded output FMA is
+destructive, and its addend (tp/tq) is live in the +- partner output, so
+gcc must copy -- +72 zmm reg-reg movs per 25-pencil (34 -> 106), and ICL
+does NOT eliminate vector movs at rename.  Port-0/5 uops per zy pencil:
+442 (W5) -> 474 (N15), +7%.  Node A/B (one held lease, soa forced
+GENPWP_PF=6, cold race GEN_RACE_NO_WISDOM=1, control first, 6 pairs):
+**W5 31.445-31.749 vs N15 32.360-32.710 us/xform -- N15 loses 6/6 pairs,
++2.9% min-of-mins.**  PMU delta (34-vs-2-sample runs, per group-step):
+N15 cycles +3.2%, instructions +4.6%, and port-2/3 (load) uops +26% --
+at -march=native gcc turned the pressure into spill reloads rather than
+movs; same tax, different port.  THE LESSON, stated for the whole panel:
+**in split complex, "FP op count" is the wrong metric -- PORT UOPS is the
+right one.**  The Winograd core's +- pairs ride NON-destructive
+vaddpd/vsubpd, which is why it beats every fewer-ops DFT5 rewrite on ICL
+(this also re-explains the r7 LIFT5 wash from the port side, and why the
+r7 3-shear twiddles DID win: the shear asm shows the mov count constant,
+563 -> 538 p05 uops at 27, a real cut).  Kept as a race knob for SPR,
+whose Golden Cove cores DO eliminate vector movs (there n1_5 is 368 vs
+442 p05 uops, -17% -- a genuine cross-arch candidate, like LIFT5-on-CLX).
+
+**2. Attribution of all four scored cells with the r8 tools (llvm-mca
+static counts + PMU counters once they went live).**  Method: gcc
+-march=icelake-server -S with LLVM-MCA-BEGIN/END markers around each inner
+loop; instruction-class counts from the marked regions; PMU by DELTA of a
+34-sample and a 2-sample run (subtracts create/race/pack exactly).
+Numbers, per pencil / per 4-lane line, shipped arithmetic:
+
+| loop | FP ops | shuffles | spills+reloads | zmm movs | p05 uops |
+|---|---|---|---|---|---|
+| 25 zy pencil (p25 plain)  | 408 | 0 | 27+27 | 34 | 442 |
+| 25 x pencil (p25m, map)   | 813 + 40 div-class | 0 | 35+35 | 88 | ~941 |
+| 27 zy pencil (p27 plain)  | 408 | 0 | 55+55 | 130 | 538 |
+| 27 x pencil (p27m, map)   | 840 + 45 div-class | 0 | 70+70 | 177 | ~1017 |
+| 100 p1 z-line (ipk1)      | 968 | 569 (400 TRNC + 169 swaps) | 229+229 | 234 | ~886 crit |
+| 100 p1 y-line / p2 x-line | 968 | 169 | 78-93 each way | 237-244 | ~687 crit |
+
+PMU ground truth (a80n0 core 5, graded shapes, min-window):
+- **L=25 soa**: 834k cycles/group-step at ~3.30 GHz effective; p0+p5
+  dispatch = 1.13M uops/group-step (matches the static count exactly);
+  max-port utilization **68%** -- the engine is two-thirds port-bound,
+  one-third L3-stream slack.  FPDivider ~240 cyc/x-pencil vs ~470 port
+  cyc: the r5 paired-div verdict stands, divider is hidden.
+- **L=27 soa**: 1.189M cycles/group-step; utilization **60%**;
+  l1d.replacement 155k lines/group-step = 9.9 MB = state x3 passes + c --
+  the structural floor, nothing pathological.  27's extra slack vs 25 is
+  the bigger arena (2.55 vs 2.05 MB) streaming L2<->L3; confirms the r7
+  "saturated, protect" verdict with a number.
+- **L=100 ipk1**: 16.7M cycles/volume-step; max-port (p5, carrying the
+  TRNC shuffles + FMA share) utilization **45%**; cycle_activity.
+  stalls_mem_any = 23% of cycles; core at 512-bit license-2 ~100% of
+  cycles; and **LLC misses only ~9-14 MB/step** -- the c-flush custody
+  WORKS: the naive 80 MB/step is mostly served from L3, DRAM traffic is
+  c-dominated.  This closes gen_pfa_large's r7 next-list #1 (p1
+  attribution) from the counter side, for both shared-shell engines: p1's
+  z-subpass is shuffle-heavy (886 vs 687 port-critical cycles/line, 400
+  of 569 shuffles are the TRNC granule transposes) but HIDDEN under the
+  L3-stream slack -- a TRNC diet would buy little; the cell's floor is
+  memory custody, which ipk1 already takes.  Do not chase 100 with
+  arithmetic.
+
+**3. Ship verification (the point of a final round): the r8 default build's
+graded chains are cmp-BIT-IDENTICAL to the r7 ship binary at 25/27/50/100**
+(forced same picks, same inputs), despite the D5SC refactor to Z-named
+outputs -- same expression trees, only schedule; gcc even dropped 16 spill
+lines at 25.  Full gate battery re-run on the node anyway: single call
+3.604/3.725/4.336/4.522e-16 (tol 1e-12); two-step m=2 1.467/1.624/2.361/
+2.721e-15 (tol 3e-14 -- the exact r7 values); graded chains 3.061/3.147/
+5.028/4.181e-14 at 1.1-1.7x honest anchors (exact r7 values); repeatable
+bit-identical across independent runs.  Dev-window graded mins this
+session: 31.4-31.8 (25), 44.8 (27), 419.5 (50), 5081-hot (100); MKL same
+core at 25: 120.9.  All gen_powp wisdom keys stripped from
+results/wisdom_a80n0.json at round end under flock (r2-r7 protocol).
+
+### What did NOT work / tool-state findings (record before anyone re-burns)
+
+* **The n1_5 DFT5 as a default: +2.9%, 6/6 pairs against** (item 1) --
+  refuted by model first, node second, both agreeing.  Total analyst cost
+  before the lease: one -S compile and four greps.
+* **uiCA is BROKEN on this filesystem**: ext/tools/uiCA has no instrData/
+  module -- setup2.log shows the uops.info instructions.xml download timed
+  out (no outbound net from the cluster); uiCA.py dies on import.
+  **OSACA is also broken**: osaca-pkg/osaca/ contains only data/parser/
+  semantics, no top-level modules.  Only llvm-mca of the three advertised
+  static tools actually runs.  And llvm-mca's icelake-server model puts
+  essentially ALL 512-bit FP on port 0 (vaddpd zmm RThroughput 1.0; a
+  0-shuffle split-complex pencil shows P0=408, P5=61) -- Gold 6326 has TWO
+  512-bit FMA pipes, so take mca's per-port table as a uop CENSUS, rebalance
+  p0/p5 by hand, and treat only RELATIVE comparisons as meaningful.  Now
+  that /tmp/perf is live, counters are ground truth (my measured port sums
+  matched the hand-rebalanced census within 2% at 25 -- the census method
+  is sound).
+* **The build/tryout file sweeper**: mid-session, every executable and .sh
+  in build/tryout/gen_powp/ vanished (bin, bin_ship, the r3-r7 battery
+  scripts, .err logs) while data .bin files survived.  Nothing of mine
+  depended on them, but a binary you measured an hour ago may not exist
+  now -- rebuild before every A/B (the r5 strings-marker rule now has a
+  second reason), and keep battery scripts out of build/tryout (mine now
+  pipes over ssh stdin from /tmp).
+* tryout.sh's remote map-check leg still dies on the '$W/c.bin' quoting
+  bug (seventh round); the gates above were run by hand on the node.
+  reserve.sh --status still needs the slurm PATH shim on wallaby, and
+  tryout.sh now FAILS SILENTLY ("no live reservation") when invoked
+  without it -- export PATH=/opt/software/slurm-19.05.8.1/bin:$PATH first.
+* **One fresh data point on the r5/r6 race-poisoning mode**: a late-session
+  tryout cold race (busy neighbors) stored l25-ip0 as a "tie" (ip0 trial
+  46.77 us/vol, soa playoff margin -0.7%) and the graded chain shipped
+  41.1 us where soa's same-day quiet number is 31.4-31.8 -- the r6 playoff
+  narrows the window but does not close it under real neighbor contention
+  (soa's ~6 MB arena is squeezed harder than ip's in-place set; under
+  contention the race's flip is arguably HONEST for that environment).
+  Key stripped per protocol; the monitor's acquire-all quiet window is the
+  designed arbiter and has picked soa on every scored board since r6.  Do
+  NOT "fix" this by pre-storing a soa verdict -- that would game the race
+  the whole campaign is built on.
+
+### Borrowed, plainly
+
+- **The r8 tools themselves** (monitor's llvm-mca install + mid-round PMU
+  enablement): this round's entire method.  The marked-region mca recipe is
+  TOOLS.md's; the 2-vs-34-sample PMU delta that subtracts create()/pack is
+  mine, take it.
+- **gen_pfa_large (gen_r7)**: their next-list #1 (p1 attribution at 100)
+  set item 2's target; answered here with counters for both our engines.
+- **gen_batchlane (gen_r7/r8)**: their lifted DFT5 and their r8 decision to
+  NOT spend the analyzers on bit-identical known-good cells -- the port-uop
+  census now explains their lift's engine-specificity mechanistically (it
+  is not "ILP", it is the mov/spill tax of destructive FMAs vs surrounding
+  register pressure).  Their DFT11/22/33/44/55 build is the round's real
+  class win; nothing of it applies to p^k, but their "verified slot tables
+  generated in Python before C" discipline is what my gentw3.c already
+  does for twiddles -- convergent, worth naming.
+- **gen_pfa_small (gen_r8)**: their rotation split chain makes B%8
+  remainders fast at generic coprime sizes; NOT adopted here because my
+  interleaved B=1 paths are already raced engines (40.0 us at 25 B=1 vs
+  their-class lane-replication disasters), and my scored batches are
+  multiples of 8.  Noted so the planner routes p^k-at-B<8 draws to my
+  interleaved families with confidence, not to a port of their split chain.
+
+### Operation count
+
+Unchanged everywhere; shipped chains bit-identical to r7 (192/218/434/968
+scored, 534/850/1850/1552 lite FMA-port vector ops per line; soa 388/408
+per pencil in the record-lineage count).  Census correction from the asm
+audit: the "34-op" Winograd split DFT5 EMITS 36 (the +-cross adds), so the
+25 zy pencil is 408 emitted FP, not 388 -- lineage counts since r2
+undercount by 2/DFT5; keeping both bases explicit here so nobody
+"optimizes" the phantom 20 ops again.  With -DGENPWP_N15: 408 -> 368
+emitted FP but +72 zmm movs (ICL net +32 p05 uops, +2.9% measured;
+SPR-candidate only).
+
+### What I would do next (ranked)
+
+1. **Nothing on ICL kernels.**  25: 68% port-bound at the op floor the r7
+   shears set; 27: 60%, memory-shaped, saturated (three independent
+   verdicts now); 50/100: shared-shell coin flips sitting on L3/DRAM
+   custody floors the c-bypass families already take.  The library-scoring
+   risk is race/window luck, and the playoff machinery is the protection.
+2. **XARCH: race the three DFT5 forms per host** -- W5 (ICL default),
+   LIFT5 (CLX candidate, gen_batchlane's prediction), N15 (SPR candidate,
+   Golden Cove mov elimination).  All three are compiled-in knobs; the
+   wisdom race decides; nobody should hand-tune.
+3. **If any future round re-opens arithmetic**: audit with the port-uop
+   census FIRST (mca marked regions + the grep set in this section), and
+   count destructive-FMA copy pressure before counting FP ops.
+4. **PMU follow-ups for whoever owns the weak cells**: at 100 the
+   interesting number is LLC-miss bytes/step (~9-14 MB measured vs 32 MB
+   state+c) -- if a future idea claims a traffic cut, demand its
+   longest_lat_cache.miss delta, not its DRAM accounting.

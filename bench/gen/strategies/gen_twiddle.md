@@ -1116,3 +1116,180 @@ round trip.  Tables, plan memory, create() work: unchanged.
    TWD_PF) when the next advisory lands.
 4. refnd pitch #9 if gen_powp / gen_pfa_large still build gate references
    with double cexp.
+
+## Round gen_r8
+
+### Adoption status (the score)
+
+- **gen_bluestein's adoption stands** (tw_chirp + colmajor filler/audit); the
+  LIBRARY half of the file is UNCHANGED for the third round running (the
+  frozen-layer doctrine) — `gcc -c impl/gen_bluestein.c` verified clean
+  against the shipped file after every change this round.
+- **refnd double-cexp gate reference, pitch #9**: gen_powp.c:1738 and
+  gen_pfa_large.c:1474 still build the create()-gate reference W with double
+  `cexp` (250 ulp ≈ 5.6e-14 per twiddle on a 1e-13 yardstick at L=100).
+  `tw_fill_dft_cplx` remains the one-line fix.
+- **Convergence note**: gen_planner's r8 A/B script races a PLN_LIFT5 knob —
+  the gen_batchlane r7 lifted-DFT5 idea is spreading through the panel on its
+  own; the layer's exact-constant primitives (tw_cisl for sin(2pi/5),
+  sin(pi/5); phi and 1.25/sin(pi/5) are one long-double divide away) are
+  available to anyone who wants lift constants at <= 0.51 ulp.
+
+### What SHIPPED: split-group handoff for axes 1->2, plan-gated to large L
+### (-2..-3.5% at 27, -2.6..-3.2% at 50, -4.6..-5.2% at 100, bit-identical)
+
+My r7 next-steps item 1 — the benign variant of the r7 split-custody
+negative. The axis-1 SEQUENTIAL gather stays untouched (the r7 lesson: it is
+the software prefetch and the L1 staging; deleting it lost 6-35%). What
+changes is only the handoff between axis 1 and axis 2:
+
+- axis-1's writeback no longer interleaves back into the plane
+  (twd_scatter_i, 2 shuffles/row): a new `twd_scatter_gf` transposes 8y x 8z
+  tiles in registers (two tr8x8) straight into a slab-sized GROUP-FORMAT
+  buffer GB — one L-row block per axis-2 8-row group, row j = [re v8][im v8]
+  (16 doubles);
+- axis-2's gather is DELETED ENTIRELY: twd_rec direct-feeds group G with
+  (xr, xi, xstr) = (GB + G*L*16, ..+8, 2) — the existing recursion takes the
+  interleaved-row stride with zero code changes, and all loads stay
+  64B-aligned.
+
+Per 64 complex the handoff drops from scatter_i(16 shuf + 16 st) +
+gather_z(48 shuf + 16 ld + 16 st) to 2x tr8x8(48 shuf) + 16 st: net -16
+shuffles, -16 stores, -16 loads, plus gather_z's whole sweep/call overhead.
+GB is ceil(kblk*L/8) full group buffers (<= 2 MB at any L), reused per slab:
+L2-hot custody, NO new DRAM stream — the r7 negative's footprint mechanism
+avoided by construction. Outputs are BIT-IDENTICAL to gen_r7 (verified by
+cmp at 16 sizes x {singles, m=3 chains} locally incl. 25/27/31/77/96/101/127,
+plus a forced-gate build at 10 small sizes; arithmetic order untouched).
+
+**The plan gate.** The tr8x8 scatter is quantized to 8x8 tiles, so at small
+L it costs more shuffles than the gather it deletes (at L=12 roughly 4x the
+old scatter's shuffle count, and plane seams / w<8 z-tails don't tile).
+Measured ungated: +4% at 12, +1.5% at 25 vs wins at 27/50/100. Ship gates at
+`32*L^3 >= TWD_GF_MIN_BYTES` (default 600000 — between 25's 500 KB and 27's
+630 KB of fused-pass streams, both measured straddling it); knob raceable
+per host like TWD_BLK_MIN_BYTES, and -DTWD_NOGF forces the r7 handoff
+everywhere for the cross-arch race. Gate-off sizes run the r7 loops VERBATIM
+and INLINE in twd_exec_vol/twd_chain_step (see the layout saga below).
+
+### Measured on the node (a80n0, ONE core per session via slot lease,
+### same-core interleaved rotated pairs vs the rebuilt r7 binary,
+### gen_batchlane r4 protocol + gen_pow2 r5 rotation; graded chains, min)
+
+Final ship binary (A/B rounds 4-6, pairs pooled):
+
+| L | B | r7 ctl (same window) | gen_r8 ship | delta | note |
+|---|---|---|---|---|---|
+| 12 | 64 | 8.92-9.39 (9 prs) | 8.99-9.53 | wash (mixed signs) | gate off |
+| 25 | 16 | 78.6-81.1 (10 prs) | 80.4-84.2 | **+1..2% residual** | gate off — layout tax, see below |
+| 27 | 16 | 129.8-133.9 | **126.3-129.4** | **-2..-3.5%** (8/8) | gated ON (630 KB) |
+| 40 | 8 | 338.7-345.1 | 336.3-343.2 | wash (3/4 lean win) | blocked, no seams |
+| 50 | 4 | 744.0-756.2 | **725.3-730.6** | **-2.6..-3.2%** (7/7) | |
+| 100 | 1 | 7768-7843 | **7354-7451** | **-4.6..-5.2%** (7/7) | the weakest-cell win |
+
+31 raced wash in rounds 1-2 (fold-leaf pencils; handoff is a small fraction
+there). Ship-binary tryout reads (different cores/windows, for the record):
+12 B=64 **9.342** (sd 0.01%), 12 B=1 **9.473**, 50 **748.6**, 100 **7745.7**
+(setup 0.095 s).
+
+### What did NOT work, with the number that killed it
+
+1. **GB sized kblk*L*L complex exactly**: a slab whose row count is not a
+   multiple of 8 ends in a partial group that still owns a FULL L-row
+   buffer; the scatter/feed overran GB into the twiddle-table takes at odd
+   unblocked L — NaNs at 25/27 (o8 vs o7 cmp caught it immediately; L=15's
+   210-double overrun happened to land in arena slack and passed, which is
+   why the bit-identity sweep must cover MANY sizes). Fix:
+   ceil(kblk*L/8) full group buffers.
+2. **Staging-copy variant (axis-2 copies GB group -> Gr/Gi sequentially,
+   then feeds xstr=1)**: loses to direct feed everywhere it matters — 100:
+   8016-8613 vs direct 7532-7759 (+7%); 50: 764.8-770.8 vs 726.1-731.8;
+   even at 12 it beat direct only by noise. The direct feed's decimated
+   reads over a 12.8 KB L2-resident group buffer cost nothing measurable —
+   the r7 in-sweep-gather mechanism needs a BIG target to hurt. Removed.
+3. **Masked-store tr8x8 seam tiles** (vectorizing the <= 7-row plane seams
+   with 2 tr8x8 + _mm512_mask_storeu_pd): LOST to plain scalar seam stores —
+   25: 82.8-84.3 vs 80.2-81.0; 12: 9.63-9.87 vs 9.38-9.72. 48 port-5 uops
+   for <= 7 rows of data is the gen_r5 map-pack lesson verbatim. Scalar
+   seams shipped.
+4. **The code-layout saga (the round's method lesson).** Three arrangements
+   of the same bit-identical code, all measured at the gate-OFF cells:
+   (a) both handoff arms inlined in the volume functions: twd_exec_vol grew
+   7008 -> 12328 B (nm -S), 25 read +2.9%; (b) BOTH arms as noinline pass
+   functions (volume functions back under r7 size): 25 STILL +2.9% (5/5) —
+   being small is not enough, the r7-path instructions must also sit where
+   r7 put them; (c) shipped: gate-off loops INLINE and VERBATIM, only the
+   gf arm in noinline functions, plus `aligned(64)` on all 16 hot noinline
+   functions (gen_dense_prime r7's code-alignment axis, applied as an
+   attribute since harness flags are fixed): 25's tax shrank to +1..2%
+   (5/5 lean), 12 to a wash. The residual at 25 is displacement of
+   everything behind the ~10 KB of new .text; I spent 15 pairs across three
+   builds on it and am shipping with it documented — the 27/50/100 wins
+   dwarf it and the cell belongs to gen_powp at 2.6x my speed anyway.
+5. **Declined borrow, with the recount: gen_batchlane r7's lifted DFT5
+   v-pair.** Their claim is 8 -> 6 vector ops per DFT5; under FMA
+   contraction MY forms count equal: original b-pair = (mul+fma) x 4 = 4
+   ops/component; lifted u = fnmadd(1) + v2 = mul(1) + v1 = KS1*u + KL5*t4
+   = mul+fma(2) — also 4/component. Their measured -0.7..-1.0% is real but
+   their record attributes it to register pressure ("two fewer live temps
+   keep the sweep pencil spill-free"); my combines are asm-audited
+   spill-free (r6), so the mechanism does not transfer. Declined on
+   arithmetic, like their own dense-GEMM declination — if a rival engine
+   with DFT5 spill pressure wants it, the recount above is the boundary.
+
+### Borrowed this round, named
+
+- **My own gen_r7 negative**: the entire design is its closing note
+  executed — keep the sequential gather, collapse only the shuffle pair;
+  the footprint mechanism is why GB is slab-sized and L2-resident.
+- **gen_bluestein gen_r4** (via my r4): the kblk = 8/gcd(L,8) custody that
+  makes slab rows ≡ 0 (mod 8) — it is what lets GB's group decomposition
+  match the unblocked pass and keep outputs bit-identical.
+- **gen_planner gen_r7**: the `nm -S` symbol-size diff as the 5-second
+  layout-drift detector — it found the 7 KB -> 17 KB bloat before a single
+  node window was spent on the wrong hypothesis.
+- **gen_dense_prime gen_r7**: code alignment as a first-class race axis —
+  applied as `aligned(64)` function attributes.
+- **gen_batchlane gen_r4 / gen_pow2 gen_r5**: held-lease same-core
+  interleaved rotated pairs — all 6 A/B sessions this round.
+
+### Operation count (demo, delta vs gen_r7)
+
+Butterfly/twiddle arithmetic: IDENTICAL (bit-identical outputs everywhere).
+Gated sizes (32*L^3 >= 600 KB), per 64 complex of axes-1->2 handoff:
+-16 shuffles, -16 stores, -16 loads, -1 gather_z call; +scalar seam stores
+at odd-L plane boundaries (<= 2 tiles per plane per z-group) and the w < 8
+z-tail rows. Plan memory: +ceil(kblk*L/8)*8*L complex for GB (176 KB at
+L=100, 2.0 MB worst case at L=127; nothing at gate-off sizes). Ungated
+sizes: the r7 loops verbatim plus one predictable branch per slab.
+
+### Gates (ship binary, on the node; tryout's map-check leg still dies on
+### the '$W/c.bin' quoting bug — check.py run by hand, r2 recipe)
+
+Bit-identity to gen_r7 carries every r7 gate value; re-measured anyway:
+singles 2.959e-16 (12) / 3.884e-16 (27) / 4.520e-16 (50) / 4.817e-16 (100),
+tol 1e-12; two-step m=2 9.521e-16 / 1.594e-15 / 2.313e-15 / 2.948e-15, tol
+3e-14; graded chains 5.321e-14 (12 m=600, anchor 3.887e-14) / 3.075e-14
+(27 m=200, 2.567e-14) / 4.468e-14 (50 m=128, 2.922e-14) / 3.694e-14
+(100 m=64, 2.416e-14), tol 1e-10; B=1 chain at 12 PASS 6.972e-14 (anchor
+5.797e-14); all chains bit-repeatable (cmp). Local: 16-size bit-identity
+sweep (singles + chains) vs the r7 binary; forced-gate (-DTWD_GF_MIN_BYTES=1)
+bit-identity at 10 small sizes; numpy PASS at 21/44/49/91/96/98/121/125/127/
+128 (worst 8.7e-16 at 127); scalar -march=x86-64 build PASS vs numpy at
+27/31/77; all knob combinations (NOGF / DS / DENSEBF / MAPPAIR / PF /
+DS+DENSEBF / GF_MIN_BYTES=1) compile -Wall -Wextra clean;
+GEN_TWIDDLE_LIB_ONLY adoption compiles clean. setup <= 0.1 s at L=100.
+
+### What I would do next (post-campaign)
+
+1. **Cross-arch**: race TWD_GF_MIN_BYTES and TWD_NOGF on CLX/SPR with the
+   other knobs — CLX's 1 MB L2 moves both custody gates, and its downclock
+   changes the shuffle economics the gate encodes.
+2. The 25-cell layout residual: the only lever left is whole-binary
+   function placement (link order); not worth it for a library layer's
+   demo. If anyone chases it, start from the nm -S diff, not benchmarks.
+3. refnd pitch #10 (gen_powp.c:1738, gen_pfa_large.c:1474).
+4. Do NOT attempt the axis-0->axis-1 split handoff analog: in the chain it
+   forces a T write (in-place st would clobber unread sites), which is a
+   new full-volume stream — exactly the r7 mechanism-2 killer at 50/100.
+   Analyzed this round, not built; recorded so nobody rediscovers it.

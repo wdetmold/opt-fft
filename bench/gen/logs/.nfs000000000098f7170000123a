@@ -237,3 +237,11 @@ results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
 [2026-08-25 14:07:36] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle
 2026-08-25 14:15:01 gen tick skipped: lock held
 2026-08-25 14:30:01 gen tick skipped: lock held
+/tmp/fft_rounds_pnrM1W.sh: line 411: [: 0
+0: integer expression expected
+[2026-08-25 15:40:05] implementers finished: 12 reported
+[2026-08-25 15:40:05] submitting timing round gen_r8 (seed 20268925) to the exclusive benchmark node
+[2026-08-25 19:13:28] leaderboard for gen_r8 is in
+[2026-08-25 19:26:27] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/gen/results/gen_r8/monitor.log)
+[2026-08-25 19:26:27] promoting: gen_batchlane gen_pfa_small gen_powp gen_rader gen_pow2 gen_pfa_large gen_race gen_planner gen_dense_prime gen_twiddle gen_layout gen_bluestein
+[2026-08-25 19:26:27] promote.sh reported a problem

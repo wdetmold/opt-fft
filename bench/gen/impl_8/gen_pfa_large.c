@@ -5,33 +5,37 @@
  * L >= 44 is supported -- 44, 48, 52, 55, 56, 63, 65, 72, 75, 77, 88, 91,
  * 99, 104, 112, 117.
  *
- * ROUND gen_r8 changes (on top of r7 below):
- *   1. ATTRIBUTION (the tools round; PMU locked, llvm-mca + rdtscp phase
- *      counters on a dev copy): the four-rounds-queued "port 5 vs DRAM"
- *      question about p1 has answer NEITHER -- the hot subpass loops are
- *      FRONTEND-BOUND.  Their fully-unrolled bodies (5.3-17.8 KB) exceed
- *      the DSB's ~384x32B-window capacity, so they issue from MITE legacy
- *      decode at <= 16 B/cycle: measured zsub/ysub/p2 run at 1.8-2.0x the
- *      correct 2-FMA port floor at L=50 and track the 16B/c fetch floor
- *      everywhere, while the ONE loop that fits the DSB (ysub at L=40,
- *      3.4 KB) runs at port floor +23%.  A leased-core microbench also
- *      re-measured the machine: zmm FMA 2.0/cyc (ports 0+5), zmm shuffle
- *      1.0/cyc (port 5), mixed streams match the p0/p5 model exactly --
- *      llvm-mca's ICX tables (FMA port0-only) are wrong on this SKU.
- *   2. FRONTEND DIET at L=50/100 (the fix): PFA50C/PFA100C stage loops are
- *      ROLLED instead of unrolled -- stage 2 runs its 2x/4x DFT25 as a real
- *      loop with the CRT store indices from a 25-entry byte table
- *      (K50IDX/K100IDX, one row per k2; index math lands on idle ports
- *      1/6), stage 1 becomes wrap-split affine loops (no tables needed),
- *      and p1body's TRNC granule loops roll at these sizes (GENROLL).
- *      Zv/Wv/T_ were already stack-resident at 50/100, so rolling adds no
- *      new spills; op order is UNCHANGED per element -- outputs stay
- *      bit-identical to r7 (gates reproduce exactly).  Hot-loop bodies
- *      shrink ~8/5.4/5.9 KB -> ~3 KB (50) and ~17.8/12.3/13.3 -> ~4 KB
- *      (100): zsub+ysub fit the DSB TOGETHER.  L=40/80 + the 16 lean sizes
- *      keep their r7 code exactly (verified nm -S + normalized objdump).
- *      Wisdom tag chain6 -> chain7 (same pools, new codegen: per-host
- *      races must re-run).
+ * ROUND gen_r8 (the tools round): ATTRIBUTION DONE, CODE UNCHANGED BY
+ * MEASUREMENT.  The four-rounds-queued "port 5 vs DRAM?" question about p1
+ * was settled with the new static analyzers plus a leased-core rdtscp
+ * microbench and per-phase counters on a dev copy (PMU stays locked):
+ *   1. Machine model calibrated: zmm FMA 2.0/cycle (two 512-bit pipes,
+ *      ports 0+5), zmm shuffle 1.0/cycle (port 5), mixed FMA+shuffle
+ *      streams match the p0/p5 model exactly.  llvm-mca's ICX tables
+ *      (512-bit FMA port0-only, 1/cycle) are WRONG on this SKU -- use it
+ *      only for relative schedule questions, never absolute floors.
+ *   2. Phase attribution (graded chains, forced picks): at L=100/ipp1 the
+ *      step splits prepass 35% / p2 29% (both DRAM-bound) / zsub 22% /
+ *      ysub 14%; at L=50/ip1: p1 ~52% / map ~29% / p2 ~19%.  The hot
+ *      subpass loops all run at the node's ~2.1 vector-uops/cycle GLOBAL
+ *      dispatch cap (zsub@100: 2971 uops / 1410 cyc = 2.11), far above
+ *      the 2-FMA port floor -- neither port 5 nor DRAM is the p1 binder;
+ *      TOTAL UOPS are.
+ *   3. Frontend-diet experiment (rolled stage loops + CRT index tables,
+ *      DSB-resident bodies, bit-identical algebra) BUILT AND REFUTED:
+ *      hot-loop code shrank 17.8->3.7 KB (100) yet zsub/ysub cycles did
+ *      not move (1410->1479 hot-window, ysub 898->952); at 50 the added
+ *      index/staging uops cost +11% (434->483, 4/4 pairs), at 100 +3%
+ *      (min 4592 vs 4730).  MITE 16B/c fetch is NOT the binder; the
+ *      unrolled r7 code already minimizes total uops, which is the real
+ *      currency under the dispatch cap.  Reverted; this header is the
+ *      only r8 change, so all generated code is instruction-identical
+ *      to r7.
+ *   4. Load-TRNC-into-stage-1 fusion (the one remaining uop cut) closed
+ *      by arithmetic: the GT stage-1 strides (25 at L=50/100) are not
+ *      granule-aligned, so consuming transposed granules in registers
+ *      still needs the full Zv staging.  The engine is saturated at the
+ *      machine's uop-throughput cap with minimal uops.
  *
  * ROUND gen_r7 changes (on top of r6 below):
  *   1. CHALLENGER PLAYOFF in tune() (ADOPTED from gen_powp gen_r6): the
@@ -760,32 +764,6 @@ void map_vec_rev(const double *z, const double *c, double *o,
 #define LDT16(n)   T_[16 * k2_ + (n)]
 #define K80MAP(k)  ((65 * (k) + 16 * k2_) % 80)
 
-/* r8 FRONTEND DIET tables: the L=50/100 stage-2 loops are ROLLED (real
- * loops over k2_), so the CRT store index (A*k + 25*k2) % L is no longer a
- * compile-time fold -- it comes from one 25-entry byte row per k2 block.
- * The index load + per-site stride multiply are scalar uops on ports 1/6,
- * which the transform loops leave idle; ports 0/5 (FMA + shuffle, the
- * measured binding resource after the fetch fix) gain nothing.  Rows
- * verified against (26k+25k2)%50 / (76k+25k2)%100 for k = 0..24. */
-static const unsigned char K50IDX[2][25] = {
-    {  0, 26,  2, 28,  4, 30,  6, 32,  8, 34, 10, 36, 12, 38, 14, 40, 16,
-      42, 18, 44, 20, 46, 22, 48, 24 },
-    { 25,  1, 27,  3, 29,  5, 31,  7, 33,  9, 35, 11, 37, 13, 39, 15, 41,
-      17, 43, 19, 45, 21, 47, 23, 49 },
-};
-static const unsigned char K100IDX[4][25] = {
-    {  0, 76, 52, 28,  4, 80, 56, 32,  8, 84, 60, 36, 12, 88, 64, 40, 16,
-      92, 68, 44, 20, 96, 72, 48, 24 },
-    { 25,  1, 77, 53, 29,  5, 81, 57, 33,  9, 85, 61, 37, 13, 89, 65, 41,
-      17, 93, 69, 45, 21, 97, 73, 49 },
-    { 50, 26,  2, 78, 54, 30,  6, 82, 58, 34, 10, 86, 62, 38, 14, 90, 66,
-      42, 18, 94, 70, 46, 22, 98, 74 },
-    { 75, 51, 27,  3, 79, 55, 31,  7, 83, 59, 35, 11, 87, 63, 39, 15, 91,
-      67, 43, 19, 95, 71, 47, 23, 99 },
-};
-/* runtime-index KMAP for DFT25M inside the rolled loops (ki_ in scope) */
-#define KI25(k) ((int)ki_[k])
-
 /* ---- r6 generic modules for the class-coverage sizes -------------------- */
 
 /* Direct symmetric odd-N DFT (any odd NN >= 3, prime or not), FMA form:
@@ -929,32 +907,19 @@ static const unsigned char K100IDX[4][25] = {
 
 /* L=50 = 25x2.  Stage 1: 25 x DFT2 into T_[25*k2 + n1]; stage 2: 2 x DFT25
  * on contiguous slots, stage-B outputs stored straight through ST via the
- * CRT map (r2: no R_[25] round-trip).  r8: both stages ROLLED (frontend
- * diet -- see the K50IDX comment).  Stage 1 is wrap-split into two affine
- * ranges ((2n1+25)%50 = 2n1+25 for n1 < 13, 2n1-25 after), stage 2 loops
- * k2_ with the store map from K50IDX.  Same per-element ops in the same
- * order as the unrolled r1-r7 form: outputs bit-identical. */
+ * CRT map (r2: no R_[25] round-trip). */
 #define PFA50C(LD, ST) do {                                                  \
     vec T_[50];                                                              \
-    _Pragma("GCC unroll 1")                                                  \
-    for (int n1_ = 0; n1_ < 13; ++n1_) {                                     \
-        vec a_ = LD(2 * n1_);                                                \
-        vec b_ = LD(2 * n1_ + 25);                                           \
+    _Pragma("GCC unroll 25")                                                 \
+    for (int n1_ = 0; n1_ < 25; ++n1_) {                                     \
+        vec a_ = LD((2 * n1_     ) % 50);                                    \
+        vec b_ = LD((2 * n1_ + 25) % 50);                                    \
         T_[n1_]      = a_ + b_;                                              \
         T_[25 + n1_] = a_ - b_;                                              \
     }                                                                        \
-    _Pragma("GCC unroll 1")                                                  \
-    for (int n1_ = 13; n1_ < 25; ++n1_) {                                    \
-        vec a_ = LD(2 * n1_);                                                \
-        vec b_ = LD(2 * n1_ - 25);                                           \
-        T_[n1_]      = a_ + b_;                                              \
-        T_[25 + n1_] = a_ - b_;                                              \
-    }                                                                        \
-    _Pragma("GCC unroll 1")                                                  \
-    for (int k2_ = 0; k2_ < 2; ++k2_) {                                      \
-        const unsigned char *ki_ = K50IDX[k2_];                              \
-        DFT25M(LDT25, ST, KI25);                                             \
-    }                                                                        \
+    _Pragma("GCC unroll 2")                                                  \
+    for (int k2_ = 0; k2_ < 2; ++k2_)                                        \
+        DFT25M(LDT25, ST, K50MAP);                                           \
 } while (0)
 
 /* L=80 = 16x5 (r3).  n = (5 n1 + 16 n2) % 80, k = (65 k1 + 16 k2) % 80
@@ -980,32 +945,21 @@ static const unsigned char K100IDX[4][25] = {
 } while (0)
 
 /* L=100 = 25x4.  Stage 1: 25 x DFT4 into T_[25*k2 + n1]; stage 2: 4 x DFT25,
- * stage-B outputs stored straight through ST via the CRT map (r2).
- * r8: both stages ROLLED (frontend diet).  Stage 1 is wrap-split into four
- * affine n1_ ranges (the (4n1+25n2)%100 wraps land at n1 = 7/13/19 for
- * n2 = 3/2/1), stage 2 loops k2_ with the store map from K100IDX.  Same
- * per-element ops in the same order: outputs bit-identical to r7. */
-#define PFA100S1(LD, LO, HI, O1, O2, O3)                                     \
-    _Pragma("GCC unroll 1")                                                  \
-    for (int n1_ = (LO); n1_ < (HI); ++n1_) {                                \
-        vec a0_ = LD(4 * n1_);                                               \
-        vec a1_ = LD(4 * n1_ + (O1));                                        \
-        vec a2_ = LD(4 * n1_ + (O2));                                        \
-        vec a3_ = LD(4 * n1_ + (O3));                                        \
-        DFT4M(a0_, a1_, a2_, a3_,                                            \
-              T_[n1_], T_[25 + n1_], T_[50 + n1_], T_[75 + n1_]);            \
-    }
+ * stage-B outputs stored straight through ST via the CRT map (r2). */
 #define PFA100C(LD, ST) do {                                                 \
     vec T_[100];                                                             \
-    PFA100S1(LD,  0,  7,  25,  50,  75)                                      \
-    PFA100S1(LD,  7, 13,  25,  50, -25)                                      \
-    PFA100S1(LD, 13, 19,  25, -50, -25)                                      \
-    PFA100S1(LD, 19, 25, -75, -50, -25)                                      \
-    _Pragma("GCC unroll 1")                                                  \
-    for (int k2_ = 0; k2_ < 4; ++k2_) {                                      \
-        const unsigned char *ki_ = K100IDX[k2_];                             \
-        DFT25M(LDT25, ST, KI25);                                             \
+    _Pragma("GCC unroll 25")                                                 \
+    for (int n1_ = 0; n1_ < 25; ++n1_) {                                     \
+        vec a0_ = LD((4 * n1_     ) % 100);                                  \
+        vec a1_ = LD((4 * n1_ + 25) % 100);                                  \
+        vec a2_ = LD((4 * n1_ + 50) % 100);                                  \
+        vec a3_ = LD((4 * n1_ + 75) % 100);                                  \
+        DFT4M(a0_, a1_, a2_, a3_,                                            \
+              T_[n1_], T_[25 + n1_], T_[50 + n1_], T_[75 + n1_]);            \
     }                                                                        \
+    _Pragma("GCC unroll 4")                                                  \
+    for (int k2_ = 0; k2_ < 4; ++k2_)                                        \
+        DFT25M(LDT25, ST, K100MAP);                                          \
 } while (0)
 
 /* ---- r6 class-coverage codelets (lean sizes) ----------------------------
@@ -1250,9 +1204,7 @@ static const unsigned char K100IDX[4][25] = {
 #define GENL 50
 #define GPP  52                       /* 832 B = 13 lines, odd               */
 #define PFAL PFA50C
-#define GENROLL 1                     /* r8 frontend diet: rolled TRNC loops */
 #include __FILE__
-#undef GENROLL
 #undef GENL
 #undef GPP
 #undef PFAL
@@ -1268,9 +1220,7 @@ static const unsigned char K100IDX[4][25] = {
 #define GENL 100
 #define GPP  108                      /* 1728 B = 27 lines, odd              */
 #define PFAL PFA100C
-#define GENROLL 1                     /* r8 frontend diet: rolled TRNC loops */
 #include __FILE__
-#undef GENROLL
 #undef GENL
 #undef GPP
 #undef PFAL
@@ -1788,7 +1738,7 @@ static void tune(fft3d_plan *p)
         memset(sc, 0, sizeof sc);
         for (int c = 0; c < nc; ++c) sc[c].name = cd[c].nm;
         char key[GR_KEY_MAX];
-        gr_keyf(key, sizeof key, "gen_pfa_large", "chain7", L,
+        gr_keyf(key, sizeof key, "gen_pfa_large", "chain6", L,
                 gr_bucket(p->batch));
         snprintf(fullkey, sizeof fullkey, "%s#%08x", key, gr_sig(sc, nc));
         char wname[GR_NAME_MAX];
@@ -2141,16 +2091,6 @@ void fft3d_destroy(fft3d_plan *p)
 #define NYG   (NFULL + (GENL % 4 ? 1 : 0))
 #define FN(n) GCAT(n, GCAT(_, GENL))
 
-/* r8: GENROLL sizes (50/100) roll the TRNC granule loops too -- Zv/Wv are
- * stack-resident at those sizes anyway, and the ~150 B loop bodies join the
- * rolled codelet in keeping the whole subpass inside the DSB.  All other
- * sizes keep the r7 full unroll (their generated code must not move). */
-#ifdef GENROLL
-#define TRNC_UNROLL _Pragma("GCC unroll 1")
-#else
-#define TRNC_UNROLL _Pragma("GCC unroll 25")
-#endif
-
 /* r6: GEN_LEAN instantiations (the coverage sizes) emit only the ip + ipp
  * chain families and compile the two heavy bodies (p1body, p2) ONCE as
  * noinline functions -- ~4 codelet expansions per size instead of ~50.
@@ -2203,7 +2143,7 @@ void FN(p1body)(const double *restrict px, double *restrict mx,
         const double *rows = px  + (size_t)yb * (2 * GENL);
         double       *prow = pld + (size_t)yb * (2 * GPP);
         vec Zv[GENL], Wv[GENL];
-        TRNC_UNROLL
+        _Pragma("GCC unroll 25")
         for (int zg = 0; zg < NFULL; ++zg) {
             vec r_[4];
             _Pragma("GCC unroll 4")
@@ -2225,7 +2165,7 @@ void FN(p1body)(const double *restrict px, double *restrict mx,
         PFAL(LD1, ST1);
 #undef LD1
 #undef ST1
-        TRNC_UNROLL
+        _Pragma("GCC unroll 25")
         for (int zg = 0; zg < NFULL; ++zg) {
             vec r_[4];
             TRNC(&Wv[4 * zg], r_);
@@ -2343,7 +2283,7 @@ void FN(p1m)(const double *restrict in, double *restrict out,
         const double *crow = pc  + (size_t)yb * (2 * GENL);
         double       *prow = pld + (size_t)yb * (2 * GPP);
         vec Zv[GENL], Wv[GENL];
-        TRNC_UNROLL
+        _Pragma("GCC unroll 25")
         for (int zg = 0; zg < NFULL; ++zg) {
             vec r_[4];
             _Pragma("GCC unroll 4")
@@ -2368,7 +2308,7 @@ void FN(p1m)(const double *restrict in, double *restrict out,
         PFAL(LD1, ST1);
 #undef LD1
 #undef ST1
-        TRNC_UNROLL
+        _Pragma("GCC unroll 25")
         for (int zg = 0; zg < NFULL; ++zg) {
             vec r_[4];
             TRNC(&Wv[4 * zg], r_);
@@ -2573,7 +2513,7 @@ void FN(p1nt)(const double *restrict in, double *restrict out,
         const double *rows = px  + (size_t)yb * (2 * GENL);
         double       *prow = pld + (size_t)yb * (2 * GPP);
         vec Zv[GENL], Wv[GENL];
-        TRNC_UNROLL
+        _Pragma("GCC unroll 25")
         for (int zg = 0; zg < NFULL; ++zg) {
             vec r_[4];
             _Pragma("GCC unroll 4")
@@ -2586,7 +2526,7 @@ void FN(p1nt)(const double *restrict in, double *restrict out,
         PFAL(LD1, ST1);
 #undef LD1
 #undef ST1
-        TRNC_UNROLL
+        _Pragma("GCC unroll 25")
         for (int zg = 0; zg < NFULL; ++zg) {
             vec r_[4];
             TRNC(&Wv[4 * zg], r_);
@@ -2966,7 +2906,6 @@ static void FN(x_pf1)(const double *in, double *out, long nvol, double *P)
 }
 
 #undef GENPFA_HEAVY
-#undef TRNC_UNROLL
 #undef FN
 #undef NYG
 #undef NFULL

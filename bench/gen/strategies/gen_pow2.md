@@ -988,3 +988,164 @@ chain m=64 2.342e-14.  2^k regression L=2/4/8/128 singles: PASS at 0 / 0 /
    remains the one unbuilt structure (63-ms generic hole).
 4. gen_race adoption: these knobs are compile-time; if the trunk ever
    builds per-host variants of class entries, hand it the axis list above.
+
+## Round gen_r8 — the model audit closes the L=32 book with numbers, and the
+## last unbuilt custody engine ships: L=128 (G=16), the 63-ms hole closed
+
+Standings into the round: led L=32 at 56.378 us (3.03x MKL 2022, r7 board;
+1.87x ahead of gen_planner).  Final round.  My r7 record declares the scored
+cell closed ([port ∥ L2], every scheduling/prefetch/layout/TLB/op-count/
+constant-routing lever measured); the r8 brief's one novelty is the static
+microarchitecture analyzers (tools/TOOLS.md).  Two spends this round:
+(a) the analyzer audit of the two hot bodies — cheap, no ship risk, and it
+either finds a model-backed lever or attributes the residual for the record;
+(b) the L=128 (G=16) custody engine, the class's last unbuilt structure
+(parked in r5/r6/r7; the generic path served L=128 at 63 ms/volume).
+Session protocol: slot lease 3 / core 5 on a80n0 held for the session (ssh
+replication of tryout.sh's exact steps — reserve.sh --status still dies on
+the login host, sbatch missing, the r4 note stands verbatim), rotated-order
+same-core pairs, gates by hand with check.py on the node.
+
+### (a) The static-analyzer audit (tools/TOOLS.md), and what it settled
+
+Method: a scratch TU (build/tryout/gen_pow2/mca_kern.c) exposes the two hot
+bodies as noinline functions built with the exact ship flag line — xcol1 =
+one x-pass column (vfft32m, 128/step) and zyq1 = one z/y q-group (4 zpairs
++ 1 vfft32 y-line as compiled: the ZU1-rolled loop means the STATIC body is
+1 zpair + 1 vfft32; scale accordingly).  Tool findings first, engine
+findings second:
+
+* **uiCA is UNUSABLE on this cluster**: ext/tools/uiCA has no instrData/ —
+  its setup2.log shows the uops.info instructions.xml download timing out
+  (no outbound net from the nodes).  TOOLS.md names it the most accurate
+  ICL model; monitor and peers should know it never worked.
+* **llvm-mca's icelake-server model needs hand-correction before ANY use**:
+  it routes ALL 512-bit FP to port 0 (xcol1: 968 of ~990 vector-arith uops
+  on Port0, predicted 992.7 cyc/iter — ABOVE the 695 the node measures,
+  i.e. the model does not know ICL-server's second 512-bit FMA pipe on
+  port 5), and it models vdivpd zmm at 16-cyc rthroughput (real ICL ~8).
+* **OSACA (ICX) has the correct dual-pipe model** and is the one to trust
+  here: xcol1 splits P0=484 / P5=484 (loads P2/P3 88 each, stores ~106) —
+  **port floor 484 cyc/column vs 695 measured (+44%)**.  zyq1 scaled to a
+  real q-group: ~4x86 + 195 ≈ 539 cyc floor vs 602 measured (+12%).
+
+Engine verdict, now model-attributed: the z/y phase (skewed since r2) runs
+12% over its port floor — effectively closed.  The x-pass residual is ~211
+cyc/column, which is almost exactly the column's L2 traffic (~12 KB of
+state+c reads and store evictions at ~64 B/cyc ≈ 190 cyc) running
+UNOVERLAPPED: the ~350-entry ROB cannot span a 1.3K-uop column body, so
+pass-2 compute of column n can never reach column n+1's pass-1 L2 loads.
+Every mitigation of exactly this was already raced out — GP2_XSK software
+pipelining (r3, +8%), GP2_PFXC prefetch (r2, +4%), GP2_XU=2 shrinking the
+body under the ROB (r3, +7K cyc of loop/twiddle overhead).  The r5 wall
+statement ("measured ≈ floors summed") is therefore mechanism-complete:
+[port ∥ L2] with the L2 share structurally non-overlappable at this body
+size.  **No reschedule was attempted against the bit-identical known-good
+cell in the final round — gen_batchlane gen_r8's rule, adopted verbatim
+and cited.**  L=32 ships bit-identical to r6/r7 for the third round.
+
+### (b) What was built: the L=128 (G=16) custody engine
+
+The same architecture, fourth instantiation (custody split-complex,
+per-volume chain residency, x-fastest c, lazy map fused into x-pass stores,
+z/y port-profile skew, DSB-rolled bodies, no prefetch — seven prior
+losses).  Strides K128=264 / X128=33800 doubles (33 / 4225 lines, both
+odd), CGS128=2056 (257, odd); volume 34.6 MB, S+C = 68 MB against the
+24 MB LLC: the DRAM regime, the one this class had never entered.
+
+* **zrow128** (new codelet, the r1 "two TR8s per line-half" promise built):
+  DFT16 over the 16 slots (DIT 2x8 via the new shared dft16s: two DFT8S +
+  W16^j twiddles with the j=4 = -i site as an exact swap + combines), lane
+  twiddle W128^{l*k2} (15 CTWV vector pairs), then per k2-half one TR8 pair
+  + DFT8 over the former lanes; X[k2+16*k1] lands at slot 2*k1 + (k2>=8),
+  lane k2 mod 8 — each DFT8 output stores DIRECTLY to every second slot,
+  zero re-form shuffles.  ~328 arith + 96 shuffles per 128 points.
+* **vfft128i**: X[k1+8m] = DFT16_b( W128^{b*k1} · DFT8_a( x[16a+b] ) ),
+  H[128] line buffer (16 KB stack), both pass loops rolled (the r3 DSB rule
+  applied from birth), fused div map in the stores when domap.
+* Step/z-y skew/premap-control/conversions: the fft_step64 shape verbatim
+  at G=16 (16 q-groups of 8 zrows + 1 y-line; 2048 x-columns); the generic
+  _g conversions already handled G=16 untouched.
+
+### Operation count (L=128, per step-volume)
+
+z 16384 rows x (328+96sh) ≈ 5.4M FMA-class + 1.6M shuffles; y 2048 lines x
+~2600 ≈ 5.3M; x 2048 x (~2600 + fused map 128x14 + 256 adds) ≈ 9.6M + 256K
+vdivpd/seeds.  Port floor ~10M cyc ≈ 3.5 ms — irrelevant: per-step DRAM
+traffic is ~173 MB (S r+w twice, C read once), and that binds.
+
+### Measured on the node (a80n0 core 5, same-core windows, MKL same core)
+
+| case | gen_pow2 | MKL 2022 same window | ratio |
+|---|---|---|---|
+| L=32 B=8 m=250 (graded) | **56.37** quiet (sd 0.02%; windows bimodal 56.4/64.2 this session) | 171.2-175.0 | **~0.32** |
+| L=32 B=1 m=250 | **55.56-57.20** (fast/normal states, sd 0.03%) | — | |
+| L=128 B=1 single call | 16.66-19.08 ms | 13.91 | 0.83x — LOSES (see below) |
+| L=128 B=1 m=8 chain | **13.42 ms/step-vol** (sd 0.02%; was 63 ms generic → 4.7x) | 21.42 | **1.60x WIN** |
+| L=16 / L=64 chains | bit-identical paths, re-verified | — | |
+
+L=128 phase profile (rdtsc): z+y fused 14.1M cyc/step, x 18.0M — 14-17 GB/s
+effective, i.e. at the practical single-core DRAM wall; the structure is
+memory-bound as designed and the two-sweep step is traffic-minimal.  The
+single call LOSES to MKL honestly: nat->cust and cust->nat add two full
+volume sweeps (~70 MB) that the m-step chain amortizes away — the chain is
+the graded workload and the win is where the contract is.
+
+### Gates (ship build = flagless default, node, check.py by hand)
+
+L=128: single 4.092e-16 (tol 1e-12); two-step fused m=2 **2.469e-15**
+(tol 3e-14, 12x margin); chain m=8 5.564e-15 (tol 1e-10); bit-repeatable.
+L=32: chain output **cmp-IDENTICAL to the r7 ship binary's** (B=8, m=250);
+single 2.902e-16 / 2.915e-16 (B=8/B=1), m=2 1.338e-15, chain 3.328e-14 /
+2.948e-14 — r6/r7's exact digits.  Code-layout hazard check (gen_twiddle
+r5 discipline): three rotated same-window pairs r8-vs-r7ship at L=32 read
+57.19/57.44, 57.22/57.93, 57.32/57.22 — a wash, mixed signs, no tax.
+L=64: chain m=64 bit-identical, gate 2.342e-14 (r4's digits).  L=16: chain
+m=300 bit-identical, 2.118e-14; m=2 8.221e-16 (B=2 this round).  Generic
+L=2/4/8 singles: PASS 0 / 0 / 1.4e-16.  -Wall -Wextra: only the
+pre-existing mode-0 -Wrestrict trio (C unused in plain steps); scalar
+(no-AVX-512) build clean.  Setup still ~0 s at every L (one 68-MB
+posix_memalign at 128).
+
+### What did NOT work / was declined, with the number or the rule
+
+* **Any L=32 reschedule from the model audit**: declined — the audit
+  ATTRIBUTED the residual (unoverlappable L2 under a ROB-bounded column)
+  rather than finding a lever; all three shapes of fix were raced out in
+  r2/r3.  gen_batchlane gen_r8's final-round rule cited above.
+* **uiCA cross-check**: impossible, tool broken on-site (recorded above).
+* **L=128 x-pass prefetch/ordering work**: not attempted — the phase runs
+  at DRAM bandwidth with the streamer owning the sequential halves; the
+  seven-loss prefetch record stands, and 2048-column reordering cannot cut
+  the ~173 MB/step irreducible set.
+* **L=128 single-call conversion fusion** (fold nat->cust into step 1's
+  z-pass loads and cust->nat into the last x-pass stores): designed but
+  not built — it only helps m=1 callers (the graded workload is chains),
+  and it doubles the codelet variants two days before the campaign ends.
+  Recorded as the obvious next lever if anyone ever scores 2^k singles.
+
+### Borrowed / attribution (gen_r8)
+
+* **gen_batchlane gen_r8**: the final-round protection rule (no speculative
+  reschedules against bit-identical known-good cells), and the round shape
+  itself (protect the scored cells, close the class's named gap).
+* **tools/TOOLS.md** (monitor): the model-vs-measured discipline; this
+  round's contribution back is the uiCA-is-broken finding, the llvm-mca
+  ICX port-map/vdivpd corrections, and OSACA-as-the-trustworthy-one.
+* The L=128 engine is my own r4 G-generalization continued (ice
+  L64_blocked lineage throughout); dft16s and zrow128's direct-store slot
+  mapping are new this round.
+
+### What I would do next
+
+1. **Nothing at L=32** — the cell is closed with the residual now
+   model-attributed, not just measured.  If a future host changes the
+   trade (CLX port-bound downclock), the knob set {FTW, MAPDIV, PREMAP,
+   XU, ZU1, ZYIL, KS, CPS, HP32} is the race's inventory; nothing new.
+2. **L=128 single-call conversion fusion** (above) if 2^k singles ever
+   score; ~35% of the 16.7 ms is conversions.
+3. **The class is structurally complete**: 16/32/64/128 all custody
+   (L2-resident, L2-edge, L3, DRAM regimes respectively — the full
+   memory-hierarchy sweep of one architecture); 2/4/8 generic and trivial.
+   Round-6-style library draws route through gen_planner/gen_race for
+   non-2^k; nothing in this class blocks assembly.

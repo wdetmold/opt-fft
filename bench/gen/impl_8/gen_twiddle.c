@@ -882,6 +882,10 @@ static inline int tw_selftest(void)
 typedef double tw_v8 __attribute__((vector_size(64), aligned(64), may_alias));
 typedef long long tw_v8l __attribute__((vector_size(64)));
 
+#if defined(__AVX512F__)
+#include <immintrin.h>   /* masked seam stores (twd_scatter_gf) + map ladder */
+#endif
+
 static inline tw_v8 tw_loadu8(const double *q)      /* unaligned load  */
 {
     tw_v8 v;
@@ -941,6 +945,8 @@ struct fft3d_plan {
                                 * so blocks hold kblk*L rows == 0 (mod 8) and the
                                 * axis-2 group decomposition is IDENTICAL to the
                                 * unblocked pass (gen_bluestein r4's block size) */
+    int gf;                    /* gen_r8: use the split-group handoff (GB) for
+                                * axes 1->2; plan-gated to large L, see create() */
     int chain_fb;              /* create()'s chain gate failed: use the exact
                                 * execute + scalar-map fallback inside chain */
     struct twd_level lev[TWD_MAXLEV];
@@ -948,6 +954,11 @@ struct fft3d_plan {
     double c15, s15, c25, s25; /* cos/sin(2pi/5), cos/sin(4pi/5)               */
     double _Complex *T;        /* interleaved intermediate volume             */
     double *Gr, *Gi, *Sr, *Si, *Yr, *Yi; /* 8-wide split pencil buffers, 8L each */
+    double *GB;                /* NEW gen_r8: slab-sized group-format handoff
+                                * buffer for axes 1->2 (kblk*L*L complex): one
+                                * L-row block per axis-2 8-row group, row j =
+                                * [re v8][im v8], so axis 2 direct-feeds with
+                                * xstr = 2 -- zero gather, zero shuffles      */
     gl_arena ar;
 };
 
@@ -962,7 +973,8 @@ const char *fft3d_description(void)
            "gen_twiddle.c); entry = any-L mixed-radix zmm-lane demo (gen_r5: conjugate-fold "
            "prime butterflies; gen_r6: register-resident whole-level codelets for r=2/3/4/5, "
            "-30..-44% bit-identical; gen_r7: fused fold-combine codelet for combine radices "
-           "7/11/13, bit-identical), self-audited at create(), owned in-place fused-map chain";
+           "7/11/13; gen_r8: shuffle-free split-group handoff axes 1->2, axis-2 gather "
+           "deleted, bit-identical), self-audited at create(), owned in-place fused-map chain";
 }
 int fft3d_supports(int L) { return L >= 2 && L <= 128; }
 
@@ -1001,7 +1013,7 @@ static int twd_factor(int L, struct twd_level *lev)
  * hot cases from twd_rec -- measured +1-4.5% on the NO-fold sizes
  * (12/50/100) with bit-identical outputs before this split. */
 #ifndef TWD_DENSEBF
-static __attribute__((noinline)) void twd_fold_bf(const struct twd_level *lv,
+static __attribute__((noinline, aligned(64))) void twd_fold_bf(const struct twd_level *lv,
                                                   const tw_v8 *tr, const tw_v8 *ti,
                                                   tw_v8 *yr, tw_v8 *yi, long st)
 {
@@ -1080,7 +1092,7 @@ static __attribute__((noinline)) void twd_fold_bf(const struct twd_level *lv,
  * out of the recursive dispatcher, which also shrinks twd_rec's own frame.
  * Under -DTWD_DS the combines fall back to the generic loop (the DS knob is
  * raced, default off); leaves have no twiddles and specialize either way. */
-static __attribute__((noinline)) void twd_leaf2(const double *xr, const double *xi,
+static __attribute__((noinline, aligned(64))) void twd_leaf2(const double *xr, const double *xi,
                                                 long xstr, tw_v8 *Yr, tw_v8 *Yi)
 {
     tw_v8 t0r = *(const tw_v8 *)xr, t0i = *(const tw_v8 *)xi;
@@ -1091,7 +1103,7 @@ static __attribute__((noinline)) void twd_leaf2(const double *xr, const double *
     Yi[1] = t0i - t1i;
 }
 
-static __attribute__((noinline)) void twd_leaf3(const struct fft3d_plan *p,
+static __attribute__((noinline, aligned(64))) void twd_leaf3(const struct fft3d_plan *p,
                                                 const double *xr, const double *xi,
                                                 long xstr, tw_v8 *Yr, tw_v8 *Yi)
 {
@@ -1110,7 +1122,7 @@ static __attribute__((noinline)) void twd_leaf3(const struct fft3d_plan *p,
     Yi[2] = vi + wr;
 }
 
-static __attribute__((noinline)) void twd_leaf4(const double *xr, const double *xi,
+static __attribute__((noinline, aligned(64))) void twd_leaf4(const double *xr, const double *xi,
                                                 long xstr, tw_v8 *Yr, tw_v8 *Yi)
 {
     tw_v8 t0r = *(const tw_v8 *)xr, t0i = *(const tw_v8 *)xi;
@@ -1131,7 +1143,7 @@ static __attribute__((noinline)) void twd_leaf4(const double *xr, const double *
     Yi[3] = bi + dr;
 }
 
-static __attribute__((noinline)) void twd_leaf5(const struct fft3d_plan *p,
+static __attribute__((noinline, aligned(64))) void twd_leaf5(const struct fft3d_plan *p,
                                                 const double *xr, const double *xi,
                                                 long xstr, tw_v8 *Yr, tw_v8 *Yi)
 {
@@ -1164,7 +1176,7 @@ static __attribute__((noinline)) void twd_leaf5(const struct fft3d_plan *p,
 }
 
 #ifndef TWD_DS
-static __attribute__((noinline)) void twd_comb2(const struct twd_level *lv,
+static __attribute__((noinline, aligned(64))) void twd_comb2(const struct twd_level *lv,
                                                 const double *sr, const double *si,
                                                 double *yr, double *yi)
 {
@@ -1192,7 +1204,7 @@ static __attribute__((noinline)) void twd_comb2(const struct twd_level *lv,
     }
 }
 
-static __attribute__((noinline)) void twd_comb3(const struct fft3d_plan *p,
+static __attribute__((noinline, aligned(64))) void twd_comb3(const struct fft3d_plan *p,
                                                 const struct twd_level *lv,
                                                 const double *sr, const double *si,
                                                 double *yr, double *yi)
@@ -1231,7 +1243,7 @@ static __attribute__((noinline)) void twd_comb3(const struct fft3d_plan *p,
     }
 }
 
-static __attribute__((noinline)) void twd_comb4(const struct twd_level *lv,
+static __attribute__((noinline, aligned(64))) void twd_comb4(const struct twd_level *lv,
                                                 const double *sr, const double *si,
                                                 double *yr, double *yi)
 {
@@ -1276,7 +1288,7 @@ static __attribute__((noinline)) void twd_comb4(const struct twd_level *lv,
     }
 }
 
-static __attribute__((noinline)) void twd_comb5(const struct fft3d_plan *p,
+static __attribute__((noinline, aligned(64))) void twd_comb5(const struct fft3d_plan *p,
                                                 const struct twd_level *lv,
                                                 const double *sr, const double *si,
                                                 double *yr, double *yi)
@@ -1464,7 +1476,7 @@ static void twd_butterfly(const struct fft3d_plan *p, const struct twd_level *lv
 /* generic leaf, r >= 7 (odd prime -> fold butterfly).  noinline and OUTSIDE
  * twd_rec (gen_r6) so the tr/ti staging arrays' 16 KB probed stack frame is
  * paid only on this cold-ish path, not on every recursion step. */
-static __attribute__((noinline)) void twd_leaf_gen(const struct fft3d_plan *p,
+static __attribute__((noinline, aligned(64))) void twd_leaf_gen(const struct fft3d_plan *p,
                     const struct twd_level *lv,
                     const double *xr, const double *xi, long xstr,
                     tw_v8 *Y_r, tw_v8 *Y_i)
@@ -1483,7 +1495,7 @@ static __attribute__((noinline)) void twd_leaf_gen(const struct fft3d_plan *p,
  * X[k2*m + k1] = sum_s w_n^(s*k1) * w_r^(s*k2) * A_s[k1]; twiddles consumed
  * sequentially, k1-major (consumption order).  k1 = 0 twiddles are exactly
  * 1: copy, don't multiply.  Same noinline frame rationale as twd_leaf_gen. */
-static __attribute__((noinline)) void twd_comb_gen(const struct fft3d_plan *p,
+static __attribute__((noinline, aligned(64))) void twd_comb_gen(const struct fft3d_plan *p,
                     const struct twd_level *lv,
                     const double *sr, const double *si, double *yr, double *yi)
 {
@@ -1545,7 +1557,7 @@ static __attribute__((noinline)) void twd_comb_gen(const struct fft3d_plan *p,
  * bit-identical to gen_r6.  Combine radices are <= 13 by twd_factor, so
  * h <= 6 and the fold rows live in 12 zmm registers, not a frame. */
 #if !defined(TWD_DS) && !defined(TWD_DENSEBF)
-static __attribute__((noinline)) void twd_comb_fold(const struct twd_level *lv,
+static __attribute__((noinline, aligned(64))) void twd_comb_fold(const struct twd_level *lv,
                     const double *sr, const double *si, double *yr, double *yi)
 {
     const int r = lv->r, m = lv->m, h = (r - 1) / 2;
@@ -1752,6 +1764,72 @@ static void twd_scatter_i(double _Complex *dst, long rowstride, int n, int w,
         for (int q = 0; q < w; ++q) {
             dp[2 * q] = yr[8 * j + q];
             dp[2 * q + 1] = yi[8 * j + q];
+        }
+    }
+}
+
+/* NEW gen_r8: axis-1 writeback straight into the axes-1->2 handoff buffer GB
+ * in GROUP FORMAT -- the layout axis 2 consumes with plain aligned loads:
+ * one L-row block per axis-2 8-row group, row j at [re v8][im v8] (16
+ * doubles), so twd_rec direct-feeds group G with (xr, xi, xstr) =
+ * (GB + G*L*16, ..+8, 2).  This is the r7 negative's benign variant (that
+ * record, closing note): the SEQUENTIAL axis-1 gather stays (it is the
+ * software prefetch + L1 staging -- deleting it lost 6-35% in r7), only the
+ * axis1-scatter + axis2-gather SHUFFLE pair is collapsed into one
+ * transpose: per 64 complex, scatter_i(16 shuf) + gather_z(48 shuf + 16
+ * ld + 16 st) becomes 2x tr8x8(48 shuf) + 16 st -- minus 16 shuffles, 16
+ * stores, 16 loads, and the whole gather_z sweep.  GB is slab-sized and
+ * reused per slab: L2-hot custody, NO new volume stream (the r7 negative's
+ * footprint mechanism avoided by construction).
+ *
+ * Yr/Yi hold L rows (y) of 8 z-lanes (z = c..c+w-1); output slab rows are
+ * rowbase + y (rowbase = plane-in-slab * L, so groups straddle plane
+ * boundaries exactly as the kblk custody requires).  Full lane-0-aligned
+ * 8x8 (y x z) tiles go through two tr8x8 with aligned stores; the <= 2
+ * lane-misaligned seam tiles per (plane, z-group) at odd-L plane seams and
+ * every w < 8 z-tail take the SCALAR path -- raced against a masked-store
+ * tr8x8 seam variant and scalar WON everywhere (25: 80.2-81.0 vs 82.8-84.3;
+ * 12: 9.38-9.72 vs 9.63-9.87 us; 2 tr8x8 is 48 port-5 uops for <= 7 rows,
+ * the gen_r5 map-pack lesson again).  The tile quantization is also why the
+ * whole handoff is PLAN-GATED to large L (TWD_GF_MIN_BYTES below): at L=12
+ * the per-tile transposes cost ~4x the old scatter_i's shuffles and the
+ * deleted gather_z was smaller than that -- measured +4% at 12, +1.5% at
+ * 25, vs -2.3..-2.9% wins at 27/50/100. */
+static __attribute__((noinline, aligned(64))) void twd_scatter_gf(double *GB, long L,
+                           long rowbase, int c, int w,
+                           const double *yr, const double *yi)
+{
+    long y = 0;
+    const long s0 = rowbase & 7;
+    if (w == 8) {
+        if (s0) {                       /* head seam: lanes s0..7 of group */
+            long cnt = 8 - s0;
+            if (cnt > L) cnt = L;
+            double *g = GB + ((rowbase >> 3) * L + c) * 16;
+            for (int t = 0; t < 8; ++t)
+                for (long i = 0; i < cnt; ++i) {
+                    g[t * 16 + s0 + i] = yr[8 * i + t];
+                    g[t * 16 + 8 + s0 + i] = yi[8 * i + t];
+                }
+            y = cnt;
+        }
+        for (; y + 8 <= L; y += 8) {    /* full tiles: lane 0 aligned */
+            tw_v8 Br[8], Bi[8];
+            tw_tr8x8(Br, (const tw_v8 *)yr + y);
+            tw_tr8x8(Bi, (const tw_v8 *)yi + y);
+            double *g = GB + (((rowbase + y) >> 3) * L + c) * 16;
+            for (int t = 0; t < 8; ++t) {
+                *(tw_v8 *)(g + t * 16) = Br[t];
+                *(tw_v8 *)(g + t * 16 + 8) = Bi[t];
+            }
+        }
+    }
+    for (; y < L; ++y) {                /* tail seam, and all of any w < 8 */
+        const long G = (rowbase + y) >> 3, lane = (rowbase + y) & 7;
+        double *g = GB + (G * L + c) * 16 + lane;
+        for (int t = 0; t < w; ++t) {
+            g[t * 16] = yr[8 * y + t];
+            g[t * 16 + 8] = yi[8 * y + t];
         }
     }
 }
@@ -1992,6 +2070,56 @@ static void twd_exec_vol(fft3d_plan *p, const double _Complex *src,
 static void twd_chain_step(fft3d_plan *p, double _Complex *st,
                            const double _Complex *cv);
 
+/* ---- whole-pass bodies for the gf handoff (gen_r8) --------------------------
+ * The gf-arm passes are their OWN noinline functions (r5/r6 case-bloat
+ * lesson: with both handoff arms inlined the volume functions grew
+ * 7 KB -> 17 KB and the gate-off cells 12/25 drifted +2% on bit-identical
+ * code paths); the gate-OFF arm stays INLINE in twd_exec_vol /
+ * twd_chain_step as the r7 loops verbatim, which is what holds the small-L
+ * cells nearest r7 parity. */
+static __attribute__((noinline, aligned(64))) void twd_ax1_gf(fft3d_plan *p,
+                    const double _Complex *pl, long rowbase)
+{
+    const int L = p->L;
+    for (int c = 0; c < L; c += 8) {
+        int w = (L - c < 8) ? (L - c) : 8;
+        twd_gather_i(pl + c, L, L, w, p->Gr, p->Gi, 0);
+        twd_rec(p, 0, p->Gr, p->Gi, 1, p->Yr, p->Yi, p->Sr, p->Si);
+        twd_scatter_gf(p->GB, L, rowbase, c, w, p->Yr, p->Yi);
+    }
+}
+
+
+/* axis 2 from GB (direct feed, gather deleted); rows = slab row count */
+static __attribute__((noinline, aligned(64))) void twd_ax2_gf(fft3d_plan *p,
+                    double _Complex *dst, long c0, long rows)
+{
+    const int L = p->L;
+    for (long rg = 0; rg < rows; rg += 8) {
+        int w = (rows - rg < 8) ? (int)(rows - rg) : 8;
+        const double *g = p->GB + (rg >> 3) * (size_t)L * 16;
+        twd_rec(p, 0, g, g + 8, 2, p->Yr, p->Yi, p->Sr, p->Si);
+        twd_scatter_z(dst + (c0 + rg) * L, L, w, p->Yr, p->Yi);
+    }
+}
+
+
+/* the same two, with c added and the map fused at the scatter (chain) */
+static __attribute__((noinline, aligned(64))) void twd_ax2m_gf(fft3d_plan *p,
+                    double _Complex *st, const double _Complex *cv,
+                    long c0, long rows)
+{
+    const int L = p->L;
+    for (long rg = 0; rg < rows; rg += 8) {
+        int w = (rows - rg < 8) ? (int)(rows - rg) : 8;
+        const double *g = p->GB + (rg >> 3) * (size_t)L * 16;
+        const long c = c0 + rg;
+        twd_rec(p, 0, g, g + 8, 2, p->Yr, p->Yi, p->Sr, p->Si);
+        twd_scatter_z_map(st + c * L, cv + c * L, L, w, p->Yr, p->Yi);
+    }
+}
+
+
 /* ---- create: build every table with the layer, audit it, gate the 1-D engine */
 fft3d_plan *fft3d_create(int L, int batch)
 {
@@ -2015,6 +2143,19 @@ fft3d_plan *fft3d_create(int L, int batch)
 #endif
     p->kblk = (L % 8 == 0) ? 1 : (L % 4 == 0) ? 2 : (L % 2 == 0) ? 4 : 8;
     if (32ull * L * L * L <= TWD_BLK_MIN_BYTES) p->kblk = L;
+    /* gen_r8 split-group handoff gate: the tr8x8 scatter is quantized to
+     * 8x8 tiles, so at small L it costs more shuffles than the gather_z it
+     * deletes (measured on the node, same-core pairs: +4% at 12, +1.5% at
+     * 25, -2.7% at 27, wash at 31, -2.3% at 50, -2.9% at 100).  Threshold
+     * sits between 25's 500 KB and 27's 630 KB of fused-pass streams; knob
+     * for the cross-arch race like TWD_BLK_MIN_BYTES. */
+#ifndef TWD_GF_MIN_BYTES
+#define TWD_GF_MIN_BYTES (600000u)
+#endif
+    p->gf = (32ull * L * L * L >= TWD_GF_MIN_BYTES);
+#ifdef TWD_NOGF /* race arm: force the r7 interleaved handoff everywhere */
+    p->gf = 0;
+#endif
 
     {   /* butterfly constants, from the layer (validated by the 1-D gate) */
         double c, s;
@@ -2030,6 +2171,13 @@ fft3d_plan *fft3d_create(int L, int batch)
 
     const size_t V = (size_t)L * L * L;
     size_t total = V * sizeof(double _Complex) + 6 * (8 * (size_t)L) * sizeof(double);
+    /* GB: one FULL L-row group buffer per axis-2 8-row group of the largest
+     * slab -- ceil(kblk*L/8) of them (a slab whose row count is not a
+     * multiple of 8 ends in a partial group that still owns a full buffer;
+     * sizing this kblk*L*L complex exactly overran into the twiddle tables
+     * at odd unblocked L -- caught by the r8 bit-identity sweep at 25/27) */
+    const size_t gbdbl = ((size_t)p->kblk * L + 7) / 8 * (16 * (size_t)L);
+    if (p->gf) total += gbdbl * sizeof(double);
     for (int i = 0; i < p->nlev; ++i) {
         const struct twd_level *lv = &p->lev[i];
         const size_t ntw = (size_t)(lv->r - 1) * lv->m;
@@ -2051,6 +2199,13 @@ fft3d_plan *fft3d_create(int L, int batch)
     if (!p->T || !p->Gr || !p->Gi || !p->Sr || !p->Si || !p->Yr || !p->Yi) {
         fft3d_destroy(p);
         return NULL;
+    }
+    if (p->gf) {
+        p->GB = gl_arena_take(&p->ar, gbdbl * sizeof(double));
+        if (!p->GB) {
+            fft3d_destroy(p);
+            return NULL;
+        }
     }
 
     for (int i = 0; i < p->nlev; ++i) {
@@ -2207,9 +2362,22 @@ static void twd_exec_vol(fft3d_plan *p, const double _Complex *src,
     }
     /* axes 1 + 2, blocked: kblk planes of T get axis 1 (y: row j at j*L,
      * pencils indexed by z), then their z-rows go through axis 2 into dst
-     * while still resident */
+     * while still resident.  gen_r8: axis 1 writes GROUP FORMAT into GB
+     * (slab-sized, L2-hot, reused per slab) instead of interleaving back
+     * into the plane, and axis 2 direct-feeds from GB -- its gather is
+     * deleted entirely (twd_scatter_gf comment has the op accounting). */
     for (int x0 = 0; x0 < L; x0 += p->kblk) {
         const int xe = (x0 + p->kblk < L) ? x0 + p->kblk : L;
+        if (p->gf) {            /* gen_r8 split-group handoff, noinline passes */
+            for (int x = x0; x < xe; ++x)
+                twd_ax1_gf(p, p->T + (size_t)x * LL, (long)(x - x0) * L);
+            twd_ax2_gf(p, dst, (long)x0 * L, (long)(xe - x0) * L);
+            continue;
+        }
+        /* gate off: the r7 loops VERBATIM and INLINE -- keeping them in this
+         * function body is what holds the small-L cells at r7 parity (the
+         * noinline-both-paths cut taxed 25 +2.9%, 5/5 pairs, with
+         * bit-identical outputs -- pure code layout) */
         for (int x = x0; x < xe; ++x) {
             double _Complex *pl = p->T + (size_t)x * LL;
             for (int c = 0; c < L; c += 8) {
@@ -2256,10 +2424,20 @@ static void twd_chain_step(fft3d_plan *p, double _Complex *st,
         twd_scatter_i(st + c, LL, L, w, p->Yr, p->Yi);
     }
     /* axes 1 + 2 + c + map, blocked per kblk planes (see twd_exec_vol): the
-     * plane block stays cache-hot between its axis-1 write-back and its
-     * axis-2 re-read, deleting one full-volume round trip per step */
+     * slab stays cache-hot between its axis-1 writeback and its axis-2
+     * re-read.  gen_r8: the writeback goes to GB in group format (axis 1
+     * reads the st plane but no longer dirties it); axis 2 direct-feeds
+     * from GB and its fused-map scatter writes the final st values --
+     * stream count unchanged, the axis-2 gather deleted. */
     for (int x0 = 0; x0 < L; x0 += p->kblk) {
         const int xe = (x0 + p->kblk < L) ? x0 + p->kblk : L;
+        if (p->gf) {            /* gen_r8 split-group handoff, noinline passes */
+            for (int x = x0; x < xe; ++x)
+                twd_ax1_gf(p, st + (size_t)x * LL, (long)(x - x0) * L);
+            twd_ax2m_gf(p, st, cv, (long)x0 * L, (long)(xe - x0) * L);
+            continue;
+        }
+        /* gate off: the r7 loops VERBATIM and INLINE (see twd_exec_vol) */
         for (int x = x0; x < xe; ++x) {         /* axis 1, in place */
             double _Complex *pl = st + (size_t)x * LL;
             for (int c = 0; c < L; c += 8) {

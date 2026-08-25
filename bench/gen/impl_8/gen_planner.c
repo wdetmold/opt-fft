@@ -551,20 +551,11 @@ static void pln_leaf5(const double *restrict in, ptrdiff_t is,
         double t4r = x2r - x3r, t4i = x2i - x3i;
         out[2*c] = x0r + t1r + t2r; out[2*c+1] = x0i + t1i + t2i;
         double ar = x0r + C1*t1r + C2*t2r, ai = x0i + C1*t1i + C2*t2i;
-#if PLN_LIFT5
-        double ur = t3r - PLN_PHI5*t4r,    ui = t3i - PLN_PHI5*t4i;
-        double br = -S1*ur - PLN_KL5*t4r,  bi = -S1*ui - PLN_KL5*t4i;
-#else
         double br = -S1*t3r - S2*t4r,      bi = -S1*t3i - S2*t4i;
-#endif
         out[os+2*c]   = ar - bi;  out[os+2*c+1]   = ai + br;
         out[4*os+2*c] = ar + bi;  out[4*os+2*c+1] = ai - br;
         double cr = x0r + C2*t1r + C1*t2r, ci = x0i + C2*t1i + C1*t2i;
-#if PLN_LIFT5
-        double dr = -S2*ur,                di = -S2*ui;
-#else
         double dr = -S2*t3r + S1*t4r,      di = -S2*t3i + S1*t4i;
-#endif
         out[2*os+2*c] = cr - di;  out[2*os+2*c+1] = ci + dr;
         out[3*os+2*c] = cr + di;  out[3*os+2*c+1] = ci - dr;
     }
@@ -580,17 +571,18 @@ static void pln_leaf5(const double *restrict in, ptrdiff_t is,
 #define PLN_D7S2  0.97492791218182360702
 #define PLN_D7S3  0.43388373911755812048
 
-/* LIFTED DFT5 v-pair (gen_r8, ADOPTED from gen_batchlane gen_r7 verbatim):
+/* LIFTED DFT5 v-pair (gen_r8, ADOPTED from gen_batchlane gen_r7):
  * sin(2pi/5)/sin(pi/5) = 2cos(pi/5) = PHI exactly, so the sine pair
  *   v1 = S1*sa + S2*sb,  v2 = S2*sa - S1*sb
  * factors through u = sa - PHI*sb as v2 = S2*u, v1 = S1*u + KL5*sb with
- * KL5 = S2 + S1*PHI = 1.25/sin(pi/5) -- one fewer live temp per DFT5 and
- * a shorter b/d dependence on t3 (their 4/4-pair -0.8..-1.0% on the SoA
- * engine; the codelets here have the same batch-lane ILP shape).  Both
- * constants exact to the last bit of double (their 50-digit Decimal
- * values).  NOT bit-identical to the r7 arithmetic (~1 ulp reassociation
- * against the 1.5e-14/step budget); PLN_LIFT5=0 restores the r7 form for
- * cross-arch races. */
+ * KL5 = S2 + S1*PHI = 1.25/sin(pi/5) -- one fewer live temp per DFT5.
+ * On THIS engine the verdict is PAIR-SPECIFIC (gen_r8 held-lease pairs):
+ * gt(2,5) -1.0% 4/4 at L=10, gt(3,5) +2% 4/4 LOSS at L=15, (4,5) and
+ * c5(d5) a wash -- so only the (2,5) GT codelets take the lift (the L5
+ * flag through pv_dftNr_i / pw_dftNs_i) and every other DFT5 site stays
+ * bit-identical to gen_r7.  Constants exact to the last bit of double
+ * (gen_batchlane's 50-digit Decimal values).  PLN_LIFT5=0 kills the lift
+ * everywhere for cross-arch races. */
 #ifndef PLN_LIFT5
 #define PLN_LIFT5 1
 #endif
@@ -745,20 +737,11 @@ static void pln_leaf5_tw(const double *restrict in, ptrdiff_t is,
         double t4r = x2r - x3r, t4i = x2i - x3i;
         out[2*c] = x0r + t1r + t2r; out[2*c+1] = x0i + t1i + t2i;
         double ar = x0r + C1*t1r + C2*t2r, ai = x0i + C1*t1i + C2*t2i;
-#if PLN_LIFT5
-        double ur = t3r - PLN_PHI5*t4r,    ui = t3i - PLN_PHI5*t4i;
-        double br = -S1*ur - PLN_KL5*t4r,  bi = -S1*ui - PLN_KL5*t4i;
-#else
         double br = -S1*t3r - S2*t4r,      bi = -S1*t3i - S2*t4i;
-#endif
         out[os+2*c]   = ar - bi;  out[os+2*c+1]   = ai + br;
         out[4*os+2*c] = ar + bi;  out[4*os+2*c+1] = ai - br;
         double cr = x0r + C2*t1r + C1*t2r, ci = x0i + C2*t1i + C1*t2i;
-#if PLN_LIFT5
-        double dr = -S2*ur,                di = -S2*ui;
-#else
         double dr = -S2*t3r + S1*t4r,      di = -S2*t3i + S1*t4i;
-#endif
         out[2*os+2*c] = cr - di;  out[2*os+2*c+1] = ci + dr;
         out[3*os+2*c] = cr + di;  out[3*os+2*c+1] = ci - dr;
     }
@@ -946,21 +929,11 @@ static inline __attribute__((always_inline)) void pln_lv5(
         pv t3 = _mm512_sub_pd(x1, x4), t4 = _mm512_sub_pd(x2, x3);
         pv_st(out + 2*c, mk, _mm512_add_pd(x0, _mm512_add_pd(t1, t2)));
         pv a = _mm512_fmadd_pd(C1, t1, _mm512_fmadd_pd(C2, t2, x0));
-#if PLN_LIFT5
-        pv u = _mm512_fnmadd_pd(_mm512_set1_pd(PLN_PHI5), t4, t3);
-        pv b = _mm512_fnmadd_pd(S1, u,
-                                _mm512_mul_pd(_mm512_set1_pd(-PLN_KL5), t4));
-#else
         pv b = _mm512_fnmadd_pd(S1, t3, _mm512_mul_pd(_mm512_set1_pd(-0.58778525229247312917), t4));
-#endif
         pv_st(out + os + 2*c, mk, pv_addi(a, b));
         pv_st(out + 4*os + 2*c, mk, pv_subi(a, b));
         pv cc = _mm512_fmadd_pd(C2, t1, _mm512_fmadd_pd(C1, t2, x0));
-#if PLN_LIFT5
-        pv d = _mm512_mul_pd(_mm512_set1_pd(-0.58778525229247312917), u);
-#else
         pv d = _mm512_fnmadd_pd(S2, t3, _mm512_mul_pd(S1, t4));
-#endif
         pv_st(out + 2*os + 2*c, mk, pv_addi(cc, d));
         pv_st(out + 3*os + 2*c, mk, pv_subi(cc, d));
     }
@@ -1093,7 +1066,12 @@ static inline __attribute__((always_inline)) void pv_dft4r(pv *v)
     v[3] = pv_addi(t1, t3);
 }
 
-static inline __attribute__((always_inline)) void pv_dft5r(pv *v)
+/* L5 (compile-time through every wrapper): use the LIFTED v-pair.  The
+ * lift's win is PAIR-specific (gen_r8 held-lease pairs): gt(2,5) at L=10
+ * -1.0% 4/4, but gt(3,5) at L=15 +2% 4/4 LOSS and (4,5)/c5(d5) a wash --
+ * so only the (2,5) GT codelets request it and every other DFT5 stays
+ * bit-identical to gen_r7. */
+static inline __attribute__((always_inline)) void pv_dft5r_i(pv *v, const int L5)
 {
     const pv C1 = _mm512_set1_pd(0.30901699437494742410);
     const pv C2 = _mm512_set1_pd(-0.80901699437494742410);
@@ -1105,23 +1083,24 @@ static inline __attribute__((always_inline)) void pv_dft5r(pv *v)
     pv x0 = v[0];
     v[0] = _mm512_add_pd(x0, _mm512_add_pd(t1, t2));
     pv a = _mm512_fmadd_pd(C1, t1, _mm512_fmadd_pd(C2, t2, x0));
-#if PLN_LIFT5
-    pv u = _mm512_fnmadd_pd(_mm512_set1_pd(PLN_PHI5), t4, t3);
-    pv b = _mm512_fnmadd_pd(S1, u, _mm512_mul_pd(_mm512_set1_pd(-PLN_KL5), t4));
-#else
-    pv b = _mm512_fnmadd_pd(S1, t3, _mm512_mul_pd(S2n, t4));
-#endif
+    pv u = _mm512_setzero_pd(), b;
+    if (PLN_LIFT5 && L5) {
+        u = _mm512_fnmadd_pd(_mm512_set1_pd(PLN_PHI5), t4, t3);
+        b = _mm512_fnmadd_pd(S1, u, _mm512_mul_pd(_mm512_set1_pd(-PLN_KL5), t4));
+    } else {
+        b = _mm512_fnmadd_pd(S1, t3, _mm512_mul_pd(S2n, t4));
+    }
     v[1] = pv_addi(a, b);
     v[4] = pv_subi(a, b);
     pv cc = _mm512_fmadd_pd(C2, t1, _mm512_fmadd_pd(C1, t2, x0));
-#if PLN_LIFT5
-    pv dd = _mm512_mul_pd(S2n, u);
-#else
-    pv dd = _mm512_fnmadd_pd(S2, t3, _mm512_mul_pd(S1, t4));
-#endif
+    pv dd = (PLN_LIFT5 && L5) ? _mm512_mul_pd(S2n, u)
+                              : _mm512_fnmadd_pd(S2, t3, _mm512_mul_pd(S1, t4));
     v[2] = pv_addi(cc, dd);
     v[3] = pv_subi(cc, dd);
 }
+
+static inline __attribute__((always_inline)) void pv_dft5r(pv *v)
+{ pv_dft5r_i(v, 0); }
 
 static inline __attribute__((always_inline)) void pv_dft7r(pv *v)
 {
@@ -1174,15 +1153,19 @@ static inline __attribute__((always_inline)) void pv_dft8r(pv *v)
     v[7] = pv_addi(t1, t3);
 }
 
-static inline __attribute__((always_inline)) void pv_dftNr(int N, pv *v)
+static inline __attribute__((always_inline)) void pv_dftNr_i(int N, pv *v,
+                                                             const int L5)
 {
     if (N == 2) pv_dft2r(v);
     else if (N == 3) pv_dft3r(v);
     else if (N == 4) pv_dft4r(v);
-    else if (N == 5) pv_dft5r(v);
+    else if (N == 5) pv_dft5r_i(v, L5);
     else if (N == 7) pv_dft7r(v);
     else pv_dft8r(v);
 }
+
+static inline __attribute__((always_inline)) void pv_dftNr(int N, pv *v)
+{ pv_dftNr_i(N, v, 0); }
 
 /* R, M are compile-time constants through the wrappers below, so every
  * loop fully unrolls and y[] lives in registers (spills only at n = 20). */
@@ -1281,6 +1264,7 @@ static inline __attribute__((always_inline)) void pln_gtv(
     double *restrict out, ptrdiff_t os, int w)
 {
     const int N = R * M;
+    const int L5 = (R == 2 && M == 5);   /* lifted DFT5 only in gt(2,5) */
     for (int c = 0; c < w; c += 4) {
         __mmask8 mk = PLN_MK(w, c);
         pv y[25];
@@ -1288,7 +1272,7 @@ static inline __attribute__((always_inline)) void pln_gtv(
             pv v[8];
             for (int t = 0; t < M; ++t)
                 v[t] = pv_ld(mk, in + (ptrdiff_t)((M*j1 + R*t) % N) * is + 2*c);
-            pv_dftNr(M, v);
+            pv_dftNr_i(M, v, L5);
             for (int q = 0; q < M; ++q) y[j1*M + q] = v[q];
         }
         for (int k2 = 0; k2 < M; ++k2) {
@@ -1426,7 +1410,7 @@ static inline __attribute__((always_inline)) void pw_dft4s(pw *v)
     v[3] = pw_addi(t1, t3);
 }
 
-static inline __attribute__((always_inline)) void pw_dft5s(pw *v)
+static inline __attribute__((always_inline)) void pw_dft5s_i(pw *v, const int L5)
 {
     const pv C1 = _mm512_set1_pd(0.30901699437494742410);
     const pv C2 = _mm512_set1_pd(-0.80901699437494742410);
@@ -1435,35 +1419,38 @@ static inline __attribute__((always_inline)) void pw_dft5s(pw *v)
     const pv S2n = _mm512_set1_pd(-0.58778525229247312917);
     pw t1 = pw_add(v[1], v[4]), t2 = pw_add(v[2], v[3]);
     pw t3 = pw_sub(v[1], v[4]), t4 = pw_sub(v[2], v[3]);
-    pw x0 = v[0], a, b, cc, dd;
+    pw x0 = v[0], a, b, cc, dd, u;
+    u.re = u.im = _mm512_setzero_pd();
     v[0] = pw_add(x0, pw_add(t1, t2));
     a.re = _mm512_fmadd_pd(C1, t1.re, _mm512_fmadd_pd(C2, t2.re, x0.re));
     a.im = _mm512_fmadd_pd(C1, t1.im, _mm512_fmadd_pd(C2, t2.im, x0.im));
-#if PLN_LIFT5
-    const pv PH = _mm512_set1_pd(PLN_PHI5), KLn = _mm512_set1_pd(-PLN_KL5);
-    pw u;
-    u.re = _mm512_fnmadd_pd(PH, t4.re, t3.re);
-    u.im = _mm512_fnmadd_pd(PH, t4.im, t3.im);
-    b.re = _mm512_fnmadd_pd(S1, u.re, _mm512_mul_pd(KLn, t4.re));
-    b.im = _mm512_fnmadd_pd(S1, u.im, _mm512_mul_pd(KLn, t4.im));
-#else
-    b.re = _mm512_fnmadd_pd(S1, t3.re, _mm512_mul_pd(S2n, t4.re));
-    b.im = _mm512_fnmadd_pd(S1, t3.im, _mm512_mul_pd(S2n, t4.im));
-#endif
+    if (PLN_LIFT5 && L5) {          /* lifted v-pair -- (2,5) GT only */
+        const pv PH = _mm512_set1_pd(PLN_PHI5), KLn = _mm512_set1_pd(-PLN_KL5);
+        u.re = _mm512_fnmadd_pd(PH, t4.re, t3.re);
+        u.im = _mm512_fnmadd_pd(PH, t4.im, t3.im);
+        b.re = _mm512_fnmadd_pd(S1, u.re, _mm512_mul_pd(KLn, t4.re));
+        b.im = _mm512_fnmadd_pd(S1, u.im, _mm512_mul_pd(KLn, t4.im));
+    } else {
+        b.re = _mm512_fnmadd_pd(S1, t3.re, _mm512_mul_pd(S2n, t4.re));
+        b.im = _mm512_fnmadd_pd(S1, t3.im, _mm512_mul_pd(S2n, t4.im));
+    }
     v[1] = pw_addi(a, b);
     v[4] = pw_subi(a, b);
     cc.re = _mm512_fmadd_pd(C2, t1.re, _mm512_fmadd_pd(C1, t2.re, x0.re));
     cc.im = _mm512_fmadd_pd(C2, t1.im, _mm512_fmadd_pd(C1, t2.im, x0.im));
-#if PLN_LIFT5
-    dd.re = _mm512_mul_pd(S2n, u.re);
-    dd.im = _mm512_mul_pd(S2n, u.im);
-#else
-    dd.re = _mm512_fnmadd_pd(S2, t3.re, _mm512_mul_pd(S1, t4.re));
-    dd.im = _mm512_fnmadd_pd(S2, t3.im, _mm512_mul_pd(S1, t4.im));
-#endif
+    if (PLN_LIFT5 && L5) {
+        dd.re = _mm512_mul_pd(S2n, u.re);
+        dd.im = _mm512_mul_pd(S2n, u.im);
+    } else {
+        dd.re = _mm512_fnmadd_pd(S2, t3.re, _mm512_mul_pd(S1, t4.re));
+        dd.im = _mm512_fnmadd_pd(S2, t3.im, _mm512_mul_pd(S1, t4.im));
+    }
     v[2] = pw_addi(cc, dd);
     v[3] = pw_subi(cc, dd);
 }
+
+static inline __attribute__((always_inline)) void pw_dft5s(pw *v)
+{ pw_dft5s_i(v, 0); }
 
 static inline __attribute__((always_inline)) void pw_dft7s(pw *v)
 {
@@ -1522,15 +1509,19 @@ static inline __attribute__((always_inline)) void pw_dft8s(pw *v)
     v[7] = pw_addi(t1, t3);
 }
 
-static inline __attribute__((always_inline)) void pw_dftNs(int N, pw *v)
+static inline __attribute__((always_inline)) void pw_dftNs_i(int N, pw *v,
+                                                             const int L5)
 {
     if (N == 2) pw_dft2s(v);
     else if (N == 3) pw_dft3s(v);
     else if (N == 4) pw_dft4s(v);
-    else if (N == 5) pw_dft5s(v);
+    else if (N == 5) pw_dft5s_i(v, L5);
     else if (N == 7) pw_dft7s(v);
     else pw_dft8s(v);
 }
+
+static inline __attribute__((always_inline)) void pw_dftNs(int N, pw *v)
+{ pw_dftNs_i(N, v, 0); }
 
 /* hard leaf over np pencils: rows R apart (irs/ors doubles), pencils
  * ics/ocs apart on the in/out side (gen_r6: split so the @s4 staged pass
@@ -1712,15 +1703,16 @@ static inline __attribute__((always_inline)) void pln_gtw(
     const double *cb, const int MAP)
 {
     const int N = R * M;
+    const int L5 = (R == 2 && M == 5);   /* lifted DFT5 only in gt(2,5) */
     for (int p = 0; p < np; ++p, in += ics, out += ocs, cb += MAP ? ocs : 0) {
         if (R == 2) {
             pw y0[8], v[8];
             for (int t = 0; t < M; ++t)               /* group 0: even rows */
                 y0[t] = pw_ld(in + (ptrdiff_t)((2*t) % N) * irs);
-            pw_dftNs(M, y0);
+            pw_dftNs_i(M, y0, L5);
             for (int t = 0; t < M; ++t)               /* group 1: rows M+2t */
                 v[t] = pw_ld(in + (ptrdiff_t)((M + 2*t) % N) * irs);
-            pw_dftNs(M, v);
+            pw_dftNs_i(M, v, L5);
             for (int k2 = 0; k2 < M; ++k2) {
                 const int q2 = (2*k2) % M;            /* M odd: q1 == k1 */
                 pw sm = pw_add(y0[q2], v[q2]), df = pw_sub(y0[q2], v[q2]);

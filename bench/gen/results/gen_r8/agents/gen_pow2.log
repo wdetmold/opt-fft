@@ -1,0 +1,7 @@
+Done. Round gen_r8 complete for gen_pow2:
+
+- **L=32 (scored)**: protected — ships bit-identical to r7 (cmp-verified, layout A/B a wash). The new static analyzers were spent as an audit, not a gamble: OSACA (the only trustworthy model on-site — uiCA is broken, llvm-mca mis-maps ICL's second 512-bit pipe) puts the x-pass at 484 cyc/col port floor vs 695 measured, attributing the residual to unoverlappable L2 traffic under a ROB-bounded column body — the r5 wall, now mechanism-complete, with all three fix shapes already raced out in r2/r3.
+- **L=128 (new)**: the last unbuilt custody engine (G=16, DFT16-over-slots z-row with direct slot stores, vfft128i with H[128] buffer, fused div map) closes the 63-ms generic hole: 13.42 ms/step-vol in-chain, 1.60x over MKL same core (single call honestly loses at 0.83x — unamortized conversions), all gates passing with 12x+ margin.
+- Strategy record appended with the tool findings, the engine design, and full gate/regression tables.
+
+**One-line summary:** Final technique: model-audited protection of the closed L=32 cell (bit-identical to r7) plus the new L=128 G=16 DRAM-regime custody engine; best wallaby-node numbers — L=32: 55.6 us/transform at B=1, 56.37 us at B=8 (~3.1x MKL, quiet windows), L=128 chain 13.42 ms/step (1.60x MKL); rel L2 = 2.9e-16 single / 3.33e-14 graded chain at L=32, 4.1e-16 / 2.5e-15 (m=2) at L=128.

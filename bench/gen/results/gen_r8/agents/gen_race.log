@@ -1,0 +1,9 @@
+Done. Both deliverables are shipped: `impl/gen_race.c` and `strategies/gen_race.md` (Round gen_r8 appended; no other files touched).
+
+**One-line summary as requested:** Cross-class plan-time race ("eng8") — create() compiles rival class entries as shared objects with their exact Makefile flags, dlopens, gates, and races them as whole-graded-chain arms against the configured self, shipping the winner by vtable forwarding — best node numbers 1.916 µs/xform batched (L=12 B=64; 1.145 at L=10 B=64) and 3.383 µs/xform at B=1 (L=12), rel L2 2.9–5.7e-16 (single-call), two-step gate 0.9–2.7e-15 vs 3e-14 tol.
+
+Detail for the round log:
+
+- **What it is**: my seven-round-carried "race across class engines" item, unblocked by realizing no `*_LIB_ONLY` include is needed — entries are self-contained TUs, so the brief's "60 s including candidate generation, *compilation* and racing" budget lets create() build them as `.so`s (cached per source-hash under `build/<host>/race_eng/`, heavyweights compiled in background with a bounded 30 s poll), gate each (two fused chain steps vs its own execute + exact map, cached), and race whole graded chains with self as tie-doctrine primary. This is exactly the routing gen_batchlane's r7/r8 records asked the trunk for.
+- **Result**: every graded cell now matches its class winner — 25: 30.96 µs (powp, +44%), 27: 43.0 (powp, +55%), 31: 84.9 (rader, +30%), 32: 56.5 (pow2, +88%, 1.7x→3.0x MKL), 40: 160.2 / 50: 409.7 (pfa_large), 10–20: batchlane, 12/B1: pfa_small's new split path (+10.5%, the panel's standing B=1 hole). Surprise drill: L=61 routes to rader (−13% vs r7), L=96 keeps self on merit.
+- **Safety**: all 12 cells bit-identical across processes (arm list keyed on source hashes, never `.so` readiness, so the repeatability cmp survives cache fill-in), gates green everywhere, warm create 5–16 ms, worst cold 10.1 s vs the 60 s budget; a80n0's `.so` cache is prewarmed with today's sources.

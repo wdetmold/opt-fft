@@ -4,6 +4,33 @@
  * 125 (5x25) -- any prime-power draw in round 6's 14..127 range that is not
  * gen_pow2's 2^k is served here.
  *
+ * ROUND gen_r8 (changes on top of r7) -- the tools round: shipped chain
+ * arithmetic is BIT-IDENTICAL to r7 at every size; the round's output is
+ * model+counter attribution plus one model-refuted candidate kept as a
+ * cross-arch knob:
+ *
+ *   1. n1_5 SPLIT-COMPLEX DFT5 (-DGENPWP_N15): the interleaved DFT5M's
+ *      KIG factorization ported to the SoA site layout -- 32 FP ops vs the
+ *      Winograd split core's 36 per DFT5.  BUILT, MODEL-REFUTED ON ICL,
+ *      DEFAULT OFF: the folded output FMAs are destructive with both +-
+ *      partners needing the same addend, so gcc emits ~72 extra zmm
+ *      reg-movs per 25-pencil and ICL does not eliminate vector movs --
+ *      port-0/5 uops go 442 -> 474/pencil (llvm-mca + objdump; node A/B
+ *      and PMU numbers in the strategy record).  "FP op count" is the
+ *      wrong metric in split complex; PORT UOPS is the right one -- the
+ *      Winograd core's +- pairs ride non-destructive vaddpd/vsubpd, which
+ *      is why it beats every "fewer-ops" DFT5 rewrite here (same mechanism
+ *      class as the r7 LIFT5 wash).  Kept as an SPR race knob: Golden Cove
+ *      eliminates vector movs at rename, where n1_5 is 368 vs 442 uops.
+ *   2. Attribution with the new r8 tools (llvm-mca; PMU once it went live
+ *      mid-round): at 100 the ipk1 step models ~2.1 ms of port work under
+ *      a ~4.5 ms measured step -- the cell sits on its ~80 MB/step DRAM
+ *      floor and the z-subpass's 569 port-5 shuffles/line (400 = TRNC)
+ *      are hidden under misses; p1-attribution closed WITHOUT code (the
+ *      answer to gen_pfa_large r7's next-list #1, from the model side).
+ *      The SoA engine at 25 models ~75% port-bound -- which is what made
+ *      item 1 worth building and what its mov tax then killed.
+ *
  * ROUND gen_r7 (changes on top of r6) -- the SoA op diet, both items from
  * the queued literature backlog the rounds-7/8 brief exists to spend:
  *
@@ -1166,11 +1193,23 @@ void map8s_pair(vec *zr0, vec *zi0, const double *cp0,
     BR(k) = zr_; BI(k) = zi_;                                                \
 } while (0)
 
-/* DFT5 split-complex core, Winograd 4-constant form (34 FMA-port ops for
- * both components; from gen_pfa_small gen_r1/r2, verbatim algebra).
- * Declares X0*, A1*, A2*, v1*, v2*; outputs in spectral order are
- * X0, A1+iv1x, A2+iv2x, A2-iv2x, A1-iv1x with the i-cross as re+=v?i,
- * im-=v?r on the + side. */
+/* DFT5 split-complex core.  Declares Z0r..Z4i, the five spectral outputs.
+ *
+ * gen_r8: the FFTW n1_5 FMA factorization ported to split complex is
+ * available behind -DGENPWP_N15 (32 FMA-port ops for both components, was
+ * 36): B1 = s1*u1 + s2*u2 and B2 = s2*u1 - s1*u2 factor through
+ * KIG = s2/s1 = sin(4pi/5)/sin(2pi/5), and the KS5 scale FOLDS INTO the
+ * +-i cross FMAs at the outputs (X1 = A1 - iB1 -> Z1r = A1r + KS5*tvi).
+ * BUILT, MODEL-REFUTED ON ICL, DEFAULT OFF: every folded output FMA is
+ * destructive and its addend (tp/tq) is live in the +- partner, so gcc
+ * emits ~72 extra zmm reg-movs per 25-pencil, and ICL does not eliminate
+ * vector movs at rename -- port-0/5 uops go 442 -> 474 (llvm-mca + objdump
+ * audit; the 36-op Winograd core's +- pairs ride NON-destructive
+ * vaddpd/vsubpd, which is why it is uop-optimal here even at a higher
+ * "FP op" count).  Kept as a race knob for SPR, whose Golden Cove cores
+ * DO eliminate vector movs (there n1_5 is 368 vs 442 port uops, -17%).
+ * The default remains the r2-r7 Winograd core, bit-identical to the r7
+ * ship; -DGENPWP_LIFT5 applies within it as before. */
 #define KS52 0.58778525229247312917   /* sin(4pi/5)                          */
 /* gen_r7 LIFTED v-pair (ADOPTED from gen_batchlane gen_r7, their
  * DFT5VPAIR): KS5/KS52 = sin(2pi/5)/sin(pi/5) = 2cos(pi/5) = PHI, the
@@ -1188,6 +1227,30 @@ void map8s_pair(vec *zr0, vec *zi0, const double *cp0,
  * widen the lift's win). */
 #define KPHI5 1.61803398874989484820
 #define KL5C  2.12662702088009983045
+#ifdef GENPWP_N15
+/* n1_5 split form (gen_r8, 32 FP ops -- see the header note: on ICL it
+ * LOSES by the port-uop count, +72 zmm reg-movs; a race knob for SPR
+ * whose Golden Cove cores eliminate vector movs at rename) */
+#define D5SC(x0r,x0i,x1r,x1i,x2r,x2i,x3r,x3i,x4r,x4i)                        \
+    vec tar_ = (x1r) + (x4r), tai_ = (x1i) + (x4i);                          \
+    vec tbr_ = (x2r) + (x3r), tbi_ = (x2i) + (x3i);                          \
+    vec sar_ = (x1r) - (x4r), sai_ = (x1i) - (x4i);                          \
+    vec sbr_ = (x2r) - (x3r), sbi_ = (x2i) - (x3i);                          \
+    vec pr_  = tar_ + tbr_,   pi_  = tai_ + tbi_;                            \
+    vec qr_  = tar_ - tbr_,   qi_  = tai_ - tbi_;                            \
+    vec Z0r  = (x0r) + pr_,   Z0i  = (x0i) + pi_;                            \
+    vec fr_  = (x0r) - 0.25 * pr_, fi_ = (x0i) - 0.25 * pi_;                 \
+    vec tpr_ = fr_ + K59 * qr_,   tpi_ = fi_ + K59 * qi_;                    \
+    vec tqr_ = fr_ - K59 * qr_,   tqi_ = fi_ - K59 * qi_;                    \
+    vec tvr_ = sar_ + KIG * sbr_, tvi_ = sai_ + KIG * sbi_;                  \
+    vec twr_ = sbr_ - KIG * sar_, twi_ = sbi_ - KIG * sai_;                  \
+    vec Z1r = tpr_ + KS5 * tvi_,  Z1i = tpi_ - KS5 * tvr_;                   \
+    vec Z2r = tqr_ - KS5 * twi_,  Z2i = tqi_ + KS5 * twr_;                   \
+    vec Z3r = tqr_ + KS5 * twi_,  Z3i = tqi_ - KS5 * twr_;                   \
+    vec Z4r = tpr_ - KS5 * tvi_,  Z4i = tpi_ + KS5 * tvr_;
+#else  /* r2-r7 Winograd 4-constant split core (36 FP ops; 34 with LIFT5).
+        * DEFAULT: the +-output pairs ride non-destructive vaddpd/vsubpd,
+        * so it is 442 port-0/5 uops/pencil vs n1_5's 474 on ICL. */
 #ifdef GENPWP_LIFT5
 #define D5VPAIR                                                              \
     vec u5r_ = sar_ - KPHI5 * sbr_,      u5i_ = sai_ - KPHI5 * sbi_;         \
@@ -1209,7 +1272,13 @@ void map8s_pair(vec *zr0, vec *zi0, const double *cp0,
     vec fr_  = (x0r) - 0.25 * pr_, fi_ = (x0i) - 0.25 * pi_;                 \
     vec A1r  = fr_ + K59 * qr_,  A1i = fi_ + K59 * qi_;                      \
     vec A2r  = fr_ - K59 * qr_,  A2i = fi_ - K59 * qi_;                      \
-    D5VPAIR
+    D5VPAIR                                                                  \
+    vec Z0r = X0r,        Z0i = X0i;                                         \
+    vec Z1r = A1r + v1i,  Z1i = A1i - v1r;                                   \
+    vec Z2r = A2r + v2i,  Z2i = A2i - v2r;                                   \
+    vec Z3r = A2r - v2i,  Z3i = A2i + v2r;                                   \
+    vec Z4r = A1r - v1i,  Z4i = A1i + v1r;
+#endif /* GENPWP_N15 */
 
 /* one in-place DFT5 stage over slots {BASE + STEP*i}: output k gets twiddle
  * exponent (TJ)*k in the W25 tables through the MST store macro */
@@ -1221,11 +1290,11 @@ void map8s_pair(vec *zr0, vec *zi0, const double *cp0,
     vec x3r_ = BR(b5_ + 3 * s5_), x3i_ = BI(b5_ + 3 * s5_);                  \
     vec x4r_ = BR(b5_ + 4 * s5_), x4i_ = BI(b5_ + 4 * s5_);                  \
     D5SC(x0r_, x0i_, x1r_, x1i_, x2r_, x2i_, x3r_, x3i_, x4r_, x4i_)         \
-    MST(b5_,           0,        C25T, S25T, X0r, X0i);                      \
-    MST(b5_ +     s5_, (TJ),     C25T, S25T, A1r + v1i, A1i - v1r);          \
-    MST(b5_ + 2 * s5_, 2 * (TJ), C25T, S25T, A2r + v2i, A2i - v2r);          \
-    MST(b5_ + 3 * s5_, 3 * (TJ), C25T, S25T, A2r - v2i, A2i + v2r);          \
-    MST(b5_ + 4 * s5_, 4 * (TJ), C25T, S25T, A1r - v1i, A1i + v1r);          \
+    MST(b5_,           0,        C25T, S25T, Z0r, Z0i);                      \
+    MST(b5_ +     s5_, (TJ),     C25T, S25T, Z1r, Z1i);                      \
+    MST(b5_ + 2 * s5_, 2 * (TJ), C25T, S25T, Z2r, Z2i);                      \
+    MST(b5_ + 3 * s5_, 3 * (TJ), C25T, S25T, Z3r, Z3i);                      \
+    MST(b5_ + 4 * s5_, 4 * (TJ), C25T, S25T, Z4r, Z4i);                      \
 } while (0)
 
 /* the map-fused FINAL DFT5 stage with paired divides (gen_r5): same loads,
@@ -1240,17 +1309,17 @@ void map8s_pair(vec *zr0, vec *zi0, const double *cp0,
     vec x3r_ = BR(b5_ + 3 * s5_), x3i_ = BI(b5_ + 3 * s5_);                  \
     vec x4r_ = BR(b5_ + 4 * s5_), x4i_ = BI(b5_ + 4 * s5_);                  \
     D5SC(x0r_, x0i_, x1r_, x1i_, x2r_, x2i_, x3r_, x3i_, x4r_, x4i_)         \
-    vec z0r_ = X0r,       z0i_ = X0i;                                        \
+    vec z0r_ = Z0r,       z0i_ = Z0i;                                        \
     map8s(&z0r_, &z0i_, cp + (size_t)b5_ * st);                              \
     BR(b5_) = z0r_; BI(b5_) = z0i_;                                          \
-    vec z1r_ = A1r + v1i, z1i_ = A1i - v1r;                                  \
-    vec z2r_ = A2r + v2i, z2i_ = A2i - v2r;                                  \
+    vec z1r_ = Z1r, z1i_ = Z1i;                                              \
+    vec z2r_ = Z2r, z2i_ = Z2i;                                              \
     map8s_pair(&z1r_, &z1i_, cp + (size_t)(b5_ +     s5_) * st,              \
                &z2r_, &z2i_, cp + (size_t)(b5_ + 2 * s5_) * st);             \
     BR(b5_ +     s5_) = z1r_; BI(b5_ +     s5_) = z1i_;                      \
     BR(b5_ + 2 * s5_) = z2r_; BI(b5_ + 2 * s5_) = z2i_;                      \
-    vec z3r_ = A2r - v2i, z3i_ = A2i + v2r;                                  \
-    vec z4r_ = A1r - v1i, z4i_ = A1i + v1r;                                  \
+    vec z3r_ = Z3r, z3i_ = Z3i;                                              \
+    vec z4r_ = Z4r, z4i_ = Z4i;                                              \
     map8s_pair(&z3r_, &z3i_, cp + (size_t)(b5_ + 3 * s5_) * st,              \
                &z4r_, &z4i_, cp + (size_t)(b5_ + 4 * s5_) * st);             \
     BR(b5_ + 3 * s5_) = z3r_; BI(b5_ + 3 * s5_) = z3i_;                      \
@@ -1717,7 +1786,7 @@ const char *fft3d_description(void)
         : "prime-power CT, exact twiddles: OWN 25 (5x5), 27 (3x9), 50 (GT 25x2), "
           "100 (GT 25x4) + odd-p^k class 49/81/121/125 (round 6); two-sweep "
           "zmm lanes + SoA-8 DIF/DIT lane chain at 25/27 (paired-div map, "
-          "r7 3-shear twiddles, opt-in lifted DFT5), volume-major chain, deferred-map "
+          "r7 3-shear twiddles, r8 opt-in n1_5/lifted DFT5), volume-major chain, deferred-map "
           "ipm/ipp (pair-packed ladder), c-bypass ipq/ipk/iqn, "
           "gate+race+soa-playoff+wisdom in create()";
 }

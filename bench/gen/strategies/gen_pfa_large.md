@@ -1062,3 +1062,171 @@ incident pattern; absent entries are deliberate per protocol).
 5. **XARCH**: SPR flagged the 100 winner flipping to gen_powp; the playoff
    + rank-2 ipk1 are this round's answer — check the next advisory's picks
    before touching anything else.
+
+## Round gen_r8
+
+Standings into the round (r7 board): led all three cells — 40 (159.96 vs
+next entry 224.9), 50 B=4 (413.96 vs gen_powp 415.07, 0.3%), 100 (4475.3 vs
+4549.6, 1.7%). The extension brief's backlog for this entry was already
+spent (two-axes closed in r7; gen_pow2's r7 killed constant-per-site
+routing; gen_powp's r7 showed 3-shear twiddles are split-complex-only and
+the lifted DFT5 loses on interleaved slot engines — both read before
+touching anything, both saved a burn). What remained was my own #1 item,
+queued since r3: ATTRIBUTION of p1, for which round 8 shipped the static
+analyzers (PMU locked at paranoid=4). This round did the attribution
+properly, built the fix it pointed at, measured it, and REVERTED it — the
+shipped code is instruction-identical to r7 (.text byte-compared). The
+attribution table and the machine calibration are the round's deliverable.
+
+### 1. Machine calibration (leased-core rdtscp microbench, portcal2.c)
+
+llvm-mca's icelake-server model dispatches ALL 512-bit FP to port 0 at
+1/cycle. That contradicts the Gold 6326 spec (2x512-bit FMA), so before
+trusting any model output I measured (TSC-timed dependent/independent
+chains, mins of 3, core clock calibrated off the latency-1 shuffle chain;
+core ran ~3.26 GHz):
+
+- zmm FMA: latency 4, throughput **2.0/cycle** (P=12 chains: 6.0 cyc/iter,
+  P=16: 8.0) — two real 512-bit pipes, ports 0+5.
+- zmm shuffle (vshufpd): latency 1, throughput **1.0/cycle** (port 5).
+- Mixed 8 indep FMA + K indep shuffles per iter: K=4/8/12 -> 6.0/8.0/12.0
+  cycles — EXACTLY the p0/p5 model (shuffles steal FMA slots 1:1 past 2
+  uops/cyc).
+
+So: **llvm-mca ICX port tables are wrong on this SKU** (FMA port0-only) —
+use mca only for relative schedule questions. uiCA could not arbitrate:
+its install is incomplete (instructions.xml download from uops.info times
+out; no outbound net). The microbench source is left for everyone at
+build/tryout/gen_pfa_large/portcal2.c.
+
+### 2. Phase attribution (rdtscp counters on a dev copy, graded chains, forced picks)
+
+Per-iteration CORE cycles (TSC x1.138) vs the two candidate floors —
+"ALU" = (FP + shuffles)/2 on the calibrated 2-port model, "fetch" = loop
+body bytes / 16 B/cyc (MITE legacy decode; these bodies are 5.3-17.8 KB,
+far past the DSB's ~384x32B-window capacity):
+
+| cell/pick | phase | meas | ALU floor | fetch floor | share of step |
+|---|---|---|---|---|---|
+| 100/ipp1 | prepass | 55.9k/plane | 15.6k | (DSB loop) | 35% |
+| 100/ipp1 | zsub | 1410/yg | 768 | 1111 | 22% |
+| 100/ipp1 | ysub | 898/zg | 568 | 770 | 14% |
+| 100/ipp1 | p2 | 1881/tile | 568 | 832 | 29% |
+| 50/ip1 | zsub | 720/yg | 357 | 506 | } p1 52% |
+| 50/ip1 | ysub | 461/zg | 253 | 334 | } |
+| 50/ip1 | p2 | 434/tile | 253 | 369 | 19% |
+| 50/ip1 | map | 429k/step | 164k | (DSB loop) | 29% |
+| 40/ip0 | zsub | 403/yg | 242 | 331 | — |
+| 40/ip0 | ysub | 200/zg | 162 | 216 | (DSB-resident: ALU+23%) |
+| 40/ip0 | p2 | 229/tile | 162 | 220 | — |
+| 40/ip0 | map | 196k/step | 84k | (DSB loop) | — |
+
+Sums reproduce the measured steps (100: 16.1M cyc = 4.92 ms). Readings:
+prepass/p2 at 100 are DRAM (known); the 50-map runs at L3 BW (~14.7 B/cyc,
+3 streams x 2 MB); and the transform subpasses sit at **the node's ~2.1
+vector-uops/cycle global dispatch cap** (zsub@100: 2971 total uops / 1410
+cyc = 2.11; the cap TOOLS.md documents as the models' blind spot), well
+above the 2-FMA port floor. The four-rounds-old "port 5 vs DRAM?" question
+about p1 has the answer NEITHER: **total uops**.
+
+### 3. The frontend-diet experiment — built, measured, REFUTED, reverted
+
+The fetch-floor pattern above (everything over ~4 KB tracks bytes/16, and
+the ONE loop that fits the DSB — ysub@40 at 3.4 KB — runs at ALU+23%)
+made MITE decode the prime suspect. Fix built: PFA50C/PFA100C stage loops
+ROLLED (stage-2's 2x/4x DFT25M copies behind a real k2_ loop with the CRT
+store indices from 25-entry byte tables K50IDX/K100IDX; stage 1 wrap-split
+into affine ranges; TRNC granule loops rolled per-size via GENROLL) —
+bit-identical op order, index math on idle ports 1/6. Code shrank exactly
+as designed at 100 (xc_ipp1_100 43.7 -> 11.1 KB; subpass bodies ~3.7 KB,
+zsub+ysub fit the DSB together); at 50 gcc PEELED the 2-trip k2_ loop
+despite `#pragma GCC unroll 1` (19.6 -> 15.8 KB only).
+
+Held-lease alternation (same core, samples 3, min per arm), outputs
+cmp-verified bit-identical both sizes:
+
+- L=50 B=4 m=128: r7 432.5/432.5/437.0/441.3 vs r8 483.6/485.1/478.5/483.6
+  — **r8 LOSES 4/4 pairs, +11%.**
+- L=100 B=1 m=64: r7 4597/4665/4592/4770 vs r8 4735/4730/4730/4749 —
+  r7 3/4, min 4592 vs 4730, **+3%** (r8 notably steadier, 4730±10, but the
+  floor is what scores).
+- Phase re-measure on the rolled build: zsub/ysub at 100 UNCHANGED within
+  the window (1410->1479, 898->952 in a ~10% hot window) despite the 4x
+  code cut; at 50 zsub 720 -> 858 (+19%) — the rolled form's extra
+  index/staging uops cost real cycles under the uop cap while the fetch
+  saving bought nothing.
+
+Conclusion, recorded so nobody re-runs it: **MITE fetch is NOT the binder
+even at 17.8 KB bodies; the unrolled r1-r7 codelets already minimize total
+uops, and total uops are the currency on this node.** The fetch-floor
+correlation in the table was a coincidence of both floors scaling with op
+count. Reverted; the only r8 source change is the header documenting this.
+(.text of the shipped build byte-identical to the r7 binary via objcopy
+cmp — stronger than the r7 normalized-objdump protocol.)
+
+### 4. Closed by arithmetic (no code): load-TRNC-into-stage-1 fusion
+
+The one remaining uop cut visible in the attribution was the Zv staging in
+zsub (200 uops/yg at 100). Fusing the load-transpose into stage 1 requires
+consuming whole transposed granules in registers; stage-1 GT strides are
+25 (z = 4n1 + 25n2), so granule g's four elements feed DFT4s #g, #g-6,
+#g-12, #g-18 (mod 25) — a systolic pattern whose live set IS the full T_
+staging. No cut exists. With map placement (r3), schedule (r4), map ops
+(r5), c-bypass (r5-r7), two-axes (r7), frontend (r8) and staging (r8) all
+measured or closed, I consider this engine SATURATED on this host at all
+three scored cells.
+
+### Measured on the node (final ship build, one warm window, sd 2.7-4.6%)
+
+40 B=8: 161.3 min / 50 B=4: 421.2 / 100 B=1: 4832 (hot window) — code is
+instruction-identical to r7, so the r7 board values stand. Gates, fresh,
+all three cells: single 3.582/4.336/4.522e-16 (tol 1e-12); two-step m=2
+1.857/2.361/2.721e-15 (tol 3e-14) — the EXACT r3-r7 values; full chains
+3.804e-14 (40, anchor 2.612e-14) / 5.028e-14 (50, 2.922e-14) / 4.181e-14
+(100, 2.416e-14), tol 1e-10; chains bit-repeatable across processes.
+Round end: all 3 gen_pfa_large chain6 keys stripped from
+results/wisdom_a80n0.json under flock (entries sub-dict, file left valid,
+60 foreign entries untouched).
+
+### What did NOT work / incidents, with the numbers
+
+1. **The rolled-codelet frontend diet** (item 3): +11% at 50 (4/4 pairs),
+   +3% at 100 min-of-mins. Killed by the numbers above.
+2. **`#pragma GCC unroll 1` does not stop gcc 11.4 from PEELING a 2-trip
+   constant loop** (the 50 k2_ loop) — it honored the same pragma on the
+   4-trip loop at 100. If you need a tiny-trip loop to stay rolled,
+   restructure; don't trust the pragma.
+3. uiCA is NOT usable yet (setup2.log shows instructions.xml timeouts);
+   llvm-mca ICX FMA ports are wrong (item 1). OSACA untested here.
+4. tryout's '$W/c.bin' map-check quoting bug: STILL there (seventh round).
+
+### Borrowed, plainly
+
+- **gen_batchlane gen_r4 (via everyone)**: held-lease same-core
+  alternation — again the arbiter that killed the round's candidate.
+- **gen_powp gen_r7 / gen_pow2 gen_r7 / gen_batchlane gen_r7**: their
+  negative results (3-shear interleaved, constant-per-site routing, lifted
+  DFT5 on slot engines) — read first, nothing re-derived.
+- **tools/TOOLS.md's ~2.1 uops/cycle cap note (the monitor's)**: the
+  attribution confirmed it at loop level; it is the single most predictive
+  number for this engine.
+- The calibration microbench, phase-counter dev harness
+  (build/tryout/gen_pfa_large/{portcal2.c,inst8.c,ab.sh,gates.sh}) and the
+  llvm-mca-ICX-port finding are mine — take them.
+
+### What I would do next (ranked)
+
+1. **Nothing on this host's scored cells** — the engine is saturated (item
+   4); any further candidate must first show a TOTAL-UOP reduction on
+   paper, or it will lose like ipm/ipe/ipf/rolled did.
+2. **SPR xarch**: two shuffle ports change the p0/p5 balance and the DSB
+   is bigger — the GENROLL/rolled variant (this round's corpse) and ipk1
+   are exactly the insurance candidates the per-host race exists for; the
+   rolled variant's code is in this record's history if SPR wants it.
+3. **uiCA**: drop uops.info's instructions.xml into ext/tools/uiCA/ from
+   any machine with net access and rerun setup — the ICL model would have
+   settled item 1 without a lease slot.
+4. **The 50-map's L3-BW share (29% of the cell)**: the only non-saturated
+   term left anywhere; every placement variant is already measured against
+   it (r2/r3/r5) — a genuinely new idea would have to cut the 3-stream
+   traffic itself, and c is read-once-per-step by contract.

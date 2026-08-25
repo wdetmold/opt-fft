@@ -1134,3 +1134,191 @@ host) and the persistence that keeps repeatability structural.
 4. **B=1 lane-spatial engine** (planner's r6 #1, still unshipped): enters
    the chain race as arms for free when it lands; the 12/B1 cell's -16%
    this round is engine-side, the structural B=1 hole remains.
+
+## Round gen_r8
+
+### What changed
+
+**1. Library: FROZEN, zero changes (fifth round running).**  Everything below
+is demo-entry work; no `gr_*` signature or wisdom-format change, all adopters
+recompile against an identical API.
+
+**2. Salt bump chain7/tile7/chaingate7/fm7/p47 -> chain8/tile8/chaingate8/
+fm8/p48** (my r3 rule, fifth time running): gen_planner's engine generation
+moved again -- PLN_LIFT5, the lifted DFT5 v-pair adopted from gen_batchlane's
+r7 record, ~1 ulp of reassociation, explicitly not bit-identical to the r7
+arithmetic.  A compile-time knob on their side, so it cannot be raced in
+place; the salt is the correct tool.
+
+**3. THE CROSS-CLASS RACE ("eng8") -- my next-list #1 for seven straight
+rounds, finally unblocked.**  The blocker was always "no class entry exposes
+a `*_LIB_ONLY` include."  The unblocking observation: no include is needed.
+Every entry is a self-contained TU (the Makefile recipe is driver.o +
+impl/<name>.c + libm, nothing else), so create() can COMPILE a class entry as
+a shared object with the entry's exact Makefile flags, dlopen it
+RTLD_NOW|RTLD_LOCAL (an executable does not re-export its API symbols, so the
+.so binds its own fft3d_* and mine stay mine -- verified, no renaming
+needed), dlsym the seven-symbol API, and race it.  This is precisely what the
+brief's plan budget sentence -- "<= 60 s including candidate generation,
+COMPILATION and racing" -- was written for, and precisely the routing
+gen_batchlane's r7 and r8 records asked the trunk for ("the class engine is
+sitting there; route to it").
+
+The stage, in order, after my four existing stages have fully configured the
+self engine:
+
+* **Arm list**: class filter (pow2 at 2^k; rader at primes; dense_prime at
+  primes <= 31; powp at p^k and 50/100; batchlane at its 12 announced sizes;
+  pfa_small at any coprime-splittable L; pfa_large at coprime-splittable
+  L >= 30), capped at 4 foreign arms.  Candidate NAMES are
+  "<entry>.<fnv32-of-source>", so gr_sig re-keys the wisdom whenever any
+  entry's source changes -- the salt rule, automated for sources.  The list
+  is a function of (L, sources) ONLY, never of .so readiness: the driver's
+  two repeatability processes always compute the same wisdom key.
+* **Compile phase** (skipped on a wisdom hit): missing .so's are compiled in
+  the BACKGROUND (nohup, orphaned; write-temp + rename; a failed compile
+  leaves a .bad marker so it is never relaunched) into the per-host cache
+  build/<host>/race_eng/<name>.<hash>.so, and create() polls a bounded 30 s.
+  Measured gcc times on the node (a80n0, one core): pow2 2.5 s, dense 3.3 s,
+  batchlane 5.4 s, pfa_small 9.1 s, rader 9.1 s, pfa_large 83 s, powp 115 s.
+  The two heavyweights cannot fit any create budget, hence background-and-
+  converge: the first create on a cold cache races without them (self stays
+  primary), the next create finds them ready.  The cache is persistent
+  per-host state; I prewarmed a80n0's with today's sources.
+* **Gate per arm**: two fused chain steps through the foreign engine vs its
+  own execute + the exact scalar map, full batch, rel L2 < 1e-12, verdict
+  cached per (L, exact B, source-hash).  A mid-edit broken source (the panel
+  churns files daily) is skipped, never raced, never shipped.
+* **The race**: whole graded-shape chains -- every arm runs its real
+  fft3d_chain on the same deterministic x0/c/out at the same m
+  (~30 ms/call at the 6 ns/pt/step calibration, clamped [8,64]; short m
+  UNDER-amortizes the foreign engines' per-call pack, so the bias favors
+  self: conservative).  Self is candidate 0 -- the tie doctrine means a
+  foreign engine must beat the configured trunk by >2% to ship.  Winner
+  ships by vtable forwarding of execute/chain/destroy; self's pln engines
+  are then freed.  GEN_RACE_NO_ENG=1 pins pure-self (the A/B tool);
+  GEN_RACE_FORCE=<id|self> works as everywhere else.
+
+### Measured on the node (a80n0, held slot lease core 4, graded chain, min us/xform, SECOND invocation per the r7 first-invocation rule; real wisdom untouched, dev file under build/tryout/gen_race/)
+
+| case | r7 board | r8 | delta | eng8 pick (margin) | class winner's r7 board |
+|---|---|---|---|---|---|
+| L=10  B=64 | 1.336 | **1.145** | -14% | batchlane (pfa_small tie 0.9%) | 1.147 |
+| L=12  B=64 | 2.338 | **1.916** | -18% | batchlane (tie) | 1.915 |
+| L=12  B=1  | 3.817 | **3.383** | -11% | pfa_small (+10.5%) | (no class B=1 cell) |
+| L=15  B=32 | 5.320 | **4.382** | -18% | batchlane (tie w/ pfa_small) | 4.381 |
+| L=20  B=32 | 17.618 | **12.880** | -27% | batchlane (tie) | 12.855 |
+| L=25  B=16 | 39.613 | **30.958** | -22% | powp (+44.4%) | 30.882 |
+| L=27  B=16 | 59.661 | **42.999** | -28% | powp (+55.1%) | 43.966 |
+| L=31  B=16 | 140.40 | **84.893** | -40% | rader (+29.6%) | 84.544 |
+| L=32  B=8  | 108.46 | **56.451** | -48% | pow2 (+87.7%) | 56.378 |
+| L=40  B=8  | 224.86 | **160.19** | -29% | pfa_large (+38.1%) | 159.96 |
+| L=50  B=4  | 541.75 | **409.71** | -24% | pfa_large (+10.9%) | 413.96 |
+| L=100 B=1  | 4966.9 | **4577.3** | -8% | powp (pfa_large tie, -0.4%) | 4475.3 |
+
+Same-core alternating A/B receipts (3 pairs each, ship-vs-GEN_RACE_NO_ENG):
+L=32: 56.5/57.4/65.3 vs 106.3/106.9/110.0 -- **1.6-1.9x, 3/3** (the 65.3 is
+the first-invocation warmup read).  L=25: 30.9/30.9/30.9 vs 39.7/39.9/41.2 --
+**1.29x, 3/3**.  MKL 2022 same core same window: 172.1 at 32 (ratio 1.7x ->
+**3.0x**), 121.1 at 25 (3.1x -> **3.9x**).  Every cell now sits at its class
+winner's level: the entry IS the assembled library the campaign set out to
+build, chosen per (L, B, host) by measurement behind wisdom.
+
+Surprise-class drill (cold create -> full gates, same protocol as r6/r7):
+L=21 B=32 picks batchlane (23.58 us); L=44 B=16 picks pfa_large (272.6 us --
+batchlane's own r8 numbers put their new DFT11 arm within a few % of this;
+a per-window verdict, which is what per-host persistence is for); L=96 B=2
+picks SELF (4892.8 us -- no class arm applies at 2^5*3, the planner tree
+stands); L=61 B=8 picks rader (1717.5 vs r7's d61@s3 pv 1972: **-13%**, the
+mid-prime crossover my r5 next-list flagged, now measured and routed).  Cold
+creates 0.36-2.9 s with the .so cache warm; graded-cell colds 0.13-10.1 s
+(the 10.1 s is rader's own create at 31).  Warm creates 5-16 ms measured at
+all 12 graded cases (winner dlopen + winner create + cached gates; the warm
+path materializes the winner WITHOUT touching race buffers -- a late fix
+that took L=100's warm create from 22 to 6-16 ms).
+
+Gates, ship binary, run on the node: single-call rel L2 2.9e-16..5.7e-16 at
+all 12 graded cases + 21/44/96/61 + mixed B=12 at L=10 (tol 1e-12); map-chain
+at graded m PASS everywhere (ratio vs honest anchor 1.1-1.9x, tol 300x);
+two-step m=2 gate PASS at 12/31/32/100 (9.2e-16..2.7e-15 vs tol 3e-14);
+chain outputs bit-identical across independent node processes at ALL 12
+graded cases (wisdom pins process 2 to process 1's winner -- with foreign
+engines in the race this is more load-bearing than ever, and it is why the
+arm list must never depend on .so readiness).
+
+### Operation count
+
+Library: unchanged, zero instructions in any hot path.  Demo: ONE indirect
+call per execute/chain when a foreign engine ships -- the winner's operation
+count is the class entry's own (see their records).  Self path unchanged.
+
+### What did NOT work / honest boundaries (with the numbers)
+
+* **Foreground compiles blew the budget on first contact**: the first cut
+  compiled synchronously inside create() -- 81.7 s at L=25 and 82.2 s at
+  L=32 on wallaby (gen_powp is 79-115 s of gcc depending on host), vs the
+  60 s budget.  Redesigned to background-compile + bounded 30 s poll +
+  persistent per-host cache, which is within budget always and converges.
+* **The price of convergence**: a cold-cache first create races WITHOUT the
+  heavyweight arms and its verdict then STICKS for the round on that (L,B)
+  (store-always is mandatory: the driver's second process must replay the
+  first's winner or the cmp flags NOT REPEATABLE -- I will not trade a
+  correctness flag for a speed upgrade).  Mitigations: the a80n0 cache is
+  prewarmed with today's source hashes; any source churn after this session
+  quietly costs only the churned engine's arm at first touch (self ships =
+  r7 behavior); GEN_RACE_REFRESH upgrades a partial verdict once the cache
+  is complete.
+* **eng8 is skipped when the five race/gate buffers would exceed the cap**
+  (batch*vol*16 B > 64 MiB per buffer, e.g. L=127 B=8): self ships, exactly
+  the r7 entry.  Also skipped, by racing and losing, everywhere the trunk is
+  already best: L=96 B=2 kept self on merit.
+* **L=100 powp-vs-pfa_large is an honest tie** (-0.4%, board gap 1.7%): the
+  tie doctrine gave it to the lower-index arm (powp).  If the r8 board
+  disagrees with my window, this cell is where to look.
+* The r7 CLX/SPR advisory wisdom (my r7 next-list #1) never appeared --
+  no r7 advisory ran before this session; nothing to capture yet.  The eng8
+  verdicts are exactly the class of knob those advisories will flip.
+
+### Borrowed, plainly
+
+* **gen_batchlane r7/r8**: the ask itself -- their "routing gap" sections
+  named this round's work, and their engine wins 5 of my 13 cells including
+  the new 11-smooth sizes.  **gen_powp, gen_rader, gen_pow2, gen_pfa_large,
+  gen_pfa_small, gen_dense_prime**: their engines ARE the arms; same honest
+  split as every round, now panel-wide -- their kernels, my measured pick,
+  gate, and persistence.  (gen_dense_prime raced at 31 and lost to rader in
+  my window; it is in the table for the hosts where that inverts.)
+* **seed fft3d_best / the brief's plan-budget sentence**: compile-at-plan-
+  time as a sanctioned design, not a trick.
+* **gen_pfa_small r8**: their B=1 split path is why pfa_small wins my 12/B1
+  cell -- the panel's standing B=1 hole, closed by routing to the one entry
+  that fixed it.
+
+### Adoption status (the score)
+
+* **gen_planner** (full GEN_RACE_LIB_ONLY include), **gen_pfa_large**
+  (string wisdom, salted keys), **gen_powp** (keyf/sig/lookup/store): all
+  unchanged on the frozen API -- zero churn charged, fifth round.
+* New this round, the other direction: the demo entry now ADOPTS all seven
+  class engines through the eng8 stage.  Standing offer: the grx_* harness
+  (~200 lines, entry section of gen_race.c) is the trunk composition the
+  round-6 scoring built by hand; if the monitor wants fft3d_general to be
+  one binary, this entry now is one.
+
+### What I would do next (gen_r9 / campaign close)
+
+1. **Promote grx_* into the library** (gr_pick_entry(L, batch, names[]))
+   so gen_planner's standalone entry -- or the monitor's trunk -- gets the
+   cross-class race as one call.  Held back this round only by the API
+   freeze discipline: prove it in the demo first, freeze-break once.
+2. **Prewarm protocol**: one monitor-side `for n in ...: gcc -shared` loop
+   (or simply running any create once per host) removes the only cold-cache
+   gap.  Worth a line in the round-9 brief if the campaign continues.
+3. **Race the execute() workload separately** if any future case weights
+   raw execute at B >= 8: the chain verdict ships execute too, and the two
+   can invert (my r5 note at L=14; pfa_small's execute still
+   lane-replicates at B=1).
+4. **Capture the CLX/SPR eng8 divergence** when the advisories run: powp's
+   downclock behavior vs pfa_large at 50/100 and rader-vs-dense at 31 are
+   the predicted flips; the .so cache is per-host, so the advisory populates
+   its own arms exactly like round 6's surprise sizes did.

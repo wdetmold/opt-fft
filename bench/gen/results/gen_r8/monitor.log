@@ -1,0 +1,17 @@
+Written to `results/gen_r8/VERDICT.md`. Summary of the judgement:
+
+**Three premises in the brief don't match the data.** The round measured L = 10, 12, 15, 20, 25, 27, 31, 32, 40, 50, 100 — none of 6/8/17/36 (that's the older `bench/geom` campaign's set; its exemplars are in `panel_r11/`). The node is a Xeon Gold **6326, Ice Lake-SP**, not a 5218 Cascade Lake — the ISA line (`avx512_vbmi/vnni/vpopcntdq/bitalg/ifma`) settles it independently, and this round *measured* two 512-bit FMA pipes at 2.0/cycle with no downclock. And the implementers developed on that same node under held slot leases, so machine difference explains none of the discrepancies. Only L=100 ran non-batched.
+
+**The panel leads every cell**, 1.71× (L=100) to 8.46× (L=31) over the best library.
+
+**The round regressed L=25 by 29.8%** (30.882 → 40.083), and it was two stacked plan-time race failures, both documented and both confirmed in `wisdom_a80n0.json`: `gen_powp` stored `l25-ip0` as a tie on a −0.57% margin from a contended window (shipping 41.0 µs where 31.4 was available), and `gen_race`'s cross-class race never gated a foreign arm there at all — no `enggate8/L25` key exists, because `gen_powp`'s `.so` is a 115 s compile against a 30 s poll. The same skip hit `gen_pfa_large` at L=40 (241.810 vs 159.708). The pattern is exact: each heavyweight engine is skipped at the first cell that needs it and works from the next one on. MKL moved ≤1.6% between rounds, so the comparison is sound.
+
+**Nothing failed correctness or crashed.** The only `failures.txt` entry is `baseline_matrix` timing out at L=100 — the harness floor, not a panel entry, though it does leave L=100 without a dense cross-check. Two build warnings are benign (GCC flagging pointer arithmetic at 2⁶⁰ iterations in a loop that reaches 10⁶). One real coverage gap: `gen_pfa_small` silently declines L=40 despite 40 = 5×8 and both modules present, contradicting its own record.
+
+**Claimed-vs-measured is clean except those three race misfires** — every quiet-window claim reproduced to 1–2%. I did flag `gen_layout` labelling same-window control arms as "r7 board", which turns three board regressions into recorded wins.
+
+**§4.8.6 moved decisively** — the corpus said "measure it on the node" for Ice Lake-SP, and `portcal2.c` did, falsifying llvm-mca's port map in the process; the binding resource is total uops at ~2.1 vector-uops/cycle, not frequency.
+
+I promoted all twelve and said so plainly rather than dressing it up: the files are a dependency-closed set (four winners won't compile without `gen_layout`; three without `gen_race`), all passed correctness, all have records, none duplicates another.
+
+PROMOTE: gen_batchlane gen_pfa_small gen_powp gen_rader gen_pow2 gen_pfa_large gen_race gen_planner gen_dense_prime gen_twiddle gen_layout gen_bluestein

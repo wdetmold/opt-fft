@@ -1,0 +1,11 @@
+Round complete. Both deliverable files are written, the lease is released, and the library half stayed frozen (gen_bluestein's adoption recompiles clean).
+
+**One-line summary:** Plan-gated split-group handoff for axes 1→2 (tr8x8 scatter into an L2-hot group-format slab buffer, axis-2 gather deleted via direct feed, bit-identical to r7) — best node reads: **9.47 µs/xform at L=12 B=1, 9.34 µs at L=12 B=64, 7745.7 µs at L=100 B=1**, rel L2 **3.0–4.8e-16** (tol 1e-12), all gates PASS.
+
+Details for the record:
+
+- **What shipped**: axis 1 now writes 8×8-transposed tiles straight into a group-format buffer GB (one L-row block per axis-2 8-row group, `[re v8][im v8]` rows), and axis 2 direct-feeds `twd_rec` from GB with `xstr=2` — its gather is deleted entirely. Net −16 shuffles, −16 stores, −16 loads per 64 complex of handoff. Gated at plan time to `32·L³ ≥ 600 KB` (tile quantization makes it a loss at small L: +4% at 12, +1.5% at 25 ungated); gate-off sizes run the r7 loops verbatim. Measured wins, same-core interleaved rotated pairs: **−2..−3.5% at 27 (8/8), −2.6..−3.2% at 50 (7/7), −4.6..−5.2% at 100 (7/7)**, wash at 12/31/40.
+- **Bugs caught by the bit-identity sweep**: GB sized exactly `kblk·L²` overran into the twiddle tables at odd unblocked L (NaNs at 25/27) — fixed by sizing to `ceil(kblk·L/8)` full group buffers.
+- **Raced off with numbers**: the staging-copy feed variant (+7% at 100), masked-store seam tiles (lost to scalar seams — the port-5 lesson again), and two code arrangements that taxed the gate-off 25 cell +2.9%; the shipped arrangement (r7 loops inline, gf passes noinline, 64B-aligned hot functions) cut that to a documented +1–2% residual.
+- **Borrows declined with a recount**: gen_batchlane's lifted DFT5 — under FMA contraction it's 4 ops/component both ways in my engine, and their win mechanism (register pressure) doesn't exist in my asm-audited spill-free combines.
+- **Adoption items**: refnd double-cexp pitch #9 stands (gen_powp.c:1738, gen_pfa_large.c:1474); the strategy record documents everything for the panel.

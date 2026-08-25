@@ -1025,3 +1025,162 @@ p >= 107.
    under build/tryout/gen_rader/ hold the whole session; in/c pairs now
    include 109b1.  reserve.sh --status needs the slurm PATH prefix from the
    dev host or it false-reports a dead reservation.
+
+## Round gen_r8
+
+### Where this round started
+
+r7 leaderboard: **84.544 us/step** at the graded cell (L=31 B=16 m=140), leading
+the crossover (gen_dense_prime 120.3, gen_bluestein 290.0, MKL/FFTW 833-883).
+The 31 cell has been port-model-saturated since r4 (this round: wash, output
+bit-identical, untouched).  My r7 next-list: (1) 2-wide column chunks -- the
+conv/k-quad inner loops are ~9 loads per 8 FMA AND exactly 8 accumulator
+chains = 2 FMA pipes x 4-cycle latency with zero slack; (2) rolled
+fold/combine for m >= 22; (3) the twice-queued store-order race.  This round
+spent all three.  New tools arrived (llvm-mca/uiCA/OSACA at round start, live
+PMU counters mid-round via tools/pmu.sh) and were used as designed: models to
+choose, node to score, counters to attribute.  All node numbers: a80n0, ONE
+held lease per session (slot 0, core 2), interleaved arms (the gen_batchlane
+r4 protocol); every arm's chain output cmp-verified BIT-IDENTICAL to the r7
+binary at every prime tested (30 primes locally, key sizes on the node) --
+per-column arithmetic order is never changed anywhere in this round.
+
+### What shipped: PAIRED-COLUMN (2-wide) chunks, gated per engine and per m
+
+One chunk now processes TWO adjacent zmm columns (8 complex columns), so
+every broadcast constant is loaded once per column PAIR:
+
+1. **Dense engine (rp_chunk2 + paired z-quads), all dense primes**: the
+   k-quad becomes 16 accumulators sharing 8 broadcasts (per j: 4 stack loads
+   + 8 broadcasts + 16 FMA vs 1-wide's 10 loads / 8 FMA), and the 8 k-major
+   table streams (63 KB at p=127) are walked once per pair.  **127: 47.2 ->
+   35.2 ms/step, -25.5% (3/3)** -- the round's biggest win and the r7
+   record's "127 runs 2x above its load-port model" residue largely closed.
+   Also **107: -25%, 59: -20%, 23: -15%** (2/2 each).  PMU attribution at
+   127: port_2_3 load uops -23% (7.04e9 -> 5.39e9), l1d.replacement -19%,
+   512-bit license cycles -26% -- the deleted work is exactly the design's.
+   The paired z-quad (two 4-row transpose groups staged interleaved, one
+   2-wide chunk at rs=16) carries ~10 points of the 127 win on its own
+   (-DRP_NOW2Z raced +11%, 3/3).
+2. **rp2 blocked kernels, m >= 25 only (101/109/113), + STORE-ORDER default**:
+   2-wide with fold/combine loops rolled, plus the natural-row-order combine
+   (stores walk rows 1..h ascending / p-1..p-h descending; the slot
+   permutation moves to the T/O_ read side, the +-SG choice folds into a
+   two-constant select -- bit-identical because fmadd(o,-SG,T) ==
+   fnmadd(o,SG,T) exactly).  vs r7: **101 -5..12%, 113 -8..9% (3/3 each)**.
+   Store-order was best 3/3 at 113 and never worse anywhere -- the r5/r7
+   queued item finally raced, and it PAYS (mildly) where the kernel is
+   biggest.  The final-session race also confirmed 2-wide+stord beats the
+   1-wide-rolled form 3/3 at 101 and 113, fixing the m >= 25 boundary.
+3. **1-wide kernels with ROLLED fold/reconstruct/combine loops, m = 15..24
+   (61/73/89/97)**: the attribution arm (-DRP_W1ROLL, ctl = true r7 build)
+   showed rolling those loops is a win ON ITS OWN: **61 -1..4%, 73 -1..10%,
+   89 -9..14% (3/3 each; 89 is window-bimodal, 7.2-8.5 ms shipped vs
+   8.3-9.5 r7)** -- and at 89 the 1-wide rolled form BEATS the 2-wide rolled
+   form.  Below the boundary the roll loses (41 +8..14%, 53 +12..14%, 3/3)
+   -- same shape as every unroll boundary this entry has raced: the peeled
+   form wins while it fits the front end.
+
+### The codegen finding (this round's lesson worth exporting)
+
+gcc 11 + -funroll-loops turns the PINNED-ROLLED blocked-conv i loop into a
+4x unroll with **broadcast rotation**: because the kernel index kb[M-1+jb+j-i]
+shifts by one per i, the broadcast loaded for (j, i) is REUSED for (j+1, i+1)
+-- the steady-state 2-wide tile body is 85 instructions carrying 64 FMA with
+only 8 broadcasts + 8 stack loads (~2 loads + 2 broadcasts per 16 FMA per
+column-step), zero spills, DSB-resident.  The same rotation exists in the r7
+1-wide loops (49-instr body, 32 FMA) -- so the r7 record's "9 loads / 8 FMA"
+static model OVERSTATED the 1-wide load bill; the real 1-wide deficit is the
+8-chain latency wall, which is exactly what the counters show the pairing
+relieving.  Model notes: llvm-mca (icelake-server) predicted per-column
+parity between the two forms because it dispatches ALL zmm FMA to port 0
+(one 512-bit pipe); this SKU (Gold 6326) has two, and the r4 port model +
+the measured wins say so -- recorded as a model blind spot, uiCA was not
+runnable (ext/tools/uiCA is missing its instrData; use llvm-mca + counters).
+
+### What did NOT work, with the number that killed it
+
+- **2-wide with fully-peeled fold/combine: LOSES at every rp2 size** --
+  41 +12%, 53 +31%, 61 +13%, 73 +14%, 89 +10%, 101 +8%, 113 +6% (3/3 each).
+  rp2_chunk2_28 compiles to 60.9 KB static; the r7 front-end lesson
+  re-taught at 2x width.  Knob kept (-DRP_W2FULL).
+- **2-wide rolled at m = 10..18**: 41 +8..11%, 53 +28%, 61 +7%, 73 +4% --
+  the pairing's doubled stack slot arrays (UF/VF/T/O_ + staging) cost more
+  than the shared broadcasts buy while the 1-wide working set still fits.
+  Hence RP_W2MIN = 25, with m = 15..24 taking only the rolled-loops half of
+  the change.
+- **z-pairing off (-DRP_NOW2Z) at 127: +11% (3/3)** -- the paired z is
+  load-bearing in the dense win; knob kept for CLX/SPR where 1 MB L2 may
+  flip it.
+- 103 (rp3, m=17) untouched: pl->m3 plans take the r7 1-wide path verbatim
+  (a 2-wide RP3_WINO needs its own macro surgery -- see next steps).
+
+### Correctness (shipped binary, all on the node by hand)
+
+Single + map-chain + TWO-STEP gates PASS at 31(B16,B1) 37 41 43 53 61 67 73
+79 89 101 103 109 113 127 13 29 (worst two-step 5.3e-15 at 113, tol 3e-14;
+L=31 numbers identical to r7 to the last digit -- outputs are bit-identical
+by construction, cmp-verified).  L=31: **85.27-85.88 us/step B=16 (interleaved
+wash vs control), 85.21 B=1**, setup 0.007 s.  Worst setup 3.2 s (127) vs the
+60 s budget.  Local bit-identity battery: all 30 class primes, every arm
+(default / STORD / W2ROLL / W1ROLL / controls) identical to the r7 engine.
+
+### Borrowed this round, named
+
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol.
+- **gen_dense_prime r3/r5**: the bit-identity-by-lanewise + cmp discipline
+  (this round's whole safety story) and never-conclude-from-one-window (the
+  89 cell is bimodal across windows; three windows raced).
+- **My own r6/r7 codegen lessons, extended**: "objdump audit every round"
+  caught the 60 KB peeled 2-wide kernels BEFORE any node window was spent on
+  a bad default; the discovered broadcast-rotation unroll revises the r7
+  static load model (above).
+- **tools/TOOLS.md discipline (round-8 brief)**: llvm-mca to compare loop
+  shapes (with its port-0-only FMA blind spot recorded), PMU counters
+  (NOTICE, mid-round) to attribute the 127 win to deleted load uops.
+
+### Operation count (shipped)
+
+Arithmetic identical to r6/r7 everywhere (this round moved zero FLOPs; all
+deltas are instruction-stream, broadcast-traffic and store-order only).
+Dense: per column-pair per j, 4 row loads + 8 broadcasts + 16 FMA (halved
+broadcast + table traffic per column); z quads paired the same way.  rp2
+m >= 25: five 2-wide blocked convs (rolled tiles, broadcast-rotated by gcc),
+rolled fold/combine, natural-order stores.  rp2 m = 15..24: r7 arithmetic
+with rolled fold/combine loops (~20-instr bodies, 7.5-9 KB kernels vs
+r7's 20-30 KB).
+
+### What I would do next
+
+1. **2-wide RP3_WINO for the outer-C3 kernels** (43/67/79/103): the same
+   pairing mechanically applied to the 4-block-product WINO; 103 (DRAM-edge,
+   m=17 blocked) is the natural first target -- expect a fraction of the
+   dense engine's win since conv broadcasts are already amortized 4 ways.
+2. **The 89 bimodality**: the same binary reads 7.2-9.5 ms across windows
+   (sd inside a window 0.1-0.6%).  11.5 MB state+c sits at the 24 MB LLC
+   boundary with neighbors active; a plane-blocked custody variant could
+   shrink the resident set.  Measure with pmu.sh l1d/llc counters across
+   modes before building anything.
+3. **Dense-prime table layout** (r7 item 1, still unspent): j-major
+   interleaved tables would cut the dense engine's 8 k-major streams to 2;
+   the 2-wide already halved that traffic, so re-model with counters first.
+4. The per-m form table is now three-way (peeled-1w / rolled-1w / 2-wide+sd)
+   and per-HOST: expose to gen_race on CLX/SPR via the knob set
+   (RP_NOW2 / RP_W2MIN / RP_NOW2D / RP_NOW2Z / RP_W2FULL / RP_W1ROLL /
+   RP_W1FULL / RP2_NOSTORD).
+5. Harness: r8_ab.sh under build/tryout/gen_rader/ holds the whole session
+   (build/w2/build2/knobs2/mid2/build3/final/pmu/l31/gates phases); note the
+   final-phase "ctl" was rebuilt from edited source, so its 61/73/89 rows
+   compare shipped-vs-shipped (noise) -- the true r7 controls for those
+   sizes live in the w2/knobs2/mid2 phases.  in/c pairs now include
+   23b2/59b1/107b1.  uiCA is broken (missing instrData); pmu.sh works and
+   needs no lease discipline beyond the usual same-core rule.
+
+### Measured summary (the reply line)
+
+L=31 B=16 m=140: **85.27 us/step** (wash vs r7's 84.5-84.8 board, bit-identical
+output); **B=1: 85.21**.  Single rel_l2 4.059e-16, two-step 1.784e-15,
+map-chain m=140 2.559e-14 -- all identical to r7.  Class duty vs r7, node
+same-window: **127: -25.5% (35.2 ms), 107: -25%, 59: -20%, 23: -15%,
+113: -8..9%, 101: -5..12%, 89: -9..14%, 73: -1..10%, 61: -1..4%**; 31/37/41/43/
+53/67/79/103 unchanged.

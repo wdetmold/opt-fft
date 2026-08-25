@@ -1067,3 +1067,152 @@ dense: 8n^2-model matrix with arena staging (the register-tiled kernel's
    generalized from CT to GT maps -- moderate.
 4. **Race the fusemap axis per host** (r6 item, still open; CLX/SPR
    advisories will move the 12/80 boundaries).
+
+## Round gen_r8 -- the z-slab hypothesis refuted with numbers; the lifted DFT5 ships pair-scoped
+
+### The round in one line
+
+The round's big idea (fusing @s1/@s3 axes 0+1 per z-slab to delete one of the
+step's three volume sweeps) measured a 7-12% LOSS at every size it engages and
+was reverted -- the refutation is the deliverable; what ships is
+gen_batchlane's lifted DFT5 v-pair, scoped to the ONE codelet pair where it
+wins on this engine: gt(2,5) (-1.2% at L=10 batched, -0.4% at L=50, 4/4
+pairs), with every other DFT5 site left bit-identical to gen_r7.
+
+### What was tried FIRST and REFUTED: z-slab fusion of @s1/@s3 axes 0+1
+
+My own r5 @s2 slab merge (axes 0+1 back to back per fixed-z slab, -8.5% at
+27) had never been applied to levels 1 and 3, whose steps still make THREE
+volume sweeps (axis 0 whole-volume; then axes 1+2 per x-plane).  The reorder
+is bit-identical (verified by cmp through graded chains at 10/20/25/31
+against the r7 binary with picks pinned via a scratch wisdom file) and the
+traffic model said -10-15% at 20/25/31 where the group (state+c = 256 L^3 B)
+leaves the 1.25 MB L2.  Held-lease interleaved pairs on the node
+(a80n0 core 2, 3 pairs, min of --samples 4) said otherwise:
+
+| case | r7ref | slabbed | verdict |
+|---|---|---|---|
+| L=25 B=16 m=256 | 42.96-44.38 | 48.28-49.37 | +10-12% LOSS 3/3 |
+| L=31 B=16 m=140 | 144.9-146.8 | 156.2-156.8 | +7% LOSS 3/3 |
+| L=20 B=32 m=256 | 19.23-19.39 | 19.23-20.63 | wash-to-loss |
+| L=15 B=32 m=600 (forced on) | 5.50-5.55 | 5.64-5.76 | +2% LOSS |
+
+Mechanism, recorded so nobody re-derives: @s1/@s3's axis-0 pass walks its
+pencils CONTIGUOUSLY (pcs=16 site-major, i.e. L parallel perfectly-sequential
+streams -- ideal L2-streamer food); the slab replaces that with pencil walks
+strided 128*L bytes (3200 B at L=25), past the ICX streamer's ~2 KB stride
+reach, so every line becomes a demand miss.  @s2's slab win at 27 does NOT
+transfer because @s2's two-pass structure never had a contiguous-stream pass
+to lose.  The deleted volume sweep was worth less than the prefetch it cost.
+The code is reverted out (not a knob) -- a comment in pln_s8_build carries
+the numbers.  Corollary for anyone eyeing the same traffic model: the win
+band for pass-fusion reorders on this engine is "only where the baseline is
+already stride-blind", and @s1/@s3 baselines are not.
+
+### What ships: lifted DFT5 v-pair, PAIR-SCOPED (adopted from gen_batchlane gen_r7)
+
+sin(2pi/5)/sin(pi/5) = 2cos(pi/5) = PHI exactly, so the v-pair
+v1 = S1*sa + S2*sb, v2 = S2*sa - S1*sb factors through u = sa - PHI*sb as
+v2 = S2*u, v1 = S1*u + KL5*sb (KL5 = 1.25/sin(pi/5); their exact-to-last-bit
+constants taken verbatim).  One fewer live temp per DFT5.  Measured on MY
+codelets the verdict is pair-specific (4-pair held-lease batteries, r8nl =
+same-layout-no-lift control arm so layout drift is separated from arithmetic):
+
+- FULL lift everywhere (first attempt): 10: -1.0% 4/4 WIN; 15 (gt(3,5)):
+  +2-3% 4/4 LOSS; 20 (gt(4,5)) and 25 (c5(d5)): wash; 100 (gt(4,5) child):
+  +0.6% 4/4 slight loss.  Same boundary class as gen_powp's r7 finding
+  (lift loses on their slot engine, wins on batchlane's): the win needs
+  surrounding ILP AND a codelet that is not already spill-free-saturated;
+  at (3,5) the pw y[15]+v[5] working set spills and the lift's extra serial
+  link through u costs more than the freed register.
+- SHIPPED form: the L5 flag threaded compile-time through pv_dftNr_i /
+  pw_dftNs_i, requested ONLY by the (2,5) GT codelets (pln_gtv / pln_gtw,
+  both the R=2 specialization and pv fused-GT-as-CT-child).  Final node
+  battery (4 pairs each, r7ref control first):
+  10 B=64: 1.320-1.344 vs 1.339-1.349 (-1.2%, 3/4);
+  50 B=4: 565.6-566.8 vs 566.7-569.1 (-0.4%, 4/4 -- via the gt(d2,d5) child
+  of c5);  10 B=1: wash;  40 (gt(d2,d5) child): wash;
+  15 / 27 / 100: parity (bit-identical paths).
+  Every size whose picked tree lacks gt(2,5) produces BIT-IDENTICAL chains
+  to gen_r7 (cmp-verified at 15/20/25/27/31 with pinned picks); nm -S symbol
+  audit: exactly ONE function changed size (pw_g_2_5, 2909 -> 2919 B), zero
+  drift elsewhere -- the r7 case-bloat lesson applied preventively.
+  PLN_LIFT5=0 kills the lift everywhere for cross-arch races.
+
+### What went WRONG mid-round and the lesson
+
+My first lift edit hoisted the dd = -S2*u computation ABOVE the v[1]/v[4]
+store pair (to share the #if block).  That cost +1-2% at 15 in the
+NO-LIFT control arm -- identical arithmetic, pure schedule/live-range drift
+in the already-spilling (3,5) codelet -- which briefly made the lift look
+guilty at sizes it never touched.  Restoring the original store interleaving
+(dd computed after cc, where r7 had it) collapsed the control arm back to
+parity.  Lesson: when adding a #if variant to a register-tight codelet,
+keep the UNCHANGED branch's statement order byte-for-byte -- the compiler's
+schedule is part of the tuned artifact, and an A/B without a same-layout
+control arm would have shipped the confound.
+
+### Gates (final binary, node a80n0 leased core, scratch wisdom)
+
+All 11 acceptance cases at their exact graded m: single call 2.96-4.63e-16
+(tol 1e-12); two-step m=2 gate 0.94e-15 (10) .. 2.90e-15 (100) vs tol 3e-14
+(>10x margin everywhere -- the lift moved 10's from 9.2e-16 to 9.4e-16, i.e.
+nothing); full graded chains PASS at all 11 (1.32e-13 at 10 vs anchor
+1.08e-13; 2.60e-14 at 31 vs 2.31e-14; 4.06e-14 at 100 vs 2.42e-14 -- all
+within ~2x of the honest anchors, tol 1e-10); chain outputs bit-repeatable
+across independent runs at every case (wisdom-pinned); mixed batch B=12 at
+L=10 (group-of-8 lift path + 4-volume pv lift path) PASS at 9.3e-15; full
+node sweep L=2..128 single call vs numpy: ALL 127 PASS, zero failures.
+Non-AVX512 build (-march=x86-64-v2) passes chains at 10/14 on wallaby;
+GEN_PLANNER_LIB adoption mode compiles and runs; gen_race.c compiles against
+the new file unmodified.  Setup unchanged (no race-pool or wisdom-format
+changes).  Round end: gen_planner keys stripped from results/wisdom_a80n0.json
+under the flock (the r7 leaderboard run had left 11), scratch wisdom only all
+session.
+
+### Borrowed this round, named
+
+- **gen_batchlane gen_r7**: the lifted DFT5 v-pair, constants verbatim
+  (PHI, KL5).  Their measured -0.8..-1.0% transfers to my gt(2,5) codelets
+  only; the pair-scoped shipping form and the (3,5)-loses boundary are this
+  round's addition to the shared picture (gen_powp r7 recorded the
+  engine-level boundary; this is the pair-level one).
+- **gen_powp gen_r7**: the build-verification trap (never pipe gcc; capture
+  stderr and echo $? -- followed all round) and the precedent of shipping a
+  lift as a knob when the verdict is shape-specific.
+- **gen_pfa_large gen_r6/r7**: nm -S per-function symbol diff as the layout
+  arbiter; their "rank evidence does not transfer, race machinery does"
+  doctrine is the same lesson my slab refutation re-teaches for traffic
+  models.
+- **The panel-standard held-lease interleaved adjacent-pair protocol** for
+  every verdict above, including the r8nl same-layout control arm (an
+  extension other entries may want: it is what caught the store-interleaving
+  confound).
+
+### Operation count (deltas vs gen_r7)
+
+gt(2,5) codelets only (pv and pw forms): per DFT5, the v-pair becomes
+u (1 FMA) + v2 (1 mul) + v1 (1 mul + 1 FMA) = same 4-op count as r7 but one
+fewer live temp (t3 dies at u) and the b/d pair depends on one shared u
+instead of both t3/t4 -- the gain is register/schedule, not raw ops (the
+measured -1.2% at 10 against a +10-byte body).  All other codelets,
+transposes, maps, twiddles: byte-identical to gen_r7.
+
+### What I would do next (ranked)
+
+1. **B=1 lane-spatial split engine** -- eighth round on this list.  The B=1
+   cells still run 1.5-2x behind batched; nobody on the panel has built it.
+2. **Winograd/real-factor DFT9/DFT25 modules** in the fused codelets --
+   the 25/27 arithmetic gap to gen_powp (1.30-1.36x) is real arithmetic,
+   not scheduling; powp's r7 3-shear twiddles will not transfer to my
+   runtime-table codelets (each shear's half-turn reduction changes OPCODES,
+   not constants, so a table-driven form needs a per-twiddle branch in the
+   inner loop -- analyzed this round, declined by arithmetic; a Winograd
+   module sidesteps twiddles entirely).
+3. **uiCA env is broken** (ModuleNotFoundError: instrData -- needs its
+   setup step run); llvm-mca/OSACA untried this round.  Whoever fixes the
+   uiCA install first should note it in their record; the tools would have
+   priced the slab reorder's port picture before I spent three lease
+   sessions on it.
+4. **Protect**: the engine is now r7 + one 10-byte codelet delta; any r9
+   work should start from the standings, not from this file's queue alone.
