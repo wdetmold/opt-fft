@@ -1,0 +1,6 @@
+# round xarch_clx_r6
+host: p52n1   date: 2026-08-25T08:53:58-04:00   slurm_job: 438767
+cpu: Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
+isa: avx2 avx512bw avx512cd avx512dq avx512f avx512vl avx512_vnni fma 
+cores: 64   governor: powersave
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0

@@ -1,0 +1,12 @@
+   L       ICX winner  vs-lib |       CLX winner  vs-lib  finding
+  10    gen_batchlane   3.96x |    gen_pfa_small   2.74x  winner changed gen_batchlane->gen_pfa_small; ratio degraded 3.96x->2.74x
+  12    gen_batchlane   4.06x |    gen_batchlane   2.77x  ratio degraded 4.06x->2.77x
+  15    gen_pfa_small   3.76x |    gen_pfa_small   2.62x  ratio degraded 3.76x->2.62x
+  20    gen_batchlane   3.48x |    gen_batchlane   2.48x  ratio degraded 3.48x->2.48x
+  25         gen_powp   3.38x |         gen_powp   2.25x  ratio degraded 3.38x->2.25x
+  27         gen_powp   3.24x |         gen_powp   2.23x  ratio degraded 3.24x->2.23x
+  31        gen_rader   8.48x |        gen_rader   6.15x  ratio degraded 8.48x->6.15x
+  32         gen_pow2   3.04x |         gen_pow2   2.19x  ratio degraded 3.04x->2.19x
+  40    gen_pfa_large   2.52x |    gen_pfa_large   2.20x  ok
+  50         gen_powp   2.27x |    gen_pfa_large   1.95x  winner changed gen_powp->gen_pfa_large
+ 100    gen_pfa_large   1.71x |    gen_pfa_large   1.66x  ok
