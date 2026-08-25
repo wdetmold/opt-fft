@@ -172,3 +172,7 @@ lift L=21/44-class cells from 1.3-2x toward the 3-4x the built classes achieve.
 llvm-mca (LLVM 22, icelake-server model), uiCA (uops.info ICL model), and OSACA are now
 installed. Per-port dispatch counts and cycles/iteration for any loop, deterministically,
 without burning lease slots. Choose schedules with the models; SCORE with the node.
+
+### Tools addendum: HARDWARE COUNTERS are live (Aug 25)
+/tmp/perf on a80n0 with tools/pmu.sh — per-port uops, L1 traffic, license-throttle cycles,
+measured not modeled. See tools/TOOLS.md section 4.

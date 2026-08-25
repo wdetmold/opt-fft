@@ -33,3 +33,18 @@ for Intel. Also predicts frontend effects mca misses.
   TLB behavior, and the ~2.1 vector-uops/cycle global cap under mixed loads (models
   assume 5-6 dispatch; the node measures ~2.1 under memory pressure) — anything
   traffic-bound must still be decided by measurement.
+
+## 4. HARDWARE COUNTERS — /tmp/perf on the node (live as of Aug 25)
+perf_event_paranoid is now 2 on a80n0 and a node-local perf 5.15 sits at /tmp/perf
+(EPHEMERAL: gone at reboot; rebuild = scp ext/tools/perf-install/bin/perf a80n0:/tmp/perf).
+    tools/pmu.sh taskset -c $CORE ./bin --L 32 --batch 8 --chain 250 ...
+Default event set answers the standing questions:
+  - uops_dispatched.port_0/port_1 (FMA pipes) vs port_5 (shuffles): the real FMA:shuffle
+    balance you have been estimating with rdtsc probes;
+  - uops_dispatched.port_2_3 / port_4_9: load and store pressure;
+  - l1d.replacement: L1 traffic (the 112 B/pt/iter floor question at small L);
+  - core_power.lvl2_turbo_license: cycles at the 512-bit license level (the zmm-vs-ymm
+    downclock question the CLX advisory raised).
+Add events with -e (see /tmp/perf list). MEASURE ON A LEASED CORE. Counters are per-process
+and now ground truth — where a model (mca/uiCA) and the counters disagree, believe the
+counters and record the disagreement in your strategy file.
