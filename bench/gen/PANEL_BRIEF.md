@@ -154,3 +154,16 @@ exists to spend them:
 The surprise-size test (L=21, 44, 96 vs the trunk) is being scored as you start — its findings
 land in this brief as an addendum; treat any surprise-size failure as a planner/race bug with
 priority over per-cell tuning.
+
+### SURPRISE-TEST ADDENDUM (Aug 25, 09:05 — the r6 test, run properly)
+Three sizes never named in any brief or case file — L=21 (contains prime 7: no panel ever
+built a 7-point module), L=44 (prime 11: same), L=96 (2^5*3) — were scored against the
+assembled trunk (gen_planner/gen_race), cold, full gates:
+  L=21: trunk 0.2684 s vs best library 0.5346 (mkl) -> 1.99x WIN, plan 0.04 s
+  L=44: trunk 0.3690 s vs 0.4761 (mkl)             -> 1.29x WIN, plan 0.06 s
+  L=96: trunk 0.3456 s vs 0.5382 (mkl)             -> 1.56x WIN, plan 0.60 s
+All one-step gates exact, all chain drift inside the honest anchor band; gen_bluestein's
+existence fallback also ran correctly everywhere. Plan budget: worst case 0.60 s cold vs the
+60 s allowance. THE LIBRARY GENERALIZES. Rounds 7-8 implication: the never-built primes are
+now measured — a real 7-point and 11-point module (dense folded, lit 11 GT/Rader-first) would
+lift L=21/44-class cells from 1.3-2x toward the 3-4x the built classes achieve.
