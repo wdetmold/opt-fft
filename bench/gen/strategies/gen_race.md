@@ -436,3 +436,173 @@ makes warm create ~6 ms and repeatability structural.
 4. **Hierarchical sub-tree racing** if planner ships enumeration diversity
    (their carried #3): race sub-decompositions within the winning root
    instead of raising NK_MAX.
+
+## Round gen_r4
+
+### What changed
+
+**1. Library: the race is now INTERLEAVED (sample-major), the round's one
+substantive library change — and it is the whole panel's finding, not mine.**
+Three r4 records reported independently that candidate-major timing on this
+node is broken: gen_batchlane ("tryout A/B pairs hop cores... states differed
+by 10-25%"), gen_pfa_small ("the leased core spent most of this session
+flipping between two sustained states ~13.5% apart"), gen_pfa_large ("one-
+after-the-other forced runs are no longer an A/B; alternate within the lease
+and compare adjacent pairs"). My gr_race was candidate-major — time candidate
+0 to completion, then candidate 1 — i.e. exactly the confounded protocol, run
+at plan time on every adopter's behalf. Now: every candidate is set up,
+warmed and rep-calibrated first (that pass is its sample 0), then the
+remaining samples run as round-robin ROUNDS over all live candidates,
+min-of-rounds per candidate. Same signatures, same gr_opts, same total work,
+same tie doctrine — API freeze intact; adopters get drift-immunity on
+recompile. `GEN_RACE_SEQ=1` restores the r3 order for A/B-ing the racer
+itself. One behavioral note documented in the header: all candidates' setup()
+states now COEXIST during the race — share big race buffers through ctx (the
+demo's demo_share shape), not per-candidate.
+
+**The receipt that the change matters** (node, L=12 B=64, two fresh
+no-wisdom races each way, same lease): SEQ run 1 picked `c3(d4)` as a -0.5%
+"tie", SEQ run 2 picked `c4(d3)` at 2.1% — a flip-flop, and with wisdom ON
+whichever ran first would have been pinned per host. INTERLEAVED picked
+`c4(d3)` both times (margins 2.5%, 3.7%), and c4(d3) is genuinely faster
+(4.99-5.03 us shipped vs ~5.2 through the r3 pick). Stability double-check at
+L=31: two fresh interleaved races both pick d31@t16 with reproducing margins
+(tree 57.3/57.4%, tile 4.1/3.5%).
+
+**2. Demo: wisdom salt bumped chain3/tile3/chaingate3 -> chain4/tile4/
+chaingate4** — mandated twice over by my own r3 rule: gen_planner's engine
+changed again (fused register-resident CT codelets for n<=25, new cost
+model) with candidate names unchanged, AND the race methodology changed
+(an interleaved verdict must not be presumed comparable to a candidate-major
+one). Receipts that the bump was load-bearing again: the L=12 pick flipped
+c3(d4) -> c4(d3) (+2.0% real margin), L=100 flipped c4(c5(d5)) ->
+c5(c4(d5)), and the L=40 tile flipped t32(tie) -> t16 (+2.2% NON-tie) on the
+fused engine.
+
+**3. Demo: tree race widened NK_MAX 8 -> 12, samples 3 -> 4.** gen_planner's
+r4 enumeration emits each CT root with its runner-up child tree — their
+comment says "sub-tree diversity for the race", i.e. built explicitly for
+this layer (my r3 next-list #4, delivered from their side). Truncating at 8
+would have discarded exactly those candidates. samples=4 because under
+bimodal cores each candidate should be sampled in >=4 temporally-separate
+states; cold cost stays trivial (setup 0.021-0.077 s at 10-50, 0.72 s at
+L=100, vs 60 s budget).
+
+**4. Fixed a latent truncation hazard my own -Wall audit caught**: the
+chaingate wisdom key buffer was GR_KEY_MAX (160) but
+"gen_race/chaingate4/L<L>/" + a maximal 96-char tree name + "@t<w>" can pass
+it. Widened to GR_KEY_MAX+64 (still inside the lookup needle buffer). Both
+build modes (entry / GEN_RACE_LIB_ONLY) now compile -Wall -Wextra clean
+again; the one remaining warning in the entry TU is a -Wrestrict inside
+gen_planner.c line 1779 (their in-place fused-codelet call — deliberate on
+their part, their file, flagged here so nobody burns time on it).
+
+### Measured on the node (a80n0, leased core via tryout.sh, graded chain, min us/xform; single runs each — per this round's collective lesson I trust deltas here only where MKL moved with them)
+
+| case | r3 board | r4 | MKL same window | vs MKL | note |
+|---|---|---|---|---|---|
+| L=10  B=64 m=1000 | 4.718 | **3.483** | 4.672 | 1.34x | r3 was an MKL tie; now a win |
+| L=12  B=64 m=600  | 6.634 | **4.993** | 7.77 | 1.56x | pick flipped to c4(d3) |
+| L=12  B=1  m=600  | — | **5.732** | 8.32 | 1.45x | |
+| L=15  B=32 m=600  | 14.785 | **11.767** | 16.76 | 1.42x | |
+| L=20  B=32 m=256  | 27.826 | **24.224** | 58.51 | 2.42x | |
+| L=25  B=16 m=256  | 69.317 | **60.129** | 121.0 | 2.01x | |
+| L=27  B=16 m=200  | 104.54 | **86.257** | 146.9 | 1.70x | |
+| L=31  B=16 m=140  | 195.63 | **196.16** | 858.4 | 4.38x | flat; d31@t16 re-confirmed fresh |
+| L=32  B=8  m=250  | 127.31 | 132.24 | 185.7 (r3: 176.1) | 1.40x | window +5% hot (MKL moved with it) |
+| L=40  B=8  m=128  | 269.78 | 282.93 | 426.5 (r3: 405.9) | 1.51x | window +5% hot; tile now t16 |
+| L=50  B=4  m=128  | 772.61 | **645.33** | 1002.6 | 1.55x | |
+| L=100 B=1  m=64   | 6198.3 | **5504.7** | 7769 | 1.41x | quieter window; 5907 in a hotter one |
+
+Most of the raw speedup at 10-27 is gen_planner's fused CT codelets (same
+honest split as every round: their kernels, my measured pick + persistence);
+the pick's own contribution this round is the non-tie race wins — L=12
+c4(d3) +2.0%, L=20 c5(d4) +2.3% (model's #2), L=27 t32 +7.6%, L=31 d31
++56%/t16 +4.9%, L=40 t16 +2.2% — and the flip-flops that interleaving
+stopped from being pinned.
+
+Gates, shipped binary, run manually on the node (tryout's check.py leg still
+dies on the unexpanded `'$W/c.bin'`, unchanged since r1): single-call rel L2
+2.9-4.7e-16 at all 12 cases above (tol 1e-12); map-chain at graded m PASS at
+12/25/31/100: 5.195e-14 / 3.402e-14 / 2.462e-14 / 3.489e-14 vs anchors
+3.9/2.8/2.3/2.4e-14 (tol 1e-10); two-step m=2 gate PASS at the same four:
+9.9e-16 / 1.5e-15 / 1.7e-15 / 2.7e-15 (tol 3e-14); single AND chain outputs
+bit-identical across independent node processes at all four. Warm create
+2 ms measured (three wisdom reads + one engine build).
+
+**Round end: all 35 gen_race/* keys stripped from results/wisdom_a80n0.json**
+(gen_pfa_large's r3 protocol, now evidently campaign-wide — after my strip
+the entries block was EMPTY, so every other adopter had already stripped
+theirs). The monitor cold-races in its full-quiet window with the
+interleaved racer; absent entries are deliberate. Both my C parsers handle
+the empty-entries file (verified).
+
+### Operation count
+
+Library: unchanged, zero instructions in any hot path; the interleave
+reorders WHEN plan-time samples are taken, not how many. Demo: the winning
+planner tree's cost on gen_planner's r4 fused engine; my contribution is the
+measured (tree, tile) pick per (L, B-bucket, host) under a drift-immune
+protocol, and the persistence that makes warm create 2 ms and repeatability
+structural.
+
+### What did NOT work / honest boundaries
+
+* **L=32 and L=40 read above their r3 boards (+4-5%)** — but MKL read +5%
+  in the same windows, so I claim window heat, not regression. If the r4
+  board disagrees, these two cells are where to look first.
+* **The interleaved race slightly mis-models the graded cache pattern**: in
+  the graded chain one engine runs m steps back-to-back (its plane scratch
+  stays L2-hot); interleaved, each candidate's plane is evicted by rivals
+  between rounds. All candidates pay the same tax, so ranking should
+  survive; noted because a very close race between engines of very
+  different scratch size could in principle tilt. Not observed this round
+  (all margins reproduced across protocols or were honest ties).
+* **The >32-candidate path stays candidate-major** (the fixed state arrays):
+  documented in the code; nobody races >32 today.
+
+### Borrowed, plainly
+
+* **gen_batchlane r4 / gen_pfa_small r4 / gen_pfa_large r4** (jointly): the
+  same-core interleaved A/B protocol — this round's entire library change is
+  their measurement finding institutionalized at plan time, credited in the
+  header. gen_pfa_large's "trust the race's interleaved min-of-rounds" is
+  now literally what gr_race does.
+* **gen_planner r4**: the fused-CT engine (most of the raw speedup at
+  L<=27) and the sub-tree diversity enumeration that NK_MAX=12 consumes.
+* **gen_pfa_large r3**: the round-end wisdom-strip protocol.
+
+### Adoption status (the score)
+
+* gen_planner (string wisdom, tree key), gen_pfa_large (tune() verdict
+  cache), gen_powp (keyf/sig/lookup/store for their soa race) — all
+  unchanged by this round's library change (their calls don't route through
+  gr_race). Standing offer: gen_powp's hand-rolled soa-variant timing loop
+  would get the interleaving for free by switching to gr_pick — their r3
+  record's own bimodality complaints are the argument.
+* **Flagged again for gen_planner (r3 next-list #1, now urgent)**: their
+  `gen_planner/tree/L<L>` string key is still unversioned. Their name-match
+  fallback catches renamed candidates but NOT an engine change under
+  unchanged names — precisely what their r4 fused codelets just did. Their
+  r3-era pinned trees will silently replay against the r4 engine on any
+  host whose wisdom wasn't stripped. One-line fix on their side: salt the
+  key ("tree4") or version the value.
+
+### What I would do next (gen_r5)
+
+1. **Cross-arch (XARCH.md lands after this round)**: the interleaved racer
+   is exactly what the CLX/SPR advisory needs — capture the per-host winner
+   divergence table here at last (carried three rounds). Predicted flips:
+   d31 tile (t16 is a register/L2 effect), the c4/c5 root order at 100,
+   and gen_layout's NT threshold class of knobs generally.
+2. **Race across class ENGINES via gr_pick_plan** (carried; the round-6
+   trunk's missing piece): still blocked on class entries exposing
+   `*_LIB_ONLY` includes — none do as of this writing. Fourth open
+   invitation; the gr_plan_cand vtable has been shipped since r1.
+3. **Wisdom-strip as API**: three entries now hand-strip their keys at round
+   end. A `gr_wisdom_drop_prefix("gen_race/")` would make the protocol one
+   call and flock-safe for everyone; small, additive, freeze-compatible.
+4. **Tile race candidate set per engine generation**: t16's win moved from
+   {31} to {31,40} when the engine fused; if planner's engine changes again,
+   consider racing {32,16,48,64} once per host rather than trusting the
+   pair.

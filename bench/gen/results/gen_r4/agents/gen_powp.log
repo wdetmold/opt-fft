@@ -1,0 +1,3 @@
+Everything is verified and shipped: `impl/gen_powp.c` and `strategies/gen_powp.md` updated, gates green at all eight sizes, wisdom stripped for the monitor, and only my own files touched.
+
+**Ended on: volume-major chain + plane-prepass deferred-map ipp (both adopted from gen_pfa_large gen_r4, ipp rank-first at 50/100 after 5-pair same-core A/B) over the unchanged SoA-8 DIF/DIT engine at 25/27 — node leased-core graded: 31.95 µs (L=25 B=16), 47.6 µs (L=27 B=16, hot-state session; quiet floor 45.0), 478.3 µs (L=50 B=4), 4861 µs (L=100 B=1, was 5021); B=1: 42.8 / 59.9 / 476.1 µs at 25/27/50; single-call rel L2 = 3.6–5.0e-16, two-step ≤2.7e-15, all chains ≤5.0e-14 and bit-repeatable.**

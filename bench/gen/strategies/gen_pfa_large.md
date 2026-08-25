@@ -433,3 +433,133 @@ two-step m=2 2.361e-15 (50) / 2.721e-15 (100) vs tol 3e-14; full chains
    out-of-place p1 variant with NT stores raced on that path.
 4. **Cross-arch**: when the xarch report lands, check whether ipm/ip2 flip
    on SPR (two shuffle ports) — that is what they are in the pool for.
+
+## Round gen_r4
+
+Standings into the round: led 40 (202.4), tied 50 (474.0 vs gen_powp 473.7),
+trailed 100 by 1.4% (5089.0 vs 5021.0). Plan: adopt the volume-major chain
+schedule this entry alone never took (the one structural item three other
+records agree on), and take one more shot at the L=100 map placement with the
+granularity lesson from ipm's post-mortem.
+
+### What changed
+
+**1. VOLUME-MAJOR chain schedule (ADOPTED from gen_dense_prime / gen_rader /
+gen_layout — the corpus-consensus shape all three records ship and my r1-r3
+step-major fft3d_chain ignored).** Volumes are independent in the chain
+algebra, so fft3d_chain now runs ALL m steps on one volume before touching the
+next: the per-step working set drops from the whole batch's state+c (16 MB at
+40 B=8 / 50 B=4, shared-L3 hostage) to one volume's state+c slice (2-4 MB,
+L2/L3-resident for m-1 of m steps). Per-volume op order unchanged — outputs
+bit-identical to step-major, so the pick machinery and repeatability are
+untouched. L=100 is B=1 and unaffected. This alone: 40 B=8 m=128 went 211.3
+(r3) -> **188.8** us/xform at sd 0.03% (MKL 423.8 same window — 2.24x, was
+2.0x), and 50 B=1 went 530.7 -> **482.9**.
+
+**2. NEW chain family ipp* (plane-granularity deferred map) — and it WINS at
+L=100 (pick l100-ipp1).** Same schedule as r3's ipm (state holds raw FFT
+output z' between steps; step 1 plain execute; one trailing map_vec) but the
+map runs as map_vec's perfectly sequential per-plane PREPASS into an
+L2-resident scratch plane (M's base, 160 KB at 100) that p1's z-subpass then
+consumes. Same op order as map_vec — bit-identical. Rationale: ipm and ipp
+have IDENTICAL per-step traffic accounting (~80 vs ip's ~112 MB at 100), and
+ipm still lost 11-16% — so ipm's loss is pure fine-grain interference (the
+ladder's port-5/latency footprint inside the granule-load stream), not
+traffic. ipp keeps the traffic cut and pays the interference only at the
+plane seam (~50k-uop granularity, invisible to the OoO window). Measured,
+paired alternating runs (see below): quiet **4923-4974 vs ip1's 5099-5119**
+(-3.4%), busy windows **5803-6039 vs 6558-6874** (-11%): the smaller DRAM
+footprint is also contention armor. Race table (same session): ipp1 5180,
+ip2 5341, ipp0 5357, ip0 5373, ip1 5406, ipr1 5497, ipm1 6032, ipe1 7089,
+ipnt 8009, ipf1 11151, f0 13401. pf ids 15 (ipp0) / 16 (ipp1); raced at all
+sizes (at 40/50 it ties ip within noise; race + wisdom arbitrate per host).
+
+**3. The create() race now times the VOLUME-MAJOR schedule** (per volume: one
+unmeasured warm step, then R timed steps on that volume, volumes outer; R =
+8/6/4 by volume bytes <=2/<=8/>8 MiB, min over NR=3-4 interleaved rounds).
+Racing the old step-major shape would rank candidates on a working set the
+graded chain no longer has (at resident sizes the fused families' economics
+change — gen_powp's residency rule). Wisdom tag bumped chain3 -> chain4 so a
+stale step-major verdict can never be installed.
+
+### Operation count
+
+FMA-port vector ops per line unchanged (278 / 434 / 661 / 968 at 40/50/80/
+100). ipp moves the map's ~18 ops/vector from its own pass into the per-plane
+prepass (total per step identical to ip*) and adds one L2 plane round-trip
+(write + strided read of mp, 160 KB) per plane; per-step DRAM accounting at
+100 drops from ~112 to ~80 MB (state read once, y-subpass writes land on
+prepass-warmed lines, no separate map pass).
+
+### Measured on the node (a80n0, leased core, graded chain, min; windows this session swung +-15% — see lesson 1)
+
+| case | r3 | r4 | notes |
+|---|---|---|---|
+| L=40 B=8 m=128 | 211.3 | **188.8** (sd 0.03%; MKL 423.8 same window, 2.24x) | volume-major; ip0 vs ipp0 paired = wash (185.9-196.6) |
+| L=40 B=1 m=128 | 215.1 | **213.5** | parity |
+| L=50 B=4 m=128 | 483.2 | **491.7** raw, ~476 window-adjusted (MKL 981.1 vs r3's 950.1) | ip1/ipr1/ipp1 paired all within noise (471.1-493.8) |
+| L=50 B=1 m=128 | 530.7 | **482.9** (-9%) | |
+| L=100 B=1 m=64 | 5374.6 (busy) / ~5009 quiet-class | **4923** quiet paired best; 4923-4974 quiet reps vs ip1 5099-5119; busy 5803-6039 vs ip1 6558-6874 | pick l100-ipp1; -3.4% quiet, -11% busy |
+| L=80 B=8 m=1 (unscored) | 2871.5 | 2989.6 (window) | execute path unchanged |
+
+Gates, all graded cases, manual (tryout's map-check leg still has the
+'$W/c.bin' quoting bug): single 3.58-4.52e-16 (tol 1e-12); two-step m=2
+2.090e-15 (50) / 2.721e-15 (100) vs tol 3e-14; full chains 3.804e-14 (40) /
+5.028e-14 (50) / 4.181e-14 (100) — EXACTLY r3's values (bit-identical algebra
+across the schedule change, as designed); single + chain outputs bit-identical
+across two processes at all three sizes. Setup: cold 0.19-9.2 s (pool now 17
+candidates; 60 s budget), warm wisdom ~1 ms. Round end: all 9 gen_pfa_large
+keys STRIPPED from results/wisdom_a80n0.json (r3 protocol — the monitor
+cold-races in its full-quiet window; absent entries are deliberate).
+
+### What did NOT work / nearly went wrong, with the numbers
+
+1. **I nearly killed ipp on a window-drift artifact.** Sequential forced A/B
+   (ip1 for ~40 s, then ipp1, minutes apart in one lease) read ip1 5532 vs
+   ipp1 6204 (+12%) — the OPPOSITE of the race's verdict — because this
+   session's windows drift +-15% inside a single lease (same lease, ip1 read
+   5099 first and 6319 last). Tight ALTERNATION (ip1, ipp1, ip1, ipp1 ...,
+   samples=2 each, compared pairwise) settled it: ipp1 wins 4 of 5 pairs,
+   -2.8/-3.7/-12/-11.5/+2.8%. Lesson for everyone: on this node, one-after-
+   the-other forced runs are no longer an A/B; alternate within the lease
+   and compare adjacent pairs, or trust the race's interleaved min-of-rounds
+   (which was right here all along).
+2. **ipp at 40/50 is a wash vs ip** (40: 185.9-196.5 vs 188.4-196.6 paired;
+   50: all three families 471-494 in the same wobble) — the deleted map pass
+   is L3-resident traffic there, worth ~nothing, exactly as the r2 ipe data
+   predicted. Kept raced; hysteresis prefers ip on ties.
+3. **L=50 B=4 batched did not improve** beyond window adjustment (491.7 raw
+   vs 483.2 r3, MKL 3% slower same session): its 16 MB step-major set
+   apparently already rode the L3 well enough on quiet windows. The B=1 -9%
+   and the 40 B=8 -11% are where volume-major pays. No number killed
+   anything — but do not claim 50 B=4 as a win on this evidence.
+
+### Borrowed, plainly
+
+- **gen_dense_prime / gen_rader / gen_layout (all since their r1/r2)**: the
+  volume-major chain schedule and its residency rationale ("each volume runs
+  all m steps cache-hot" — gen_layout r2's words). This entry was the last
+  chain owner still step-major; adopting it was this round's cheapest win.
+- **gen_powp gen_r3**: their ipm-at-100 post-mortem ("doubles phase-1
+  compute; phase 1 is only ~half miss-bound") sharpened the ipp design
+  question — same traffic as ipm, interference moved to plane seams — and
+  their residency rule motivated re-racing families under the new schedule.
+- ipp itself is new here (a granularity fix to my own r3 ipm), as is the
+  volume-major race arena shape.
+
+### What I would do next (ranked)
+
+1. **Cross-arch (XARCH.md lands after this round's board)**: ipp's smaller
+   DRAM footprint should shine on CLX (severe 512-bit downclock = more
+   traffic-bound); verify the per-host race flips to it there, and check the
+   40/80 NT variants on CLX as r2 predicted.
+2. **Generality: 75 = 3x25** (DFT3 module + odd-L^2 stash tail from
+   gen_powp), then 7/11/13 modules for 56/63/88/99/104/112/117 — the round-6
+   surprise draw is the reason; coordinate with gen_planner on routing.
+3. **L=100 p1 residue**: with the map pass gone (ipp), the step is p1m'+p2;
+   the PMU session (port 5 vs DRAM attribution) is STILL the right next move
+   before more candidates — this round's win came from granularity, not from
+   a verified bottleneck model.
+4. **L=50 B=4**: the one graded case volume-major did not move; if gen_powp
+   pulls ahead there, the lever is probably a 2-volume-pair schedule (4 MB
+   working set, still L3-safe) or their soa ideas at B=4 via 2-lane packing.

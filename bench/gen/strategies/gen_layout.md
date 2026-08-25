@@ -477,3 +477,153 @@ native and `-march=icelake-server`. Setup ≤ 10 ms at L=100.
    Done with lane geometry; the next real step for the floor would be a
    two-level split of the cos/sin matrices (Winograd-style), which changes
    the class — not this entry's job.
+
+## Round gen_r4
+
+### What changed
+
+**Library (two additions, both answers to adopter records):**
+
+- `gl_alias_drained4k(pairs, uops_between, sbuf_entries)` + constants
+  `GL_SBUF_ICX=72 / GL_SBUF_SKX=56` (section 4c) — the in-flight gate the
+  collision model was missing. This is gen_dense_prime gen_r3's negative
+  result turned into API: their model-clean pitches (4.35 weighted pairs)
+  never beat their model-worst r2 layout (240 pairs) because ~450 z-GEMM ops
+  sit between each block's store drain and the next block's loads — a store
+  only alias-blocks a load while it still occupies the store buffer, and
+  `sbuf` stores are gone after roughly 2·sbuf unrelated µops. gen_rader won
+  9.5% from the same pitch fix because their chunks run back-to-back. Gate
+  every `gl_alias_pairs4k`/`gl_stream_audit4k` score through this with your
+  kernel's drain-to-load µop distance BEFORE spending a node window on a
+  pitch; if the gate zeroes the score, their table says the fix measures as
+  a wash or a loss. First-order model; the A/B stays the law.
+- `gl_tr8x8_c2i(re[8], im[8], lo[8], hi[8])` (section 6b) — lane-major split
+  block → interleaved complex rows per lane in ONE fused network: 16 unpack +
+  32 shuffle_f64x2 = 48 shuffles for the 16 output zmm, where
+  `gl_tr8x8`×2 + `gl_int8`×8 spent 64. Port-5 relief on Ice Lake (shuffles
+  share port 5 with the second FMA pipe). This is the store side of every
+  bl8/soa8-style unpack — gen_batchlane's lane→interleaved exit and
+  gen_powp's SoA→natural conversions are this shape. Exactness is now part
+  of `gl_selftest()` (bit-compare against the tr8x8+int8 reference path).
+
+**Demo entry (three changes):**
+
+1. **Software prefetch in the fold loads (axes 0 and 1).** The folds walk
+   ~L separate row streams per group (rows j and L−j for j=1..h, strides
+   16·L² B on axis 0, 8L B on axis 1). At L=100 that is ~100 concurrent
+   streams — far past what the L2 streamer tracks — so every group's first
+   touch of each row eats a demand miss despite the access being perfectly
+   sequential per row. Fix: `_mm_prefetch(T0)` of each row's next-next
+   group line(s) at load time (2 groups ahead; 2 lines/row on interleaved
+   axis 0, 1 line/row on split axis 1). Knob `-DGL_DEMO_NOPF=1`.
+2. **Non-temporal full-line stores on DRAM-resident streams.** When a split
+   scratch component is ≥ `GL_NT_MIN_BYTES` (4 MiB; only L=100 in the suite
+   qualifies), the axis-0 kernel stores to s1, the axis-2 stores to dst, and
+   the map stores all replace their RFO (read-for-ownership) line reads with
+   `vmovntpd` — each such store writes a full aligned 64 B line exactly once
+   and nothing re-reads it from cache at that size. Eligibility is proven at
+   create(): axis-0 rows need L² ≡ 0 (mod 8) (row stride a line multiple),
+   dst pencil rows need L ≡ 0 (mod 4); every NT store site also requires a
+   full mask (partial groups fall back to masked stores), and each pass ends
+   with one `sfence`. Below the threshold the next pass reads the stream
+   back from L2/L3, so NT would force a DRAM round trip — that is why the
+   default stays off everywhere else. Knob `-DGL_DEMO_NONT=1`.
+3. **Axis-2 scatter through `gl_tr8x8_c2i`** (both the window path and the
+   NOFUSE/generic path) — the r3 next-step port-5 item, done by fusing
+   rather than by restructuring: 64 → 48 shuffles per 8×8-complex exit
+   chunk, −14% port-5 traffic per axis-2 row block.
+
+### Operation count
+
+FMA count unchanged (~4·h·hu vector FMA per 8-pencil group per axis). Deltas:
+axis-2 exit shuffles 64 → 48 per 8×8-complex chunk; +2 prefetch µops per fold
+row load (ports 2/3, which the fold leaves idle); at NT-eligible sizes the
+axis-0 s1 stores, axis-2 dst stores, and map stores lose one RFO line READ
+each — at L=100 that is 48 MB of eliminated read traffic per chain step
+(3 × 16 MB), plus the same stores no longer thrash cache; one sfence per pass.
+
+### Measured on the node (a80n0, leased cores via tryout.sh, graded chain, min µs/xform)
+
+NOTE on windows: this round the node read ~4% hot vs the r3 board (r3 binary
+re-measured 237.5 at the L=31 cell whose board number is 227.7); interleaved
+same-window A/Bs below are the honest signal, per gen_dense_prime's r3
+protocol.
+
+| L | B | r3 board | gen_r4 | delta | note |
+|---|---|---|---|---|---|
+| 10 | 64 | 4.87 | 4.99 | ~wash | sd 7.2% window |
+| 12 | 64 | 7.98 | **7.98** | = | NOPF arm read 8.43 same window |
+| 12 | 1 | 9.13 | **8.03** | −12% | |
+| 25 | 16 | 94.5 | **93.4–93.7** | −1% | 2×2 interleaved A/B; a first read of 103.4 was a dirty window (sd 4.4%) — r3's "never conclude from one window" lesson, again |
+| 31 | 16 | 227.7 | **231.4** | −2.6% vs same-window r3 control 237.5 | odd L: NT ineligible; the delta is prefetch (NOPF arm 238.2) |
+| 31 | 1 | 253.6 | **227.5** | −10% | B=1 now ≤ batched (quiet core) |
+| 32 | 8 | 224.0 | 232.8 | ~wash | hot window, sd 2.8% |
+| 50 | 4 | 1241 | 1290 | ~wash | hot window, sd 3.6%; NT ineligible (1 MB component) |
+| 100 | 1 | 19509 | **15606–15845** | **−19%** | NT-eligible; MKL same windows 8283–8832 |
+
+**Attribution at L=100 B=1 (same window, knob knockouts):** default
+15,829; `-DGL_DEMO_NOPF=1` (NT+c2i) 15,845; `-DGL_DEMO_NONT=1` (PF+c2i)
+19,590. **The entire L=100 win is the NT stores.** The r3 diagnosis stands
+corrected in detail: the ~100-stream fold LOADS were never the binder at
+L=100 — out-of-order execution rides them — it was the three full-volume
+store streams whose RFO reads doubled the write traffic and occupied the
+LFBs the loads needed. Prefetch instead pays at the L2/L3-resident middle
+(L=31: −2.6%, 3-run stable; L=12 B=64: NOPF +5.6% in-window), where the
+fold's row streams miss L2 but the working set is small enough that the
+misses are the binder.
+
+Gates, all by hand (tryout's chain legs still die on the unexpanded
+'$W/c.bin' — my r2 recipe works verbatim): single rel L2 2.8–5.6e-16 at
+10/12/25/31/32/50/100 (tol 1e-12); graded map-chains PASS at 12 (5.33e-14),
+31 (2.84e-14), 100 (6.46e-14) vs tol 1e-10; **two-step gate 9.4e-16 /
+1.7e-15 / 3.3e-15 at 12/31/100** (tol 3e-14 — the L=100 figure is the NT
+path, 9× margin); L=100 single AND chain outputs bit-identical across
+independent node runs (NT determinism verified, not assumed). Scalar
+(AVX2 wallaby) build PASS end-to-end incl. chains at L=4, 9, 12, 27.
+Setup ≤ 7 ms at L=100. All four build modes (entry/LIB_ONLY × AVX-512/
+scalar) compile `-Wall -Wextra`-clean.
+
+### What did NOT work / boundaries, with numbers
+
+- **Prefetch at L=100: a wash** (15,845 vs 15,829 — see attribution). Kept
+  because it wins where NT is ineligible and never measurably loses.
+- **NT below the size gate: not even attempted, by design.** Below
+  ~4 MiB/component the next pass reads the stream back from L2/L3; NT would
+  trade a saved RFO for a forced DRAM read-back. The gate (plus the
+  alignment proofs) is the shipped answer; if a cross-arch round wants a
+  different threshold, it is one -D away (`GL_NT_MIN_BYTES`).
+- **First L=25 reading (103.4 µs, +9%)**: dirty window, resolved by 2×2
+  interleaved A/B at 93.2–94.1. Recorded because it is the second time this
+  campaign a single-window number nearly caused a wrong call.
+
+### Borrowed this round, named
+
+- **gen_dense_prime gen_r3**: their falsification of my pure-geometry
+  collision model (the "stores still in flight" mechanism) is now section
+  4c of the library, credited in the file; also their interleaved-arms
+  measurement protocol, used for every A/B above.
+- **gen_rader gen_r3 / gen_dense_prime gen_r3**: the huge-page-arena +
+  phase-placement recipes they adopted from me came back as confidence that
+  the remaining L=100 gap was store-side, not layout-side — which is what
+  the NT result confirmed.
+
+### What I would do next (gen_r5)
+
+1. **Adoption of the two new primitives**: `gl_alias_drained4k` is written
+   for gen_dense_prime (their own negative result, returned as API) and for
+   gen_rader's any-prime pitch planning; `gl_tr8x8_c2i` is the store side
+   of gen_batchlane's bl8 exit and gen_powp's SoA→natural conversion —
+   both are one-call swaps.
+2. **NT-store guidance now has a measured basis** (r1 item 4 closed): full
+   aligned lines, nothing re-reads the stream at that size, ≥4 MiB per
+   component, sfence per pass — worth −19% at L=100. If adopters want it,
+   the dm_st shape (mask fallback + eligibility proof at create()) is the
+   thing to copy, not a raw vmovntpd.
+3. **Cross-arch caution for the advisory rounds**: the NT win is an
+   Ice Lake measurement; CLX (1 MB L2, heavier 512-bit downclock) and SPR
+   (larger L2) move both the NT threshold and the prefetch payoff — the
+   knobs exist precisely so the race layer can flip them per host.
+4. **The floor itself is done evolving inside its class** — remaining ideas
+   (Winograd-style matrix splits) change the algorithm class; the demo's
+   job stays: any-L guaranteed-correct vectorized floor + the layer's
+   living test bench.

@@ -1,0 +1,3 @@
+Done. Both files written (`impl/gen_twiddle.c`, `strategies/gen_twiddle.md`); all gates pass on the node, outputs bit-identical to r3, and the record documents the prefetch rejection, the L=27 gate, the borrowed protocol/custody ideas, and the gen_rader p=41 adoption example.
+
+Gated k-plane-blocked axes-1+2 custody (bluestein-r4 block size, L2-residency gate; prefetch raced and rejected): B=1 15.15 µs at L=12 / 11157 µs at L=100, batched 14.88 µs at L=12 B=64 / 1363 µs at L=50 B=4 (−3.5%) — rel L2 3.0–4.8e-16, two-step ≤ 2.9e-15, chains bit-repeatable.

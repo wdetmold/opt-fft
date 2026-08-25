@@ -1,0 +1,7 @@
+Round gen_r4 complete. What I did:
+
+- **GP2_CT (ships, scored size)**: the custody `c` volume now stored x-fastest, so the x-pass map fusion reads `c` as one contiguous 4 KB stream per column instead of 32 touches at 18.5 KB stride — the layout fix for the stride pathology my r2 prefetch experiment diagnosed but couldn't treat. Bit-identical output, won every same-window interleaved pair across three windows.
+- **Custody engine generalized over G = L/8**: L=64 (G=8, the ice L64_blocked z-line shape, L3 regime, ~677 µs/step-vol = 0.333x MKL, was 7.4 ms on the generic path) and L=16 (G=2, new four-rows-per-TR8 z-codelet, 7.58 µs = 0.402x MKL, was 81 µs) — the round-6 insurance both my earlier records promised. Raced and documented four losers at L=64 (slab-burst prefetch +7%, next-column load prefetch wash, hugepages −1.7% loss, premap +20%).
+- Strategy record appended, including a note for the monitor: `reserve.sh --status`/`tryout.sh` are broken on the login host (no `sbatch`/`squeue`) while a80n0 is alive — I replicated tryout's exact steps over ssh under a proper slot lease (slot 1, core 3, released).
+
+**Technique ended on: x-fastest c-transpose custody chain + G-generalized engine. L=32 best on wallaby: 55.27 µs/transform at B=8 (graded, 0.322x same-window MKL), 55.34 µs at B=1; rel L2 = 2.876e-16 single call, 1.334e-15 at the m=2 gate, 2.914e-14 at chain end m=250.**

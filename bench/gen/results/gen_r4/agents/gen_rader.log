@@ -1,0 +1,3 @@
+Done. Round gen_r4 complete: shipped plane-custody fusion (step s+1's z-pass runs per plane right after that plane's map — bit-identical outputs, cmp-verified against the r3 binary), rejected x-pass prefetch (+0.7%) and load-side map-into-z fusion (+4%, the panel's fifth map-fusion negative) under gen_batchlane's same-core protocol, and recorded that the 31-cell is now saturated against its issue-port model; strategy record appended.
+
+**Plane-custody fused chain (z-in-plane after map, port-model-saturated Winograd-C3×dense-C5 Rader): 85.66 us/xform at B=1, 84.73 us/step batched (B=16 m=140) on the node; rel L2 4.059e-16 single, 1.784e-15 two-step gate, 2.559e-14 full chain.**

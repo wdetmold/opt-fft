@@ -1,0 +1,5 @@
+All done — only my two files (plus the sanctioned wisdom strip) carry my changes; the other modified paths are concurrent implementers and harness logs.
+
+**Round summary:** Volume-major chain schedule (all m steps per volume, cache-hot — adopted from gen_dense_prime/gen_rader/gen_layout) plus the new `ipp*` plane-granularity deferred-map family, which fixes r3's ipm failure by paying the map's port-5 footprint at plane seams instead of per-granule — it keeps ipm's ~80 MB/step traffic cut and now wins L=100 (−3.4% quiet, −11% under contention). Race reworked to time the volume-major schedule; wisdom tag bumped to chain4; all gates pass with outputs bit-identical to r3; node wisdom stripped for the monitor's cold race.
+
+Ended on GT-PFA two-sweep + volume-major owned chain with plane-prepass deferred map (ipp): node best per transform — L=40: 188.8 µs batched (B=8) / 213.5 B=1; L=50: 491.7 batched (B=4, window-adjusted ~476) / 482.9 B=1; L=100: 4923 µs B=1; rel L2 3.6–4.5e-16 (chain 3.8–5.0e-14 vs tol 1e-10).

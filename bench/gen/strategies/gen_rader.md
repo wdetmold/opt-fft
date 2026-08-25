@@ -419,3 +419,144 @@ DEBT at the generic sizes — see next.
    above).
 5. Harness: tryout's remote map-check still needs the by-hand run; keep
    in16/c16, in1/c1, in37/c37 etc. under build/tryout/gen_rader/ current.
+
+## Round gen_r4
+
+### Where this round started
+
+r3 leaderboard: **85.088 us/step** at the graded cell (L=31 B=16 m=140), leading
+the crossover (gen_dense_prime 123.8, gen_bluestein 301.3, MKL/FFTW 849-883).
+This round's control read of the r3 binary via tryout: 85.046 — a quiet window,
+board-consistent.  My r3 next-list: wino15 spill cut, two-chunk pipelining,
+generic-prime arena, large-p custody blocking.
+
+### The round's main negative finding: the engine is AT its issue-port model
+
+Before touching code I costed the shipped step against the port budget
+(2 FMA pipes, shuffles on port 5, ICX): x/y chunks ~470 FMA-class / 2 ports
+= ~235 cyc per 4 columns; z quads ~(470 arith + 128 shuffles) with port 5 the
+binder at ~363 cyc/quad; map 3844 groups x ~21 FMA-port ops + 1 vdivpd
+(divider ~31k cyc, overlapped).  Sum ≈ 250k cycles ≈ 86 us at 2.9 GHz —
+**the measured 85 IS the model**.  The "65-70 us floor" in my r1/r2 records
+undercounted the z-pass's port-5 shuffle bill and the map's FMA bill.  Spills
+(~32 stack ops/chunk vs 134 total port-2/3 ops = 67 cyc, under the 235-cyc FMA
+plateau) are NOT binding, so the r2 "wino15 spill cut" and "write Y over S"
+items are dead on arrival — struck from the list with this arithmetic instead
+of a burned window.  Consequences of the model, all consistent with this
+round's measurements: only deleted WORK can move this kernel now, and the
+work is already the settled minimum (C3xC5 hybrid, ice L23 lesson).
+
+### What shipped: PLANE CUSTODY in both chains (bit-identical, cmp-verified)
+
+Step s+1's z-pass contracts within a plane, so it does not need to wait for
+the map sweep of the whole volume: it now runs per plane immediately after
+that plane's map, while the plane is L1/L2-hot (z_0 moves to a prologue; the
+last step keeps map + copy-out).  One full-state read per step deleted from
+the pass sequence.  Arithmetic order within every pass unchanged =>
+**chain outputs bit-identical to the r3 binary** (verified by cmp at 31, and
+at 23/61 for the generic engine where the per-plane regrouping changes quad
+boundaries but pencils are lane-independent).  Same move applied to
+rp_chain_volume (rp_zplane: per-plane quads + tail).  -DR31_R3CHAIN /
+-DRP_R3CHAIN keep the r3 order raceable.
+
+### Measured on the node (a80n0; SAME-CORE interleaved A/Bs — see protocol note)
+
+L=31 B=16 m=140, min over 6 interleaved rounds of 4 arms, one held lease,
+core 4:
+
+| arm | us/step |
+|---|---|
+| r3 control (impl_3 rebuild) | 85.024 |
+| **custody (shipped)** | **84.725** (-0.35%, never worse across rounds) |
+| custody + x-pass prefetch (-DR31_PFX=128) | 85.648 (+0.7% — REJECTED) |
+| custody + map-in-z-loads (-DR31_ZMAPF) | 88.468 (+4.0% — REJECTED) |
+| **B=1 (shipped)** | **85.663** (sd 0.10%) |
+| MKL 2022 same window | 849.6 |
+
+Generic primes, custody vs r3 order (interleaved, same core): p=61 m=8 a WASH
+(2649 both arms — 3.6 MB volume sits in the 24 MB LLC; the deleted read was
+cheap); **p=127 m=4: 47372-47398 vs 47785-47899, -0.9%, 3/3** (32 MB volume,
+DRAM-resident — the regime the change is for; round-6 insurance).
+
+Gates (shipped default build, by hand on the node — my wrong check.py
+invocation mid-round produced scary FAIL lines; --output wants the BASE file,
+it appends .chain itself): single rel_l2 4.059e-16 (B=16) / 4.073e-16 (B=1);
+map-chain m=140 2.559e-14 (B=16, anchor 2.312e-14) / 1.923e-14 (B=1);
+**two-step gate 1.784e-15** (tol 3e-14); bit-repeatable; p=23/37 chains and
+p=13 execute PASS.  All error numbers identical to r3 — as they must be, the
+outputs are bit-identical.
+
+### What did NOT work, with the number that killed it
+
+- **x-pass software prefetch (gen_layout r4's recipe): +0.7% (85.65 vs
+  85.02).**  Their -2.6% at L=31 was on a DRAM/L3-resident demo engine; my
+  state is L2-resident, the loads hit L2 and OoO already hides them, so the
+  31 extra port-2/3 uops per chunk (~1.3 us/step) are pure cost.  Boundary
+  written down: prefetch pays where the stream MISSES the cache the kernel
+  can hide, not where it hits L2.  Knob kept (-DR31_PFX) for CLX/SPR.
+- **Map fused into the z-quads' transpose-in loads (-DR31_ZMAPF): +4.0%
+  (88.47 vs 84.73).**  The panel's FIFTH map-fusion negative and the first
+  LOAD-side one (r31 y-stores r1 +10%, dense_prime r2, rp y r3 +2-9%,
+  batchlane epilogue r4 +6-9%, now this).  I built it because the load-side
+  geometry dodges the register-pressure mechanism that killed the other four
+  (~10 live zmm at the fusion point, not ~30) — and it STILL lost: the map's
+  FMA/unpack ops land on the z-quad's already-binding port 5, and the vdivpd
+  goes serial on the transpose's critical path.  With the port model above,
+  fusion cannot win here: it relocates work onto the binder.  Map placement
+  at L=31 is now closed at every granularity.  (Kept the vdivpd variant
+  bit-identical to map_volume via the new hwdiv parameter on r31_map_rec, so
+  the knob remains a clean cross-arch candidate.)
+- **wino15 spill reduction / Y-over-S / two-chunk pipelining: struck without
+  a window** — spills are ~67 port-2/3 cycles under a 235-cycle FMA plateau
+  (see model).  Do not resurrect these without first showing the model wrong.
+
+### Borrowed this round, named
+
+- **gen_batchlane gen_r4**: the same-core A/B protocol — tryout.sh acquires a
+  FRESH lease (fresh core) per invocation, so cross-invocation pairs carry a
+  10-25% core-state confound.  Everything above was measured holding ONE
+  lease and alternating the same binaries on the same core.  My r1-r3
+  verdicts re-examined under this light: the big ones (in-place chain -16us,
+  padding -9.5%, quad-z -8us) are far above the confound; no re-race needed.
+- **gen_layout gen_r3 / gen_bluestein gen_r4**: the plane-custody idea (their
+  window/blocked custody); my contribution is noticing z is plane-local in
+  MY pass order so custody costs zero new code structure and stays
+  bit-identical.  Adopted their "test at the size regime it targets"
+  discipline: the win is at DRAM-resident p, not at the L2-resident 31.
+- **gen_layout gen_r4**: the prefetch recipe (measured, lost here — boundary
+  contributed back above).
+
+### Operation count
+
+Unchanged from r3 at 31 (~240k zmm FMA-class + ~90k adds per volume step);
+the custody change moves no arithmetic, deletes one full-state read per step
+from the pass schedule.  Generic p: identical per-pencil ops; per-plane z
+grouping adds one short-quad tail per plane at p%4!=0 (measured: a wash at
+61 even so).
+
+### What I would do next
+
+1. **The 31 cell is port-model-saturated.**  The only untried lever that
+   DELETES port-5 work is replacing some z-quads with dense zrow_pair rows to
+   rebalance port 5 vs the load ports (interleave the two forms within a
+   plane); expected value small, OoO windows may not span the call boundary.
+   Model first, budget one window.
+2. **Large-p chain, the real remaining meat (r6 insurance): block the X pass.**
+   Custody only deleted z's read; at 127 the x-pass still streams 32 MB from
+   DRAM per step.  A z-block custody (x-pass restricted to a block of
+   (y,z)-columns across all planes, then y+map on those columns) is the
+   gen_bluestein r4 shape; at 31 it is not worth it (L2-resident), at >= 61
+   it is the difference between 1 and 2 DRAM sweeps per step.  Pair it with
+   gen_layout's NT stores (their -19% at L=100) for the map stores at
+   DRAM-resident sizes.
+3. **Generic-prime padded arena** (rows -> mult-of-4, anti-alias pitch via
+   gl_pick_pitch4k or the r2 closed form) — still unpaid debt from r3, gated
+   by gl_alias_drained4k first (gen_layout r4 built that gate from
+   gen_dense_prime's negative: my rp chunks run back-to-back, so the alias
+   fix should actually pay here, unlike theirs).
+4. **True generalized Rader for 3|h primes** (7,19,43,67,79,103,127): ~45%
+   FMA cut at 127 where the engine is only at MKL parity — the biggest
+   arithmetic lever left anywhere in this entry.
+5. Harness: check.py --output takes the BASE filename (it appends .chain);
+   in16/c16, in1/c1, in23/37/61/127 + c mirrors kept current under
+   build/tryout/gen_rader/.

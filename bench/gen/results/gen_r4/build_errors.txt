@@ -1,0 +1,14 @@
+impl/gen_dense_prime.c: In function ‘fft3d_chain’:
+impl/gen_dense_prime.c:1512:23: warning: iteration 1152921504606846976 invokes undefined behavior [-Waggressive-loop-optimizations]
+ 1512 |         double re = zp[2 * i] + cp[2 * i];
+      |                       ^
+impl/gen_dense_prime.c:1511:14: note: within this loop
+ 1511 |     for (; i < npts; ++i) {
+      |            ~~^~~~~~
+impl/gen_rader.c: In function ‘map_volume.constprop’:
+impl/gen_rader.c:1023:23: warning: iteration 1152921504606846976 invokes undefined behavior [-Waggressive-loop-optimizations]
+ 1023 |         double re = zp[2 * i] + cp[2 * i];
+      |                       ^
+impl/gen_rader.c:1022:14: note: within this loop
+ 1022 |     for (; i < npts; ++i) {
+      |            ~~^~~~~~

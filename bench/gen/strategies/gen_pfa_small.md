@@ -387,3 +387,139 @@ round-trip per pencil); odd module n: ~4h + h*(4h+2) FMA-class vector ops
    +4–10%). The remaining idea is shrinking the footprint itself (half-plane
    c tiles processed twice per step = C L2-resident at 2x S re-reads) — an
    afternoon with a real chance of another dead end; budget accordingly.
+
+## Round gen_r4
+
+### Headline
+The round's marquee borrow — gen_batchlane gen_r3's register-explicit pencils —
+was A/B-ed at all three candidate sizes and is a NON-TRANSFER at its most
+important target: a wash at 10 and 12, and a +12.6% REGRESSION at 15 (numbers
+below). 15 stays the r3 memory form. The positive work: the m-loop moved inside the
+SCHED step function (batchlane's chainsteps shape, −1.3% at 20, the round's
+one tuned-size win), and IPOK in-place pencils in the generic engine for
+every coprime pair with Q ≡ 1 mod P (14, 18, 21, 36, 56), extending the r2
+disjointness rule to the runtime-table path. Every gate passes.
+
+### Measured on the node (a80n0 leased core via tryout.sh; fast-state minima,
+### this session's windows were heavily bimodal — see method note)
+
+| case | r3 shipped | gen_r4 | MKL same window |
+|---|---|---|---|
+| L=10 B=64 m=1000 | 1.156 | **1.155–1.157** | 4.67 |
+| L=12 B=64 m=600  | 1.970 | **1.966–1.975** | 7.74–7.91 |
+| L=15 B=32 m=600  | 4.469 | **4.444–4.463** | 16.73 |
+| L=20 B=32 m=256  | 13.24 | **13.123** (13.30 before change 5) | 58.1–59.6 |
+
+Gates, final shipped build, all run by hand on the node (tryout's map-check
+leg still gets the unexpanded `'$W/c.bin'`): single call 2.6–3.1e-16; two-step
+m=2 0.8–1.2e-15 (tol 3e-14); graded chains 4.6e-14–1.7e-13 at 1.2–1.8x the
+honest anchors (tol 300x/1e-10); bit-repeatable at all four sizes; B=1 chains
+at 10/20, mixed B=12 group+remainder at 12 all PASS. Generic engine: chains
+PASS at 14 (B=8 m=100, B=1 m=50), 21 (B=3 m=50), 56 (B=3 m=8); single call
+2.8–4.6e-16 at 14/18/21/36/56. B=1 chain timings (split path, structurally
+unchanged since r1): 3.869 / 5.258 / 14.140 / 31.966 us at 10/12/15/20.
+
+### What changed
+
+1. **Register-explicit pencils at 10 and 12** (BORROWED: gen_batchlane gen_r3;
+   stage 1 memory → named registers xr<k>/xi<k>, stage 2 registers → memory,
+   exactly 2L ld + 2L st, map fused in the *_ipm stores). Measured a WASH:
+   10: 1.157 vs r3 1.156 same window; 12: 1.966–1.974 vs 1.970. Explanation:
+   their r3 gain was partly UNDOING their r2 out-lining (their pencils carried
+   the optimize attr and compiled to calls); mine were always fully inlined,
+   and gcc had already forwarded the stage-2 loads. Kept anyway — fewer
+   stores, and the asm audit (their method, gen_pow2 r1's originally) now
+   shows exactly the minimal 24 data stores + ~29 sched-pressure spills at 12.
+2. **L=15 REVERTED to the r3 memory form after the A/B.** Register-explicit 15
+   (identical in structure to batchlane's shipped 15) measured 5.018–5.045
+   fast-state vs 4.444–4.463 for the memory form, same windows, +12.6%.
+   Mechanism: 30 live site registers plus ~14 DFT5CORE temps per stage-2 group
+   spill hard, while the memory form's stage-1 stores ride the 2-stores/cycle
+   port at near-zero cost. Confirmed fast-state (a mixed-state run whose fast
+   samples still read 5.02). NOTE for gen_batchlane: your r3 board number at
+   15 was 4.771 vs your record's 4.456 — my memory-form 4.44–4.46 suggests
+   your register-explicit 15 may be losing in scored conditions too; A/B the
+   r2 memory form back at 15 before trusting the 4.456.
+3. **Map tail re-raced on the new codelets** (the div-vs-rcp verdict is
+   codelet-local — now measured on four codelet generations): vdivpd wins
+   again everywhere. Paired runs at 12: div 1.969/1.971 vs rcp 2.005/2.010
+   (+1.9%). A first rcp run read 2.281 — that was the slow node state, not
+   the code; always pair control-first in the same window. Per-size knobs
+   -DMT10/12/15/20=1 build the rcp ladder for the cross-arch race.
+4. **sched-pressure re-raced**: keep on 10/12 (stripping costs +1.7% at 12:
+   2.000 vs 1.966–1.974 fast-state); OFF at 15 memory form (unchanged r3
+   verdict; on the REJECTED register-explicit 15 it helped ~1.5%, knob
+   -DPS_SCHED15 kept for cross-arch); OFF at 20.
+5. **m-loop moved INSIDE the SCHED step function** (soa_chain_L, batchlane's
+   chainsteps shape; gcc hoists the map-ladder constants and base addresses
+   across steps instead of reloading them per soa_step call). Bit-identical
+   outputs. L=20: 13.123 (best of the session, vs 13.297–13.309 for the
+   call-per-step form minutes earlier); 10/12/15 unchanged within noise
+   (1.156 / 1.975 / 4.451). Cheap, kept everywhere.
+6. **Generic engine IPOK** (round-6 insurance, my r3 next-step #1): when
+   Q ≡ 1 mod P, the r2 disjointness rule holds for the runtime-table pencil
+   too, so stage 1 writes back to its input slots and stage 2 reads them
+   directly at inmap[j2*P + k1] — the 2L-vector tr/ti temp round trip is
+   gone. Compile-time IPOK flag per GP_DEF instantiation, (Q % P == 1).
+   Sizes 14, 18, 21, 36, 56. Same-window pairs: 36: 252.6 vs 257.4 buffered
+   (−1.9%); 14: 8.125 vs 8.107 (wash, window was slow). Non-IPOK pairs keep
+   the buffered form.
+
+### What did NOT work, with the number that killed it
+* **Register-explicit pencil at L=15**: +12.6% (5.02–5.05 vs 4.44–4.46, three
+  runs each, fast-state confirmed). The technique's win is conditional on the
+  live-register count fitting: 2L + module temps <= ~32. 10 and 12 fit (20/24
+  live), 15 does not (30 live), 20 never could (40). WRITE THIS RULE DOWN
+  before porting it anywhere else.
+* **rcp14+2NR map tail at 10/12/15/20** (third time measured on this entry,
+  now on the register-explicit form): +1.9% at 12, similar elsewhere. The
+  x-pass FMA ports stay the binding resource in every form this engine has
+  had; the divider stays free. Standing verdict for THIS engine only.
+* **sched-pressure at 15/20**: unchanged losses; see 4.
+
+### Method note (for everyone measuring on wallaby-leased cores this week)
+The leased core spent most of this session flipping between two sustained
+states ~13.5% apart (L=10: 1.157 vs 1.314; in-run sd 0.03–0.07% inside each
+state, flips visible WITHIN an 8-sample run as median >> min). A single run
+with small sd can be entirely in the slow state and look like a code
+regression (my first rcp-tail run read +16%; the true paired delta was +1.9%).
+Protocol that survived: control-first adjacent pairs, repeated until both
+configs have shown their fast state; trust min-of-mins per config.
+
+### Borrowed, plainly
+* **gen_batchlane gen_r3**: the register-explicit pencil form (adopted at
+  10/12, measured and rejected at 15) and the asm-audit-first method
+  (transitively gen_pow2 r1).
+* **gen_pow2 gen_r3**: the DSB/front-end checklist — audited my sweep and
+  x-pass bodies (350–770 instrs, one pencil per iteration, no -funroll
+  replication): all DSB-resident, nothing to fix here.
+* My own r2 rule (Q ≡ 1 mod P) extended to the generic engine's IPOK.
+
+### Operation count
+Tuned pencils: unchanged FP (88/96/162/216 per pencil per 8 vols); 10/12 now
+exactly 2L zmm loads + 2L zmm stores + spills (audited 53 stores at 12 incl.
+sched-pressure spills), 15/20 unchanged 4L + 4L memory form. Map unchanged:
+13 FMA + 1 vdivpd per site, fused in the x-pass stage-2 stores. Generic IPOK
+pencil: drops 2L stores + 2L loads of temp traffic vs r3's buffered form.
+
+### What I would do next (ranked)
+1. **L=20 residency, still the only structural target** (S+C = 1.7 MiB > 1.25
+   MiB L2; my 13.30 vs batchlane's 13.01 board). Prefetch (+14%), split-layout
+   c-interleave (+4%), site-interleave (their +40%), consumption-order c
+   (+4–10%) are ALL dead; the one untested idea is batchlane r3's bounce
+   buffer (bulk-copy plane x+1's c during plane x's sweep — real work, not
+   prefetch uops). My honest estimate: it loses (it adds a second write of C
+   per step against an L2 that S already fills); measure only in a quiet
+   window, budget two hours.
+2. **B=1 lane-spatial engine** (fourth round on the list, still 2.5x behind
+   MKL at 10/12/15 B=1). Round 6 draws unknown batches; coordinate with
+   gen_batchlane — both r3 records sketch the same ice L6_pfa shape. Build it
+   ONCE, in whichever entry moves first, and the other adopts.
+3. **Non-IPOK generic pairs** (24, 28, 35, 45, 63): DFT5X2-style fused pairs
+   would make them in-place too (the equal-slot-set groups come in pairs when
+   Q mod P == P-1, e.g. 24=3x8, 45=5x9); mechanical but fiddly slot algebra.
+4. **12 residual 2.8%** vs batchlane (1.966 vs 1.915): asm now near-identical
+   (they carry MORE spills and rcp), and the chainsteps-owns-the-m-loop shape
+   is adopted (change 5 -- it moved 20, not 12); their edge at 12 remains
+   unexplained by structure. Suspect code alignment luck; a -falign-loops
+   sweep via function attribute is the next cheap probe.

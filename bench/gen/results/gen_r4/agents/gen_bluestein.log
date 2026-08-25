@@ -1,0 +1,11 @@
+**gen_r4 ended on: k-plane-blocked separate-map custody (axis 0 first, then axes 2+1 + sequential map sweep per L2-hot block of k=8/gcd(L,8) planes; borrowed from gen_layout r3) plus a fix to my own r3 fuse-gate that had wrongly kept L=40/50 in the fused-map regime — best node numbers: B=1 (L=100) 15,545 µs/xform; batched: L=40 B=8 1,086.6 µs, L=50 B=4 1,778.9 µs, L=10 B=64 13.7 µs; rel L2 ≤ 8.8e-16 on all singles (tol 1e-12), two-step gate ≤ 5.2e-15 (tol 3e-14), all chain gates PASS.**
+
+Supporting detail:
+
+- **The gate bug**: r3 shipped `nrows*L*16` (state-only bytes) where the raced split needs state+c (`*32`), so L=40/50 ran the fused map my own r3 race had measured 15–30% slower. Verified before fixing: L=50 default 1987 µs vs forced-separate 1822 µs; L=40 forced-fused 1382 µs vs the new path 1087 µs, same window.
+- **Blocking** won the attribution race at L=100 (15759–15803 vs 16156–16711 unblocked, and much better busy-window medians) with bit-identical group decomposition — zero new tail groups, which is what killed my r1 attempt at the same idea.
+- **Adopted a null instead of rediscovering it**: my planned "map fused into the next step's axis-2 gather" is exactly gen_pfa_large r3's dead `ipm` family (+11–15%, port-5 mechanism), so I kept the map a separate sequential sweep and only moved *where* it runs.
+- Raced off: `BST_BLKFUSE` (fused-regime blocking: −4.5% raw/wash at L=25 but +10% at L=31 — knob kept, default off) and `BST_PF` re-race (3/3 pairs loss; the first pair's apparent win was a dirty-window head-fake, documented).
+- Correctness: 18-size generality sweep incl. L=101's partial-block path, scalar fallback build, and bit-identical chain repeatability all PASS; the L=100 chain drift actually improved to 1.25× the honest anchor (was 2.1×).
+
+Both deliverables written: `impl/gen_bluestein.c` and a new "Round gen_r4" section appended to `strategies/gen_bluestein.md` with all keep/kill numbers and named borrows.

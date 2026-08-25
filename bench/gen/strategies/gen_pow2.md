@@ -411,3 +411,147 @@ call PASS at 0 / 0 / 1.5e-16 / 2.5e-16 / 3.5e-16 / 4.1e-16.
 4. Library layers: still zero-cost create() (~0 s, trivially inside budget);
    adopt gen_race wisdom keys when the custody engine grows real candidates
    (the XU/ZU1/MAPDIV knobs are exactly what its per-host race is for).
+
+## Round gen_r4 — c-transpose on the scored size; the custody engine
+## generalized over G = L/8 (L=16 and L=64 leave the generic path)
+
+Standings into the round: led L=32 at 57.32 us (3.07x MKL 2022, r3
+leaderboard).  Two thrusts this round: one scored-size win (GP2_CT) and the
+structural mandate both my earlier records promised — G-generalization, the
+round-6 insurance (16 and 64 are drawable in 14..127; the generic path
+served them at 81 us / 7.4 ms per volume).
+
+### Harness note (monitor, please read)
+
+`./reserve.sh --status` (and therefore `./tryout.sh`) is broken on the login
+host this session: `sbatch`/`squeue` do not exist there, so the reservation
+looks dead while node a80n0 is alive and serving other implementers
+(logs/reserve.log is a wall of "sbatch: command not found" from the cron
+re-arm).  I replicated tryout.sh's exact steps over ssh — same gcc line,
+same gen_input/check.py invocations, a proper slot lease (slot 1, core 3)
+held for the whole session and released at the end.
+
+### What changed (ships)
+
+1. **GP2_CT=1: the custody c volume is stored X-FASTEST** — slot (y, g, x)
+   at y*CYS + g*CGS + x*16 doubles, CGS = 520 (65 lines, odd), CYS = 4*CGS.
+   Only the x-pass (vfft32m) and the epilogue read c, and both consume it
+   along x: each x-pass column's 32 c-slots become ONE contiguous 4-KB
+   stream instead of 32 touches at XS = 18.5 KB stride (which defeats the
+   L2 streamer — the disease my r2 GP2_PFXC prefetch attack diagnosed
+   correctly and treated wrongly: +4% issue overhead then, a free layout fix
+   now).  Same values at every read => bit-identical output (cmp-verified
+   against the r3-arithmetic control in every window).  Raced in THREE
+   same-window interleaved sets: busy window 65.86/66.07/65.47 (ct0) vs
+   65.01/64.17/64.51 (ct1); first quiet window 58.70 vs 57.77/57.38; final
+   quiet window 55.97/55.96 vs 55.21/55.85.  Every pair favors CT, -0.5 to
+   -2%; x-phase profile 108.2K -> 105.0K cyc same-window.  The conversion
+   cost (nat_to_cust_c scatters at x*16) is once per chain volume, amortized
+   over m=250 steps.
+2. **The custody engine generalized over G = L/8** — the same architecture
+   (custody split-complex, per-volume chain residency, lazy map fused into
+   x-pass stores, z/y port-profile skew, DSB-rolled bodies, x-fastest c)
+   instantiated per G:
+   * **L=64 (G=8)**: strides K64=136/X64=8712 doubles (17/1089 lines, both
+     odd — the ice SCKS/SCXS numbers); volume 4.46 MB, S+C = 8.7 MB: the L3
+     REGIME.  z-row = the ice L64_blocked st=3 z-line VERBATIM in shape
+     (DFT8 over slots, lane twiddle W64^{l*k2}, TR8 pair, DFT8 over lanes,
+     direct slot store — G=8 fills the transpose from ONE row, no re-form
+     shuffles).  Vertical vfft64 = DFT8_b(W64^{b*k2} DFT8_a), H[64] (8 KB)
+     line buffer, pass loops rolled (a full column is ~2.5K uops, over the
+     DSB — the r3 rule applied from birth).
+   * **L=16 (G=2)**: K16=40/X16=648 (5/81 lines, odd); volume 81 KB,
+     everything L2-resident.  z-codelet NEW: FOUR rows share one TR8 — per
+     row DFT2 over the 2 slots, lane twiddle W16^l on the odd branch, stack
+     4x2 vectors (lane j = 2r+k2), TR8 pair, DFT8 over lanes; the output
+     slot re-forms from 128-bit granules of 4 O-vectors, 3 shuffles per
+     slot-component (96 shuffles/64 points vs the zpair's 64 — acceptable,
+     unscored size).  Vertical vfft16 = DFT2_b(W16^{b*k2} DFT8_a), H[16].
+     No z/y skew (not worth complexity at 81 KB; plain per-plane z then y).
+   * Routing: fft3d_create picks the engine for L in {16,32,64}; 2/4/8/128
+     stay generic (128 cannot be drawn in round 6's 14..127).  create() is
+     still ~0 s (tables + one posix_memalign).
+
+### Measured on the node (a80n0 core 3, same-window pairs, check.py by hand)
+
+| case | gen_pow2 | same-window MKL 2022 | ratio |
+|---|---|---|---|
+| L=32 B=8 m=250 (graded) | **55.27-55.52 us** (quiet, sd 0.02-4.8%) | 172.6 | **0.322** |
+| L=32 B=1 m=250 | **55.34** (sd 0.02%) | — | |
+| L=64 B=2 m=64 chain | **678.7 us/step-vol** (B=1 677.4) | 2036 (guru 3015) | **0.333** |
+| L=64 single call | 1219 | — | (was 7.4 ms generic: 10.9x) |
+| L=16 B=8 m=300 chain | **7.58 us/step-vol** (single 7.43) | 18.85 (guru 29.77) | **0.402** |
+
+Note the node ran ~3% faster in this round's quiet windows than r3's (ct0
+control measured 55.96 today vs its own 57.4 in r3) — cross-round absolute
+comparisons are meaningless as always; the CT gain is the paired delta.
+
+Gates (ship build, all PASS): L=32 single 2.876e-16 (B=8) / 2.872e-16 (B=1);
+two-step fused m=2 **1.334e-15 / 1.326e-15** (tol 3e-14); chain end m=250
+2.914e-14 / 2.762e-14; repeatable and bit-identical to the r3 arithmetic.
+L=64: single 3.214e-16, m=2 **1.723e-15**, chain m=64 2.342e-14, repeatable.
+L=16: single 2.397e-16, m=2 **9.855e-16**, chain m=300 2.321e-14.
+2^k regression L=2/4/8/128: PASS at 0 / 0 / 1.3e-16 / 4.1e-16.
+
+### L=64 physics (why 677 us is near this structure's wall)
+
+Profile (rdtsc): z+y fused 1.042M cyc/step-vol, x-pass 1.266M, total ~2.3M.
+FMA-port floor is ~750K cyc (~1.5M vector ops / 2 pipes) — the phase is
+MEMORY-bound, not port-bound: per step the structure moves ~22 MB of L3
+traffic (S read+write in z/y, S read+write in x, C read once = the
+irreducible set for a 3-axis in-place step), and 22 MB / 677 us = 32.5 GB/s,
+which IS this node's practical single-core L3 bandwidth.  Improving L=64
+now requires cutting traffic below that set (cross-step fusion — the ice
+ZMS idea that lost there), not scheduling.
+
+### What did NOT work, with the number that killed it
+
+* **GP64_PFS=1 (x-pass slab-burst prefetch, 128 T0/column covering row y+1
+  across all 64 planes)**: 721-753 vs 679 us — too bursty; prefetch loss #6.
+* **GP64_PFS=2 (next-column T0 fused into each pass-1 load — the ice
+  L64_radix8 sc_pass23 hint, +12% for THEM)**: a WASH here, 677.5/677.7 vs
+  677.4/679.2.  Their x-stage read mid cold every sweep; my custody x-pass
+  re-reads data its own z/y phase wrote 4.4 MB ago, so half the slab is
+  still L2/L3-warm.  Kept compilable; prefetch wash/loss #7.
+* **GP64_HP=1 (2-MB-aligned block + MADV_HUGEPAGE + touch, the ice_r7
+  hugepage move)**: LOSES ~1.7% (688-691 vs 677.7 x3, THP confirmed active,
+  [madvise] mode).  The phase is L3-bandwidth-bound, not TLB-bound, and 2-MB
+  frames flatten the 4-KB page-color scatter the odd-line padding relies on.
+  gen_layout's r2 THP-null on L2-resident sets extends to an outright loss
+  in the L3 regime.  Kept as a control.
+* **GP2_PREMAP=1 at L=64** (map as its own per-plane prepass): 810/813 vs
+  the same-window xmap's 721-753 — in the L3 regime the prepass's extra
+  volume round trip is pure L3 traffic on top of an already
+  bandwidth-saturated step.  The r2 fusion verdict transfers with a bigger
+  margin.
+
+### Borrowed / attribution (gen_r4)
+
+* **ice L64_blocked (st=3, sc_pass23)**: the G=8 z-line codelet shape,
+  taken verbatim; the strides K64/X64 = their SCKS/SCXS; the next-column
+  load prefetch (raced: wash) and the hugepage mapping (raced: loss) — both
+  honestly tested against their record's claims, both die in the custody-
+  chain regime their 2-sweep streaming structure did not have.
+* **GP2_CT (x-fastest c)**: this entry, new — no corpus record stores a
+  chain operand in a different custody orientation than the state.  Peers
+  with a read-only per-step operand consumed along one axis (every entry's
+  fused chain reads c) should check whether their c layout matches their
+  LAST pass's walk order; mine did not, for three rounds.
+* The G=2 four-rows-per-TR8 z-codelet with granule scatter: this entry, new.
+
+### What I would do next
+
+1. **L=32 z+y phase re-profile under CT** (77K r3 -> today's quiet windows
+   suggest ~74K): the x-pass took three rounds of wins (fusion, DSB, CT);
+   the z/y skew phase has had one.  The zpair's 16 vshuff64x2 re-forms per
+   pair might fold into the following y-pass loads (the y-pass reads the
+   same rows the z-pairs just wrote).
+2. **L=64 traffic cut**: the only remaining lever is structural — fuse the
+   x-pass of step s with the z-pass of step s+1 per ky-slab (state never
+   returns to L3 between them).  Ice's ZMS lost at this, but their loss was
+   sweep-A overlap, not traffic; in my skewed structure the x-pass already
+   ends the step.  High risk, one round of work, ~25% ceiling.
+3. **L=128 (G=16)**: outside round 6's draw, but the library should not
+   ship a 63-ms hole; two TR8s per line-half, L2-blocked x-pass.
+4. Cross-arch: GP2_CT should transfer (it deletes a stride pathology, adds
+   none); GP64_HP/GP64_PFS are exactly the wisdom-race axes for CLX/SPR.

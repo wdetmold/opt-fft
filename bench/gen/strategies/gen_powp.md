@@ -502,3 +502,154 @@ r3_final.sh runs the full graded + B=1 + new-size sweep with map-checks and
 two-process cmps by hand on a leased core (bash r3_final.sh <core>).  squeue
 on wallaby still needs the slurm PATH shim.  Off-case sizes: tryout accepts
 any L (m defaults to 1), which is how the new sizes were driven.
+
+## Round gen_r4
+
+Standings into the round: led all four owned sizes (25: 32.21, 27: 44.81,
+50: 473.68 by 0.07% over gen_pfa_large, 100: 5021.0 by 1.4%).  But
+gen_pfa_large's r4 (already landed): volume-major chain + a new ipp family
+that reads 4923 at 100 -- doing nothing would have lost both shared sizes.
+This round is deliberately a fast-follow: take their two structural items,
+verify them on MY engine with the honest A/B protocol gen_batchlane r4
+published, and re-rank where the evidence says so.
+
+### What was built (three adoptions, one rank decision)
+
+**1. VOLUME-MAJOR chain schedule (ADOPTED from gen_pfa_large gen_r4, who
+took it from gen_dense_prime / gen_rader / gen_layout).**  fft3d_chain now
+runs ALL m steps on one volume before the next, for both interleaved chain
+paths (deferred and plain): per-step working set drops from the whole
+batch's state+c to one volume's slice (0.5 MB at 25 -- L2-resident -- to
+4 MB at 50 B=4).  Per-volume FFT op order unchanged; outputs bit-identical
+to r3's step-major at 50/100 (VDv % 8 == 0); at 25/27 the per-volume
+map_span tail moves 1-3 complex per volume from the vector ladder to the
+exact scalar map (gates unaffected, and the graded 25/27 picks are soa).
+The soa engine was group-major from birth -- untouched.
+
+**2. ipp* plane-prepass deferred-map family (ADOPTED from gen_pfa_large
+gen_r4, read from their landed impl_4 source).**  The ipm schedule (state
+holds raw FFT output between steps; step 1 plain, one trailing map_span)
+but the map runs as map_span's perfectly sequential per-plane prepass into
+an L2-resident scratch plane (M's base, 10-250 KB at these sizes) that a
+factored p1body then consumes.  Their mechanism transfers exactly as
+advertised: ipm and ipp have identical per-step traffic, and my r3 ipm
+still lost 11-16% at 100 -- the loss was the ladder's port/latency
+footprint inside the granule-load stream, and ipp pays it only at plane
+seams.  Raced as ipp0/ipp1 at 50/100, ipp0 at 25/27 and the lite sizes
+(pf ids 9/10; ipp rides the x_ip* executes per my r3 pairing lesson --
+NOTE gen_pfa_large pairs ipp with x_pf* in their table; executes differ
+per engine, pair with your own best).
+
+**3. The create() race times the VOLUME-MAJOR shape (their race fix): per
+volume one unmeasured warm step, then R timed steps in place on that tout
+volume (R = 8/6/4 by volume bytes <=2/<=8/>8 MiB), min over 4 interleaved
+rounds; tc[] is now per VOLUME-step.**  Wisdom tag chain2 -> chain4 so no
+stale step-major verdict can install.
+
+**4. Rank reorder at 50/100 (own decision, from paired evidence).**  The
+first node cold race scored ipp1-at-100 a 1.4% "tie" and hysteresis kept
+ip0.  Same-core tight alternation (ONE held slot lease, alternating forced
+GENPWP_PF binaries, gen_batchlane r4's protocol) settled it: ipp1 wins 4
+of 5 pairs, quiet floors 4905-4929 vs ip0's 5110-5160 (-4.0..-4.5%); the
+tie verdict was window drift, exactly gen_pfa_large's lesson 1.  So at
+50/100 (and ipp0 to rank 1 at the lite sizes) ipp is now ranked FIRST: a
+busy-window race margin that shrinks under the 3% hysteresis must fall to
+the measured winner, not the simpler loser.
+
+### Measured on the node (a80n0, leased cores; this session ran BIMODAL --
+### two sustained core states ~6-14% apart, MKL steady, exactly
+### gen_pfa_small r4's method note; quiet-state minima quoted, hot in parens)
+
+| case | r3 | gen_r4 | same-window MKL 2022 | pick |
+|---|---|---|---|---|
+| L=25 B=16 m=256 | 32.21 | **31.95** (34.2 hot state) | 121.2 | soa (3.79x) |
+| L=27 B=16 m=200 | 44.81 | **47.6-47.8 every window this session** -- code bit-identical to r3, MKL steady 144.5-145.0; the quiet floor remains r3's 45.0 | 144.5 | soa |
+| L=50 B=4 m=128  | 473.68 | **478.3** (484.5 hot; MKL 953.8 vs r3-board 947.2 -- window-adjusted ~ r3) | 953.8 | ipp0 |
+| L=100 B=1 m=64  | 5021.0 | **4861** (4899 second window; paired-A/B floor 4905-4929 vs ip0 5110-5160) | 7801 | ipp1 (1.60x) |
+
+B=1 chains (ungraded): 25: 42.79 (pick ipf), 27: 59.85 (ip1; one hot-core
+tryout read 68.0 -- core-hop, not code), 50: **476.1** (ipp0; r3 484.5, and
+B=1 now ~= B=4).  New sizes, same m as r3's finals: 49 B=8 m=32 **548.5**
+(r3 588, -6.7%, pick ipp0), 81 B=2 m=16 **3037.7** (r3 3283, -7.5%, ipp0),
+121 m=8 14103 (ipm0 keeps it), 125 m=8 15258 (ipm0).  Wallaby: 100 B=1 m=4
+ipp1 3100 vs ip1 3331 (-6.9%); 50 B=4 m=8 ipp1 325.7 vs ip1 339.3 (-4%).
+
+Gates, all eight sizes, node, by hand (tryout's map-check leg still has the
+'$W/c.bin' quoting bug): single call 3.6-5.0e-16 (tol 1e-12); two-step m=2
+1.40/1.56/2.36/2.72e-15 at 25/27/50/100 (tol 3e-14, >10x margin); graded
+chains 3.10/3.47/5.03/4.18e-14 at 1.1-1.7x honest anchors (tol 1e-10);
+new-size chains 5.6e-15-1.2e-14; ALL bit-repeatable across independent
+processes.  Setup: cold 0.38-4.1 s (pools now 8-10 candidates; 60 s
+budget); warm wisdom 1-6 ms (50 ms budget).  Round end: all gen_powp
+entries STRIPPED from results/wisdom_a80n0.json (r2/r3 protocol).
+
+### What did NOT work / boundaries, with the numbers
+
+* **ipp does NOT win everywhere**: at 121/125 ipm0 stays ahead (wallaby:
+  121: ipm0 7835 vs ipp0 8396; 125: ipm0 8349 vs ipp0 8545) -- at ~1850-op
+  lines phase 1 is compute-fat enough that the in-stream ladder hides, and
+  ipp's extra L2 plane round-trip is pure cost.  Family stays raced, race
+  arbitrates, exactly like ipm-at-100 in r3.
+* **The rank reorder has a measurable worst case**: at 50 B=1 in one hot
+  window the race stored ipp0 with margin -2.9% (an ip variant was faster
+  there); rank-first means we eat <=3% when ipp genuinely trails inside
+  the hysteresis band.  Accepted: both scoring-relevant cells (50 B=4, 100
+  B=1) show ipp ahead in paired A/Bs, and the CLX advisory should favor
+  ipp harder (smaller footprint = contention armor, their r4 busy-window
+  -11%).
+* **gl_tr8x8_c2i (gen_layout r4's new exit primitive) NOT adopted**: my r2
+  soa unpack already loads re/im pairs as alternating tr8x8 rows, which IS
+  the fused shape -- 48 shuffles per 8 sites either way; and pack/unpack
+  runs twice per graded chain (amortized over m >= 128).  No win to take;
+  recorded so nobody re-derives it.
+* **gen_layout r4's NT stores (-19% on their L=100 floor) NOT applicable
+  here**: my p2ip stores are read-modify-write on lines the codelet just
+  read (RFO is real), the y-subpass writes land on prepass-warmed lines by
+  design, and gen_pfa_large's race table already shows an NT variant
+  (ipnt 8009 vs ipp1 5180) cratering in this engine shape.
+* **One hot-core tryout read 27-B=1 at 68.0 us (+14% vs r3)** and nearly
+  looked like a regression; the held-lease rerun read 59.85.  tryout.sh
+  acquires a fresh lease per invocation and hops cores (gen_batchlane r4's
+  finding) -- for ANY conclusion, hold one lease and alternate, or rerun.
+
+### Borrowed, plainly
+
+- **gen_pfa_large (gen_r4)**: the volume-major chain schedule (transitively
+  gen_dense_prime / gen_rader / gen_layout), the whole ipp idea and its
+  plane-seam granularity rationale, and the volume-major race arena fix
+  with the chain-tag bump.  This round is mostly their round, ported and
+  re-verified; the rank-first-for-ipp decision and the lite-size ipp
+  verdicts (wins 49/81, loses 121/125) are mine.
+- **gen_batchlane (gen_r4)**: the same-core held-lease alternation
+  protocol -- it re-decided the pick at 100 (the race's tie was wrong) and
+  acquitted a false regression at 27 B=1.
+- **gen_pfa_small (gen_r4)**: the bimodal-core-state method note (min-of-
+  mins per config, control-first pairs) -- used to read every number above.
+
+### Operation count
+
+FMA-port vector ops per line unchanged at all eight sizes (192/218/434/968
+scored, 534/850/1850/1552 lite).  ipp moves the map's ~21 ops/vector from
+its own pass into the per-plane prepass (per-step total identical to ip*)
+and adds one L2 plane round-trip (write + re-read of M's base, 10-250 KB)
+per plane; per-step DRAM accounting at 100 drops from ~112 to ~80 MB.
+Volume-major moves no arithmetic at all.
+
+### What I would do next (ranked)
+
+1. **XARCH.md lands after this round**: verify the per-host race flips --
+   ipp should widen on CLX (traffic-bound), the soa picks need checking on
+   SPR; the knobs and the wisdom race are already in place, race, don't
+   retune.
+2. **L=27 remains the weakest scored ratio** (3.0-3.2x vs 3.8x at 25): the
+   x-pass two-column pipelining item is now three rounds old and untried
+   (register cliff at ~32 live vecs); one honest same-core A/B, one
+   afternoon, then close it either way.
+3. **L=50 B=4**: gen_pfa_large's suggestion for whoever moves first -- a
+   2-volume-pair schedule (4 MB, L3-safe) or soa-style 2-lane packing at
+   B=4.  Nobody has measured either; the cell is a dead heat.
+4. **Lite sizes at execute-heavy shapes**: 81 execute is still 1.6x behind
+   MKL (chain leads); 27x3 reuse of DFT27C machinery is the standing idea
+   if round 6 draws 81.
+5. **Planner handshake unchanged**: supports() covers 25/27/49/50/81/100/
+   121/125; keep gen_planner routing p^k draws here, not to Bluestein.

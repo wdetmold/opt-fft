@@ -100,3 +100,21 @@ scoring window open: all 24 slots held
 [2026-08-24 15:06:53] promoting: gen_pfa_small gen_batchlane gen_powp gen_rader gen_pow2 gen_pfa_large gen_dense_prime gen_planner gen_race gen_layout gen_twiddle
 /tmp/fft_rounds_RFPXs9.sh: line 512: ./promote.sh: No such file or directory
 [2026-08-24 15:06:53] promote.sh reported a problem
+[2026-08-24 15:07:00] committed round gen_r3
+[2026-08-24 15:07:00] ---------- gen_r3 complete; next is gen_r4 of gen_r6 ----------
+[2026-08-24 15:07:00] ---------- gen_r4 begins ----------
+[2026-08-24 15:07:00] gen_r4 works in impl_4 (13 sources carried over from impl_3)
+[2026-08-24 15:07:00] context pack: 225 lines
+[2026-08-24 15:07:00] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle
+[2026-08-24 16:19:32] implementers finished: 12 reported
+[2026-08-24 16:19:32] submitting timing round gen_r4 (seed 20264873) to the exclusive benchmark node
+scoring gen_r4 on reserved Ice Lake node a80n0
+scoring window open: all 24 slots held
+   mkl2026_dfti             oneMKL 2026.1 (pip wheel) DFTI, sequential, batched
+   mkl_dfti                 oneMKL 2022.0.2 DFTI, sequential, batched
+== round gen_r4 complete: results/gen_r4 ==
+[2026-08-24 19:57:18] leaderboard for gen_r4 is in
+[2026-08-24 20:06:54] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/gen/results/gen_r4/monitor.log)
+[2026-08-24 20:06:54] promoting: gen_pfa_small gen_batchlane gen_powp gen_pfa_large gen_pow2 gen_rader gen_dense_prime gen_planner gen_race gen_layout gen_bluestein
+/tmp/fft_rounds_RFPXs9.sh: line 512: ./promote.sh: No such file or directory
+[2026-08-24 20:06:54] promote.sh reported a problem

@@ -1,0 +1,9 @@
+Round gen_r4 complete. Summary of what shipped in `impl/gen_planner.c`:
+
+1. **Fused register-resident CT codelets** — any node with n = r·m ≤ 25 and both stages hard leaves now runs entirely in zmm registers (19 instantiations of one always_inline body): no arena round trip, no per-leaf dispatch. This fixed the small-L overhead my r3 record flagged and reaches inner subtrees at 27/50/100 through the ordinary planner.
+2. **Sub-tree diversity in enumeration** (deferred since r1) — every CT root is also emitted with the runner-up child tree; race widened to top-6.
+3. **Masked 4×4 transpose edges** — scalar edge loops deleted.
+
+Node results (graded chain, min): ahead of MKL at **all 11 acceptance cases** now (r3: 10/11) — 10: 4.72→3.49 (−26%), 12: −25%, 15: −21%, 20: −12%, 25: −13%, 27: −17%, 50: −19%, 100: 6656→5528 (−17%); 31/32/40 unchanged (no fusable node, verified by interleaved A/B at 40). All gates pass: single-call 2.9–4.7e-16, two-step m=2 gate 0.95–2.97e-15 (tol 3e-14), map-chains 1.06–2.1× honest anchors, full L=2..128 sweep 127/127 PASS, bit-identical across node processes. Wisdom keys stripped at round end per protocol; strategy record appended.
+
+Fused register-resident small-n CT codelets (n≤25) + sub-tree diversity + masked transpose edges — best wallaby(node) µs/transform: L=10 3.53 @B=1 / 3.49 @B=64, L=100 5528 @B=1 (all 11 cells now beat MKL); rel L2 2.9–4.7e-16.

@@ -1,0 +1,2 @@
+./xarch_advisory.sh: line 20: sbatch: command not found
+sbatch failed

@@ -1,0 +1,13 @@
+Both files are complete and every measurement is verified. Final summary of the round:
+
+## Round gen_r4 done — technique, numbers, and what shipped
+
+**The headline: L=100 B=1 dropped 19%, from 19,509 → 15,606–15,845 µs/transform**, and the win is fully attributed. The r3 assumption that ~100 fold-load streams were beating the L2 prefetcher turned out to be only half right — same-window knockouts showed software prefetch is a *wash* at L=100 (the out-of-order window rides the load misses), and the real binder was the three full-volume **store** streams whose read-for-ownership traffic doubled the write bandwidth. Non-temporal full-line stores (axis-0→s1, axis-2→dst, map→state; eligibility proven at create() via size ≥ 4 MiB/component plus alignment laws, full-mask-only, sfence per pass) deliver the entire −19%. Prefetch instead pays in the cache-resident middle: −2.6% at L=31 (3-run stable) and the no-prefetch arm read +5.6% at L=12. B=1 improved everywhere the core stays warm: L=31 B=1 is now 227.5 µs (r3: 253.6).
+
+**Library additions (my actual score is adoption):**
+- `gl_alias_drained4k` + `GL_SBUF_ICX/SKX` — gen_dense_prime's r3 negative result ("the collision model needs an are-the-stores-still-in-flight term") returned to them as API: alias pairs only bind while stores occupy the store buffer, so the audit score gates through the kernel's drain-to-load µop distance before anyone spends a node window on a pitch fix.
+- `gl_tr8x8_c2i` — fused split-lane-block → interleaved-rows network, 48 shuffles where `gl_tr8x8`×2 + `gl_int8`×8 spent 64 (port-5 relief; it's the store side of gen_batchlane's bl8 exit and gen_powp's SoA conversions). Exactness is now part of `gl_selftest()`.
+
+**Correctness, all gates by hand** (tryout's chain leg is still broken on `'$W/c.bin'`): single-call rel L2 2.8–5.6e-16 across 10/12/25/31/32/50/100; two-step gate 9.4e-16/1.7e-15/3.3e-15 at 12/31/100 (tol 3e-14 — the L=100 figure exercises the NT path at 9× margin); graded map-chains PASS at all three; L=100 chain output bit-identical across independent runs; scalar AVX2 build passes end-to-end at 4/9/12/27.
+
+**One-line close:** NT full-line stores on DRAM-resident volumes + fold-load prefetch + fused transpose-interleave scatter — best node numbers: B=1 L=100 **15,606 µs** (L=31 B=1 227.5, L=12 B=1 8.03), batched L=31 B=16 **231.4 µs** / L=12 B=64 **7.98 µs**, rel L2 ≤ **5.6e-16** (tol 1e-12), all gates PASS.

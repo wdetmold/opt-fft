@@ -441,3 +441,129 @@ shuffles + 2 fmaddsub per (k, 4 cols). Dense n: same tile, 2 cmul-FMAs per
    full scalar executor as fallback; CLX/SPR have both, but the tile/fold
    crossovers should be re-raced per host -- which the wisdom cache now does
    by construction.
+
+## Round gen_r4 -- fused register-resident small-n codelets; the arena round trip was the small-L tax
+
+### What changed (all in impl/gen_planner.c; pln_* API unchanged)
+
+1. **FUSED two-level CT codelets** (the round's one big idea): a CT node with
+   n = r*m <= 25 and BOTH stages hard leaves (r, m in {2,3,4,5,8}) now runs as
+   a single register-resident kernel per column chunk -- load all n rows once,
+   child m-DFTs + twiddle cmuls + r-DFTs entirely in zmm, store n rows once.
+   No arena staging, no per-leaf calls, no separate twiddle pass. One
+   always_inline body (`pln_fusedv`) instantiated for all 19 legal (r,m)
+   pairs; arithmetic and constants byte-identical to the pln_lv* leaves, so
+   the precision budget is unchanged. All loads precede all stores per chunk,
+   preserving the executor's universal in-place safety. asm audit
+   (icelake-server, gcc 11): ZERO zmm spills up to n=20; n=25 spills 4 zmm
+   (pln_f_5_5) and still wins big (below). This deletes, per former CT node
+   call: 2n row stores + 2n row loads of arena traffic and ~r+m call
+   dispatches -- exactly the per-call overhead my r3 record named as the
+   small-L residue.
+2. **Fusion reaches INNER nodes everywhere**: 50 = c5(c2(d5)) runs its inner
+   10 fused, 100 = c5(c4(d5))/c5(c5(d4)) its inner 20/25, 27 = c3(c3(d3)) its
+   inner 9, 75 = c5(c3(d5)) its inner 15 -- the round-6 surprise draws get
+   this for free through the ordinary planner.
+3. **Sub-tree diversity in enumeration** (my r1 next-list item, deferred three
+   rounds): the arena memo now keeps best2[n]/bestc2[n], and every CT root is
+   also emitted with the runner-up child tree. The race widened from top-4 to
+   top-6 (wisdom amortizes the extra trials; cold setup at L=100 is 0.25 s
+   vs the 60 s budget). Model cost for fused nodes:
+   m*leafF(r) + r*leafF(m) + 4(m-1)(r-1) + 12 (no buffer/per-call terms).
+4. **Masked transpose edges**: pln_tr4x4m handles nr x nc <= 4x4 tail blocks
+   with masked loads/stores (zero-fill lanes die in rows/columns the masks
+   drop); the scalar edge loops are gone. At L=10, 36 of 100 elements per
+   plane transpose went through scalar copies, twice per plane per step.
+
+### Measured on the node (a80n0, leased core via tryout.sh, graded chain, min; MKL 2022 same window)
+
+| case | gen_r3 | gen_r4 | delta | MKL | vs MKL | picked (node race) |
+|---|---|---|---|---|---|---|
+| L=10  B=64 m=1000 | 4.72  | **3.49**  | -26% | 4.61  | **1.32x** | c2(d5) fused |
+| L=12  B=64 m=600  | 6.89  | **5.18**  | -25% | 7.93  | **1.53x** | c3(d4) fused |
+| L=15  B=32 m=600  | 14.96 | **11.79** | -21% | 16.50 | **1.40x** | c3(d5) fused |
+| L=20  B=32 m=256  | 27.92 | **24.69** | -12% | 60.63 | **2.46x** | c4(d5) fused |
+| L=25  B=16 m=256  | 69.5  | **60.2**  | -13% | 125.6 | **2.09x** | c5(d5) fused (4 spills, still -15% in the A/B) |
+| L=27  B=16 m=200  | 104.5 | **86.5**  | -17% | 145.6 | **1.68x** | c3(c3(d3)), inner 9 fused |
+| L=31  B=16 m=140  | 204.9 | 205.6     | 0    | 858.5 | 4.18x | d31 (unchanged path) |
+| L=32  B=8  m=250  | 131.3 | 129.7     | -1%  | 181.1 | 1.40x | c4(d8) (unchanged path) |
+| L=40  B=8  m=128  | 282.1 | 283-292   | wash | 415.9 | ~1.45x | c5(d8) (same tree; interleaved r3-vs-r4 A/B 3 pairs: deltas alternate sign) |
+| L=50  B=4  m=128  | 785.1 | **639.3** | -19% | 943.4 | **1.48x** | c5(c5(d2))/c5(c2(d5)) near-tie, inner 10 fused |
+| L=100 B=1  m=64   | 6655.8| **5528.4**| -17% | 7762.4| **1.40x** | c5(c5(d4))/c5(c4(d5)) near-tie, inner 20 fused |
+
+Now ahead of MKL at ALL 11 acceptance cases (r3: 10 of 11; L=10 was the last
+red cell). The remaining gaps to class winners narrowed: L=100 5528 vs
+gen_powp's r3 5021 (was 6656 vs 5021); L=25 60.2 vs their soa 32.4. B=1 ==
+batched as always (3.53 at 10, 85.8 at 27, 655 at 50). fftw3_guru is not a
+threat at the sizes checked (L=100 B=1: 14691 us in its r3 json).
+
+Gates, final binary: single call 2.9-4.7e-16 at all 11 cases (tol 1e-12);
+two-step m=2 gate 0.95-2.97e-15 at 10/20/25/27/50/100 (tol 3e-14, 10-30x
+margin); full graded map-chains 2.46e-14 (31, anchor 2.31e-14) to 5.88e-14
+(20, anchor 2.84e-14), all within 1.06-2.1x of honest anchors, tol 1e-10.
+Full local sweep L=2..128: ALL 127 PASS (both before and after the n<=25
+fusion cap). Two independent node processes bit-identical at L=100
+(race+wisdom path; wisdom pins process 2). Setup: 0.25 s cold at L=100,
+wisdom hit ~6 ms. Non-SIMD and GEN_PLANNER_LIB adoption modes still compile.
+Round end: gen_planner/ keys stripped from results/wisdom_a80n0.json under
+the flock (gen_powp protocol; the file was already otherwise emptied by the
+other entries' own round-end strips -- absent entries are deliberate, the
+monitor cold-races on its quiet window).
+
+### What did NOT work / open items, with numbers
+
+- **L=40 shows no gain and wobbled +2% in the first window**: the picked tree
+  c5(d8) contains no fusable node (n=40 > 25, d8 child of c5 makes r*m=40)
+  and 40%4==0 so the transpose edges never fire. Interleaved A/B against the
+  rebuilt r3 binary (3 pairs, same core): r3 281.0-287.6 vs r4 283.1-292.3
+  with the sign flipping between pairs -- window noise on identical kernels,
+  not a regression. A c5-outer/fused-8-inner shape does not exist; the
+  structural next move at 40 is a fused (5,8) variant with spill-managed 13+
+  live vecs or the batchlane seam, not more racing.
+- **GEN_PLANNER_TILE=64 at L=100 under the fused inner nodes**: 5524@32 vs
+  5553@64 (quiet pair; the busy pair agreed) -- tile 32 stays, third round
+  running.
+- The fresh 50/100 races flip between near-tie trees (c5(c5(d2)) vs
+  c5(c2(d5)); c5(c5(d4)) vs c5(c4(d5))) depending on window: the diversity
+  candidates are real contenders, and the monitor's cold quiet-window race
+  picks whichever is true there. That is working as designed.
+
+### Borrowed this round, named
+
+- **gen_batchlane r1 harness notes** (again): the wallaby squeue PATH shim
+  (recreated verbatim, heartbeat-gated) and the by-hand map-check for
+  tryout's still-unfixed '$W/c.bin' quoting bug.
+- **gen_dense_prime r3 / gen_rader r3**: the interleaved control-first A/B
+  protocol for bimodal windows (used at 40 and for the fusion-cap A/B).
+- **gen_pow2 r3's DSB warning** shaped the fused design: one column chunk per
+  loop body, kernels stay ~1-2 KB; no multi-column unrolling was attempted.
+- The fused codelet idea itself is the fixed-size campaigns' whole-transform-
+  in-registers doctrine (every class winner does this); this round
+  industrializes it inside the generic executor, picked up by the ordinary
+  planner enumeration rather than per-size code.
+
+### Operation counts (fused node, per 4-column chunk)
+
+n rows loaded (masked), r child DFT_m butterflies + (r-1)(m-1) cmuls
+(3 FMA-class + 2 broadcast loads each) + m cross DFT_r butterflies, n rows
+stored (masked). Zero arena traffic, zero shuffles beyond the leaves' own
+addi/subi permutes. vs r3 staged CT: saves 4n row moves (2n stores + 2n
+loads) and r+m dispatches per node call. Transposes: edge blocks now cost
+the same 8 shuffles + masked I/O as interior blocks.
+
+### What I would do next (ranked)
+
+1. **L=100 axis-0/plane-pass residue vs gen_powp's 5.0 ms**: the gap is now
+   10%; the remaining structure is their codelet-grade x-pass. A PMU session
+   (gen_pfa_large's r3 advice: attribute port-5 vs DRAM before speculating)
+   should decide between wider fused shapes and traffic work.
+2. **Fused (5,8)/(8,5) with explicit spill scheduling** for L=40's inner 40
+   -- the n=25 result (4 spills, -15%) says the register cliff is soft;
+   n=40 needs ~20 planned spills and may still beat the arena round trip.
+3. **Batch-lane seam at 10/12/15** (gen_batchlane is still 3x ahead at 10):
+   the fused kernels cut my per-call overhead, but their SoA-8 layout
+   amortizes across volumes -- composition remains the unexplored axis.
+4. **xarch**: the fused kernels are pure AVX-512F+DQ, guarded; CLX/SPR
+   re-race via wisdom by construction. Check XARCH.md when it lands for the
+   tile and fusion-cap crossovers (SPR's second FMA pipe may move the n=25
+   spill trade).

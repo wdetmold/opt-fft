@@ -383,3 +383,127 @@ Map: ~19 FMA + 2 seeds per site at 10/12/15; ~14 FMA + 1 seed + 1 vdivpd at
    tax, it is real work with real reuse) -- measure, do not assume.
 4. If the xarch guard flags SPR/CLX: race -DBL_MAPDIV/-DBL_MAPRCP and the
    three sched knobs; the defaults encode Ice Lake verdicts only.
+
+## Round gen_r4 -- the A/B protocol was broken: same-core interleaving flips the L=15 sched verdict
+
+Standings into the round (r3 board): led 12 (1.915 vs pfa_small 1.970) and 20
+(13.011 vs 13.257), tied 10 (1.157 vs 1.156), and SCORED 7% behind at 15
+(4.771 at 2.3% spread vs their 4.464 -- my r3 dev number was 4.456, so that
+cell smelled like window noise, and this round found the mechanism).
+
+### The finding that drove the round: tryout.sh A/B pairs hop cores
+
+`tryout.sh` acquires a FRESH slot lease per invocation. Consecutive
+invocations of an A/B pair therefore often run on DIFFERENT leased cores, in
+different turbo/neighbor states -- and this session the states differed by
+10-25% while MKL (memory-bound) moved <2%. Every "control-first adjacent
+pair" in my r1-r3 records (and, I suspect, in several peers') carries this
+confound on top of the known time-bimodality. The fix, used for everything
+below: hold ONE slot lease, build all variants side by side, and alternate
+`--samples 4` invocations of the SAME binaries on the SAME core
+(literature 10's interleaved best-of-N, applied at invocation granularity).
+Six-pair interleaves gave sub-1% discrimination in windows where
+cross-invocation tryout pairs contradicted themselves by 8%.
+
+### What shipped (one real change; chain outputs bit-identical to r3)
+
+**SCHED15 default flipped OFF.** Same-core interleave, six consecutive
+pairs, fused map, all wins: stock scheduler 4.567-4.605 vs sched-pressure
+attribute 4.767-4.880 us (**-4.3%**). r3 shipped the attribute at 15 on a
+"+5.3% when stripped" cross-invocation measurement -- backwards. The r2/r3
+history of this attribute at 15 (r1: -13% as global flags, r2: +4.3% when
+stripped, r3: +5.3% when stripped) is now explained as core-state luck
+stacked on the inline confound r3 found. `-DBL_SCHED15` re-enables it for
+the cross-arch races. 10/12 RE-CONFIRMED the attribute honestly wins
+(10: 1.159 attr vs 1.218 without, 12: 1.921 vs 2.037; settled-state
+same-core pairs), and 20 re-confirmed OFF (13.29-13.50 vs 14.21-14.81 with
+`-DBL_SCHED20`). Map tails re-confirmed same-core: rcp14 ladder at 15
+(4.77 vs div 4.94-4.96), vdivpd at 20 (13.29 vs rcp 13.74-14.01). So every
+r3 verdict EXCEPT SCHED15 survives the honest protocol.
+
+### Built, raced, and rejected: the map_col epilogue (kept as BL_EPI knobs)
+
+The r4 asm audit found the fused x-pencil at 15 spills hard (27 spill
+stores + 15 spill loads + 12 folded rsp operands per pencil; L=12: 31 rsp
+touches) while the map-free sweep pencils spill ZERO -- the fused map's ~7
+temps + 4 constants on top of 30 live site registers are what overflow the
+32 zmm. The targeted fix: `map_col`, a per-column epilogue loop right after
+a spill-free plain DFT pencil (outputs still L1-hot/store-forwarded,
+per-site arithmetic unchanged, outputs bit-identical -- verified by cmp).
+Cross-invocation tryout pairs said it WON at 15 (-4.5%!) and 20 (-8.7%!),
+which is what exposed the protocol problem: under same-core interleaving it
+LOSES everywhere -- 15: 5.22-5.35 vs fused 4.78-4.92 (six pairs, +9%); 15
+with the new no-sched default: 4.86-4.89 vs 4.58 (+6%); 12: 2.225 vs 2.184;
+10: 1.31-1.49 vs 1.16; 20: fused wins 3 of 4 pairs. gcc's spill placement
+inside the fused pencil beats a clean split plus 2L extra L1 round trips.
+The knobs stay compilable (`-DBL_EPI10/12/15/20=1`) as cross-arch race
+candidates -- CLX's smaller L1/turbo behavior could flip it.
+
+### What else did NOT work
+
+- **Scalar constants for embedded-broadcast FMA operands** (literature 10's
+  pressure cure): gcc 11 generated a BYTE-IDENTICAL binary (zero `{1to8}`
+  operands emitted from vector-extension code). Reverted; it needs
+  intrinsics or a newer gcc, not worth the rewrite. Do not re-try on this
+  toolchain.
+- **gen_pow2's DSB/front-end check** (their r3 warning to peers with big
+  unrolled bodies): audited, NOT my disease -- hot loop bodies are ~630
+  instrs at 15 (x-pencil+map), ~380 at 20, all under the ~2.3K-uop DSB.
+  Clean verdict, 15 minutes, worth repeating after any unroll change.
+
+### Measured on the node (a80n0 core 4 via held lease, graded chains, same-core minima; this session's windows never reached r3's quietest state)
+
+| case | r3 ship (same-session control) | r4 ship | same-window MKL 2022 | ratio |
+|---|---|---|---|---|
+| L=10 B=64 m=1000 | 1.158 | **1.157** (unchanged path) | 4.59 | 4.0x |
+| L=12 B=64 m=600  | 1.921 | **1.919** (unchanged path) | 7.78 | 4.1x |
+| L=15 B=32 m=600  | 4.767-4.880 | **4.567-4.589** (-4.3%) | 16.52 | 3.6x |
+| L=20 B=32 m=256  | 13.17-13.50 | **13.394** (unchanged path) | 60.5 | 4.5x |
+
+Gates (final shipped build, all run by hand on the node; identical error
+numbers to r3 because the arithmetic is bit-identical): single call
+2.6/2.9/3.1/3.0e-16; two-step m=2 8.2e-16/9.2e-16/1.2e-15/1.2e-15 (tol
+3e-14); graded chains 1.687e-13/4.869e-14/5.249e-14/4.366e-14 vs anchors
+1.081e-13/3.887e-14/4.784e-14/2.835e-14 (tol 1e-10); repeatable
+bit-identical; B=1 and B=12 mixed group+remainder single and m=2 chains
+PASS at all four sizes. B=1 chains 10.52/17.44/41.66/116.5 us (unchanged
+gap, four rounds on the list now).
+
+### Borrowed, plainly
+
+- **gen_pow2 gen_r3**: the front-end/DSB audit request (run, clean) and the
+  min-vs-median window discipline.
+- **Literature 10**: the interleaved best-of-N timing protocol -- the
+  round's real adoption; it re-decided one shipped default and killed a
+  false positive that cross-invocation tryout numbers would have shipped.
+- **gen_pfa_large gen_r3 / gen_powp gen_r3**: their map-placement negative
+  results (ipe/ipm) framed the epilogue experiment as pencil-LOCAL rather
+  than pass-global; the local version still lost, which closes map
+  placement at ALL granularities for this engine on this node.
+
+### Operation count
+
+Unchanged from r3 everywhere (88/96/162/216 vector FP per pencil per 8
+volumes; map ~19 FMA + 2 seeds per site at 10/12/15, ~14 FMA + 1 seed +
+1 vdivpd at 20). This round moved no arithmetic -- it fixed a default that
+scheduling luck had set wrong and repaired the measurement procedure.
+
+### What I would do next (ranked)
+
+1. **Tell the monitor / peers about the core-hop confound** (done here in
+   the record): any per-size default in ANY entry that was set by a <8%
+   cross-invocation tryout margin deserves a same-core re-race. My own
+   remaining suspects were all re-raced this round.
+2. **B=1 lane-spatial engine**: still the biggest hole (2.3x behind MKL),
+   still only round-6-relevant, still better built once with gen_pfa_small
+   (their split path already beats my replicated path 2.8x at B=1 --
+   coordinate, adopt, or concede that batch regime to them in the planner
+   routing).
+3. **L=15 residual vs the 4.46 quiet floor**: with sched luck removed, the
+   honest gap to the port-utilization floor (~3.8 us) is spills (~54 rsp
+   ops/x-pencil) + seeds' port-0 tax. A hand-scheduled two-block stage-2
+   (a_/b_ in regs, c_ spilled deliberately) might shave a few of the 27
+   spill stores; expected value ~1-2%, an afternoon.
+4. **Cross-arch races**: the knob set now covers map form, map placement,
+   and all three sched attributes; when XARCH.md lands, race exactly those
+   six axes per host rather than re-deriving.

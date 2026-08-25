@@ -395,3 +395,124 @@ maps in its scalar scatter). create() still ~0 s.
    (row · M·log2M / 8) on Ice Lake, now plus ~0.15 ns/pt/step of chain map.
 5. Re-race BST_MAPFUSE_MAX_MIB, BST_SCHED, BST_PF on SPR/CLX in the
    cross-arch round; the 15 MiB gate is an Ice-Lake-LLC number.
+
+## Round gen_r4
+
+### The find that paid for the round: my own r3 gate was shipped wrong
+The r3 record says the map-regime gate "splits the suite exactly: 10..32 fused,
+40/50/100 separate" — but the shipped code gated on STATE bytes alone
+(`nrows*L*16`), while the intended quantity (and the one the r3 race actually
+measured) is state + c COMBINED, since both stream through the fused axis-0
+scatter. Result: L=40 and L=50 sailed under the 15 MiB threshold and ran the
+FUSED map — the regime my own r3 race had measured 15-30% slower. Verified on
+the node before touching anything: L=50 B=4 default 1986.8 µs vs
+`-DBST_MAPFUSE_MAX_MIB=0` (forced separate) 1822.2 in adjacent windows; L=40
+forced-fused 1381.9 vs blocked-separate 1086.6/1146.3 same-window. Fix: gate
+on `nrows*L*32`. Same threshold value; L=31 (14.55 MiB combined) stays fused,
+exactly the r3-raced split. Lesson recorded: when a race sets a policy gate,
+TEST THE GATE (one forced-knob run per side), not just the policy code paths.
+
+### What changed (impl/gen_bluestein.c, two changes + one raced-off knob)
+
+1. **Gate fix** above (`*16` → `*32` in fft3d_chain's fuse computation).
+2. **k-plane-blocked custody for the separate-map regime** (idea from
+   gen_layout r3's 4-plane circular window — named borrow; my r1 "plane-fused
+   axis-2+1" failure was the same idea crippled by per-plane lane tails, which
+   the block size kills). Axis order per step becomes 0 first (global,
+   strided), then per block of k planes — k = 8/gcd(L,8), so blocks are k*L
+   rows ≡ 0 (mod 8) and the 8-row group decomposition is IDENTICAL to the
+   unblocked passes (no new tails, no seam changes; per-row arithmetic
+   bit-identical, only inter-row order moves) — run axis 2, axis 1, and the
+   sequential map sweep while the block (k·L²·16 B ≤ 320 KiB at L ≤ 100) is
+   L2-hot. Deletes the axis-1 full-volume round trip and the map pass's state
+   read+write; per-step traffic at L=100 drops ~144 → ~96 MB of touched
+   volume-passes. The map stays a SEPARATE sequential sweep on purpose:
+   gen_pfa_large r3's ipm family (map fused into next step's loads) lost
+   11-15% on this node — ladder uops land on port 5, which my tr8x8-heavy
+   axis-2 gather saturates worse than their p1 — so that idea was adopted as
+   a NULL, not rediscovered. Blocks with a partial tail (B·L not divisible by
+   k) fall through correctly (L=101 B=1: 12 full 8-plane blocks + 5 planes +
+   1 generic-path tail row, gated below). Knob: -DBST_NOBLOCK reverts to the
+   r3 global order (the raced control).
+
+### Raced off / re-raced, with the numbers
+- **Blocked vs unblocked separate (the attribution race)**: L=100 B=1 pairs
+  BLK 15803/15759 vs SEP-global 16156/16711 µs (medians 16.0/16.4 vs
+  18.6/20.0 ms — blocking also tames busy-window medians); quiet-window best
+  15545-15582 (sd 0.01-0.02%). L=50: raw split 1895/1846 then 1809/1849 —
+  MKL-normalized BLK wins both pairs. The win is smaller than the traffic
+  model because the 16 MB state already fits the 24 MB LLC: the deleted round
+  trips were LLC-level, not DRAM. Blocking ships.
+- **-DBST_BLKFUSE (blocked axes 2+1 in the FUSED regime too)**: L=25
+  179.7 vs 188.1 (−4.5% raw, a wash MKL-normalized), L=31 354.6 vs 321.9
+  (+10% — clear loss). Default OFF; knob kept for the cross-arch race (CLX's
+  1 MB L2 changes the residency story).
+- **BST_PF re-race under the new order** (axis 0 now reads the cold volume,
+  so r2's null needed rechecking): first pair in a dirty window read PF as a
+  1.8 ms WIN (16581 vs 18423, MKL +9% elevated) — three control-first pairs
+  later: DEF 15545/15700/15706 vs PF 16723/17535/16179, 3/3 DEF. r2's null
+  stands, and the dirty-window head-fake is exactly why single pairs don't
+  count.
+
+### Measured on the node (a80n0, leased core, graded chain cells, min µs/xform)
+| L | B | r3 board | r4 | delta |
+|---|---|-----|-----|----|
+| 40 | 8 | 1150.4 | **1086.6-1101** (quiet sd 0.03%) | −4.5% board, −21% vs same-window forced-fused |
+| 50 | 4 | 1931.9 | **1790.8-1822** | −6.5% |
+| 100 | 1 | 15741.8 | **15545-15582** (quiet sd 0.01%) | −1.2% |
+| 10 | 64 | 13.31 | 13.72 (busy window; fused path untouched) | parity |
+| 12 | 64 | 19.36 | 19.49 (busy window) | parity |
+| 25 | 16 | 179.0 | 179.3-188.1 | parity |
+| 31 | 16 | 301.3 | 321.9-345.6 (busy windows this session) | parity-noisy |
+
+Fused-regime sizes (10..32) take a byte-identical code path to r3; their
+deltas above are window state, not code.
+
+### Gates (shipped default build, on the node, check.py by hand)
+Generality sweep singles B=1: L ∈ {2,3,5,7,9,13,16,17,23,33,47,63,64,65,96,
+101,127,128} ALL PASS ≤ 8.8e-16 (tol 1e-12). Two-step fused-chain gate m=2:
+L=40 2.60e-15, L=50 3.18e-15, L=100 3.63e-15, L=25 2.06e-15, L=31 2.57e-15,
+L=101 5.18e-15 (tol 3e-14). Full graded chains: L=40 4.29e-14 (anchor
+2.61e-14), L=50 6.84e-14 (2.92e-14), L=100 3.03e-14 (2.42e-14 — 1.25x honest,
+was 2.1x in r3; the axis reorder happens to round kinder there), L=25
+4.83e-14, L=31 4.61e-14 — all ≤ 2.4x honest, tol 1e-10. Chain outputs
+bit-identical across independent runs at every size incl. L=101's partial
+block. Scalar -march=x86-64 build: singles PASS at {10,50,100}, m=2 chain
+PASS (2.96e-15). create() still ~0 s.
+
+### Operation count (delta vs r3)
+Arithmetic unchanged (same kernels, same ladder, same group decomposition).
+Separate regime per step: axis order 2,1,0+sweep → 0,2,1+sweep-per-block;
+removes one full-volume read+write (axis 1's round trip to LLC/DRAM) and the
+map sweep's state read+write (block is L2-hot when mapped); c is still read
+once per step, sequentially.
+
+### Borrowed this round, named
+- **gen_layout r3**: the plane-window custody idea (their −15.6% at L=100
+  demo); my contribution is the k-plane block size that makes the group
+  decomposition provably identical to the unblocked pass.
+- **gen_pfa_large r3**: the ipm verdict ("map placement axis is exhausted;
+  a separate sequential map pass is optimal") adopted as a standing null —
+  this round's plan A had been map-into-axis-2-gather, and their record
+  killed it before I burned windows on it. That is the cumulative round
+  working as intended.
+- **gen_batchlane r2 / gen_pow2 r3**: control-first same-window pairs with
+  ≥3 reps before any keep/kill (the BST_PF head-fake above is the poster
+  child).
+
+### What I would do next (gen_r5)
+1. **Axis-2's port-5 bill, third carry**: tr8x8 is ~12 shuffles per element
+   vector each way and shuffles steal from the second FMA pipe (port 5 on
+   ICL). Absorbing the transpose into the pruned first/last stages' quarter
+   stores is still the concrete unexplored shape; broadcast-load rebuilds
+   were counted out on load-port math (128 uops/block vs 48 shuffles).
+2. **L=31 sits 3% under the (fixed) fuse gate** — race it in both regimes
+   once in a quiet window; if separate+blocked wins, drop the threshold a
+   notch rather than special-casing.
+3. **Tail groups (nv < 8) through a masked contig path** (carried) — only a
+   round-6 odd-L-at-B=1 concern; the generic path is correct, just scalar.
+4. **bluestein_cost(L) for gen_planner** (carried): ~0.66 ns per
+   (row · M·log2M / 8) + ~0.15 ns/pt/step of chain map on ICL.
+5. Cross-arch: re-race BST_MAPFUSE_MAX_MIB (an ICL-LLC number), BST_BLKFUSE
+   (CLX's 1 MB L2), BST_NOBLOCK, BST_PF, BST_SCHED on CLX/SPR when XARCH.md
+   lands.

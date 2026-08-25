@@ -473,3 +473,134 @@ lanes per group row. Everything else identical to gen_r2.
    gather/scatter per axis is 6 sweeps/volume; a fused zy sweep per x-plane
    (gen_pfa_small's structure) would halve it. Only if idle — the demo is a
    test bench first.
+
+## Round gen_r4
+
+### Adoption status (the score)
+
+- **gen_bluestein's adoption stands** (tw_chirp + colmajor filler/audit in their
+  create()); API kept 100% backward compatible again — `gcc -c
+  impl/gen_bluestein.c` verified clean against this round's file.
+- **No consumer changed a table layout this round**, so the library gained no
+  new fillers (checked every r4 record present at write time): gen_planner's
+  fused codelets reuse their existing leaf constants and k2-major twiddles
+  ("arithmetic and constants byte-identical to the pln_lv* leaves" — their
+  words); gen_layout's r4 additions (gl_alias_drained4k, gl_tr8x8_c2i) are a
+  store-buffer model and a shuffle network, not trig. Nothing existing moved;
+  adopters recompile unchanged.
+- **gen_rader worked example, so the folded-Rader adoption is three lines**
+  (my r3 next-steps item 1, delivered here since I cannot write their prompt):
+  at p = 41, `tw_primroot(41)` returns **6** (h = (p−1)/2 = 20); then
+  `tw_fill_rader_half(cw, sw, 41, 6, +1)` gives the input-gather half-kernels
+  cos/sin(2π·6^q/41), q = 0..19, `dir = -1` the b-kernel order, and
+  `tw_fill_rader_fft(V, 41, 6, 1)` the DFT_40 convolution table with 1/40
+  folded in, all end-to-end long double, audited by
+  `tw_audit_rader_half(..., ±1) ≤ 0.51`. The (−1)^q twist/sign tables stay
+  engine-side.
+- **gen_powp / gen_pfa_large refnd double-cexp gate reference** (250 ulp on a
+  1e-13 yardstick at L=100): STILL unfixed, still the one-line
+  `tw_fill_dft_cplx` swap. Fourth pitch.
+
+### The demo: gated k-plane-blocked axes-1+2 custody (−0.8% at 100, −3.5% at 50, bit-identical outputs)
+
+An x-plane (LL contiguous complex) holds every y-pencil AND every z-pencil of
+that x, so after the global strided axis-0 pass, axes 1 and 2 (+ c + map in
+the chain) now run fused per block of `kblk = 8/gcd(L,8)` planes while the
+block is cache-hot — one full-volume round trip (state read+write between
+axis 1 and axis 2) deleted per step. The block size is **gen_bluestein r4's**
+(named borrow): kblk·L rows ≡ 0 (mod 8) keeps the axis-2 8-row group
+decomposition IDENTICAL to the unblocked pass, and a partial tail block still
+starts at a global multiple of 8, so outputs are **bit-identical to gen_r3**
+(verified by cmp at 12/25/27/31/40/100/101/127, singles and m=2 chains, on
+wallaby AND chain outputs on the node).
+
+**The gate, added after the numbers demanded it**: blocking is enabled only
+when the fused pass's two volume-sized streams outgrow L2
+(`32·L³ > TWD_BLK_MIN_BYTES`, default 1.25 MB = ICL L2; -D knob for the
+cross-arch race — CLX 1 MB, SPR 2 MB). Below it `kblk = L` reproduces the r3
+path exactly. In the suite: 10..32 unblocked, 40/50/100 blocked.
+
+Measured on the node (a80n0, same-core interleaved pairs vs a rebuilt r3
+control binary — protocol below; min µs/xform, graded chain):
+
+| L | B | r3 ctl (same window) | gen_r4 ship | delta | note |
+|---|---|---|---|---|---|
+| 10 | 64 | 10.93 | 10.96 | wash | unblocked (gated) |
+| 12 | 64 | 15.00 | 14.88 | wash | unblocked; B=1: 15.15 |
+| 15 | 32 | 30.32 | 29.90 | −1.4% | unblocked |
+| 20 | 32 | 57.7–58.7 | 56.7–59.4 | wash (sign flips) | unblocked |
+| 25 | 16 | 122.1 | 122.6 | wash | unblocked |
+| 27 | 16 | 236.3/238.9 | **236.0/236.3** | parity restored | gate case, see below |
+| 31 | 16 | 465.1 | 462.1 | wash | unblocked (953 KB < gate) |
+| 32 | 8 | 361–366 | 360–368 | wash (4 pairs) | first-session −2.4% was window luck |
+| 40 | 8 | 654–661 | 648–669 | wash (±1%, sign flips across sessions) | blocked |
+| 50 | 4 | 1415.6/1430.5 | **1363.3/1382.1** | **−3.5%** | blocked |
+| 100 | 1 | 11251/11257 | **11157/11169** | **−0.8%** (quiet best 11123) | blocked; MKL same window 7796 |
+
+Gates, final shipped binary, all by hand on the node (tryout's map-check leg
+still dies on the `'$W/c.bin'` quoting bug): two-step m=2 9.5e-16 (12) /
+1.6e-15 (27) / 2.3e-15 (50) / 2.9e-15 (100) vs tol 3e-14; full graded chains
+5.32e-14 (12, anchor 3.89e-14) / 3.08e-14 (27, 2.57e-14) / 4.47e-14 (50,
+2.92e-14) / 3.69e-14 (100, 2.42e-14), tol 1e-10; B=1 chain at 12 PASS
+6.97e-14 (anchor 5.80e-14); chain outputs bit-identical across independent
+node runs at 12/27/50/100; singles 3.9–4.8e-16. Local: 15-size numpy sweep
+PASS (worst 1.02e-15 at 101), 19-size surprise smoke (2..128 incl. 97, 101,
+121, 125, 127) PASS, scalar -march=x86-64 build PASS, -DTWD_PF knob and
+GEN_TWIDDLE_LIB_ONLY adoption compile clean.
+
+### What did NOT work, with the number that killed it
+
+- **Ungated blocking at L=27**: +0.6/+1.9/+3.8/+0.8% (4/4 same-core pairs;
+  7/7 counting earlier sessions). At 32·L³ = 630 KB the volume is already
+  L2-resident across passes and the fine-grain alternation of the two loop
+  bodies only costs. The residency gate (above) is the fix; with it, 27 reads
+  parity (even −0.5% in the confirm pairs).
+- **Axis-0 gather prefetch (gen_layout r4's fold-load idea, +256 B, 2
+  lines/row): REJECTED on measurement.** Same-core pairs, blocking held
+  constant: +1.5–2% at L=100 (3/3 pairs), +0.5–1.7% at L=31 (4/4), wash at
+  L=12. Their fold walks ~L short row streams per group; my gather reads only
+  2 lines per row per group and the OoO window already covers them — the
+  extra load-port µops never pay. Kept compilable as `-DTWD_PF` for the CLX
+  advisory, default OFF. Do not conclude gen_layout's demo prefetch is wrong
+  — it isn't, on their loop shape; the lesson is the transfer failed and only
+  the A/B could tell.
+- **Method: the tryout core-hop confound (gen_batchlane r4) is real and bit
+  me within the hour.** My first tryout read of the new code at L=100 was
+  11225 (looked like a win); the first same-core interleave then showed it
+  LOSING 3/3 pairs to r3 — that binary carried the prefetch. One later
+  session had a neighbor land mid-interleave (readings doubled to 23–25 ms,
+  both arms); those pairs were discarded, not averaged. Every keep/kill above
+  is from held-lease alternating-binary pairs.
+
+### Borrowed this round, named
+
+- **gen_bluestein r4**: the k-plane block size `8/gcd(L,8)` that makes the
+  blocked pass's group decomposition provably identical to the unblocked one
+  (their custody design, itself from gen_layout r3's plane window).
+- **gen_layout r3/r4**: the cache-custody idea behind the whole change, and
+  the prefetch experiment (adopted as a knob, rejected as a default — their
+  own L=100 attribution said prefetch was a wash there, which this confirms
+  on a second engine).
+- **gen_batchlane r4**: the held-lease same-core interleaved A/B protocol —
+  every number in this section that decided anything came from it.
+
+### Operation count (delta vs gen_r3)
+
+Arithmetic, tables, lane sweeps: unchanged (identical bits out). Blocked
+sizes lose one full-volume state read+write per chain step / per execute
+volume (the axis-1→axis-2 round trip becomes L2-hot inside a ≤ 8-plane
+block); unblocked sizes are the r3 loops exactly, plus one plan-time branch.
+
+### What I would do next (gen_r5)
+
+1. **Fuse axis 1 → axis 2 through the lane buffers within a plane** (skip the
+   plane-sized scatter/gather round trip entirely, not just keep it hot):
+   the plane is already resident; the remaining cost is the shuffle traffic
+   of scatter_i + gather_z. Needs twd_rec to emit transposed output — a real
+   rewrite, only worth it if the demo's mid-size cells matter to anyone.
+2. **Cross-arch**: race TWD_BLK_MIN_BYTES and TWD_PF on CLX/SPR when XARCH.md
+   lands (CLX's 1 MB L2 moves the gate; its downclock may flip prefetch).
+3. **gen_rader**: check their r4 record for the folded-kernel adoption the
+   p=41 example above makes three lines; answer whatever layout they ship.
+4. refnd pitch #5 if gen_powp / gen_pfa_large still build gate references
+   with double cexp.

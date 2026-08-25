@@ -508,3 +508,154 @@ replaced; x/y passes unchanged (register-tiled masked GEMM).
    the unexpanded '$W/c.bin' -- run check.py by hand; the leased-core pool
    is BUSY (12 implementers), interleave 3+ process instances per arm and
    compare min-sets, not single windows.
+
+## Round gen_r4
+
+### Where this round started
+
+r3 leaderboard: **123.828 us/step** at the graded cell (L=31 B=16 m=140);
+gen_rader leads at 85.088 (their r3 arena build; the 1.45x is the settled
+arithmetic gap).  Small composites: 5.414 / 8.368 / 16.328 / 43.509 at
+10/12/15/20.  My own r3 next-steps: quiet-window re-A/B of the fused
+z-combine, software pipelining, and the runtime-p padded chain (r6
+insurance).  This round's node: quiet windows read the r3 control at
+120.2-121.5 (faster than its own r3 board number — calm silicon), with
+occasional 5-10% busy stretches; every decision below is from interleaved
+3+ process instances per arm, min-sets compared (the r3 protocol).
+
+### What shipped
+
+1. **LAZY MAP FUSION at L=31 (map-on-load).**  The standalone per-step map
+   pass is gone: the map is applied to each state row AS THE NEXT STEP'S
+   z-phase LOADS it (fold31zx_pm; sp holds the unmapped FFT output between
+   steps; only the LAST step's map materializes, one map_volume sweep per
+   chain).  Every eager map fusion on this panel lost (my r2 plane-map
+   twice, gen_rader's r1/r3 store-side fusions) — those inject the ladder
+   into a store drain; load-side is the opposite geometry: no extra
+   in-flight stores, and the map pass's ~2 MB/step of state store + re-read
+   through L2 disappears.  The map arithmetic (8-point grouping, op order)
+   is IDENTICAL to map_volume — the r4 chain output is **bit-identical to
+   the r3 binary's** (cmp on the node), so this is pure engineering, zero
+   numerics risk.
+2. **zmm z-row fold** (zrow31_fold): the z-phase's per-row u/v fold was 15
+   xmm iterations (~90 uops/row); on the padded rows it is now 8 zmm group
+   loads + 4 vshuff64x2 lane reversals + 8 add/sub + 8 aligned stores
+   (~28 uops), mask-free, junk confined to the never-read j=0 pair slot.
+   The u/v layout keeps u_j at [2j], so the GEMM side is untouched.
+3. **Generic PADDED chain for every L in class with L % 4 != 0** (the r3
+   next-step 3, and this round's real win): chain state and c live in
+   L x L x PL volumes, PL = (L+3)&~3 complex, one allocation, c mirror at
+   page phase +2048 (my r3 alias lesson).  Every row in all three passes is
+   64B-aligned, every fold_pass mask degenerates to full, the pad columns
+   ride through the GEMMs as bounded junk exactly like the L=31 pads (map
+   is a contraction), and the z-pass is the r3 vector kernel with a row
+   stride parameter.  When L % 4 == 0 (12, 20) the flat rows were already
+   aligned and the padded path is pure copy overhead (raced: L=12 +2..9%,
+   L=20 +0.5%) — those stay flat, gated at create().
+
+### Measured on the node (a80n0 leased core; interleaved same-window A/Bs, min us/step)
+
+Graded cells, r3 control vs r4 (three interleaved instances per arm per window):
+
+| cell | r3 (this round's windows) | gen_r4 | delta |
+|---|---|---|---|
+| L=31 B=16 m=140 | 120.20 / 120.37 / 120.64 / 120.71 / 121.00 | **119.91 / 120.01 / 120.04 / 120.08 / 121.05** | ~-0.4% (the 4 lowest readings of the day are all r4) |
+| L=31 B=1 | 120.5 / 122.0 / 122.4 | **120.72 / 120.83 / 120.94** | B=1 now stable and == B=16 |
+| L=10 B=64 m=1000 | 5.42 / 5.70 / 5.85 | **5.40 / 5.43 / 5.44** | -2% |
+| L=12 B=64 m=600 | 8.24 / 8.29 / 8.48 | 8.29 / 8.32 / 8.38 | 0 (gated flat) |
+| L=15 B=32 m=600 | 16.74 / 17.28 / 17.82 | **14.37 / 14.47 / 15.26** | **-14%** |
+| L=20 B=32 m=256 | 43.2-44.6 | 44.0-44.4 | ~0 (gated flat; residual is binary layout luck) |
+
+Primes at B=4 m=8 (r6 reference; same-window interleaved):
+
+| p | r3 | gen_r4 | delta |
+|---|---|---|---|
+| 13 | 11.59 / 11.66 / 11.78 | **11.22 / 11.40** / 11.78 | -2% |
+| 17 | 32.38 / 33.17 / 34.62 | **29.96 / 31.12 / 31.22** | **-7%** |
+| 23 | 74.81 / 76.20 / 78.64 | **67.25 / 69.41 / 69.52** | **-10%** |
+| 29 | 152.1 / 158.0 / 158.3 | **142.1 / 148.3 / 152.1** | **-5%** |
+
+(vs gen_rader's r3 generic-prime engine: they read 25.5 at 17 (execute B=2,
+different case shape) but 84.3 at 23 and 177.5 at 29 (chain m=8) — the
+dense arm now leads the class at 23/29 by ~20%.)
+
+Correctness, shipped binary, all by hand on the node: single rel_l2
+2.1e-16..4.0e-16 at ALL 15 supported sizes (tol 1e-12); **two-step gate
+2.4e-16..1.7e-15 at every size** (tol 3e-14, >=17x margin); graded
+map-chains PASS at 1.03-2.1x their honest anchors (tol 1e-10); m=8 chains
+at every prime PASS; outputs bit-identical across independent node runs at
+all sizes; L=31 chain output bit-identical to the r3 binary; the non-AVX512
+scalar build verified end-to-end at L=7 and L=31 (chain gates included) on
+the AVX2 login host.  MKL same cell/core this round: 857.2.
+
+### What did NOT work / washes, with the numbers
+
+- **Lazy map fusion is a ~0.4% win, not the ~8-15 us I costed.**  Mechanism,
+  best reading: the old standalone map pass was DIVIDER-throughput-bound,
+  not L2-bound (3724 zmm vdivpd/step at ~16 cyc rthroughput ~= 20 us — its
+  whole measured cost); moving the divides into the z-phase cannot delete
+  that floor, only overlap it, and the z-phase's own load ports are busy
+  enough that the overlap nets out small.  Kept anyway: strictly less L2
+  traffic (may pay on CLX's 1 MB L2 in the cross-arch runs), bit-identical,
+  and the best-of-day minima are all fused.
+- **GDP_MAP_RCP in the FUSED kernel: loses again, 3/3 windows** (122.0 /
+  122.6 / 122.8 vs 119.9 / 120.0 / 120.1 fused-div, r3 control 120.4-121.0
+  same windows).  I expected the codelet-property lesson (gen_pfa_small r3,
+  gen_batchlane r3) might flip it inside an FMA-saturated GEMM phase — it
+  does not: the ladder's FMA-port uops compete with the GEMM directly while
+  the divider sits otherwise idle.  Fused-div is the keeper; knob retained.
+- **zmm z-row fold alone (r4 minus fusion, -DGDP_NOZMAPFUSE): a wash**
+  (120.9 / 121.8 / 123.0 vs r3 120.2 / 120.7 / 121.5) — the xmm fold's 90
+  uops/row were hiding under the z-GEMM's port occupancy.  Kept: it is the
+  load path the map fusion needs, and it is strictly fewer uops.
+- **Padded chain at L % 4 == 0 (12, 20): pure loss** (L=12: 8.23/8.80/9.26
+  vs 8.34/8.35/8.48; L=20: +0.5%) — rows were already 64B-aligned flat, so
+  the strided copies buy nothing.  Gated to flat at create().
+
+### Borrowed this round, named
+
+- **gen_pfa_small gen_r3 / gen_batchlane gen_r3**: the "div-vs-ladder is a
+  property of the surrounding codelet — A/B in place, never adopt on faith"
+  rule drove the fused-kernel RCP re-race (verdict: div, again).
+- **gen_batchlane gen_r3**: the window-health discipline (control-first
+  adjacent pairs, quiet-state minima are the honest numbers) — this round's
+  node alternated quiet/busy exactly as their record describes.
+- The padded generic chain generalizes my own r2 fold31 padding + r3 arena
+  phase trick; no new external technique, but gen_rader's r3 next-step 2
+  asks for exactly this shape on their side — the closed-form answer here
+  (pad rows to (L+3)&~3, skip L%4==0, c mirror at +2048) transfers.
+
+### Operation count (shipped, L=31 chain step)
+
+Arithmetic unchanged (~352K zmm FMA); the map's ~100K uops/step moved from
+a standalone pass into the z-phase load path (m-1 of m steps), deleting
+~2 MB/step of L2 traffic; z-fold ~60K fewer uops/step.  Generic padded
+sizes: FMA count grows by PL/L in the x/y GEMMs (+6.7% at 15, +18% at 17,
++4% at 23, +10% at 29) traded against zero line splits on every volume
+access — measured net -5..-14% at those sizes.
+
+### What I would do next
+
+1. **The L=31 gap to gen_rader (120 vs ~85) is arithmetic and will not
+   close by engineering** — the engine is at ~1.55x its FMA-port floor and
+   the last three rounds bought 3% total.  The crossover data point is
+   honest; the round-5 effort should go to the generic sizes and r6
+   robustness, not another 31 micro-round.
+2. **Lazy map for the generic padded chain**: the machinery is now trivial
+   (rows are padded; a runtime-KQ zrow_fold with the GDP_MAPG groups) but
+   PL%8!=0 rows (12, 20, 24) break map_volume's 8-point grouping across row
+   boundaries, so results would not be bit-compatible with the flat path —
+   gates have 17x margin, do it if a window is spare.
+3. **The divider floor (~20 us/step at 31) is now the second-largest
+   single item after the GEMMs.**  The only real attack is fewer map
+   points per divide — e.g. one vdivpd per 16 points via a second
+   pair-compress level (|w|^2 of 16 points in one zmm), at the cost of an
+   extra shuffle layer.  Cost it before building: shuffles land on port 5,
+   which the fused z-phase barely uses — plausible win, unproven.
+4. **Cross-arch**: the padded generic chain and the fused map both change
+   L2 pressure — re-check XARCH.md when it appears; GDP_PP/GDP_BG knobs
+   are still raceable on CLX/SPR.
+5. Harness notes (verified again): tryout's remote map-check leg still dies
+   on the unexpanded '$W/c.bin' — run check.py by hand; check.py needs
+   env.sh sourced for numpy; the node alternates quiet/busy at the ~5%
+   level — interleave 3+ instances per arm, always.

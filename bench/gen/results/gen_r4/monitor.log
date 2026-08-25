@@ -1,0 +1,22 @@
+`results/gen_r4/VERDICT.md` is written. Summary of what I found:
+
+**Three premises in the brief didn't hold, so I say so up front and report the round that actually ran:**
+- The geometries are **10, 12, 15, 20, 25, 27, 31, 32, 40, 50, 100** (the frozen GENERALIZE suite in `cases.txt`). L=6/8/17/36 were the *previous* campaign's sizes; the only r4 data touching them is unscored (L=36 in gen_pfa_small's generic engine, L=17 in gen_dense_prime's prime sweep).
+- The scoring node is **Ice Lake-SP (Xeon Gold 6326, a80n0)**, not Cascade Lake. Per `PANEL_BRIEF.md` the CLX/SPR reruns are advisory and land *after* this board; `XARCH.md` doesn't exist yet.
+- Each cell is scored at **one** batch size (B=64→1), so there's no batched/non-batched pair per geometry. B=1 numbers exist only in the records; I quote them as such.
+
+**Headline:** panel wins every cell, geomean **3.30×** the best library (3.01× excluding L=31, where libraries collapse on the prime and *all seven* gen entries beat them — I don't credit that as an achievement anywhere). Worst cell L=100 at 1.62×.
+
+**Adversarial pass:** correctness is genuinely clean — every backend `ok`, residuals 3–4 orders inside tolerance, seven entries verified bit-identity across processes. No entry crashed and **nothing is missing** — every absence is a declared class boundary. Real findings:
+- **Two signed-overflow UB warnings** (`gen_dense_prime.c:1512`, `gen_rader.c:1023`) — character-identical, because the map tail *propagated by adoption*. Doesn't invalidate any number, but both entries are on my promote list and exemplars get copied. I made the fix a condition of promotion.
+- **Three real regressions**, distinguished from hot windows by the libraries in the same cell: gen_race L=40 +5.4% and L=32 +3.3% (libraries flat and −2.7% respectively — its own record predicted this and named the falsifier), gen_layout L=40 +4.3% (a cell its record doesn't measure at all).
+- **The scoring cold race contradicted three held-lease implementer verdicts** (L=12 tree, L=40 tile, L=100 tile), costing 2–3% each. gen_race's interleaving fixed within-session flip-flops but not cross-session agreement.
+- gen_powp lost L=50 by 1.47% to its own rank-first hysteresis — the wisdom file records `margin=-0.0182` at exactly that cell.
+
+**Claimed vs measured:** I did not attribute gaps to a machine difference, because implementers develop on leased cores of the *same* node — most claims land within 1–2%, and where they don't the score is usually *faster* (gen_powp L=27: claimed 47.6–47.8, scored 44.281). The documented cause is the round's best methodological finding: `tryout.sh` takes a fresh lease per invocation, so A/B pairs hop cores between states 10–25% apart. It reversed a shipped default and nearly shipped two false positives.
+
+**Literature §4:** §4.3 moved decisively, in the exact regime §08 re-opened ("tile the batch to L2, fuse all three axes inside") — five entries tried it independently. Answer: **9–11% where the batch set exceeds LLC, 1–6.5% where the deleted trip was only LLC-resident, and −0.6 to −10% where the volume was already L2-resident** — it must be gated on residency. The new result: at the one DRAM-resident cell, gen_layout's knob knockout shows **store-side RFO elimination beat pass fusion ~4×** (−19% vs −1.2%), which the corpus's read-pass framing doesn't anticipate.
+
+Declined only `gen_twiddle` — no new adoption, uncompetitive demo, and its one structural r4 change is gen_bluestein's block size borrowed, which would make it a near-duplicate of an already-promoted entry. Its lessons stay in the tracked strategy record.
+
+PROMOTE: gen_pfa_small gen_batchlane gen_powp gen_pfa_large gen_pow2 gen_rader gen_dense_prime gen_planner gen_race gen_layout gen_bluestein
