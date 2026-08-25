@@ -764,3 +764,174 @@ host) and the persistence that keeps repeatability structural.
 4. **Group-form execute()** if round 6's timing mix ever weights raw
    execute at B>=8 -- pack cost per call needs measuring before anyone
    assumes it's a loss at m=1 with large B.
+
+## Round gen_r6
+
+### What changed
+
+**1. Library: FROZEN, zero changes.** No `gr_*` signature or wisdom-format
+change; five adopters (`gen_planner`, `gen_pfa_large`, `gen_powp`, plus the
+gate/string users) recompile against an identical API. The r3 doctrine holds.
+
+**2. Demo: salt bump chain5/tile5/chaingate5 -> chain6/tile6/chaingate6**
+(mandated by my r3 rule, third time running: gen_planner's engine generation
+moved again — graded map fused into the pv axis-2 transpose-out exit at
+L > 12, pair-packed rcp14 map ladders, the pw_leaf ics/ocs stride split, and
+a NEW split-group level @s4).
+
+**3. Demo: the group probe races planner's NEW @s4** (staged in-place
+two-pass CT: one volume sweep per axis through an L1-resident stage, no
+ping-pong buffer) — probe loop lev 1..3 -> 1..4, group-arm cap 4 -> 6 so
+three trees can contribute arms (per tree at most two levels build: {1,2},
+{4,2} or {3}; 12 pv + 6 group = 18 stays inside the racer's 32-state cap).
+Level order per tree keeps the battle-tested @s2 ahead of @s4, so the new
+form must beat it by more than noise_rel (tie doctrine). When I built this,
+planner's own entry raced lev <= 3 only; their 02:09 snapshot widened to
+lev <= 4 / cap 6 too — convergence, and the round-end strip means both
+entries cold-race the same arm set at scoring.
+
+**4. Demo: NEW third race stage "fm6" — the fused-map form of the SHIPPED
+engine.** Both planner engines carry a runtime `fusemap` int consulted once
+per step (pv: fuse the graded map into the transpose-out exit, default
+L > 12; group: into the final-axis stores, default L^3 > 1728). Both
+defaults are host-tuned ICX boundaries — exactly the knob class the
+cross-arch guard exists for — so gr_pick now races default-vs-flipped ON THE
+ENGINE THE PLAN SHIPS, flipping the field in place per thunk: zero extra
+engine builds, wisdom-warm cost one file read. Primary = engine default per
+the tie doctrine. The two pv forms round differently (fused exit = one exact
+vdivpd via pln_mapdiv8, separate pass = rcp14 ladder), so the picked name
+carries "@fm<0|1>" and chaingate6 verdicts cache per form. The pv fm stage
+is PLN_SIMD-guarded (the scalar build pins fusemap = 0 and has no fused
+path — flipping it there would skip the map entirely). Group fm candidates
+re-fill the plan's group buffers deterministically in candidate 0's setup():
+on a partially-warm create (tree race hit wisdom, fm did not) they are
+fresh, uninitialized allocations, and timing uninitialized memory risks
+denormal/NaN garbage verdicts. Also moved the shared race-buffer frees past
+the new stage (and onto the build-failure error path).
+
+### Measured on the node (a80n0, tryout leased cores, graded chain, min us/xform; rebuilt + re-verified against planner's 02:09 snapshot)
+
+| case | r5 board | r6 | delta | MKL same window | vs MKL | pick (receipt) |
+|---|---|---|---|---|---|---|
+| L=10  B=64 | 1.458 | 1.421 | ~flat | 4.623 | 3.3x | c2(d5)@s1@fm0 |
+| L=12  B=64 | 2.511 | **2.486** | -1% | 7.75-7.82 | 3.1x | c3(d4)@s1@fm0 (fm0 +3.5% non-tie) |
+| L=12  B=1  | 4.992 | **4.560** | -9% | 8.319 | 1.8x | c3(d4)@t32**@fm1 (+11% non-tie: the pv L>12 default is WRONG at 12/B1)** |
+| L=15  B=32 | 5.830 | **5.599** | -4% | 16.488 | 2.9x | c3(d5)@s1@fm1 |
+| L=20  B=32 | 19.934 | **19.370** | -3% | 59.719 | 3.1x | c4(d5)@s1@fm1 (+3.5%) |
+| L=25  B=16 | 40.337 | 41.547 | ~flat (hot window) | 128.070 | 3.1x | c5(d5)@s1@fm1 (+45% margin) |
+| L=27  B=16 | 86.591 | **59.773** | **-31%** | 146.148 | 2.4x | **c3(c3(d3))@s4@fm1 — the new arm** |
+| L=31  B=16 | 144.95 | 149.50 | noisy window (sd 22%) | 865.7 | 5.8x | d31@s3@fm1 (+19%) |
+| L=32  B=8  | 135.26 | **111.33** | -18% | 184.157 | 1.7x | pv c4(d8)@t32@fm1 (fm1 +6.8%) |
+| L=40  B=8  | 279.99 | **268.02** | -4% | 453.8 | 1.7x | pv c5(d8)@t32@fm1 |
+| L=50  B=4  | 644.63 | **594.32** | -8% | 946.4 | 1.6x | pv c5(c5(d2))@t64@fm1 (t64 +2.3%, r3's finding again) |
+| L=100 B=1  | 5479.5 | 5565.4 | ~flat | 7723.7 | 1.4x | pv c5(c4(d5))@t32@fm0 (fm0 +7.2% non-tie) |
+
+Most of the raw movement at 12/B1, 32, 50 is planner's r6 engine (fused-map
+exit + pair-packed ladder — same honest split as every round); the pick's
+OWN contributions this round, with receipts:
+
+* **@s4 flips L=27**: c3(c3(d3))@s4 won at 14.6% in a noisy window, and two
+  fresh REFRESH re-races on a quiet core reproduce it at 30.6% / 31.8%.
+  Same-core alternating A/B (3 rounds, core 4, m=200 chains): shipped @s4
+  59.8-60.1 vs FORCE'd r5-style pv 77.7-77.8 — **1.30x, every round**. r5's
+  verdict (pv beat @s2 by 3.1% at 27) is retired by the new level.
+* **The fm race caught two wrong boundaries on its FIRST outing**: L=12 B=1
+  pv fm1 beats the L>12 default by **11%** (non-tie), and L=14 B=8 group
+  fm0 beats the L^3>1728 default by **10.6%** (non-tie). Everywhere else it
+  confirms the default with real margins (3.5-10%) — cheap insurance that
+  becomes the whole point on CLX/SPR, where these boundaries were never
+  tuned at all.
+* @s4 does NOT take 32/40 (pv c4(d8)/c5(d8) still win, +2.0%/tie) — the
+  group form's 16*vol working set still trades L2 residency for lane width
+  at vol >= 32k, exactly r5's boundary. Recorded so nobody assumes @s4 wins
+  wherever @s2 lost.
+
+Surprise-size drill (unseen sizes, cold create -> gates): L=61 B=8 picks
+**d61@s3@fm1 at +11.3%** (the mid-prime fold-vs-pv crossover flagged in my
+r5 next-list — the fold arm DOES win at 61), L=14 B=8 c7(d2)@fm0, L=54 B=8
+c3(c3(c2(d3)))@t16 (+4.8% tile win), L=127 B=8 rad127(c21(c2(d3)))@fm0 at
++27%. All PASS single (4.8e-16..1.0e-15) + m=3 chains. Cold create: 0.93 s
+at L=61, worst seen this round (vs 60 s budget); warm create 4 ms (vs 50 ms).
+
+Gates, rebuilt binary, run manually on the node (tryout's check.py leg still
+dies on the unexpanded '$W/c.bin', unchanged since r1): map-chain at graded
+m PASS at 12/27/31/100 + mixed B=12 at L=10 (4.9e-14 / 3.1e-14 / 2.6e-14 /
+3.5e-14 / 3.5e-14 vs anchors 3.9/2.6/2.3/2.4/4.5e-14, tol 1e-10); two-step
+m=2 gate PASS at all five (9.3e-16..2.7e-15 vs tol 3e-14); chain outputs
+bit-identical across independent node runs at all five. Both build modes
+compile -Wall -Wextra clean (the only warnings are inside gen_planner.c:
+their documented -Wrestrict trio + mid-refactor unused-function set).
+
+**Round end: all gen_race/* wisdom stripped on both hosts via the library's
+own gr_wisdom_drop_prefix (dogfood, second round)** — a80n0 and wallaby
+both at 0 entries; the monitor cold-races fresh verdicts against whatever
+planner snapshot gets scored.
+
+### Operation count
+
+Library: unchanged, zero instructions in any hot path. Demo: the winning
+arm's cost on gen_planner's r6 engines (@s4 halves the per-axis volume
+sweeps of @s2 and deletes its ping-pong buffer; the fm knob moves WHERE the
+same map arithmetic runs, or swaps one exact vdivpd against an rcp14 ladder
+on the pv exit). My contribution is the measured (tree, form, tile,
+fused-map) pick per (L, B-bucket, host) and the persistence that keeps
+repeatability structural.
+
+### What did NOT work / honest boundaries
+
+* **The L=27 fm verdict is window-sensitive**: tie at -1.9% (fm0 faster,
+  within noise) in the first cold race, non-tie fm1 +5.6%/+6.9% on the
+  quiet core. The tie doctrine kept the default both times, so the shipped
+  form is stable — but the margin itself is not a number to quote.
+* **31/25 read flat-to-worse vs their r5 boards in my windows** (sd up to
+  22% at 31; MKL moved with it: 866-1026 vs the board's 857). I claim
+  window heat, not regression; if the r6 board disagrees, look here first.
+* **The fm race adds ~1-2 engine-step timings to cold create** — trivial —
+  but it does mean the fm6 key must live and die with the chain6 salt: a
+  raced fm verdict pinned against LAST round's tree pick would be
+  meaningless. Both salts bump together by construction (same "6" suffix,
+  and gr_sig on the fm names cannot catch a tree change — the tag can).
+  Rule for adopters copying the pattern: **a dependent-stage race inherits
+  the salt of every stage upstream of it.**
+* **Not attempted, deliberately: racing pln_s8's p4 (stage pencils/block)**
+  — it sizes the stage4 allocation, so flipping it per thunk means a
+  rebuild per candidate, not a field flip; and planner may still move the
+  heuristic this round. Next round, via a build-per-candidate setup() like
+  the tile race, if their p4 table survives contact with the r6 board.
+
+### Borrowed, plainly
+
+* **gen_planner r6 (the whole substrate, again)**: the @s4 staged engine,
+  the fused-map pv exit + pln_mapdiv8, the pair-packed ladder, and the two
+  fusemap fields this round's fm race turns into raced knobs. Same honest
+  split as every round: their kernels, my measured pick + persistence.
+* **gen_layout r5/r6 + gen_batchlane r5** (via planner's comments): the
+  "div-vs-rcp is a property of the surrounding codelet" doctrine is the
+  fm race's justification — the boundary is a HOST property, so measure it.
+* **gen_pfa_large r5**: map_step_pair pair-packing (in the engine I adopt).
+* **gen_batchlane/gen_pfa_small r4-r5**: the held-lease same-core
+  alternating A/B protocol for the 1.30x @s4 receipt.
+
+### Adoption status (the score)
+
+* **gen_planner**: full GEN_RACE_LIB_ONLY include; their r6 snapshot
+  converged on the lev<=4 / 6-arm race widening within the session.
+* **gen_pfa_large** (string wisdom, salted keys), **gen_powp**
+  (keyf/sig/lookup/store): unchanged, still on the frozen API.
+* Standing offers: gr_wisdom_drop_prefix for everyone's round-end strip
+  (now twice dogfooded); the gr_plan_cand vtable for the round-6 trunk,
+  shipped since r1, still waiting on class entries exposing *_LIB_ONLY.
+
+### What I would do next (gen_r7 / post-surprise)
+
+1. **Cross-arch fm table**: the fm race's raison d'etre lands when the
+   CLX/SPR advisories run — capture per-host fm/tile/tree divergence here.
+   Predicted flips: every fm verdict near the boundaries (12-15, 25-32 on
+   CLX's 1 MB L2), d31@s3 vs d31 pv on SPR.
+2. **Race p4 (stage-block pencils) for @s4 winners** via a build-per-
+   candidate setup, if planner keeps the {<=40:4, <=64:2, else 1} table.
+3. **Race across class ENGINES via gr_pick_plan** (carried six rounds):
+   still blocked — no class entry exposes a *_LIB_ONLY include.
+4. **B=1 hole**: the panel's standing weakness (my 12/B1 is 1.8x MKL but
+   1.83x my own batched cell). If planner ships their lane-spatial B=1
+   engine (their r5 #2), it enters the chain race as more arms for free.

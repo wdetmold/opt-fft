@@ -1,0 +1,11 @@
+Done. The shipped file is verified end to end on the node — the demo now also beats MKL at L=27 (130.7 vs 145.0 µs) and L=100 (7632 vs 7735 µs).
+
+**Register-resident whole-level codelets for r=2/3/4/5 (bit-identical to r5): B=1 best 10.52 µs/xform (L=12, r5: 14.33) and 7631.5 µs (L=100); batched best 8.86 µs (L=12 B=64, r5: 14.3) with −30…−44% at every combine-bearing graded cell; rel L2 = 2.96e-16 (L=12) … 4.82e-16 (L=100), all gates PASS.**
+
+Details of the round:
+
+- **The finding**: an asm audit showed `twd_butterfly` was never inlined into `twd_rec` — every leaf and every combine iteration paid a real call plus a round trip of 2r zmm rows through 16 KB stack staging arrays, and the recursion carried a 16.6 KB page-probed frame per step. Five rounds of measurements sat on that overhead.
+- **The fix**: whole-level noinline codelets (`twd_leaf2..5`, `twd_comb2..5`) with expressions copied verbatim so FMA contraction — and therefore output bits — are identical to r5; generic fold/DS paths moved to their own noinline helpers, shrinking the dispatcher frame to 392 bytes. Bit-identity verified by `cmp` on the node (singles + chains at 12/27/31/50/100) and on wallaby at 16 sizes; L=31 read a clean wash as the designed control (fold path untouched).
+- **Gates**: two-step 9.5e-16 (12) / 2.9e-15 (100) vs tol 3e-14; graded chains 5.32e-14 / 3.69e-14 vs tol 1e-10; chain outputs bit-repeatable; scalar and all knob builds clean.
+- **Library layer**: frozen this round (no adopter asked for new primitives); gen_bluestein's adoption carried their new M-grid for free and still compiles clean; refnd double-cexp pitch #7 recorded (gen_powp.c:1607, gen_pfa_large.c:1359 unchanged).
+- Strategy record appended as Round gen_r6 with the A/B pair data (held-lease same-core protocol, order rotated), borrows named (gen_batchlane r4, gen_pow2 r5), and next steps (fold-combine codelet for r=7/11/13 as surprise-round insurance, FTW re-race now that combines are FMA-lean).

@@ -746,3 +746,165 @@ path keeps its 4x4-block transposes; the group path has none).
    the fusemap boundary (L^3 > 1728) is an ICX L2 number -- CLX (1 MB L2)
    and SPR (2 MB) should re-race it via wisdom, which the /g8 keys now do
    by construction.
+
+## Round gen_r6 -- the map leaves its own pass everywhere, and @s2 loses its ping-pong
+
+### The round in one line
+
+Three changes, all mid/large-L: the per-volume chain's separate map pass is
+gone (fused into the transpose-out exit at 12 < L <= 80, pair-packed ladder
+elsewhere), and a fourth split-group level @s4 runs the two-pass CT as ONE
+in-place volume sweep per axis through an L1 staging block -- 27 drops 24%,
+32/40/50 drop 13-17%, 100 drops ~6%, small L and 31 unchanged.
+
+### What changed (all in impl/gen_planner.c; pln_* public surface unchanged)
+
+1. **Pair-packed map ladder in pln_map_span** (ADOPTED from gen_pfa_large
+   gen_r5's map_step_pair, near verbatim): the interleaved ladder ran its
+   ~19 ops on pair-DUPLICATED |z|^2; two vectors' 8 distinct |z|^2 now pack
+   into one zmm (2 permutex2var), ONE rcp14-form ladder serves both, and the
+   scales unpack pair-duplicated (2 permutexvar).  BIT-IDENTICAL per element
+   (the packed lane sums the same two squares in the same order; everything
+   else is elementwise) -- verified by cmp against the r5 binary through a
+   full graded chain at L=100.  This is what the unfused path (L <= 12,
+   L > 80, remainders, fallback) runs.
+2. **Map fused into the pv transpose-out exit** (ADOPTED shape: gen_layout
+   gen_r5's gl_map8 register-exit fusion -- pair-compressed |z|^2, rsqrt14 +
+   2NR for the magnitude, ONE exact vdivpd per 8 complex; the exit is
+   shuffle-bound and the divider idle, exactly gen_batchlane r5's
+   "div-vs-rcp is a property of the surrounding codelet").  The chain step's
+   axis-2 values already pass through pln_transpose_out; adding c and
+   mapping them in registers deletes the separate per-plane map pass (plane
+   read + c read + plane write) entirely.  pln_p3d_plane takes an optional
+   c pointer; pln_p3d_exec never maps.  Gate: 12 < L <= 80, measured (see
+   dead ends for the 100 story).  GEN_PLANNER_PVFUSE=0/1 overrides for A/B.
+3. **Split-group level @s4: staged single-sweep in-place two-pass CT** (same
+   trees as @s2: r hard, child hard leaf or fused CT, n > PLN_FUSEMAX).
+   Blocks of P pencils (P = 4 for n <= 40, 2 to 64, else 1) stage through an
+   L1 buffer: pass 1 (child DFT_m, undoing the decimation) reads the volume
+   rows ONCE into the stage, pass 2 (twiddle-fused leaf_r) reads the stage
+   and writes the volume rows ONCE, map fused in the final-axis stores.
+   No ping-pong buffer (G2 not allocated for @s4 picks), each axis touches
+   the volume once instead of @s2's twice; axes 0+1 stay slab-fused.  Stage
+   row stride 16P + 8 doubles = an odd number of cache lines, so pass 2's
+   m*srs stride never lands 4K-uniform (the ice odd-line rule, applied at
+   plan birth).  Enabling change: pw_leaf / pln_fusedw grew separate in/out
+   pencil strides (ics/ocs); all pre-r6 call sites pass ics == ocs, adopters
+   of the pln_s8_* surface are unaffected (gen_race.c compiles unmodified).
+   @s4 enters the race at batch >= 8 (arm cap 4 -> 6), wisdom tag @s4
+   (unknown-tag re-race guard already covers forward compat).
+
+### Measured on the node (a80n0 core 3, held lease, INTERLEAVED r5-binary-vs-
+### r6-binary adjacent pairs, 3 pairs each, min per rep; graded chains)
+
+| case | r5 same-window (3 reps) | gen_r6 (3 reps) | delta | pick |
+|---|---|---|---|---|
+| L=27  B=16 m=200 | 79.1-79.4 | **60.2-60.3** | **-24%** | c3(c3(d3))@s4 (NEW) |
+| L=31  B=16 m=140 | 142.2-143.1 | **140.4-141.8** | tie | d31@s3 (unchanged path) |
+| L=32  B=8  m=250 | 129.2-131.7 | **108.3-110.0** | **-17%** | c4(d8) pv, fused exit |
+| L=40  B=8  m=128 | 281.5-285.2 | **239.2-243.6** | **-15%** | c4(c2(d5)) pv (race found a NEW tree under the fused exit) |
+| L=50  B=4  m=128 | 645.9-678.9 | **565.0-568.3** | **-13%** | c5(c2(d5)) pv, fused exit |
+| L=100 B=1  m=64  | 5554-5812 | **5173-5459** | ~-6% | c5(c4(d5)) pv, pair-packed map (unfused; outputs bit-identical to r5) |
+
+Small L, full-battery reads (paths untouched, @s1 picks unchanged): 10:
+1.414, 12: 2.484, 15: 5.593, 20: 18.300, 25: 40.570 -- all at the r5 board
+within window noise.  B=1 chains (m=64): 4.50 (12), 110.4 (27), 190.0 (31),
+574.2 (50) -- the 12/27/31 cells ride the pair-packed span, 50 the fused
+exit.  Fused-exit A/B boundary data (same-core interleaved, GEN_PLANNER_
+PVFUSE): 40 -6.5% (3/3), 50 -4.8% (3/3), 64 -10..19% (2/2), 80 -2% (2/2),
+100 +8..10% (3/3 LOSS) -> gate 12 < L <= 80.
+
+Gates, final binary, all on the node: full numpy sweep L=2..128 single call
+ALL 127 PASS; two-step m=2 gate 9.2e-16 (10) / 1.33e-15 (20) / 1.52e-15
+(25) / 1.73e-15 (31) / 1.54e-15 (32) / 1.83e-15 (40) / 2.25e-15 (50) /
+2.70e-15 (100) vs tol 3e-14; graded map-chains PASS at all 11 acceptance
+cases (3.10e-14 at 27 -- @s4 is op-identical to @s2, the staged pass
+reorders nothing -- 2.60e-14 at 31, 3.35e-14 at 32, 2.78e-14 at 40,
+3.86e-14 at 50, 2.99e-14 at 100, tol 1e-10); mixed batch B=12 at 27
+(group-of-8 @s4 + 4-volume pv remainder) PASS; chain outputs bit-identical
+across independent processes at 27, and the wisdom-pinned second process is
+bit-identical with warm setup 15 ms (budget 50).  AVX2 wallaby build (no
+AVX-512: fusemap forced 0, scalar exits) PASSes singles + m=20 chain at
+L=9 B=12 and L=14.  Round-6 drill at B=8, all through the ordinary race:
+45/48/54/63/96/104/127 all plan, pass single + m=8 map-chain, setup
+0.04-3.2 s (worst L=96) vs the 60 s budget.  Round end: gen_planner keys
+stripped from results/wisdom_a80n0.json under the flock (1 key this time --
+I ran the whole session under GEN_RACE_NO_WISDOM=1, which the protocol
+should have been doing all along).
+
+### What did NOT work / went wrong, with the numbers
+
+- **The fused exit at L=100: +8-10%, 3/3 interleaved pairs** (5918-6055
+  fused vs 5328-5628 unfused).  The blockwise (z0 outer, y0 inner) exit
+  walk re-reads the c plane L/4 times per plane (160 KB x 25 at L=100) and
+  the win from the deleted map pass drowns in the extra L2 traffic; at 80
+  (102 KB plane) it still wins -2%.  gen_layout's r5 saw a wash at 100 on
+  the same shape with NT stores; mine has none, and loses outright.  Gate
+  12 < L <= 80, boundary measured at 80/100, 81..99 untested -- a round-6
+  draw there gets the conservative side of an unmeasured boundary.
+- **Growing pln_s8_step silently un-inlined pln_foldw and cost @s3 at
+  L=31 ~5-9%** (r5 binary 140-142 vs first r6 build 147-163, outputs
+  bit-identical).  gcc-11 had been constprop-cloning pln_foldw into map and
+  no-map forms on its own; the new @s4 branch pushed pln_s8_step past the
+  inlining budget and the generic form kept both store paths live inside
+  the 16-accumulator E/O tile.  Fixed by making the MAP specialization
+  explicit (pln_foldw_m0/_m1 wrappers over an always_inline body) -- the
+  objdump symbol audit (gen_dense_prime r3's discipline) is what caught
+  it.  LESSON, for everyone: after growing any dispatch function, diff the
+  symbol table against the previous build; an optimizer courtesy you never
+  asked for can be revoked without a warning.
+- **@s4 wins ONLY at 27 among the scored group cells**: at 32/40 (and the
+  drill's 45/48/54/63/96) the race kept pv -- above vol ~20k the group's
+  16x working set loses to the pv volume-major chain's L2 residency no
+  matter how few sweeps the group makes.  Expected boundary (gen_race r5
+  recorded the same for @s1/@s2), now measured one level deeper.  Recorded
+  so nobody builds @s5 expecting different economics.
+
+### Borrowed this round, named
+
+- **gen_pfa_large gen_r5**: map_step_pair -- the pair-packed ladder,
+  adopted near verbatim into pln_map_span; also the "map is ~40% of step
+  arithmetic" accounting that made it obviously first-priority.
+- **gen_layout gen_r5**: the whole register-exit map-fusion shape
+  (gl_map8: pair-compressed |z|^2 + one vdivpd per 8 complex), its
+  "the money is the L2/L3 middle, not DRAM sizes" boundary doctrine
+  (reproduced exactly: my win band is 15..80), and the warning that
+  gl_map16-style two-pencil pairing loses in a fused exit (not attempted).
+- **gen_batchlane gen_r5**: the div-vs-rcp codelet-locality lesson (my
+  fused exit divs, my separate pass keeps rcp14), and (with
+  gen_dense_prime r3/r5) the held-lease interleaved adjacent-pair protocol
+  used for every verdict above, including acquitting the false L=31 window
+  read and convicting the real inlining regression behind it.
+- **gen_powp / gen_race gen_r5 protocol**: GEN_RACE_NO_WISDOM for the whole
+  dev session + flock strip at round end; the ice odd-line pitch rule,
+  re-applied to the @s4 stage stride.
+
+### Operation count (deltas vs gen_r5)
+
+pln_map_span: ~21 arith + 4 shuffles per PAIR of vectors (was 38 + 2).
+Fused pv exit: transpose shuffles unchanged; + 4 c loads, ~14 FMA-class,
+2 pack shuffles, 2 dup shuffles, 1 vdivpd per 8 complex, fused into
+existing stores; DELETES per plane: L^2 state loads + L^2 c loads + L^2
+state stores + the span-loop overhead.  @s4 per axis per pencil: n volume-
+row loads + n volume-row stores (was 2n + 2n in @s2's two passes) + n
+stage stores + n stage loads (L1-resident); FFT arithmetic identical to
+@s2; G2 (16 * vol doubles) not allocated.
+
+### What I would do next (ranked)
+
+1. **B=1 lane-spatial split engine** -- six rounds on this list, still the
+   panel's standing hole (my 27 B=1 is 1.8x the batched cell).  The fused
+   exit narrowed pv's deficit but the structural answer is 8 spatial sites
+   per zmm with an in-register axis-2 stage.  Round 6 draws unknown batches.
+2. **L=100 structurally** (lit 11 Tier 2 two-axes-per-pass): the pair-packed
+   map got the residue to ~5.2-5.5 ms vs gen_pfa_large's 4.5; the fused exit
+   measurably does NOT transfer there.  Coordinate with gen_pfa_large /
+   gen_powp before anyone burns the round -- three entries now queue the
+   same idea.
+3. **Race the fusemap axis per host**: the 12/80 boundaries are ICX numbers;
+   CLX's 1 MB L2 and SPR's 2 MB will move both (gen_pow2 flags MAPDIV as a
+   CLX flip candidate for the same reason).  One extra pv arm with the
+   opposite fusemap at the boundary sizes would let wisdom decide.
+4. **Winograd/real-factor DFT9 and DFT25 modules** inside the fused
+   codelets: powp's 218-op hand lines vs my ~500 at 27 says the remaining
+   1.16x at 27 is arithmetic, not scheduling.

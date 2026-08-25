@@ -708,3 +708,166 @@ bit-repeatable.  Class duty: 43 **457**, 67 **2233**, 79 **5343**, 103
    build/tryout/gen_rader/ holds the whole session protocol (build / generic /
    zpfix / mid / l31 / c3 / final phases); in/c pairs for 13,31(B1,B16),37,43,
    53,61,67,79,103,127 kept current there.
+
+## Round gen_r6
+
+### Where this round started
+
+r5 leaderboard: **84.668 us/step** at the graded cell (L=31 B=16 m=140), leading
+the crossover (gen_dense_prime 120.3, gen_bluestein 289.3, MKL/FFTW 833-883).
+Round 6 is the surprise round: three never-announced sizes in 14..127 score the
+ASSEMBLED library, so this round belongs entirely to the class duty -- make
+arbitrary primes fast.  My r5 next-list item 1 (h-even primes) is the round's
+headline; the codegen audit it forced turned out to matter as much as the
+arithmetic.  All node numbers: a80n0, ONE held lease (slot 2, core 4),
+interleaved arms (the gen_batchlane r4 protocol, as always).
+
+### What shipped, part 1: EVEN-h SPLIT RADER (rp2_*) for all p == 1 mod 4
+
+Covers 13 17 29 37 41 53 61 73 89 97 101 109 113 -- every prime in class whose
+quotient-group order h = (p-1)/2 = 2m is even.  These all ran the dense 2h^2
+engine before this round.  The arithmetic (validated in numpy FIRST --
+build/tryout/gen_rader/r6_proto.py, worst rel L2 6.3e-16 over all 13 primes --
+then gated by the create() self-check as always):
+
+- The E (cos) system is a cyclic-h correlation for ANY h (cos is even, so the
+  quotient-group reindexing never produces signs).  For even h there is NO
+  odd-h negacyclic->cyclic twist for the O (sin) system -- it is genuinely
+  NEGACYCLIC-h.  This is why r3-r5 left these primes dense.
+- E: cyclic-2m -> CRT z^{2m}-1 = (z^m-1)(z^m+1): one dense cyclic-m product
+  (data u_j + u_{m+j}, kernel (CC_j+CC_{m+j})/2) + one dense negacyclic-m
+  product (u_j - u_{m+j}, (CC_j-CC_{m+j})/2); E_j = Yc_j + Yn_j,
+  E_{m+j} = Yc_j - Yn_j (the 1/2 lives in the kernels).
+- O: negacyclic-2m -> y = z^2 with y^m = -1: 3-product KARATSUBA over dense
+  negacyclic-m blocks (A0 = even slots, A1 = odd slots; M0 = A0 B0,
+  M1 = A1 B1, M2 = (A0+A1)(B0+B1)); O_{2j} = M0_j + (y M1)_j -- the y-shift
+  is pure index renaming plus ONE sign at the wrap -- and
+  O_{2j+1} = M2_j - M0_j - M1_j.
+- Total 5m^2 conv FMA vs dense 2h^2 = 8m^2 (-37.5%), all blocks dense (the
+  settled ice-L23/r1 doctrine: Winograd/CRT only at the outer level).
+- Correlation -> convolution by data reversal; the negacyclic reversal sign
+  (w'_n = -w_{h-n}) bakes into a SIGNED V-INDEX table: the kernel folds
+  U_j = x_j + x_{p-j}, V_j = x_j - x_{p-j} ONCE into stack arrays with a
+  negated mirror V_{h+j} = -V_j (exact: -(a-b) == b-a), so both conv fills
+  are single stack loads and every row is loaded once per chunk at a
+  COMPILE-TIME offset (p = 4m+1 per instantiation).  Kernels stretched to
+  2m-1 (negacyclic: sign on wrap) so block products index kb[m-1+j-i]
+  mod-free -- RP3_CONV reused verbatim.
+
+### What shipped, part 2: the codegen finding (worth as much as the arithmetic)
+
+The r5 record's "compile-time instantiation => block products unroll
+register-resident" was FALSE above m = 11: gcc 11 leaves the conv loops
+ROLLED with memory-resident accumulators (objdump: rp3_chunk_17 had only
+~430 of its 2312 design FMAs straight-line, 855 vmovapd; every accumulation
+step round-trips the stack).  Two fixes, chosen PER m by node races:
+
+1. RP_UNROLL (#pragma GCC unroll) on every conv/fill loop forces complete
+   peeling; SRA then scalarizes.  Wins while the spill traffic stays under
+   the FMA plateau.
+2. Above that ceiling, full unroll is a catastrophe (m=25: 7400 vmovapd vs
+   3900 FMA, +73% on wallaby-class memory) -- RP2_CONV_BLK instead: j in
+   tiles of 8 REGISTER accumulators, i-loop rolled, per i: 1 stack load +
+   8 broadcasts + 8 FMA (the dense engine's proven k-quad shape on 5m^2
+   work).  Kernel tables get 7 zeroed pad slots so tiles may overread.
+
+Node-raced boundary: rp2 unroll at m <= 9, blocked at m >= 10 (37: unroll
+wins 261 vs 271; 41: 384-391 blocked vs 392-455; 53: blocked -13%).
+rp3 unroll at m <= 13, blocked at 17 (67/79: blocked LOSES +2-6%; 103:
+blocked wins -3% -- rp3's WINO makes 4 smaller conv calls, so its unroll
+ceiling sits higher).  The pragmas alone (no other change) moved the r5
+outer-C3 primes: **43 -20%, 67 -11%, 103 -38%**.
+
+### Measured on the node (interleaved final binary vs r5 binary, min us/step, chain)
+
+| p | r5 | gen_r6 | delta | engine |
+|---|---|---|---|---|
+| 37 (B=2 m=8) | 426 | **265** | -38% | rp2 unroll m=9 |
+| 41 (B=2 m=8) | 588 | **376** | -36% | rp2 blk m=10 |
+| 43 (B=2 m=8) | 440 | **356** | -19% | rp3 unroll (pragma) |
+| 53 (B=2 m=8) | 1589 | **944** | -41% | rp2 blk m=13 |
+| 61 (B=2 m=8) | 2683 | **1722** | -36% | rp2 blk m=15 |
+| 67 (B=1 m=8) | 2224 | **1912** | -14% | rp3 unroll (pragma) |
+| 73 (B=1 m=8) | 5262 | **3560** | -32% | rp2 blk m=18 |
+| 79 (B=1 m=8) | 5048 | **3496** | -31% | rp3 unroll (pragma) |
+| 89 (B=1 m=4) | 12009 | **9021** | -25% | rp2 blk m=22 |
+| 101 (B=1 m=4) | 20164 | **17284** | -14% | rp2 blk m=25 |
+| 103 (B=1 m=4) | 18863 | **11448** | -39% | rp3 blk m=17 |
+| 113 (B=1 m=4) | 31438 | **23598** | -25% | rp2 blk m=28 |
+
+L=31 (graded cell): **84.82 / 84.95 / 86.02** B=16, **84.80** B=1 -- a wash vs
+r5 (85.0-85.1 interleaved control), chain output BIT-IDENTICAL to the r5
+binary (cmp).  Setup at the largest new-engine prime (113): 1.85 s, far under
+the 60 s budget.
+
+Correctness (final binary, all on the node): L=31 single 4.059e-16, map-chain
+m=140 2.559e-14 (anchor 2.312e-14), two-step 1.784e-15, repeatable-identical.
+Every rp2/rp3 prime: single 4.1e-16..9.8e-16, **two-step 1.9e-15..5.3e-15**
+(tol 3e-14; worst margin 5.6x at 113).  Dense-path primes (23 47 59 71 83
+107 127) and small primes (3..29) all PASS, untouched.
+
+### What did NOT work, with the number that killed it
+
+- **rp3 one-pass fold (the rp2 fold ported to the outer-C3 kernels):
+  43 +15% (406 vs 352), 67 +29% (2447 vs 1892), 103 +39% (15300 vs 10989),
+  3/3 each.**  The WINO working set (S/Y/T + 8 block arrays, ~26m slots) is
+  already spill-saturated; the extra 9m stack slots + fill indirection cost
+  more than the 2h row loads they save -- those rows hit L2 and the two load
+  ports absorb them.  Outputs bit-identical (cmp at 67); knob kept
+  (-DRP3_FOLD1).  Lesson: fold-once pays in the LEAN kernel (rp2, ~15m
+  slots), not the fat one -- same register-budget mechanism as the panel's
+  five map-fusion negatives.
+- **Blocked conv at rp2 m=9 (+4%, 3/3) and rp3 m=11/13 (+2..6%)** -- the
+  unroll/blocked boundary is real and per-family; wrote the raced boundary
+  into the instantiation table.
+- **Wallaby-local timing at DRAM sizes actively misleads**: local runs said
+  rp2 LOSES at 89/101/113 (+4..17%); the node says it WINS -16..-27%.  Two
+  different memory systems.  Never gate a size-regime decision on the dev
+  host -- the r5 "test at the size regime it targets" discipline needs
+  "...on the machine that scores it" appended.
+
+### Borrowed this round, named
+
+- **My own r3 dense engine's k-quad accumulator shape** became RP2_CONV_BLK
+  (8 register accumulators sharing one data load per step) -- reused as the
+  large-m conv form on 5m^2 work.
+- **gen_dense_prime r2/r5**: the exact-tile doctrine (per-m instantiation)
+  and the bit-identity-by-lanewise + cmp verification protocol, again.
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol.
+- **ice L23_rader / my r1**: blocks stay dense, structure only at the outer
+  level -- the C2-CRT/Karatsuba split is that lesson at even h.
+- **docs/literature 11 Tier 1 (GT/Rader-as-vectorization-first)**: this
+  round completes the program -- every prime 13..113 with h even or h = 3m
+  (odd, 3 coprime m) now runs a sub-dense-count Rader in performant code;
+  cited per the brief.
+
+### Operation count (shipped)
+
+31: unchanged (~240k zmm FMA-class + ~90k adds per volume step, bit-identical
+to r4/r5).  Even-h primes: per 4 columns per axis, fold 2h loads + 3h add/sub,
+5m^2 + ~12m conv FMA (2 CRT products + 3 Karatsuba products, all dense),
+combine ~4h -- vs dense 2h^2 = 8m^2.  Outer-C3 primes: unchanged 8m^2 + O(m)
+arithmetic, now actually compiled straight-line (<= m=13) or 8-acc blocked
+(m=17).  Dense engine: unchanged, still the path for 19 23 47 59 71 83 107 127.
+
+### What I would do next
+
+1. **19 and 127 are the last sub-dense holes** (h = 9 and 63, both 3 | m so
+   no C3 CRT; 63 = 7x9 wants Agarwal-Cooley C7xC9 or a two-level plan).  127
+   is DRAM-resident so the FMA cut is partially hidden -- pair it with the
+   x-band custody blocking (r4 next-step 2, still unpaid) which is now the
+   dominant term at 101/113 too (the m=25/28 blocked kernels leave the
+   engine clearly memory-shaped: 101 gains only -14% from a -37.5% FMA cut).
+2. **Store-order pass for rp2/rp3 combines** (kp/km stores are row-scattered;
+   natural-order stores with table indices moved to the O_/T reads) -- the
+   r5 item, still cheap, now applies to two engines.
+3. **The rp2 blocked kernels' UF/VF fills are the next spill frontier**: at
+   m >= 22 the fold + fills are ~9h stack ops outside the products; a fused
+   fill-into-first-product form could delete a third of them.
+4. Wisdom/race layer: the per-m conv-form table is a per-HOST truth (the
+   wallaby/node flip proves it) -- expose -DRP2_FORM overrides so gen_race
+   can race both forms per size on CLX/SPR instead of trusting my Ice Lake
+   boundary.
+5. Harness: r6_ab.sh under build/tryout/gen_rader/ holds the whole session
+   (build/even/c3/l31/fold3/gates phases); in/c pairs now cover 13..127 incl.
+   41 53 73 89 97 101 109 113 at the B the suite would use.

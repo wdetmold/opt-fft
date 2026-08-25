@@ -665,3 +665,112 @@ amortized over m = 64-1000 steps).
    floor is issue shape in the conv stages themselves (broadcast-heavy
    radix-4 bodies); literature 11's 2,8-split-radix flap-optimal chains are
    the only untried arithmetic-count idea left in this class.
+
+## Round gen_r6
+
+### What changed (impl/gen_bluestein.c, one structural change + one raced-off knob)
+
+1. **Non-power-of-two convolution lengths: M = min{2^k, 3*2^k, 5*2^k} >= 2L-1,
+   k >= 4** (grid 48, 64, 80, 96, 128, 160, 192, 256, ...). My r5 next-step 5
+   called the remaining lever "arithmetic count in the conv stages"; this is
+   that lever, and it is kin to literature 11 Tier-1's flap-count
+   factorization ranking (rank chains by real cost, not by radix
+   convenience). The radix-4 DIF/DIT chain, the no-bit-reversal trick, and
+   every pruned/fused end stage carry over unchanged because they never
+   assumed pow2 — only 4 | len per stage and S = M/4 divisible by 4 for the
+   axis-2 transpose path (hence k >= 4: M = 24/12 stay excluded). The chain
+   now ends at a twiddle-free tail of 2, 3, 5, 6 (= PFA 2x3), or 10
+   (= PFA 2x5) consecutive positions; since block order was never named,
+   ANY fixed 6/10-point output permutation is legal as long as create()'s
+   bh forward uses the same one — PFA needs no twiddles at all. New code:
+   plain-C dft{3,5,6,10}_{fwd,inv}_stage (create + scalar builds) and fused
+   AVX-512 conv_mid{3,5,6,10} (tail DFT + pointwise bh + exact inverse, one
+   pass, mirroring conv_mid4/2). Twiddle fills/audits unchanged —
+   tw_fill_ct_int_colmajor takes arbitrary N (checked before writing code).
+   Affected sizes: L 17-24 M 64->48 (-25%), L 33-40 128->80 (-37.5%!),
+   L 41-48 128->96, L 65-80 256->160 (-37.5%), L 81-96 256->192 — 56 of the
+   114 candidate surprise sizes in 14..127, plus graded 20 and 40. All
+   other L take byte-identical code paths.
+   **This corrects my own r1 note** "radix-3 sizes like 192 never beat the
+   pow2 choice — checked arithmetic": that arithmetic was wrong; measured,
+   the small-M choices win everywhere they apply (below).
+2. **conv_mid12 (raced OFF, knob -DBST_MID12)**: fusing dif4(12) + mid3 +
+   dit4(12) into one register pass (5 -> 3 passes at M=48) was a
+   wash-to-loss: control-first same-core pairs at L=20 B=32 read 84.53/
+   84.89/84.53 (unfused) vs 85.31/84.76/87.65 (fused). The 6 KiB M=48
+   buffer is L1-resident, so the deleted passes were free and the
+   24-live-zmm tile spills — gen_pfa_large r4's "deleted cache-resident
+   passes are worth ~nothing" again, now at L1. Code kept for the CLX/SPR
+   re-race (1 MB L2 machines may disagree).
+
+### Operation count (per row, changed sizes)
+M=48: first(48)+dif4(12)+mid3+dit4(12)+last(48); M=80: first+dif4(20)+mid5+
+dit4(20)+last; M=96: ...mid6...; M=160: ...dif4(40)+mid10...; M=192:
+first+dif16(48,12)+mid3+dit16+last. Same 5-pass shape as the pow2 chains
+(M=48 has no dif16 layer, same count), 25-37.5% less data per pass;
+DFT-3/6 are cheaper per point than radix-4, DFT-5/10 about par. Gather/
+scatter/chirp work (O(L) per row) unchanged.
+
+### Measured on the node (a80n0, held lease, same-core control-first
+### alternating pairs vs the r5 binary; graded chain cells, min us/xform)
+
+| cell | r5 same-window | r6 | delta |
+|---|---|---|---|
+| L=20 B=32 m=256 | 104.3 / 105.5 / 103.9 | 84.3 / 83.6 / 82.9 | **-20%** (3/3) |
+| L=40 B=8 m=128 | 1144 / 1223 / 1200 | 732 / 700 / 700 (M=96 arm) | **-39%** (3/3) |
+| L=40, M=96 vs M=80 arms | 734.6 / 740.5 / 704.1 | 669.0 / 665.5 / 693.6 | **-6.5%** (3/3) |
+
+Ship binary (tryout, quiet reads): L=20 B=32 **84.5** us (r5 board 103.4),
+L=40 B=8 **682** (board 1063, quiet A/B best 665), L=20 B=1 90.8,
+L=40 B=1 620-694. Parity controls (paths untouched): L=10 B=64 13.47
+(board 13.28), L=25 B=16 181.8 (board 179.9). MKL same window: L=20 58.5,
+L=40 413.
+
+### Gates (shipped default build, on the node, check.py by hand)
+Singles B=1: L in {2..9, 11, 13, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+33, 34, 35(B=4), 37, 40, 43, 47, 48, 63, 64, 65, 66, 71, 80, 95, 96, 97,
+101, 127, 128} ALL PASS <= 8.9e-16 (tol 1e-12) — covers every tail type
+(2, 3, 5, 6, 10), both PFA parities, all the new M values incl. the
+L = M/2 edges (24, 48, 96), boundary-block jful cases, and the giants.
+Two-step m=2: L=17 1.72e-15, L=20 1.95e-15, L=40 2.82e-15, L=80 3.68e-15,
+L=96 3.34e-15 (tol 3e-14, >= 8x margin). Graded chains: L=20 m=256
+5.88e-14 (anchor 2.84e-14), L=24 m=200 3.92e-14 (1.83e-14), L=40 m=128
+4.58e-14 (2.61e-14), L=48 m=100 4.01e-14 (2.03e-14) — all <= 2.2x honest,
+tol 1e-10. Repeatable (cmp-identical across runs). Scalar -march=x86-64:
+singles PASS at L in {20 B=4, 40 B=2/4, 71, 96} (exercises the plain-C
+DFT-3/5/6/10 stages end to end). create() still ~0 s.
+
+### What did NOT work / was declined, with the number or the reason
+- **conv_mid12**: above — 2/3 pairs lost, worst +3.7%. L1-resident passes
+  are already free; do not fuse for pass count below L2 residency.
+- **M = 24 / 12 (k < 4)**: would give L=9..12 M 32->24 with a 3-pass chain,
+  but S = 6 (resp. 3) breaks the S % 4 == 0 contract of the axis-2
+  transpose gather/scatter (blocks of 4 j's); supporting it needs 2-wide
+  masked tail blocks in first_gather_tr AND last_scatter_tr in all three
+  leg regions. Declined on risk/size: those cells are 13-19 us and only
+  graded, never surprise (14..127). Next-round candidate if anyone needs it.
+- **7*2^k (M = 112 for L=49..56, vs 128)**: needs a Winograd/Rader 7-point
+  tail — real code for a 12.5% M cut on one octave slice that contains no
+  graded size. Declined this round.
+
+### Borrowed this round, named
+- **literature 11 Tier-1 (flap-count factorization ranking)**: the
+  cost-not-convenience framing that finally displaced next_pow2; cited as
+  the impetus, the implementation is this entry's own machinery.
+- **gen_batchlane r4 / gen_pow2 r3**: the held-lease same-core
+  control-first pairing protocol, used for every keep/kill above (the
+  conv_mid12 kill and the M=80-vs-96 attribution are pure products of it).
+
+### What I would do next (gen_r7 / endgame)
+1. **bluestein_cost(L) for gen_planner** (fifth carry, now size-dependent):
+   cost ~ 3L^2 rows x 0.66 ns per (row * M(L)*log2 M(L) / 8) with
+   M(L) = min{2^k, 3*2^k>=48, 5*2^k>=80 : >= 2L-1} — the grid matters now
+   (L=40's M halved). The planner should stop assuming next_pow2 for me.
+2. **M=24 via 2-wide tr tail blocks** if L=9..12 ever matters beyond the
+   two graded cells.
+3. **Cross-arch re-races** (carried): BST_MAPFUSE_MAX_MIB (ICL-LLC number),
+   BST_NOCFUSE, BST_BLKFUSE, BST_PF, BST_SCHED, and now BST_MID12 on
+   CLX/SPR when XARCH.md lands.
+4. The remaining L=100-class lever is unchanged from r5: issue shape in the
+   broadcast-heavy radix-4 bodies (2,8-split-radix chains, lit 11) — M=256
+   got no help this round since 2L-1=199 > 192.

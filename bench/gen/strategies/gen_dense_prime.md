@@ -789,3 +789,180 @@ only.  z-pass, fold, map, chain layout: unchanged.
    believing the ~1% k-tail drag is real.
 5. Cross-arch: re-race GDP_MAP_SQRT and the exact tails on CLX/SPR when
    XARCH.md appears; the divider/FMA balance differs on both.
+
+## Round gen_r6
+
+### Where this round started
+
+r5 leaderboard: 120.287 at the graded cell (L=31 B=16 m=140; gen_rader
+84.668 — the settled arithmetic crossover); small roster 5.583 / 8.091 /
+14.875 / 38.949 at 10/12/15/20; the r5 exact-tile round's prime cells
+(the r6-surprise insurance) at 17: ~27.6, 19: ~37.0, 23: ~61.2, 29: ~140.
+My r5 next-list: exact-kq z-pass, z-into-x fusion for the generic chain,
+lazy map for the generic chain, and the 29/15 DSB question.  This round
+BUILT the two structural items, measured them properly, and REJECTED them
+— the round's product is the negative result (with numbers and mechanism),
+a default build that is bit-identical to r5, and the machinery preserved
+behind knobs for the cross-arch races.
+
+First, the exact-kq z-pass (r5 item 1) died at the whiteboard: kq =
+ceil((hc+1)/4) zmm per row is already exact in VECTOR count — 2L and 2*PL
+doubles round to the SAME number of zmm at every L in class (the pads are
+always < 4 complex), so there are no droppable FMA slots; the 25% "waste"
+at 17/19 is pad LANES inside vectors that must be issued anyway.  Struck
+without a window.
+
+### What was built and raced (all on the node, ONE held lease, slot 3 core 5,
+### interleaved same-core min-sets — the r5 protocol)
+
+1. **Pipelined z->x block custody (zxfold_pass + fold_block)** — the
+   fold31zx geometry at runtime L, realized without a fused drain: the
+   x-pass's column block y0 spans exactly the L z-pencils (x, y0, 0..L-1),
+   so the z-phase runs ONE BLOCK AHEAD of the fold; a full block of GEMM
+   sits between any z store and its fold re-load (no masked-store->wide-load
+   forwarding exposure, the r2 trap), and the block stays L1-hot.  Rows
+   z-transform in global pairs that CROSS block boundaries, so odd L keeps
+   exactly one aliased solo row per volume (not one per block).
+   fold_block is the fold_pass body for a single c0 through the same
+   macros — bit-identical op sequence.
+2. **Lazy map for the generic chain (gdp_map_row / gdp_zrow2)** — my r4
+   L=31 map-on-load lever generalized: step s's map applied to each row as
+   step s+1's z-phase loads it, into an aligned stack row the pair kernel
+   consumes; only the last step's map materializes.  Map arithmetic is
+   lanewise and op-identical to map_volume (pair-compressed |w|^2, ladder,
+   one vdivpd per 8 pts; a lone tail group duplicates its m2 lanes — still
+   per-point identical).  Pad columns stay EXACTLY ZERO through every
+   variant (z masked stores never write pads, GEMMs propagate 0*w+0,
+   map(0+0)=0) — no junk-bounding argument needed anywhere.
+3. **The same lazy map in the r5 contiguous z order (zpass_vec_map)** —
+   built after (1)+(2) lost, to separate the two mechanisms.
+
+Verification before any timing: singles bit-identical to the r5 binary at
+ALL 14 tested (L,B) cells; chains bit-identical everywhere except L=11/17/19
+where r5's whole-volume map has a 4-point scalar-sqrt tail ((L^2*PL)%8==4)
+that the per-row lazy map runs through the ladder instead — measured
+divergence rel_l2 2-3e-16, max abs 3e-15 at m=4.  All numpy gates PASS on
+the fused build at every size: two-step 4.4e-16..1.7e-15 (tol 3e-14),
+graded chains 1.03-2.1x their anchors.  So everything below is a clean
+performance comparison between correct engines.
+
+### The verdict: both levers LOSE on Ice Lake, at every generic size
+
+Same-core interleaved min-sets (us/xform; r5c = impl_5 rebuild; r6nf =
+new source, old structure — refactor sanity):
+
+| cell | r5c | custody+lazy | custody only | lazy only (contiguous z) |
+|---|---|---|---|---|
+| 17 B=4 m=8 | 27.5-28.7 | 31.5-32.3 (+13%) | 28.8-29.2 (+2%) | 30.4-31.0 (+8%) |
+| 19 B=4 m=8 | 36.0-36.9 | 41.2-41.3 (+12%) | — | — |
+| 23 B=4 m=8 | 61.0-62.8 | 67.0-68.9 (+10%) | 63.6-64.1 (+3.7%) | 63.5-64.7 (+3%) |
+| 29 B=4 m=8 | 140.3-143.1 / 145.8-147.8 | 156.3-162.7 (+12%) | 153.2-157.4 (+4-8%) | 147.2-147.5 (+5%) |
+| 13 B=4 m=8 | 11.2-11.9 | 12.9-13.1 (+11%) | — | — |
+
+r6nf == r5c (28.8 vs 28.5 at 17; 62.5 vs 62.0 at 23): the fold_block
+refactor and dead knob code are free.
+
+**Mechanism, custody (+2% at 17 growing to +4-8% at 29):** the custody
+z-phase must walk the volume in the x-pass's direction — L rows per block
+at PLANE stride — where the r5 whole-volume z-pass streams rows
+contiguously.  Against the L2-resident state the contiguous sweep gets L1
+next-line prefetch and line reuse (adjacent rows share/neighbor lines);
+the strided walk pays full L2 latency per row and grows with volume.  The
+L1-hotness of the z-output block buys nothing back because the fold's
+re-loads were already L2 hits fully hidden under the GEMM by OoO.  Verdict:
+custody pays only when it deletes a MISS stream (gen_rader's r4 win was at
+DRAM-resident 127), never inside a cache level the OoO already covers —
+the same boundary gen_rader wrote for prefetch in their r4.
+**Do not rediscover this by fusing z into x at generic L; the store-retire
+distance is not the problem, the walk direction is.**
+
+**Mechanism, lazy map (+3-10% everywhere):** the standalone map pass is
+~L^3/8 INDEPENDENT groups — near-perfect ILP, divider fully overlapped.
+On the z feed path the same ops become a per-row dependency chain
+(map -> stack row -> fold -> GEMM broadcast feed) with only ~2 rows in
+flight per kernel call; the chain lengthening costs more than the deleted
+2-volume L2 round trip is worth at L2-resident sizes.  My r4 win at 31
+(-0.4%) does NOT transfer: fold31zx's z-phase is an FMA-saturated
+register-tiled GEMM whose OoO shadow swallows the ladder; the generic pair
+kernel is lean (broadcast-fed, ~10 load-port ops per j) and has no such
+shadow.  This is the panel's 7th and 8th map-fusion negative
+(r31 y-stores r1, my r2 plane-map x2, rp y r3, batchlane epilogue r4,
+gen_rader z-loads r4 (+4%), now my generic load-side custody form AND the
+contiguous-order form).  **Map placement on this panel is now closed at
+every granularity and every size class except the one FMA-saturated fused
+drain where it originally won (L=31 z-phase). The map wants to be a
+standalone max-ILP pass.**
+
+### What shipped
+
+Defaults = the r5 pass structure, bit-identical outputs at ALL sizes
+(cmp-verified single + chain at 14 cells including 11/17/19 after the
+knob inversion; two-run repeatability confirmed; gates re-run PASS on the
+shipped binary).  The machinery stays compiled-out behind knobs:
+-DGDP_CUSTODY (custody + lazy map), -DGDP_CUSTODY -DGDP_NOLAZYMAP
+(custody only), -DGDP_LAZYZ (lazy map in contiguous order) — raceable on
+CLX (1 MB L2 — the traffic the levers delete is dearer there) and SPR.
+Shipped-default parity numbers this round, same windows: 17: 27.49/27.77/
+27.94 vs r5c 27.52/27.85/28.65; 29: 145.7/148.3/149.7 vs 145.7/148.0/
+149.6; 15 B=32: 14.88/14.95/15.27 vs 14.45/15.39/15.74 (wash); 31 B=16:
+119.53/119.83 vs 121.48/122.09 (same code path — layout luck, treat as
+parity); 31 B=1: 121.4/121.7; 17 B=1: 27.5/27.6.  MKL was not re-raced
+(no code change on the scored path).
+
+### One positive datum: -falign-loops=32 wins at 29
+
+The r5 "DSB question" item, raced as a BUILD FLAG on the unchanged source:
+L=29 B=4 m=8: 144.97/145.45/146.54 vs 145.68/147.78/149.55 — 3/3
+interleaved pairwise wins, ~-1.5%; 17 and 15: wash to slightly negative.
+Not shipped in source (gcc's optimize-attribute is the documented footgun
+and a file-wide pragma taxes the sizes where it loses); recorded here as a
+DATUM FOR gen_race/gen_planner: per-size compile-flag racing is worth ~1.5%
+at 29-class sizes, exactly what the plan-time race layer exists for.
+
+### What did NOT work, with the number that killed it
+
+- Custody+lazy at every generic size: table above (+10-13%).
+- Custody alone: +2% (17), +3.7% (23), +4-8% (29).
+- Lazy map alone, contiguous z order: +8% (17), +3% (23), +5% (29).
+- Exact-kq z-pass: struck at the whiteboard — vector counts are already
+  exact at every L in class; the pad waste is intra-vector lanes.
+
+### Borrowed this round, named
+
+- **gen_rader gen_r4**: the plane-custody idea (via gen_layout r3 /
+  gen_bluestein r4) — generalized here to z->x block custody, and their
+  "custody pays at the size regime it targets" discipline, which this
+  round's numbers CONFIRM by failing inside L2: their r4 custody won at
+  DRAM-resident 127, mine lost at L2-resident 13-29.  Also their r4
+  load-side map-fusion negative (+4%), which my generic result now
+  replicates on a second engine.
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol,
+  used for every number above.
+- My own r2 (store-forwarding trap), r3 (cross-block pairing idea from the
+  solo-row accounting), r4 (lazy-map mechanism and its L=31-only boundary,
+  now measured).
+
+### Operation count (shipped)
+
+Identical to r5 at every size (the shipped binary is bit-identical); the
+knob variants relocate (never add) map/z work.
+
+### What I would do next
+
+1. **The generic-prime engineering space is now exhausted on ICX** — r5's
+   exact tiles were the last real win; r6's two structural candidates are
+   measured negatives.  The remaining levers at 13-29 are ARITHMETIC
+   (Rader/C3-class), which is gen_rader's lane; the crossover standings
+   (dense leads at 23/29 by ~15-20%, Rader owns 31) look r6-stable.
+2. **Cross-arch**: race -DGDP_CUSTODY / -DGDP_LAZYZ on Cascade Lake — the
+   levers delete L2 traffic and CLX's L2 is 1 MB; the ICX verdict may flip
+   at 29.  Ship the knob results into the wisdom cache, not the source.
+3. **gen_race/gen_planner**: adopt per-size flag racing; -falign-loops=32
+   is worth ~1.5% at 29 on ICX (datum above), and the knob defines the
+   candidate axis (code alignment) for other sizes/hosts.
+4. Harness notes: tryout.sh's W-before-CH ordering bug is FIXED this round;
+   the remote map-check quoting bug persists (literal quotes reach
+   check.py) — keep running check.py by hand; r6dev/r6_ab.sh under
+   build/tryout/gen_dense_prime/ holds this round's whole protocol
+   (build / gen / gates / check / time phases) and the in/c pairs for
+   5,7,11,13,15,17,19,23,29 (B=4 and graded B) are current there.

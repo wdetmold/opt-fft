@@ -1,0 +1,7 @@
+Done. The round shipped in `impl/gen_batchlane.c` (new sizes + DFT7 + safe placement, scored paths bit-identical to r5) and the gen_r6 section is appended to `strategies/gen_batchlane.md`. Summary of the round:
+
+- **Safe placement**: a free stage-1 store permutation (output c → the slot ≡ c mod P) makes stage-2 of the two-stage PFA in-place safe at **any** coprime split — this generalized gen_pfa_small's Q≡1 mod P rule and made new sizes mechanical.
+- **Four new class sizes for the surprise round**: 14/21/28/35 via a new 66-op DFT7 module, all 3.2–4.0x MKL on graded chains (14: 3.64 µs, 21: 18.4, 28: 50.9, 35: 109–113), all gates passing with 16–30x margin, remainder/mixed batches verified.
+- **Raced and rejected**: safe placement applied at L=15 (splitting the DFT5X2 pair) lost ~1% same-core — the fused pair's interleaved dependency chains win on ILP; default stays fused, knob kept. rcp tail re-confirmed at 10, div tail confirmed for the new memory-form sizes (+2.3% for rcp at 14).
+
+**One line:** Twiddle-free two-stage PFA batch-lane engine extended 7-smooth via DFT7 + hazard-free safe placement; best same-core chains — batched: 1.157 µs (L=10 B=64), 1.914 (12), 3.63 (14, new), 4.41 (15), 13.07 (20), 18.4 (21), 50.9 (28), 109 (35); B=1 m=64: 9.3/15.4/29.2/35.7/110.6/150.0 µs at 10/12/14/15/20/21; rel L2 = 2.6–3.7e-16 single call (tol 1e-12), 1.0–1.8e-15 at the m=2 gate (tol 3e-14).

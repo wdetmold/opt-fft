@@ -823,3 +823,154 @@ and flushes only).
    case.  If the draw lands a p^k not in {49,81,121,125}, nothing serves it
    better than Bluestein -- a generic two-stage CT line-codelet emitter
    over this template remains the (unbudgeted) fix.
+
+## Round gen_r6
+
+Standings into the round (r5 board): led 25 (31.352) and 50 (415.637 vs
+gen_pfa_large 420.957); trailed 100 by 1.9% (4618.710 vs 4531.445) -- and
+the L=27 cell shipped **51.444 where ~44.5 was available**: the monitor's
+quiet-window cold race installed l27-ip0 (wisdom: 58.63 us/vol trial, margin
+-0.6%, "tie"), i.e. soa was mis-ranked OUT in the scoring race itself.  That
+is my r5 busy-core race lesson biting the monitor's own window, and it set
+this round's agenda: the race must measure what the chain is graded on.
+Round 6 is also the surprise round (three sizes in 14..127, library-scored);
+supports() already covers every p^k in range that is not 2^k.
+
+### What was built (two race fixes, one measured rejection, one rank flip)
+
+**1. SOA-vs-INTERLEAVED PLAYOFF in the create() race (own fix; the round's
+headline).**  Mechanism of the wound: interleaved trials evict the SoA
+arenas (7.6 MB at 27) and i-cache between interleaved trial rounds, and a
+2-step soa trial re-pays that refill EVERY round where the graded 200-step
+chain pays it once per chain.  Fix: after the short min-of-rounds trials,
+the soa candidate and the best interleaved candidate are re-timed
+head-to-head in alternation -- 24 steady steps per arm per round, min over
+3 rounds -- and the playoff numbers feed back into tc[] with min() on the
+interleaved side (the playoff can only make the comparison FAIRER to the
+incumbent); soa still must clear the 3% simplest-first hysteresis.  Verified
+on the node: in a busy window the playoff read soa 46.65 vs ip1 51.10 at 27
+(soa installs, +8.7% clear) and soa 36.4 vs 46.5 at 25; the graded chain
+then shipped 45.25 at 27 -- vs the r5 board's 51.44, a ~12% recovery on a
+scored cell without touching kernel code.  Setup stays 0.41-0.58 s at
+25/27 (60 s budget).  Wisdom tag chain5 -> chain6 so the mis-picked
+l27-ip0 verdict (or any short-trial verdict) can never replay.
+
+**2. Rank-0 CHALLENGER playoff at the non-soa sizes (same disease,
+interleaved case).**  Rank order encodes graded-shape held-lease evidence,
+but a 4-step trial dilutes benefits that accrue in steady state -- ipk1's
+c-flush at 100 keeps the L3 clean for LATER steps' state re-reads, and the
+same cold race that timed my 5/5-winning ipk1 at +5.3% would never let the
+3% hysteresis reach it.  When the lowest-rank live candidate differs from
+the trial best by < 15%, the two are re-judged on long steady runs (24
+steps per arm per round at <= 8 MiB volumes, 12 above; 3 rounds,
+alternating).  Observed at 50: playoff ipp0 424.9 vs ip1 414.9 -- inside
+the 3% band, ipp0 keeps the slot (r4's accepted <= 3% worst case,
+re-observed and still acceptable).
+
+**3. TWO-COLUMN map-fused x-pass at 27: built, measured, REJECTED (closes
+the item queued since r2).**  p27m2 processes two adjacent flat columns per
+pencil: column B's stage loads precede column A's stores in program order
+(st is a runtime stride -- the compiler cannot alias-reorder), so 12 site
+loads are in flight per stage visit, and the map stage pairs divides ACROSS
+columns (3 vdivpd per 6 sites vs 4 in-column).  Quiet-window held-lease
+pairs (MKL steady at 144.57), 27 B=16 m=200: **two-column 47.12-47.39 vs
+single-column 45.18-45.57 min (+4.4%), single wins 4/5 pairs** -- the
+doubled straight-line body costs more in the front end than the paired
+loads and the saved divide buy; the x-pass streams were already covered by
+the OoO window.  Shipped x-pass = the r5 single-column form (bit-identical
+chain values); two-column kept opt-in behind -DGENPWP_XCOL2 for cross-arch
+races (its build passes all gates: m=200 chain 3.303e-14, m=2 1.581e-15).
+gen_batchlane r6's DFT5X2-at-15 ILP verdict (+1% for fusing) does NOT
+transfer to this engine -- pair-fusion is codelet-shape-specific, the same
+boundary as sched-pressure in my r3.
+
+**4. ipk1 ranked FIRST at 100 (settles my r5 open question).**  5/5
+held-lease pairs at L=100 B=1 m=64, one core, window running quiet -> busy:
+ipk1/ipp1 mins 5282/5317, 5027/5399, 5606/6355, 5499/6577, 5458/5686
+(-0.6% to -16%) -- the margin WIDENS under contention: flushing clean
+c lines frees L3 that contention squeezes (gen_pfa_large r4's
+smaller-footprint-is-contention-armor, confirmed on my side).  The r5
+criterion ("-1% or better across 4+ pairs") is met.  50 ranks unchanged
+(bypass still loses at B=4: the batch's c IS the L3 reuse set there).
+
+### Measured on the node (a80n0, held leases via slot_lease, mixed windows)
+
+| case | r5 board | gen_r6 | pick | note |
+|---|---|---|---|---|
+| L=25 B=16 m=256 | 31.352 | **32.103** (sd 0.33%) | soa (playoff) | window; code = r5 |
+| L=27 B=16 m=200 | 51.444 (mis-pick) | **45.254** (sd 0.26%) | soa (playoff) | ~-12%: the playoff recovery |
+| L=50 B=4 m=128  | 415.637 | **424.218** (sd 0.27%) | ipp0 (<=3% rank rule) | window; code = r5 |
+| L=100 B=1 m=64  | 4618.710 | **4530.426** (sd 0.35%) | ipk1 (rank 0) | -1.9%: matches gen_pfa_large's r5 cell |
+
+B=1 chains: 25: 40.055, 27: 50.453, 50: 486.5 (hot, sd 3.9%).  New sizes,
+same shapes as r5 finals: 49 B=8 m=32: 509.6; 81 B=2 m=16: 2994.9;
+121 m=8: 14419.8; 125 m=8: 15804.6.  Gates, all eight sizes: single call
+3.6-5.0e-16 (tol 1e-12); two-step m=2 1.422/1.549/2.361/2.721e-15 at
+25/27/50/100 (tol 3e-14, >11x margin); graded chains 3.145/3.098/5.028/
+4.181e-14 at 1.05-1.7x honest anchors (tol 1e-10); new-size chains
+5.6e-15-1.2e-14; ALL bit-repeatable across independent runs.  Setup: cold
+0.41-4.6 s (playoffs included; 60 s budget); warm wisdom unchanged
+ms-scale.  -Wall -Wextra: only the pre-existing unused xc_ipq0_50/100
+(ipq0 is pooled at lite sizes only).  Round end: all gen_powp keys
+STRIPPED from results/wisdom_a80n0.json (r2-r5 protocol; note the file is
+rewritten wholesale by concurrent create() races -- strip, wait, re-verify).
+
+### What did NOT work / boundaries, with the numbers
+
+* **Two-column x-pass at 27: +4.4%** (47.12-47.39 vs 45.18-45.57, 4/5
+  quiet pairs) -- see item 3.  Do not re-derive: pair-fusion of stage-2
+  groups is an ILP win only on register-explicit spill-heavy codelets
+  (gen_batchlane's), not on in-place slot pencils whose stages already
+  stream through memory.
+* **ipk1's short-trial number is not its graded number**: +5.3% in the
+  4-step cold race vs -0.6..-16% in 5/5 graded m=64 pairs.  Any candidate
+  whose win comes from cross-step cache state (bypass families, deferred
+  maps at the margin) is systematically under-read by short trials; that
+  is what the challenger playoff is for.  If a future family's benefit
+  needs even longer horizons than 24 steps, raise PS before adding rank
+  hacks.
+* The challenger playoff at 50 re-confirms ipp0-vs-ip1 as a genuine <= 3%
+  coin flip (424.9 vs 414.9 this window); the rank rule eats <= 3% there
+  by design and the CLX/SPR advisory is the reason it stays.
+
+### Borrowed, plainly
+
+- **gen_batchlane (gen_r6)**: the DFT5X2/DFT7X2 pair-fusion idea motivated
+  the two-column try; opposite verdict on my engine, recorded above so the
+  boundary is explicit.  Their held-lease alternation protocol remains the
+  measurement standard for every number in this section.
+- **gen_dense_prime (gen_r6)**: their custody and lazy-map negative
+  results (both +2..13% inside cache levels the OoO already covers) are
+  the same mechanism class as my ipm-at-100 loss; I did NOT re-litigate
+  z-into-x fusion or in-stream maps this round because their numbers
+  already close those doors on L3-resident engines.
+- **gen_pfa_large (gen_r4/r5, transitively)**: the c-bypass family whose
+  ipk1 variant now leads 100, and the contention-armor account its 5/5
+  playoff pairs confirm.
+- The playoff machinery (both flavours) is new here; monitors and rivals
+  are welcome to it -- it is ~60 lines in tune() and the mechanism
+  (short trials re-pay refills the graded chain amortizes) applies to any
+  entry racing a cache-hungry candidate against lean ones.
+
+### Operation count
+
+Unchanged at all eight sizes (192/218/434/968 scored, 534/850/1850/1552
+lite FMA-port vector ops per line; soa 404/436 per pencil per 8 volumes).
+The playoffs move no arithmetic; the shipped chain paths are bit-identical
+to r5 at every size.
+
+### What I would do next (ranked)
+
+1. **Round-6 surprise draw**: if a p^k in {25,27,49,81,121,125} is drawn,
+   the playoff protects the pick; nothing to do but watch.  If the trunk
+   routes a p^k at batch % 8 == 0 and B >= 8 through me at 25/27-like
+   sizes, soa serves it; other p^k at odd batches ride the interleaved
+   families.
+2. **Two-axes-per-pass fusion at 100** (literature 11 tier 2) is still the
+   only lever that changes the 100 traffic floor; a full-round rewrite,
+   coordinate with gen_pfa_large so only one of us burns the round.
+3. **XARCH follow-up**: the XCOL2 and NOMAPPAIR knobs plus the per-host
+   race are the portability levers; if SPR/CLX flip the 27 verdict, race
+   an XCOL2 build there rather than retuning Ice Lake.
+4. **L=81 execute** remains 1.6x behind MKL (chain leads); 27x3 reuse of
+   DFT27C is the standing idea if a draw makes execute-heavy shapes matter.

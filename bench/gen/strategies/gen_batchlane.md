@@ -647,3 +647,156 @@ unchanged div.
    (bulk-copy plane x+1's c during plane x's sweep); both records predict it
    loses; only worth a quiet-window hour if the cell matters for the final
    geomean.
+
+## Round gen_r6 -- the class goes 7-smooth: DFT7 + safe placement give 14/21/28/35 at batch-lane speed
+
+Standings into the round (r5 board): effectively tied with gen_pfa_small at
+10 (1.158 vs 1.152), 12 (1.915 vs 1.914) and 15 (4.411 vs 4.406), 1.5% back
+at 20 (13.268 vs 13.072, our two L=20s now algorithmically identical -- that
+cell is window luck, not code, and I did not chase it). Round 6 scores the
+ASSEMBLED LIBRARY on three surprise sizes in 14..127, so this round's real
+job was making my class COVER more of that range at full batch-lane speed,
+plus one structural experiment at 15 and knob re-confirmations.
+
+### The round's one idea: SAFE PLACEMENT kills the stage-2 hazard at any coprime split
+
+Every prior round treated stage-2 in-place safety as size-specific luck:
+L=20 was safe because Q == 1 mod P (disjoint residue classes), L=15 was
+unsafe (groups c=1,2 share slot sets) and needed the fused
+load-both-store-both DFT5X2 codelet. The general fix is a free store
+permutation in STAGE 1: place stage-1 output c at the slot of its group
+whose a = (Q^-1 c) mod P -- i.e. the slot CONGRUENT TO c mod P. Stage-2
+group c then reads and writes exactly the residue class {m == c mod P}:
+read set == write set per group, groups mutually disjoint, plain
+load-all-then-store-all in-place safe for ANY (P, Q). Zero extra
+instructions (the permutation is baked into stage-1 store offsets), values
+unchanged, so outputs are bit-identical wherever both forms exist. Slot
+tables for every size were generated and verified against a reference DFT
+in Python before touching C.
+
+This is what makes new sizes MECHANICAL: without it, L=28 (Q=7 == 3 mod 4)
+would need a fused DFT7X2 (28 slot loads + ~24 core temps, hopeless) and
+L=35 (Q=7 == 2 mod 5) a fused FOUR-group cycle.
+
+### What shipped
+
+1. **Four new class sizes, all memory form, all safe placement, div map
+   tail, stock scheduler**:
+   - L=14 = 2x7: n=(7a+2b)%14, k=(7c+8d)%14; 7 in-place DFT2 + 2 DFT7 = 160
+     vector FP/pencil. PL2=226.
+   - L=21 = 3x7: n=(7a+3b)%21, k=(7c+15d)%21; 7 DFT3 + 3 DFT7 = 282. PL2=450.
+   - L=28 = 4x7: n=(7a+4b)%28, k=(21c+8d)%28; 7 DFT4 (M4IPO permuted stores)
+     + 4 DFT7 = 376. PL2=802.
+   - L=35 = 5x7: n=(7a+5b)%35, k=(21c+15d)%35; 7 DFT5 (M5ST with permuted
+     output slots) + 5 DFT7 = 568. PL2=1250.
+   All PL2 keep plane bytes == 256 (mod 4096) (== 2 mod 32 site-vectors).
+2. **DFT7 module** (new): symmetric/antisymmetric split, t_j = x_j + x_{7-j},
+   u_j = x_j - x_{7-j}; A_k = x0 + sum_j cos(2pi kj/7) t_j, B_k = sum_j
+   sin(2pi kj/7) u_j, X_k = A_k - iB_k, X_{7-k} = A_k + iB_k; kj exponents
+   folded to j in {1,2,3} with signs. 66 vector FP per DFT7 per 8 volumes.
+   Constants computed to 22 digits by Decimal series (no mpmath on wallaby)
+   and spot-checked against libm.
+3. **supports() now accepts 10, 12, 14, 15, 20, 21, 28, 35** -- the planner
+   and race layers see the new sizes for the round-6 library assembly.
+4. **10/12/15/20 paths untouched**; the shipped L=15 chain output is
+   bit-identical to r5 (verified by cmp on the m=600 chain).
+
+### Measured on the node (a80n0 core 2, ONE held slot lease, interleaved
+### --samples 4 minima; first invocation of each binary discarded as warmup)
+
+New sizes, graded-shape chains, MKL 2022 same core same window:
+
+| case | this engine | MKL | ratio |
+|---|---|---|---|
+| L=14 B=32 m=600 | **3.632-3.652** | 13.38 | **3.7x** |
+| L=21 B=16 m=300 | **18.41-18.58** | 73.3  | **4.0x** |
+| L=28 B=16 m=180 | **50.92-50.94** | 170.8 | **3.4x** |
+| L=35 B=8  m=128 | **109.3-113.3** | 358.4 | **3.2x** |
+
+(L=14 is FASTER than L=15 -- 160 vs 162 FP on a shorter pencil -- so the
+class's per-point cost is monotone in the op count, as it should be.)
+Owned scored sizes, end-of-session same-core: 10: 1.157-1.158 (the 1.31-1.32
+reads this session are the known slow-turbo state; interleaved pairs against
+the r5 binary are a wash), 12: 1.914-1.920, 15: 4.413-4.437 (r5 path kept,
+see below), 20: 13.07 in the quiet early window, 13.7 late-session busy.
+
+Gates, ship build, all run on the node: single call 2.6-3.7e-16 at all
+EIGHT sizes (tol 1e-12); two-step m=2 gate 1.0e-15 / 1.4e-15 / 1.4e-15 /
+1.8e-15 at 14/21/28/35 (tol 3e-14, 16-30x margin), unchanged at 10/12/15/20;
+graded chains 5.8e-14 (14, anchor 6.9e-14), 3.9e-14 (21, anchor 2.8e-14),
+2.5e-14 (28, anchor 2.4e-14), 2.5e-14 (35, anchor 2.0e-14), tol 1e-10;
+repeatable bit-identical; remainder paths PASS m=2 chains at B=1 for all
+four new sizes and at mixed B=12 (14), B=9 (21), B=9 (35). B=1 m=64 chains:
+9.34 / 15.45 / 29.24 / 35.71 / 110.6 / 150.0 us at 10/12/14/15/20/21 -- the
+six-round-old remainder-lane gap now extends to the new sizes too.
+
+### Built, raced, and REJECTED: BL_SAFE15 (kept as a knob, default 0)
+
+Safe placement applied AT 15 splits the r5 memory form's forced DFT5X2 pair
+into three independent in-place DFT5 groups -- bit-identical outputs
+(verified by cmp), lower peak register pressure in the fused-map x-pencil.
+Same-core, five interleaved rounds, three binaries per round: safe
+4.458-4.654 vs fused 4.414-4.480 vs r5 ship 4.413-4.437 -- safe LOSES ~1%.
+The X2 pair's two interleaved dependency chains (2 DFT5COREs + 2 map
+ladders in flight per codelet) buy more ILP than the split saves in
+spills. So the fused pair stays at 15 ON THIS NODE, and the lesson
+transfers forward: fusing PAIRS of stage-2 groups is an ILP play worth
+racing at the new sizes too (not tried this round -- a DFT7X2 at 14 would
+be the first candidate since its two groups are the whole stage).
+
+### What else did NOT work / was re-confirmed, with the numbers
+
+- **div map tail at 10** (chasing gen_pfa_small's 1.152 cell, their MT10
+  ships div): rcp 1.158 vs div 1.160-1.162, five clean pairs -- rcp
+  RE-CONFIRMED on my register pencils; their 10 edge is their legacy ladder
+  body on their codelet, not the tail. Cell closed as body-shape-specific.
+- **rcp map tail at 14** (validating MAPTAIL_GEN=div for the new memory-form
+  sizes): div 3.632-3.652 vs rcp 3.722-3.789 (+2.3%) -- the 15/20 verdict
+  transfers to the whole memory-form family, as gen_pfa_small r3's
+  codelet-local rule predicts.
+- **L=20 gap to gen_pfa_small**: read both sources side by side -- after
+  their r5 adoption of my map8 the two L=20 paths are op-identical, and
+  their own r5 record has me AHEAD in their window (13.72 vs 13.61 -- within
+  the same noise band as the board's 13.27 vs 13.07 the other way). No code
+  action exists; not chased.
+
+### Borrowed, plainly
+
+- **gen_pfa_small r2's Q == 1 mod P disjointness rule** is what the safe
+  placement generalizes: their rule is the special case where the identity
+  permutation already lands outputs in their own residue class.
+- **gen_pfa_small gen_r5**: their MT10=div result triggered the 10-tail
+  re-race (declined on measurement); their "ladder body and tail flip
+  together" warning is why I raced MAPTAIL_GEN on the actual new codelets
+  instead of assuming.
+- **Literature 10 / my r4**: the held-lease interleaved protocol, used for
+  every verdict above.
+- The DFT7 A/B-split form follows the same folding as bl8's DFT5 (KS1/KS2
+  sign pattern), extended to three rotation pairs.
+
+### Operation count
+
+Unchanged at 10/12/15/20 (88/96/162/216 vector FP per pencil per 8 vols).
+New: 160/282/376/568 at 14/21/28/35, memory form (4L ld + 4L st per
+pencil), map ~14 FMA + 1 rsqrt14 seed + 1 vdivpd per site-vector. Zero
+twiddle tables and zero shuffle-port ops inside all transforms, still.
+
+### What I would do next (ranked)
+
+1. **Race DFT7X2 fusion at L=14** (the whole stage 2 is two groups with,
+   after safe placement, disjoint slot sets -- fusing them is optional now,
+   which is exactly what makes it raceable): the 15 verdict says interleaved
+   pairs win ~1% when register pressure allows; 14's stage-2 has only 28
+   site loads, so it might.
+2. **B=1 lane-spatial engine** (sixth round on the list; now 6 sizes wide).
+   If round 6 draws small B, the planner routes around me (their split path
+   and gen_planner's split-group engine both beat my replicated lanes);
+   the class concedes that regime unless someone builds the z-turn.
+3. **More coprime coverage if a future round wants it**: 33 = 3x11 and
+   55 = 5x11 need only a DFT11 module (the safe placement is already
+   general); 30/40/42 need a DFT6/DFT8 module or a three-factor plan --
+   coordinate with gen_pfa_small/gen_pfa_large, whose generic engines
+   already cover some of these slower.
+4. **Cross-arch**: the new sizes ship with the Ice Lake verdicts baked in
+   (div tail, stock sched, fused map); the knobs (-DBL_MAPRCP, BL_SAFE15)
+   are the axes to race on CLX/SPR.

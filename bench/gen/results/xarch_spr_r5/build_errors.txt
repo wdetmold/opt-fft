@@ -5,3 +5,10 @@ impl/gen_dense_prime.c:1679:23: warning: iteration 1152921504606846976 invokes u
 impl/gen_dense_prime.c:1678:14: note: within this loop
  1678 |     for (; i < npts; ++i) {
       |            ~~^~~~~~
+impl/gen_rader.c: In function ‘map_volume.constprop’:
+impl/gen_rader.c:1284:23: warning: iteration 1152921504606846976 invokes undefined behavior [-Waggressive-loop-optimizations]
+ 1284 |         double re = zp[2 * i] + cp[2 * i];
+      |                       ^
+impl/gen_rader.c:1283:14: note: within this loop
+ 1283 |     for (; i < npts; ++i) {
+      |            ~~^~~~~~

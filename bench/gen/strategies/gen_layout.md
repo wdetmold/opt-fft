@@ -789,3 +789,156 @@ makes each complex's result independent of chunking); full graded chains
    if CLX disagrees.
 4. **The ymm tail map** (item from the L=12 B=1 loss) — only if a scored
    cell lands on L mod 8 ∈ {1..4} at L1-resident sizes.
+
+## Round gen_r6
+
+### What changed
+
+**Library (`gl_*` API): frozen again — doctrine updates only.** No adopter r5
+record asked for a new primitive, so the round-3 rule holds (churn in a layer
+others `#include` is its own cost). Two comment-block updates fold this
+round's cross-entry findings into the manual adopters actually read:
+
+- `gl_pad_stride` now records the REVISED mechanism from gen_pow2 gen_r5:
+  their L=32 audit shows no store→load pair at equal addr mod 4K in any phase,
+  so the odd-line pad's value there is **L1-set uniformity** (gcd(stride_lines,
+  64)=1 walks all 64 L1 sets; a power-of-2 line stride hits 16 sets at 4×
+  depth). Same rule, second mechanism — both want gcd(stride_lines, 64)=1.
+- Section 7 (gl_map8/gl_map16) now carries the post-r5 **adoption map and the
+  pair-packing boundary**: gen_powp took the gl_map16 reciprocal-product trick
+  into split-complex (divider ops 25→15 at L=25, −1.6%); gen_twiddle REJECTED
+  pair-packed ladders inside their tr8x8-bound scatter exit; gen_pfa_large's
+  map_step_pair wins −8..−14% on standalone map passes. Boundary: share the
+  ladder where the map is standalone/FMA-bound; in a shuffle-bound (port-5)
+  fused exit use plain gl_map8. (This round's adoption receipts, from their
+  records: gen_rader now includes the layer via `GEN_LAYOUT_LIB_ONLY` for
+  `gl_map_huge`/`gl_unmap`; gen_powp ships the map16 idea as above.)
+
+**Demo entry (one structural change): even-L second-level fold.** The r3–r5
+kernel folded j ↔ L−j once (conjugate pairs, real C/S matrices over u/v).
+For even L there is a second exact symmetry: cos(2πk(L/2−j)/L) = (−1)^k
+cos(2πkj/L) and sin(2πk(L/2−j)/L) = −(−1)^k sin(2πkj/L). So outputs split by
+k-parity and j folds again over (j, L/2−j):
+
+- fold builds FOUR blocks — ue = u_j + u_{L/2−j}, uo = u_j − u_{L/2−j},
+  ve = v_j − v_{L/2−j}, vo = v_j + v_{L/2−j} — for j = 1..⌊h/2⌋, plus a lone
+  j = L/4 row when 4 | L (its coefficient is exactly 0 for the parity that
+  does not use it, so the loop stays uniform);
+- x_{L/2} leaves the table and becomes two base rows: e = x0 + x_{L/2}
+  (even k), o = x0 − x_{L/2} (odd k) — free in the fold;
+- the kernel (`dm_kfold8e`) runs the SAME 4-pair sweep but over he2 =
+  ⌊h/2⌋+(4|L) columns: odd-k pairs read (uo, vo, o-base), even-k pairs
+  (ue, ve, e-base). Pairs start at k=1 and step 4, so the parity pattern
+  (o,e,o,e) is static; the 1-pair tail is provably always odd. Tables
+  Ct2/St2 mirror the Ct/St layout (rows k=1..h, then k=0, then k=L/2), filled
+  by the same exact long-double reduction.
+
+Still a dense real-matrix method — no twiddles, no factorization, any even L,
+one code path (odd L runs the r5 kernel unchanged; L<8 keeps the legacy
+path). All four axis sites (axis-0 direct-load fold, axis-1 split-load fold
+incl. boundary groups, both axis-2 stagings and the NOFUSE path) switch on
+`p->evenk`. Knob: `-DGL_DEMO_NOEVEN=1` reverts to the r5 kernel everywhere.
+
+### Operation count
+
+Even L, per 8-pencil group per axis: kernel j-sweep 4·h·he2 ≈ **2·h·hu vector
+FMAs — HALF of r5**; per j the sweep now loads 8 block rows + 8 broadcasts =
+16 loads against 16 FMAs (balanced on paper: 8 cycles each on ICX ports 2/3
+vs 0/5), where r5 spent 12 loads/16 FMAs over twice the j's. Fold: 16 add/sub
++ 8 row loads + 8 stores per j over h/2 — same totals as r5's 4/4/4 over h.
+Table bytes: +2·(h+2)·hs2 doubles (≈ 26 KB at L=100, cold after create()).
+Odd L: identical to r5. Spill audit: zero rsp-relative zmm ops in every hot
+function (only the cold gl_selftest spills) — the 16-accumulator + 8-row
+budget fits.
+
+### Measured on the node (a80n0, leased cores via tryout.sh, graded chain, min µs/xform)
+
+Same-session control: the r5 binary read 8.80 at L=12 B=64 where the r5 board
+says 8.41 — windows ~5% hot; the honest arms are the interleaved
+`-DGL_DEMO_NOEVEN=1` runs.
+
+| L | B | r5 board | gen_r6 | same-window NOEVEN arm | MKL same window | verdict |
+|---|---|---|---|---|---|---|
+| 10 | 64 | 5.26 | **5.17** | — | 4.60 | ~wash (sd 11%, staging-dominated) |
+| 12 | 64 | 8.41 | **8.30** | 8.80 (r5 binary) | 7.80–7.87 | −5.7% same-session |
+| 12 | 1 | 9.97 | **9.57** | — | — | −4% |
+| 20 | 32 | 41.2 | **38.93** | — | 60.7 | −5.5%; 0.64× MKL |
+| 25 | 16 | 95.5 | 97.6 | — | — | odd: unchanged (window noise) |
+| 27 | 16 | 121.6 | 124.6 | — | — | odd: unchanged |
+| 31 | 16 | 196.6–201.0 | 200.7 | — | — | odd: unchanged — no code-layout regression (the gen_twiddle r5 hazard, checked) |
+| 32 | 8 | 200.0 | **176.9** | 202.9 | 184.1 | **−12.8%; first MKL win at 32 for this floor** |
+| 32 | 1 | — | 201.3 | — | — | B=1 core-ramp signature |
+| 40 | 8 | 456.7 | **396.3** | — | 462.2 | −13%; beats MKL |
+| 50 | 4 | 1104.9 | **946.2** | — | 1008.5 | −14%; beats MKL |
+| 100 | 1 | 14976 | **12357** | 14665 | 7695 | **−15.7% same-window** |
+
+The dense floor now beats or matches MKL at 12(-ish), 20, 25, 27, 31, 32, 40,
+50 — everything but 10/15 (PFA territory) and 100.
+
+### Gates (map-chain legs by hand as always — tryout's '$W/c.bin' bug persists; r2 recipe verbatim)
+
+Single-call rel L2 2.8e-16–8.7e-16 at 10/12/20/25/27/31/32/40/50/100 and
+off-suite 8/9/14/16/24/33/36/63/64/96/127/128 (tol 1e-12); **two-step gate
+9.44e-16 / 1.58e-15 / 3.26e-15 at 12/32/100** (tol 3e-14; the L=12 figure
+matches r5 to the printed digits even though the even kernel reassociates the
+FFT — the m=2 error is dominated by the unchanged map arithmetic); full
+graded chains 4.90e-14 (12, m=600), 3.43e-14 (32, m=250), 7.19e-14 (100,
+m=64) vs tol 1e-10; off-suite m=3 chains PASS at all 12 sizes above (even
+sizes exercise the new kernel, odd the old, 127/128 the extremes); L=100
+chain outputs bit-identical across independent node runs (NT path
+determinism, re-verified); scalar (AVX2 wallaby) build PASS singles + m=3
+chains at 4/9/12/14/27 (scalar path unchanged, evenk compiled out). Entry and
+LIB_ONLY modes compile `-Wall -Wextra`-clean on icelake-server and plain
+x86-64. Setup unchanged (≤ 7 ms at L=100; tables fill is still O(L²)
+long-double sincos).
+
+### What did NOT work / boundaries, with numbers
+
+- **The FMA halving did not halve wall time** — L=100 gave −15.7%, 32 −12.8%.
+  Expected: the kernel sweep is only part of the axis (fold, staging
+  transposes, exit, and at 100 the memory system take the rest), and the new
+  sweep is load-port-balanced (16 loads/16 FMAs per j) rather than FMA-bound,
+  so the halved j-count buys less than 2× on the sweep itself. Recorded so
+  the next fold level (see below) is costed honestly.
+- **Uniform-loop padding when 4 | L**: the lone j=L/4 column runs through the
+  full 4-block loop with two zero coefficients (one wasted j out of he2). At
+  L=12 that is 1 of 3 columns; a special-cased epilogue could reclaim it but
+  doubles the kernel tail zoo for ≤ a few percent at small even L — skipped
+  this round, on the gen_dense_prime r5 finding that exact-tail code-footprint
+  costs ~1% where the win is ~0.
+- **The ymm tail map (r5 item 4) still not built**: with the even fold the
+  L=12 B=1 cell moved −4% anyway (9.97 → 9.57); the dead-lane divides remain
+  the residual there. Unscored; still parked.
+
+### Borrowed this round, named
+
+- **gen_pow2 gen_r5**: the L1-set-uniformity mechanism, now in the library's
+  gl_pad_stride doctrine comment.
+- **gen_twiddle gen_r5**: the code-layout hazard (their +1..4.5% at sizes
+  that never execute a new branch) — is why the odd sizes 25/27/31 were
+  re-measured before shipping; clean here (branch sits outside the j-loops,
+  kernels are separate functions).
+- **gen_powp / gen_rader gen_r5**: adoption receipts recorded above; their
+  boundary results (pair-packing, RP_PAD_MAX) are folded into section 7's
+  adoption map so the next reader gets the verdicts, not the folklore.
+- The fold itself extends the conjugate-pair fold adopted from
+  gen_dense_prime in r2 (transitively ice L13/L17/L23) one symmetry deeper;
+  same real-constant dense class, no twiddles.
+
+### What I would do next (gen_r7 / endgame)
+
+1. **Round 6 readiness stands**: supports() 2..128, zero per-size code, gates
+   pass at 24 sizes including 127/128, setup ≤ 7 ms, and the floor is now
+   MKL-or-better at most composite draws in 14..127 (even draws hit the new
+   kernel). The demo remains the panel's guaranteed correct fallback.
+2. **A third fold level for 4 | L** (pair j ↔ L/4−j inside each parity class,
+   k mod 4 split) would cut the sweep to ~h/4 columns but mixes cos/sin
+   tables per class — that is radix-4 territory and changes the class; if
+   anyone builds it, it belongs in gen_powp/gen_pow2, not here.
+3. **Adoption**: the even-fold identity applies verbatim to any dense
+   real-matrix stage over a length-2m axis — gen_dense_prime's C/S GEMMs at
+   even composite lengths and gen_rader's dense blocks at m even are the
+   candidates; the dm_kfold8e/dm_fold8e pair is the worked example.
+4. **Cross-arch**: the new sweep is load-port-balanced, so on CLX (2 load
+   ports but heavier 512-bit downclock) the even-fold win should hold or
+   grow; the NOEVEN knob exists for the race layer if SPR disagrees.

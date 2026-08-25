@@ -671,3 +671,158 @@ alternate within one lease and compare adjacent pairs.
    values, not just the tail bit.
 4. **L=20**: closed on this node (capacity argument above); revisit only if
    a layout layer materializes a sub-1.25 MiB S+C representation.
+
+## Round gen_r6
+
+### Headline
+The surprise-round coverage widening. Tuned 10/12/15/20 are untouched and ship
+BIT-IDENTICAL to r5 (verified by cmp on full graded chains, same-core paired
+timings 1.156 / 1.916 / 4.42 / 12.99 vs r5's binary in the same minutes). All
+the work went into the generic coprime-pair engine: the module set grew from
+{2,3,4,5,7,8,9} to {2,3,4,5,7,8,9,11,13,15,16,17,19,21,23,25,27,29,31}, plus
+NESTED twiddle-free GT-PFA for composite odd modules
+(21,33,35,39,45,51,55,57,63). supports() now accepts 68 sizes: the 4 tuned +
+64 generic = EVERY coprime P*Q in 14..127 with both factors in the module
+set, except 50/80/100 which stay deliberately unclaimed (gen_pfa_large /
+gen_powp scored cells). 53 sizes are new this round, including 72=8x9 which
+was a plain omission in my r3 list (both modules existed for three rounds).
+Every size passes every gate; the biggest wins are exactly where the brief
+predicts round-6 draws hurt: composites with prime factors 17..31, where MKL
+collapses (L=34 chain: 4.7x FASTER than MKL).
+
+### What changed (all in the generic engine; ~250 new lines)
+
+1. **Odd-module fold widened to h <= 15** (arrays 4 -> 15, tables long-double
+   at create(), h*h <= 225 doubles/module): modules 11,13,15,17,19,21,23,25,
+   27,29,31 all run through the ONE gdftodd conjugate-pair-fold kernel.
+2. **Exact-constant DFT16** (two natural-order gdft8 halves + W16 combine,
+   cos/sin(pi/8) literals): enables 48=3x16 and 112=7x16.
+3. **Nested GT-PFA composite odd modules** (gmodpfa): module Q = q1*q2
+   coprime runs stage-1 q2 x DFT_q1 buffered + stage-2 q1 x DFT_q2 IN PLACE
+   on the buffer rows, with module-internal qin/qout maps built at create()
+   by the same CRT algebra as the outer tables. Split set: 21,33,35,39,45,
+   51,55,57,63. This is what makes 2 x {33..63} sizes (66,70,78,90,102,110,
+   114,126) feasible at all -- their folds would need h up to 31.
+4. **26 + 6 + 21 = 53 new (P,Q) instantiations + gfactor entries** (list in
+   the file header). IPOK (Q==1 mod P, stage-2 reads stage-1's slots, no
+   temp round trip) holds automatically at 18 of them via the existing
+   compile-time (Qv % Pv == 1) test.
+5. **Split per-volume buffers now allocated for tuned sizes only** -- the
+   generic path never touches them; saves 6*L^3 doubles at create() (83 MB
+   at L=120).
+6. Encoding of gpen_lookup keys changed P*16+Q -> P*128+Q (Q now reaches 63).
+
+### Raced same-core (held lease, alternated adjacent pairs, min-of-mins)
+
+* **Nested-PFA vs flat fold, module 21**: nested WINS -12% at 42 (346-371 vs
+  408-419) and -11% at 84 (5315-5361 vs 5912-6013). SHIPPED for 21 and all
+  h>13 modules.
+* **Nested-PFA vs flat fold, module 15**: nested LOSES +10% at 30 (109-117
+  vs 100-111), +2-3% at 60/105/120 -- the smaller op cut (~450 -> ~280 incl.
+  buffer moves) loses to the fold's straight-line FMA stream. Rewriting
+  stage 2 to run in place on the buffer rows (saves 2n vector copies) did
+  NOT flip it (114.6 vs fold 103.7). Module 15 ships as a FOLD;
+  -DGM15PFA=1 rebuilds the split for the cross-arch races, -DGMODPFA=0
+  strips all nesting (then 66..126 are declined -- fold tables only go to
+  h=15).
+
+### Measured on the node (a80n0 leased core, B=8 graded-shape chains, min;
+### MKL 2022 same core, same window, adjacent runs)
+
+| L | m | us/xform | MKL | ratio |
+|---|---|---|---|---|
+| 34 | 64 | **173.8** | 816.2 | **4.7x** |
+| 26 | 100 | **60.4** | 189.0 | **3.1x** |
+| 33 | 100 | **138.5** | 378.0 | **2.7x** |
+| 62 | 32 | **2700.9** | 7335.7 | **2.7x** |
+| 93 | 16 | **9730.3** | 25329.8 | **2.6x** |
+| 46 | 50 | **944.6** | 2347.3 | **2.5x** |
+| 22 | 200 | **40.5** | 92.9 | **2.3x** |
+| 68 | 32 | **2715.4** | 6361.1 | **2.3x** |
+| 124 | 8 | **25583** | 59555 | **2.3x** |
+| 30 | 100 | **103.7** | 231.0 | **2.2x** |
+| 102 | 16 | **11055** | 23123 | **2.1x** |
+| 44 | 50 | **375.4** | 614.6 | 1.64x |
+| 42 | 50 | **346-358** | 556-591 | 1.6x |
+| 48 | 50 | **544.9** | 756.9 | 1.39x |
+| 39 | 100 | **439.5** | 586.9 | 1.34x |
+| 55 | 50 | **1241.8** | 1452.4 | 1.17x |
+| 66/70/90/91/112/117/126 | | | | 1.02-1.10x |
+| 65/77 | | | | 1.04-1.08x |
+| 60/72/84/104/105/120 | | | | 0.95-0.97x (bandwidth-bound; S+C >> L2) |
+| 78/88/99/110 | | | | 0.92-0.94x |
+| 54 | 50 | 1691 | 1402 | 0.83x (module 27 fold) |
+| 108 | 8 | 15697 | 11574 | 0.74x (module 27 fold) |
+
+Gates: ALL 68 supported sizes pass single-call (2.1-5.0e-16, tol 1e-12) AND
+the two-step m=2 gate (0.8-3.2e-15, tol 3e-14, >= 9x margin) on the final
+build, B=8. Remainder path (B=1, B=3, B=5) verified at 22,34,48,62,66,70,90,
+102,105,117,124,126 incl. m=2 chains; long chains vs honest anchor PASS at
+22 (m=200), 34 (m=64), 54, 78, 102, 117; outputs bit-repeatable at every
+size checked. Tuned sizes: bit-identical to r5 through full graded chains.
+Setup stays trivial (0.001 s at 22; the L=124 arena is ~2 x 250 MB huge-page
+memset, well under any budget).
+
+### What did NOT work / bugs caught, with the number
+
+* **gdft16 shipped briefly with cos/sin(pi/16) instead of pi/8**
+  (0.98078/0.19509 instead of 0.92388/0.38268): single-call gate read
+  1.7e-1 at 48 and 112, everything else clean -- even-k outputs exact, odd-k
+  wrong, which localized it to the odd-half twiddles in one isolated-kernel
+  test. The two-part gate catches a wrong CONSTANT instantly; trust it.
+* **Nested-PFA module 15** (above): +10% at 30. The lesson generalizes the
+  r5 ladder-body finding: an op-count cut only pays if it does not replace
+  straight-line FMA streams with buffer traffic; below ~2x op ratio the
+  fold's ILP wins.
+* The first cross-window survey mislabeled 42/60/84 as regressions/washes --
+  window drift (MKL itself moved 6% between surveys). Every shipped verdict
+  above was re-taken as same-core adjacent pairs (gen_batchlane r4 protocol,
+  standing).
+
+### Borrowed, plainly
+* **gen_batchlane gen_r4 / gen_pfa_large gen_r4**: the held-lease interleaved
+  A/B protocol (standing method here since r5; decided the 15-vs-21 module
+  verdicts this round).
+* **gen_planner gen_r5's full-sweep coverage doctrine** (their L=2..128
+  all-pass) is what convinced me coverage-at-speed, not existence, is the
+  round-6 contest: the planner already guarantees existence everywhere, so
+  a class entry only matters where it BEATS the planner's generic engine and
+  the libraries. The prime-module cells (2-5x vs MKL) are that.
+* The nested-PFA module, gdft16, and the prime-module widening are new here.
+
+### Operation count
+Tuned pencils unchanged (88/96/162/216 vector FP per pencil per 8 vols).
+Generic: fold module n = ~8*h^2 FMA-class vector ops (h = n/2 <= 15);
+gdft16 ~ 180; nested module q1*q2 = q2*cost(q1) + q1*cost(q2) + 2n buffer
+stores + n gathers + n scatters (DFT21: ~850 -> ~530, DFT63: ~7700 -> ~1900).
+Pencil = Q x mod_P + P x mod_Q + 2L (IPOK) or 4L (buffered) vector ld/st;
+map unchanged (GMT=2: 12 FMA + 1 vdivpd per site, fused in x-pass stores).
+
+### Notes for the panel (coordination, round 6)
+* **gen_powp**: 54=2x27, 75=3x25, 108=4x27 are MY weakest cells (0.74-0.83x
+  MKL) because modules 25/27 are O(h^2) folds here -- prime powers need your
+  twiddled CT. If you claim them (the way you claimed 50=2x25), the trunk
+  wins those cells; my entries remain as the race's fallback.
+* **gen_pfa_large**: your r5 next-list queued modules 11/13 for 88/99/104/
+  112/117 -- those are covered here now (0.94-1.03x MKL, bandwidth-bound).
+  If your volume-major engine + pair-packed map beats that (it should at
+  L >= 88 -- my SoA arena is 2 x 128 B/site streams), take the cells; the
+  race decides. The remaining library holes in 14..127 are 96=3x32 (needs a
+  DFT32 module -- ~40 lines on my gdft16 pattern, I stopped at 16), 98=2x49
+  (yours/powp's, like 50), and 106/111/118/122/123 (prime factors 37..61:
+  Rader-module territory, nobody's).
+* **B=1 at generic sizes still lane-replicates (8x waste)** -- sixth round
+  on the list. If round 6 draws B=1 at a generic size, the trunk should
+  route to gen_planner's per-volume path or gen_pfa_large; my B=1 is
+  correct but ~3-6x off my own B=8 rate. The ice L6_pfa lane-spatial shape
+  remains unbuilt by anyone.
+
+### What I would do next (ranked)
+1. **DFT32 module** (2 x gdft16 + W32, cos/sin(pi/16) -- the constants I
+   accidentally typed this round): closes 96, the last easy hole.
+2. **Twiddled CT modules 25/27** (or just cede those sizes to gen_powp and
+   delete my claims if their r6 covers them faster -- check the board).
+3. **B=1 lane-spatial engine**, unchanged sixth-round entry.
+4. **Cross-arch**: race GMODPFA/GM15PFA and the MT knobs per host; the
+   module-15 fold-vs-nested margin (+10% ICL) is exactly the kind of
+   port-pressure verdict CLX/SPR flip.

@@ -1,0 +1,3 @@
+Round complete. Both files written (`impl/gen_bluestein.c`, `strategies/gen_bluestein.md`), all gates verified on the node.
+
+**Technique: {2,3,5}·2^k convolution lengths (M grid 48/64/80/96/128/160/192/256, twiddle-free DFT-3/5 + PFA-6/10 fused middles replacing next_pow2) — best wallaby µs/xform on changed cells: L=20 90.8 (B=1) / 84.5 (B=32), L=40 620 (B=1) / 665–682 (B=8), i.e. −20%/−39% same-window vs r5; rel L2 ≤ 8.9e-16 singles, two-step ≤ 3.7e-15, chains ≤ 2.2× honest anchors.**

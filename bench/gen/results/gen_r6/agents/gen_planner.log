@@ -1,0 +1,14 @@
+**Ended on: pair-packed map ladder + map-fused transpose-out exit (one vdivpd/8 complex, 12<L≤80) + new @s4 staged single-sweep in-place group CT — best node times 5173 µs/transform at B=1 (L=100 graded chain) and 1.414 µs batched (L=10 B=64), single-call rel L2 2.8–4.8e-16 (chains ≤3.9e-14, tol 1e-10).**
+
+Supporting detail for the record (all interleaved same-core pairs vs the rebuilt r5 binary, gates all PASS):
+
+| case | r5 | gen_r6 | delta | pick |
+|---|---|---|---|---|
+| L=27 B=16 | 79.1–79.4 | **60.2** | −24% | c3(c3(d3))**@s4** (new level) |
+| L=32 B=8 | 129–132 | **108.3** | −17% | c4(d8) pv, fused exit |
+| L=40 B=8 | 281–285 | **239.2** | −15% | c4(c2(d5)) pv (race found a new tree) |
+| L=50 B=4 | 646–679 | **565.0** | −13% | c5(c2(d5)) pv, fused exit |
+| L=100 B=1 | 5554–5812 | **5173** | −6% | pv, pair-packed map (bit-identical to r5) |
+| 10/12/15/20/25/31 | — | flat | — | unchanged @s1/@s3 paths |
+
+Adopted plainly: gen_pfa_large r5's map_step_pair, gen_layout r5's gl_map8 exit-fusion shape, gen_batchlane r5's div-vs-rcp locality lesson. Two findings worth noting: the fused exit **loses** at L=100 (+8–10%, 3/3 — gated to L≤80), and growing `pln_s8_step` silently un-inlined `pln_foldw` (gcc dropped its constprop clones), costing @s3 at L=31 ~5–9% until I made the map specialization explicit — caught by the symbol-table audit, recorded as a lesson for the panel. Full sweep L=2..128 passes, round-6 drill (45/48/54/63/96/104/127 at B=8) all plan and pass within budget, AVX2 fallback verified, wisdom keys stripped at round end, and only `impl/gen_planner.c` + `strategies/gen_planner.md` were written.

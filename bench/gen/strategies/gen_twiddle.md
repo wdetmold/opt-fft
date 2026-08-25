@@ -800,3 +800,139 @@ the 3 KiB/size guidance at acceptance sizes; create() <= 0.1 s at L=100.
    when XARCH.md lands (SPR's second FMA pipe may flip the map-pack verdict;
    its port-5 pressure differs).
 4. refnd pitch #6 if still double-cexp.
+
+## Round gen_r6
+
+### Adoption status (the score)
+
+- **gen_bluestein's adoption stands and carried their r6 structural change
+  for free**: their new non-power-of-two convolution grid (M = 48/80/96/160/
+  192) consumes `tw_fill_ct_int_colmajor` + audit unchanged — their record:
+  "Twiddle fills/audits unchanged — tw_fill_ct_int_colmajor takes arbitrary
+  N (checked before writing code)". That is what a layer is for. API kept
+  100% backward compatible again; `gcc -c impl/gen_bluestein.c` verified
+  clean against this round's file after every change.
+- **The library is FROZEN this round — zero API changes** (the gen_layout /
+  gen_race doctrine, adopted deliberately: churn in a layer others #include
+  is its own cost, and no r5/r6 adopter record asked for a new primitive or
+  layout).
+- **Convergent validation note**: gen_pow2's r5 GP2_FTW ships dual-select
+  Linzer-Feig twiddle tables built by THEIR OWN generator, not tw_cis_ds —
+  independent arithmetic, same citation (lit 11 Tier 1), same verdict as my
+  r5 knob (correct, accuracy-neutral, wall-neutral on a non-port-bound
+  engine). Two engines now agree on the claim; the layer's tw_cis_ds remains
+  the drop-in for anyone who wants the tables without writing the octant
+  tie-handling themselves.
+- **refnd double-cexp gate reference, pitch #7**: gen_powp.c:1607 and
+  gen_pfa_large.c:1359 still build the create()-gate reference W with double
+  `cexp` (250 ulp ≈ 5.6e-14 per twiddle on a 1e-13 yardstick at L=100).
+  `tw_fill_dft_cplx` remains the one-line fix.
+
+### The demo: register-resident whole-level codelets for r = 2/3/4/5
+### (−30% to −44% at every combine-bearing graded cell, bit-identical)
+
+**The finding (asm audit, the round's whole story).** twd_butterfly was
+NEVER inlined into twd_rec — `gcc -O3 -march=icelake-server -S` shows 6
+surviving call sites — so every leaf and every combine k1-iteration paid a
+real call PLUS a round trip of 2r zmm rows through the tr/ti staging arrays
+(8 stores + 8 reloads at r = 4 before any arithmetic), and twd_rec carried a
+16.6 KB probed stack frame (tr/ti = 2×128 v8 rows) through every recursion
+step, page-probe loop included. I had assumed since r1 that the compiler
+elides the staging; it does not, and five rounds of measurements sat on top
+of that overhead. Check your asm for un-inlined hot dispatch: a big switch
+in a called-in-a-loop function does NOT get inlined even at two call sites,
+and "the compiler will forward those stores" is not a plan.
+
+**The fix.** Whole-level noinline codelets: `twd_leaf2/3/4/5` (strided loads
+straight into registers, butterfly, contiguous stores) and `twd_comb2/3/4/5`
+(the ENTIRE k1 = 0..m−1 combine loop: load r rows, twiddle-multiply,
+butterfly, store — all register-resident, zero rsp-zmm spills, asm-audited).
+The generic paths (odd-prime fold leaves, combine radices 7/11/13, and all
+radices under -DTWD_DS) moved unchanged into `twd_leaf_gen`/`twd_comb_gen`,
+also noinline, so the staging arrays' frame is paid only there: twd_rec is
+now a thin dispatcher with a 392-BYTE frame (was 16.6 KB + probe loop).
+Every expression is twd_butterfly's cases and the generic combine's twiddle
+multiply copied VERBATIM (same temporaries, same order → same FMA
+contraction), so outputs are **BIT-IDENTICAL to gen_r5**: verified by cmp on
+the node (AVX-512 codegen) at 12/27/31/50/100, singles and m=2 chains, and
+on wallaby at 16 sizes including fold primes (31/101/127) and a fold-combine
+composite (77 = 7·11), singles and m=3 chains. The r5 case-bloat lesson
+applied preemptively: every body its own noinline function, nothing added to
+the dispatcher — and the fold path read a clean wash as designed.
+
+### Measured on the node (a80n0, ONE held lease, slot 1 core 3, same-core
+### interleaved pairs vs the r5 control binary, order rotated per pair
+### (gen_pow2 r5's wrinkle); graded chain cells, min µs/xform)
+
+| L | B | r5 ctl (same window) | gen_r6 | delta | note |
+|---|---|---|---|---|---|
+| 10 | 64 | 10.28 / 10.28 | **6.29 / 6.44** | **−38%** | |
+| 12 | 64 | 14.31–14.39 (3 prs) | **8.86–9.19** | **−37%** | B=1: **10.52** (r5 14.33) |
+| 15 | 32 | 28.41 / 28.50 | **19.94 / 20.01** | **−30%** | |
+| 20 | 32 | 55.5 / 56.4 | **35.59 / 35.64** | **−36%** | |
+| 25 | 16 | 120.1 / 120.6 | **79.1 / 80.7** | **−34%** | r=5 combines |
+| 27 | 16 | 216.3–219.9 (3 prs) | **130.2–133.4** | **−40%** | r=3 combines |
+| 31 | 16 | 267.2–272.1 | 268.0–274.9 | **wash** | fold path untouched — the intended control |
+| 32 | 8 | 340.7 / 343.6 | **198.0 / 199.6** | **−42%** | |
+| 40 | 8 | 613.0 / 618.3 | **342.3 / 344.2** | **−44%** | |
+| 50 | 4 | 1281.7 / 1288.1 | **741.3 / 752.6** | **−42%** | r=2 top combine |
+| 100 | 1 | 10821 / 11460 | **7767 / 7783** | **−29%** | quiet read **7631.5**; MKL same window **7734.8** — the demo now BEATS MKL at 100 |
+
+MKL 2022 same windows: 7.73 (12 B=64), 7734.8 (100). The gap that remains at
+small L is gather/scatter + per-call structure, not the levels.
+
+### Gates (ship binary, on the node; tryout's map-check leg still dies on
+### the '$W/c.bin' quoting bug — run check.py by hand, r2 recipe)
+
+Bit-identity to r5 makes every r5 gate value carry over exactly; re-measured
+anyway: singles 2.959e-16 (12) / 4.817e-16 (100) via tryout PASS; two-step
+m=2 9.521e-16 (12) / 2.948e-15 (100) vs tol 3e-14; graded chains 5.321e-14
+(12, anchor 3.887e-14) / 3.694e-14 (100, anchor 2.416e-14), tol 1e-10; chain
+outputs bit-identical across independent node runs. Local: numpy PASS at
+12/27/31/100 (B=2) and scalar -march=x86-64 build PASS at 12/31/127; all
+knob combinations (DS / DENSEBF / MAPPAIR / PF / DS+DENSEBF) compile -Wall
+-Wextra clean; GEN_TWIDDLE_LIB_ONLY adoption (gen_bluestein) compiles clean.
+setup unchanged (≤ 0.11 s at L=100).
+
+### What did NOT work / incidents
+
+- Nothing raced off this round — the change is a pure deletion of overhead
+  with bit-identical arithmetic, and the L=31 wash was the predicted
+  control, not a surprise. One build incident worth a line: a `*/` inside a
+  comment ("twd_leaf*/twd_comb*") terminated the comment block mid-file;
+  gcc's error pointed at the comment text. Write glob pairs as twd_leafN.
+
+### Borrowed this round, named
+
+- **gen_batchlane gen_r4**: the held-lease same-core interleaved A/B — every
+  number above is adjacent-pair on one core.
+- **gen_pow2 gen_r5**: the rotate-the-A/B-order wrinkle (first-position bias
+  once windows drift); pair order alternated throughout.
+- **My own gen_r5 case-bloat lesson**, applied in reverse: moving the
+  generic bodies OUT shrank the dispatcher's frame 42× and is where most of
+  the small-L win lives.
+
+### Operation count (demo, delta vs gen_r5)
+
+FMA/add/mul count and order: IDENTICAL (bit-identical outputs). Deleted per
+combine k1-iteration at radix r: 2r zmm stores + 2r zmm reloads (staging) +
+1 call/ret + 1 switch dispatch; per leaf: the same staging round trip;
+per twd_rec invocation: a 16.6 KB → 392 B frame (page-probe loop gone).
+Tables, plan memory, create() work: unchanged.
+
+### What I would do next (gen_r7 / endgame)
+
+1. **Fold-combine codelet for r = 7/11/13** (the one hot path still on the
+   generic staging loop): only composite sizes with a >5 prime factor use it
+   (49, 77, 91, 98, 121, ...) — exactly the round-6 surprise-draw territory.
+   Twiddle into registers, then feed the fold directly.
+2. **FTW-style fused-scale twiddles in the specialized combines**: gen_pow2
+   measured the op cut wall-neutral under a staging-dominated engine; now
+   that the combines are register-resident and FMA-lean, re-race tw_cis_ds
+   with the scale folded into the butterfly (the r5 DS wash may become a
+   win — the boundary is worth one A/B).
+3. **xarch knobs on CLX/SPR** (TWD_BLK_MIN_BYTES / TWD_MAPPAIR / TWD_DS):
+   XARCH.md r5 shows no gen_twiddle-relevant flips, but the new combines
+   change the port mix — re-check when the next advisory lands.
+4. refnd pitch #8 if gen_powp / gen_pfa_large still build gate references
+   with double cexp.

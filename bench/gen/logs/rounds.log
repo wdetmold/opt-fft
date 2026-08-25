@@ -136,3 +136,24 @@ scoring window open: all 24 slots held
 [2026-08-25 01:21:55] promoting: gen_pfa_small gen_powp gen_rader gen_pow2 gen_pfa_large gen_dense_prime gen_planner gen_race gen_layout gen_twiddle gen_bluestein
 /tmp/fft_rounds_RFPXs9.sh: line 512: ./promote.sh: No such file or directory
 [2026-08-25 01:21:55] promote.sh reported a problem
+[2026-08-25 01:21:59] committed round gen_r5
+[2026-08-25 01:21:59] ---------- gen_r5 complete; next is gen_r6 of gen_r6 ----------
+[2026-08-25 01:21:59] ---------- gen_r6 begins ----------
+[2026-08-25 01:21:59] gen_r6 works in impl_6 (13 sources carried over from impl_5)
+[2026-08-25 01:21:59] context pack: 227 lines
+[2026-08-25 01:21:59] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle
+[2026-08-25 02:51:21] implementers finished: 12 reported
+[2026-08-25 02:51:21] submitting timing round gen_r6 (seed 20266899) to the exclusive benchmark node
+scoring gen_r6 on reserved Ice Lake node a80n0
+waiting for 1 in-flight lease(s) to finish
+still 1 lease(s) held after 1800s; reaping and proceeding
+reaping stale lease slot0 held by gpl-ab for 52 min
+scoring window open: all 24 slots held
+   mkl2026_dfti             oneMKL 2026.1 (pip wheel) DFTI, sequential, batched
+   mkl_dfti                 oneMKL 2022.0.2 DFTI, sequential, batched
+== round gen_r6 complete: results/gen_r6 ==
+[2026-08-25 06:54:20] leaderboard for gen_r6 is in
+[2026-08-25 07:03:06] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/gen/results/gen_r6/monitor.log)
+[2026-08-25 07:03:06] promoting: gen_batchlane gen_pfa_small gen_powp gen_rader gen_pow2 gen_pfa_large gen_twiddle gen_planner gen_layout gen_dense_prime gen_bluestein
+/tmp/fft_rounds_RFPXs9.sh: line 512: ./promote.sh: No such file or directory
+[2026-08-25 07:03:06] promote.sh reported a problem

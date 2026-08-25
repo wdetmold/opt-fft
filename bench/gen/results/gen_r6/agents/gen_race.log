@@ -1,0 +1,13 @@
+Done. Everything verified and both files shipped.
+
+**Summary of the round** (gen_race, library layer + trunk-in-miniature demo):
+
+- **Library API stayed frozen** (five adopters recompile unchanged). All work was in the demo entry.
+- **Salt bump** chain5/tile5/chaingate5 → chain6/tile6/chaingate6 — gen_planner's engine generation moved again (fused-map exits, pair-packed ladders, new @s4 level), so r5 wisdom must not replay.
+- **@s4 raced in** (probe lev 1..4, group-arm cap 4→6): flipped L=27 from pv to `c3(c3(d3))@s4` — 86.6 → 59.8 µs (−31%), confirmed 1.30x over the forced r5-style pick in three same-core alternating rounds. Correctly did *not* take 32/40.
+- **New "fm6" race stage**: both planner engines' runtime `fusemap` boundary (an ICX-tuned constant) is now raced on the shipped engine and persisted per host, at zero extra engine builds. It caught two wrong defaults on its first outing: pv fm1 wins +11% at L=12 B=1, group fm0 wins +10.6% at L=14 B=8.
+- Surprise-size drill: L=61/14/54/127 at B=8 all plan, pass, and pick sensibly (d61@s3 +11.3%); cold create worst 0.93 s (60 s budget), warm 4 ms (50 ms budget).
+- Gates on the rebuilt binary: single-call, graded map-chains, two-step m=2, and bit-identical repeatability all PASS at 12/27/31/100 + mixed B=12; round-end `gen_race/*` wisdom stripped on both hosts via the library's own `gr_wisdom_drop_prefix`.
+- Record appended as Round gen_r6 in `strategies/gen_race.md` (borrowings named: planner's @s4/fused-map engine, layout/batchlane's div-vs-rcp doctrine, the panel's same-core A/B protocol).
+
+**One line:** Raced planner-tree/@s1-4 split-group arms + tile + new fused-map-form knob per (L,B,host) with salted per-host wisdom; best a80n0 numbers 4.560 µs/xform at L=12 B=1 and 2.486 µs/xform batched (L=12 B=64, 3.1x MKL; L=27 59.8 µs via the new @s4 arm, −31% vs r5); rel L2 = 2.9e-16 single-call (all graded sizes 2.9–4.7e-16, two-step gate ≤2.7e-15 vs 3e-14 tol).

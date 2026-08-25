@@ -682,3 +682,151 @@ regression L=2/4/8/16/64/128 single call: PASS at 0 / 0 / 1.3e-16 /
 4. FTW for vfft64i/vfft16i: op cut is real (-10% at L=64 pass 2) but
    L=64 is L3-bound and L=16 unscored — do it only as library hygiene in
    a quiet round.
+
+## Round gen_r6 — the library-assembly round: L=16 gets the skew + the fold
+## (-3.5%); L=32/64 verified at their walls and left alone
+
+Standings into the round: led L=32 at 56.472 us (3.05x MKL 2022, r5
+leaderboard; 2.28x ahead of the next entry).  Round 6 scores the ASSEMBLED
+library on three surprise sizes in 14..127, so this entry's exposure is
+16/32/64.  My r5 record names L=32's structural ceiling ([port ∥ L2],
+<8% residual) and L=64's L3-bandwidth wall (32.5 GB/s); the one path with
+real headroom was L=16 (ratio 0.402 vs MKL — my weakest — and it had never
+received the r2 z/y skew or the r5 twiddle fold).  This round closed that
+gap.  Session protocol: slot lease 2 / core 4 held for the whole session on
+a80n0 (ssh replication of tryout.sh's exact steps — reserve.sh --status
+still dies on the login host, the r4-documented breakage; ls of leases/
+shows three other implementers doing the same), rotated-order interleaved
+A/Bs throughout (my r5 rule).
+
+### Cross-arch check first (XARCH SPR, results/xarch_spr_r5)
+
+gen_pow2 L=32 B=8 on wallaby (SPR Gold 6448Y): chain per-call 82.6 ms vs
+MKL 276.7 / fftw3_measure 323.5 → ratio 0.30, BETTER than the Ice Lake
+0.32; gates pass (single 2.9e-16, chain 3.9e-14).  No portability flag, no
+knob action needed; the custody engine transfers as predicted in r4.
+
+### What changed (ships)
+
+1. **GP16_ZYIL=1: the z/y port-profile skew instantiated at G=2.**  Same
+   shape as the L=32 GP2_ZYIL (r2): plane x's zquads interleave at codelet
+   granularity with plane x-1's y-lines, 2 zquads + 1 vfft16i per q-group.
+   The case for it was stronger at 16 than at 32: the zquad16 codelet costs
+   96 port-5 shuffles per 64 points (vs the zpair's 64) against only ~92
+   FMA-class ops, so the unskewed z-phase is outright port-5-bound while
+   the y-phase leaves port 5 dark.  Bit-identical output (cmp-verified
+   against the r5-arithmetic base at m=300), -1..-2.8% alone, -2..-2.8%
+   measured on top of the fold (adjacent same-state pairs).
+2. **GP16_FTW=1: the dual-select FMA twiddle fold in vfft16i's pass 2**
+   (literature 11 Tier 1, my r5 GP2_FTW carried down to the DFT2 sites).
+   x = W16^k2·h factored f·m, m by two FMAs from a stored ratio <= 1
+   (fwt16/fwf16, long double, rounded once), f folded into the DFT2
+   add/sub as 4 FMAs; k2=4 (W16^4 = -i) is 4 pure adds.  Pass-2
+   twiddle+butterfly 60 -> 44 ops per 16-point line (line total 164 -> 148,
+   -10%), in BOTH the y- and x-passes.  Unlike at L=32 (where FTW was a
+   proven wash), at L=16 the fold is a real wall-clock win: -2.6..-2.8% in
+   3/3 clean adjacent pairs vs skew-only builds' -1..-2.8, and ftw+skew
+   beat base 4/4 rotated rounds by 2.7-3.9%.  The difference from L=32 is
+   honest and worth recording: vfft16i's butterfly (DFT2) is trivial, so
+   the twiddle multiply is a much larger fraction of the line, and the
+   16-point y/x phases sit closer to their port floor than the 32-point
+   engine ever did.
+3. L=32, L=64, generic 2^k paths: UNTOUCHED — chain outputs cmp-identical
+   to the r5 binary, and the m=2/chain gate values reproduce r5's exact
+   digits (1.338e-15 / 3.328e-14 at 32; 1.723e-15 / 2.342e-14 at 64).
+   Code-layout hazard check (gen_twiddle gen_r5's case-bloat lesson: new
+   code can move sizes that never execute it): three same-window L=32
+   A/B pairs r6-vs-r5base read 56.73/56.77, 56.51/56.49, 56.61/56.45 —
+   a wash, no tax.
+
+### Operation count (L=16, per step-volume)
+
+z 64 quads x (92 FMA + 96 shuffles) = 5.9K FMA + 6.1K shuffles (unchanged);
+y 32 lines x 148 = 4.7K; x 32 cols x (148 + fused map 16x(12+2) + adds) ≈
+12.0K FMA + 512 vdivpd + 512 seeds.  Fold saves ~1.0K FMA-port ops/step-vol;
+skew moves nothing, it only overlaps the z-phase's port-5 serialization
+with y-phase FMAs.
+
+### Measured on the node (a80n0 core 4, same-core rotated pairs)
+
+The L=16 windows this session were BIMODAL (~6.4-6.6 vs ~7.3-7.6 us states,
+flipping mid-round twice — gen_batchlane r2's observation, sharpest yet);
+every verdict above is from adjacent same-state pairs.
+
+| case | r5 path (same window) | gen_r6 ship | same-window MKL 2022 | ratio |
+|---|---|---|---|---|
+| L=16 B=8 m=300 chain | 7.60-7.62 / 6.66 (fast state) | **7.31-7.35 / 6.41-6.48** | 18.97-21.60 | **~0.32-0.34** (was 0.402) |
+| L=16 B=1 m=300 chain | — | **6.410** (sd 0.01%) | — | |
+| L=32 B=8 m=250 (graded) | bit-identical path | **55.40** (quiet, sd 0.02%) | 184.2 | **0.301** |
+| L=32 B=1 m=250 | — | **56.32** (sd 0.02%) | — | |
+| L=64 B=2 m=64 chain | bit-identical path | 766 this window (L3-bound size; neighbors' load visible, r4 quiet floor was 678) | 1883 | 0.41 this window |
+
+Gates (ship build = flagless defaults, node runs + check.py by hand on
+wallaby over the shared FS — tryout's remote map-check leg still dies on
+the literal '$W/c.bin'): L=16 single 2.367e-16 (B=8) / 2.357e-16 (B=1),
+tol 1e-12; two-step fused m=2 **9.376e-16 / 8.650e-16** (tol 3e-14, 32x
+margin; r5 was 9.855e-16 — the dual-select fold is accuracy-NEUTRAL-to-
+better here too); chain end m=300 2.351e-14 / 1.657e-14 (tol 1e-10);
+bit-repeatable across independent runs.  L=32: single 2.902e-16 (B=8) /
+2.915e-16 (B=1), m=2 1.338e-15 / 1.393e-15, chain 3.328e-14 / 2.948e-14 —
+all EXACTLY r5's digits.  L=64: 3.214e-16, m=2 1.723e-15, chain 2.342e-14 —
+same.  2^k regression L=2/4/8/128 singles: PASS at 0 / 0 / 1.4e-16 /
+4.1e-16.
+
+### What was considered and deliberately NOT built, with the citations
+
+* **L=64 FTW fold (vfft64i pass 2, ~-11% ops)**: skipped.  L=64 is
+  L3-bandwidth-bound at 32.5 GB/s (r4 profile), and r5 proved by
+  subtraction at L=32 that op cuts do not move a non-port-bound wall.  The
+  op headroom argument that justified shipping FTW at 32 ("free for
+  cross-arch") does not pay for new folded-DFT8 code on a path where even
+  the port floor is 40% below the memory wall.
+* **Paired-vdivpd map (one divider op per two sites)**: skipped on two
+  entries' r5 evidence rather than re-raced — gen_layout gen_r5 measured
+  gl_map16 at +9.7% (L=31) / +2% (L=100) in a REGISTER-FUSED exit (mine is
+  exactly that shape), while gen_powp gen_r5's -1.3..-1.6% win was in an
+  FMA-SATURATED x-pass; my x-pass is measured NOT port-bound (r5's FTW
+  subtraction), and MAPDIV=0 racing showed the divider is nowhere near
+  binding.  Both boundary conditions point to wash-to-loss here.
+* **L=32 structural work**: nothing this round; the r5 wall analysis
+  stands (two-sweep step is traffic-minimal, [port ∥ L2] with <8%
+  residual).  The literature 11 Tier 2 two-axes-per-pass rewrite remains
+  the only lever and is a full-round bet nobody should take while the cell
+  leads by 2.3x.
+* **L=128 (G=16) custody engine**: still parked — outside the 14..127
+  draw; the 63-ms generic path remains a documented wart, not a scoring
+  risk.
+
+### Borrowed / attribution (gen_r6)
+
+* **gen_twiddle gen_r5**: the case-bloat/code-layout hazard discipline —
+  the reason the L=32 same-window A/B pairs above exist (they cleared it).
+* **gen_layout gen_r5 + gen_powp gen_r5**: the paired-div boundary
+  (adopted as a decision not to build; both records cited above).  Also
+  gen_layout gen_r6 folded my r5 L1-set-uniformity mechanism into their
+  gl_pad_stride doctrine — adoption noted for the monitor's ledger.
+* **GP16_ZYIL / GP16_FTW**: my own r2/r5 techniques instantiated at G=2;
+  the observation that the fold's wall-clock value INVERTS with radix size
+  (wash at 32, -2.7% at 16, because DFT2's butterfly-to-twiddle ratio is
+  the smallest possible) is this round's contribution to the FTW record.
+* Session protocol: rotated-order same-core interleaved pairs (my r5),
+  held-lease discipline (gen_dense_prime r5 / gen_batchlane r4).
+
+### What I would do next
+
+1. **If round 7 exists and a 2^k was drawn**: read the round-6 library
+   numbers first — if the trunk routed 16/32/64 through this entry, the
+   per-host wisdom race (gen_race) over {FTW, MAPDIV, PREMAP, XU, ZU1,
+   ZYIL, GP16_*} is the remaining upside; the knobs are all compilable
+   controls already.
+2. **L=16 residual**: after skew+fold, ~21.5K cyc/step-vol vs ~15K
+   summed port floors — the gap is now mostly the zquad's 96-shuffle
+   scatter; folding the ZQ_SCAT granule re-form into the y-pass loads has
+   the same shape as my r4 next-step #1 at 32 (never built there because
+   ZYIL already overlaps the shuffles — same likely verdict here now that
+   16 is skewed).  Only worth a window if 16 turns out to matter.
+3. **L=64**: the wall stands; the only untested idea in any record that
+   touches it is literature 11 Tier 2 stage-as-matrix restructuring.
+   Coordinate with gen_powp/gen_pfa_large before anyone burns a round.
+4. L=128 custody engine as library hygiene if the campaign continues past
+   the draw.

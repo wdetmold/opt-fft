@@ -712,3 +712,186 @@ gen_pfa_large keys stripped from results/wisdom_a80n0.json (r3 protocol).
    coordinate with gen_planner on routing before the surprise draw.
 4. **L=50 B=4 2-volume-pair schedule**: still unmeasured by anyone; the
    cell is now mine by 46 us but gen_powp's record queues the same idea.
+
+## Round gen_r6
+
+Standings into the round (r5 board): led 40 (160.2 vs next entry 281.5), led
+100 by 1.9% (4531.4 vs gen_powp 4618.7), trailed 50 B=4 by 1.3% (421.0 vs
+415.6). But round 6 is the SURPRISE round: the monitor draws three
+never-announced sizes in 14..127 and scores the assembled library, not the
+acceptance cells. The class duty this round is therefore COVERAGE — my r3-r5
+next-lists queued it three times ("75 = 3x25, then 7/11/13 modules") and this
+round pays it in full. The scored sizes' generated code ships UNCHANGED
+(verified at the instruction level, see below).
+
+### What changed
+
+**1. SIXTEEN new class-coverage sizes: every two-stage coprime composite in
+14..127 with modules in {2,3,4,5,7,8,9,11,13,16,25} and L >= 44** — 44, 48,
+52, 55, 56, 63, 65, 72, 75, 77, 88, 91, 99, 104, 112, 117. (Sizes below 44
+are gen_pfa_small's class; announced sizes excluded; the remaining composite
+holes 60/84/90/96/105/108/120/126 need three-factor GT or DFT27/DFT32
+modules — see next-list.) Each is a lean instantiation of the same two-sweep
+GT-PFA engine with maps n = (N2 n1 + N1 n2) % L, k = (A k1 + B k2) % L,
+A === 1 mod N1, 0 mod N2, B === 1 mod N2, 0 mod N1, long module second
+storing straight through ST. All 16 maps and CRT constants were validated
+against numpy BEFORE writing the C (scripts inline in the session; the same
+brute-force harness is 20 lines and reusable).
+
+**2. New modules.** `DFTODDM` — ONE generic direct symmetric odd-N DFT macro
+(a_j = x_j + x_{N-j}, b_j = x_j - x_{N-j}; X_k = R_k -+ iI_k) serving
+N = 3, 7, 9, 11, 13 from exact long-double cos/sin tables indexed by
+(j*k) % N (the C25T compile-time-fold trick; index 0 occurs at composite N,
+e.g. j=k=3 at N=9 — tables carry the full 0..N-1 range). Works for
+composite odd N (used for 9). 7/33/52/75/102 FMA-port ops at
+N = 3/7/9/11/13. `DFT8M` — PFA40C's stage-2 radix-2 DIT DFT8 refactored
+into a reusable fused-store macro (PFA40C itself untouched — its code is
+scored). Both take LDX *and* STO as macro parameters plus a separate
+compile-time index-map parameter (IMAP/KMAP) — the r2 rescan lesson means a
+file-scope helper may do index MATH but must never name the wrapper's LD/ST.
+
+**3. GEN_LEAN instantiation mode.** Coverage sizes emit only the six
+families that win on this node (ip0/ip1/ip2/ipr1 + ipp0/ipp1) and compile
+the two heavy bodies (p1body, p2) once as noinline functions: ~4 codelet
+expansions per size instead of ~50. Full build with 20 sizes: ~60 s on the
+node — tryout-compatible. The four scored sizes keep the full pool and
+always_inline bodies. tune()/create()/supports() became table-driven
+(g_sizes: factors, GPP pitch, pool per row); wisdom tag stays chain5 (new
+sizes get their own keys via the pool signature).
+
+**4. Odd-L machinery (first odd L in this entry).** Phase 2 gets a stash
+tail for NPL % 4 == 1 (BORROWED from gen_powp's odd-L^2 stash idea): the
+last 4 flat columns are stashed raw before the in-place sweep, full tiles
+cover 0..NPL-2, one final tile transforms the stash into NPL-4..NPL-1 — the
+3 recomputed columns read RAW stashed inputs, so the in-place recompute is
+idempotent. Phase 1's overlap groups already handled GENL % 4 in {1,2,3}.
+
+**5. BUG found by the create() chain gate, fixed: odd-L map truncation.**
+map_vec's vector count VDL/8 TRUNCATES at odd L (2L^3 % 8 == 6): the last 3
+complex of every volume were never mapped, and the ipp prepass (2L^2 % 8 ==
+2) read one uncopied complex per plane. The execute path has no map, so
+check.py PASSED while the chain was wrong — the gate stored `l75-ip1.x`
+(chain refused, silent fallback to execute+scalar map) which is what made
+me look. Fix: `map_span_tail` — one masked (maskz_loadu/mask_storeu) ladder
+step for the 1-3 leftover complex, zero-filled lanes kept finite by the
+existing 1e-300 max guard. All 13 lean verdicts now store `.ch`. Lesson:
+**when a span length is not a multiple of the vector granule, grep every
+`/ 8` at the callsites, not just the loop tails** — and trust the `.x`
+suffix in wisdom as a red flag, it is the gate speaking.
+
+**6. Codegen-drift regression on the SCORED sizes, caught and fixed.**
+Adding 16 instantiations doubled the translation unit; gcc's unit-growth
+inlining budget flipped, and map_vec — which r5 compiled as
+`map_vec.constprop.N` clones (constant trip counts) CALLED by the chain
+fns — became inlined into every chain fn instead. Held-lease alternation at
+100 B=1: the drifted build lost 4/4 pairs by ~+0.9% (medians 4766-4781 vs
+4716-4741). Fix: per-size noinline wrappers FN(map_vol)/FN(map_pln) with
+compile-time counts — the constprop clone reproduced by construction,
+immune to the inliner's mood; map_vec_rev (single caller) restored to
+always_inline as r5 had it. After the fix: xc_ipp1_100, xc_ip0_40,
+xc_ip1_50, x_pf1_100 are INSTRUCTION-IDENTICAL to the r5 object (objdump
+diff), and the A/B rematch shows r6 winning 3/4 pairs at 100 (floor 4726 vs
+r5 4741-4946 that window), dead tie at 50 (433.0 vs 433.6), wash over 5
+pairs at 40 (min 163.8 vs 164.7). Only the bottom-ranked ipq1/ipk1
+insurance candidates still differ in size — accepted. Lesson for everyone:
+**growing a shared TU flips GCC inline/clone decisions in code you did not
+touch; diff `nm -S` per function against the previous round's object before
+trusting any timing, and pin hot callsites structurally (hand clones), not
+with global attributes.** (Also: `#if VDL % 8` fails silently-loudly — a
+(size_t) cast is illegal in preprocessor arithmetic; use `#if GENL % 2`.)
+
+### Operation count
+
+Scored sizes unchanged (278/434/661/968 ops/line at 40/50/80/100). New
+lines (stage1 + stage2 FMA-port vector ops): 44: 388, 48: 355, 52: 512,
+55: 551, 56: 446, 63: 661, 65: 718, 72: 650, 75: 751, 77: 888, 88: 886,
+91: 1143, 99: 1247, 104: 1154, 112: 1095, 117: 1594. Odd-L adds one stash
+tile per p2 (GENL vec loads + 1 codelet) and 1-3 masked map elements per
+volume.
+
+### Measured on the node (a80n0, leased cores; B=1 raw execute, min, with
+### same-window MKL 2022 — the graded chain at these sizes is round-6's
+### business, where the owned chain's deleted map pass adds its usual edge)
+
+| L | mine | MKL | ratio | pick (chain gate) |
+|---|---|---|---|---|
+| 44 | 236.7 | 359.4 | 1.52x | ip1.ch |
+| 48 | 327.2 | 337.9 | 1.03x | (16x3; MKL loves 3-smooth) |
+| 52 | 426.7 | 619.7 | 1.45x | ip1.ch |
+| 55 | 576.2 | 790.7 | 1.37x | ip1.ch |
+| 56 | 503.3 | 679.6 | 1.35x | ipp0.ch |
+| 63 | 820.0 | 1244.6 | 1.52x | ip1.ch |
+| 65 | 1036.0 | 1358.0 | 1.31x | ip1.ch |
+| 72 | 1118.2 | 1318.8 | 1.18x | ipp0.ch (B=8: 1794.8 vs MKL 1739.1) |
+| 75 | 1401.5 | 2066.5 | 1.47x | ip1.ch |
+| 77 | 1942.7 | 2491.5 | 1.28x | ip2.ch |
+| 88 | 2640.4 | 3104.8 | 1.18x | ipp0.ch |
+| 91 | 3501.9 | 4216.2 | 1.20x | ip1.ch |
+| 99 | 4418.3 | 6322.9 | 1.43x | ip1.ch |
+| 104 | 5765.6 | 6711.1 | 1.16x | ipp1.ch |
+| 112 | 9064.7 | 8260.3 | **0.91x — the one loss** | ipp1.ch |
+| 117 | 10497.1 | 12053.5 | 1.15x | ipp1.ch |
+
+Scored sizes, held-lease A/B r5-vs-r6 binaries (same core, alternating,
+min): 100 B=1 r6 4726-4749 (r5 4716-4946 across windows, verdict wash after
+the fix); 50 B=4 433.0 vs 433.6 (tie); 40 B=8 wash over 5 pairs (163.8 vs
+164.7 min). Winner functions instruction-identical — the r5 numbers stand.
+
+Gates (final source, node): single call 3.5-5.0e-16 at all 20 sizes (tol
+1e-12); two-step m=2 at 75: 3.010e-15 (tol 3e-14); full owned chains
+m=8 at 75: 2.377e-14 (anchor 5.480e-15, tol 1e-10) and m=6 at 117:
+5.938e-15 (anchor 3.941e-15) — both through the odd-L tail and (117) the
+ipp prepass; bit-repeatable across processes everywhere. Setup: cold
+0.19-3.5 s over the 16 new sizes (60 s budget; refnd dominates at 117),
+warm wisdom ~1 ms. Round end: all gen_pfa_large keys stripped from
+results/wisdom_a80n0.json under flock (a concurrent session had again
+rewritten the file mid-day, exactly the r5 incident pattern — my strip
+found only my own keys present and left valid {host, format, entries}).
+
+### What did NOT work / incidents, with the numbers
+
+1. **The odd-L map truncation** (item 5 above): would have shipped a chain
+   that silently falls back to execute+scalar at every odd L (the r1-era
+   driver-map baseline cost ~1.6x at comparable sizes). Cost of detection:
+   one wisdom read. The gate machinery, not the test suite, caught it.
+2. **The unit-growth codegen drift** (item 6): +0.9% at 100, 4/4 pairs —
+   would have handed the tightest cell on the board (0.65 us at r4!) back
+   to gen_powp. Two failed fixes first: always_inline on map_vec (wrong
+   direction — reproduces the inlined form), plain noinline (kills the
+   constant-trip clones; generic runtime-bound loop). The hand-clone
+   wrapper is the one that reproduces r5 exactly.
+3. **L=112 loses to MKL by 9%** (9065 vs 8260 raw execute). 112 = 2^4 x 7
+   is MKL's home turf; my DFT16-second GT line (1095 ops) is not enough.
+   Candidates for next round: 4x4x7 three-stage line, or routing 112 to
+   gen_pow2-style radix machinery. Do NOT count 112 as a safe cell.
+4. tryout's '$W/c.bin' map-check quoting bug is STILL there (fifth round);
+   run check.py by hand for chained validation.
+
+### Borrowed, plainly
+
+- **gen_powp**: the odd-L^2 stash tail idea for p2 (their record, my
+  implementation in this engine).
+- **gen_batchlane gen_r4 (via everyone)**: held-lease same-core alternation
+  — it caught both the +0.9% drift and its fix's verification.
+- **gen_race**: the wisdom layer's `.x`/`.ch` verdict suffix — this round it
+  doubled as a correctness alarm.
+- **gen_pfa_small gen_r6 (concurrent)**: their gfactor widening list showed
+  the class-boundary overlap early; sizes < 44 left to them, the trunk race
+  arbitrates the overlap band. DFTODDM's direct symmetric form is textbook
+  (validated vs numpy); DFT8M is my own PFA40C refactor.
+
+### What I would do next (ranked)
+
+1. **Three-factor GT lines** (or composite modules DFT10/DFT15 = internal
+   2x5/3x5 GT) unlock the remaining composite holes 60, 84, 90, 105, 120,
+   126 — with DFT27/DFT32 modules covering 96/108. That closes the class
+   completely for any future draw.
+2. **112**: three-stage 4x4x7 or a pow2-grade DFT16; it is the only cell
+   losing to a library.
+3. **DFT11/DFT13 are O(h^2) direct** (75/102 ops); Rader or Winograd forms
+   would roughly halve them if 44/52/55/65/88/91/99/104/117 ever become
+   scored cells — not worth it for a library-existence round.
+4. **XARCH**: the lean pools carry ipp0/ipp1; check the advisory picks on
+   CLX (smaller L2 sharpens the prepass economics) before touching ranks.
+5. The scored-size next-list stands from r5: PMU attribution of p1 at 100,
+   and the 50 B=4 two-volume-pair schedule (still unmeasured by anyone).

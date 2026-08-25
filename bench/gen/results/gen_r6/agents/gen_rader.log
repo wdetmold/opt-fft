@@ -1,0 +1,8 @@
+Round gen_r6 complete. What I did, in summary:
+
+- **New even-h split Rader engine** for all 13 primes p ≡ 1 mod 4 in class (13–113): E-side cyclic-2m CRT split + O-side negacyclic Karatsuba, 5m² vs the dense engine's 8m² conv FMA, rows folded once at compile-time offsets. Validated in a numpy prototype first, gated by the create() self-check, all node gates pass (two-step 1.9e-15–5.3e-15 vs 3e-14 tol).
+- **Codegen fix worth as much as the arithmetic**: gcc left the r5 outer-C3 conv loops rolled with stack accumulators above m=11; forced unroll pragmas plus a new 8-accumulator blocked conv form (boundary raced per m on the node) moved 43/67/79/103 by −11…−39% with zero arithmetic change.
+- Net vs the r5 binary, same-core interleaved on the node: **−14% to −41% at every prime 37…113** (e.g. 53: 1589→944, 103: 18863→11448 µs/step). L=31 graded cell unchanged and bit-identical.
+- Negatives recorded with numbers: rp3 one-pass fold (+15/29/39%, spill-saturated WINO), blocked conv below the boundary, and the finding that wallaby-local timing inverts the verdict at DRAM sizes (rp2 "lost" locally, wins −16…−27% on the node).
+
+**Reply line:** Even-h split Rader (E-side C2 CRT + negacyclic Karatsuba, 5m² vs 8m²) plus forced-unroll/blocked-conv codegen fix across all runtime-table kernels — L=31 graded cell 84.80 µs/step at B=1 and 84.82 µs/step at B=16 (bit-identical to r5; the class duty gained −14…−41% at every prime 37…113), single-call rel L2 4.06e-16.
