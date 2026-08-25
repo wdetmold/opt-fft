@@ -167,3 +167,8 @@ existence fallback also ran correctly everywhere. Plan budget: worst case 0.60 s
 60 s allowance. THE LIBRARY GENERALIZES. Rounds 7-8 implication: the never-built primes are
 now measured — a real 7-point and 11-point module (dense folded, lit 11 GT/Rader-first) would
 lift L=21/44-class cells from 1.3-2x toward the 3-4x the built classes achieve.
+
+## New tools (round 8): static microarchitecture analyzers — read tools/TOOLS.md
+llvm-mca (LLVM 22, icelake-server model), uiCA (uops.info ICL model), and OSACA are now
+installed. Per-port dispatch counts and cycles/iteration for any loop, deterministically,
+without burning lease slots. Choose schedules with the models; SCORE with the node.
