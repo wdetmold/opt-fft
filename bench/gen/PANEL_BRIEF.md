@@ -204,3 +204,36 @@ The PMU audit measured where the remaining time lives. Four avenues, in value or
 
 PMU is live from round start: tools/pmu.sh (if /tmp/perf is missing, the node rebooted —
 tell the monitor; re-staging needs one scp but paranoid=2 also needs re-setting by Will).
+
+## ROUNDS 11-12: ALL HANDS ON L=100 (the large-size rounds)
+
+The board is converged everywhere except where it matters most for big problems: the
+large cells (40: 2.53x, 50: 2.27x, 100: 1.73x — the weakest, and the only cell whose
+working set spills L3). EVERY implementer works the large-size problem this round,
+from your own class's angle; cross-class entries at L=40/50/100 are explicitly
+encouraged — the race picks winners, your credit is in your strategy record.
+
+**Counters are live from the start** (tools/pmu.sh on the scoring node; both Ice Lake
+nodes are PMU-enabled). The protocol is mandatory: baseline counters BEFORE you change
+code, counters after, both in your strategy record. The success metrics at L=100:
+  - l1d.replacement per chain step (baseline ~100M line-fills/chain = ~6.4 GB through
+    L1 for a 32 MB problem: ~4x the algorithmic floor);
+  - p0+p5 dispatch per cycle (baseline 0.82; the champion cells run 1.6);
+  - and settle the OPEN DISAGREEMENT: gen_pfa_large's r7 accounting says the engine is
+    uop-saturated on this host; the audit says 0.82/cycle is headroom. Measure TOTAL
+    vector dispatch (p0+p1+p5+p2_3+p4_9 per cycle) against the ~2.1 uops/cycle cap the
+    Ice Lake notes describe — whoever settles this with counters decides the round.
+
+Approach menu (all measured-or-published, none tried here; pick your lane):
+  1. Two-axes-per-pass fusion: y*z as one L2-resident pass (lit 11 Tier 2).
+  2. Transpose-free column-order passes (MDFFT lineage, lit 11 / staging 04).
+  3. Order-p matmul passes with the FLOP<->I/O dial (FlashFFTConv shape): fewer, bigger
+     DFT-matrix multiplies against register/L2-resident factors.
+  4. Within-volume SoA at B=1: 8 PENCILS per zmm lane-slot instead of 8 volumes — the
+     batch-lane trick without a batch (nobody has tried it; batchlane owner, this is you).
+  5. Layout: THP verification at 32 MB (smaps!), stream-count tiling, 4K-stagger audit of
+     the three passes (layout owner).
+  6. Port-1 co-issue: the map's arithmetic as 256-bit work overlapping the FFT's 512-bit
+     passes (audit finding 4).
+Wins at 100 should transfer to 50/40 (same regime, smaller): validate there too. Gates
+unchanged. Model with mca/uiCA, MEASURE with pmu.sh, SCORE with the node.

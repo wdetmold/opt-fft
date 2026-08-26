@@ -1,8 +1,2 @@
-ROUNDS 9-10 are counter-directed: read results/PMU_AUDIT.md and the brief section
-"ROUNDS 9-10" before touching code. Avenue 1 (bank the picks) is the cheapest big win.
-NODE STATUS (22:30): both Ice Lake nodes are held by other users (invisible to us --
-PrivateData); our hold is FIRST IN QUEUE (job 438856, scheduler's worst-case start Aug 27
-evening, likely earlier). Until it lands: tryout.sh node runs WILL FAIL -- develop with the
-static analyzers (tools/TOOLS.md 1-3) and wallaby correctness runs. Avenue 1 (bank the
-picks) is pure logic + determinism testing: it needs NO node. Scoring waits for the node
-automatically.
+ROUNDS 11-12: every implementer works the L=100/large-size bottleneck — read the
+brief section "ALL HANDS ON L=100". Counters mandatory before/after (tools/pmu.sh).
