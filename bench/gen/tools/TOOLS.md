@@ -14,7 +14,7 @@ Gives: cycles/iteration, uops/cycle, PER-PORT dispatch counts (port 0/1 FMA vs p
 shuffle pressure — the number you have been inferring from rdtsc probes), bottleneck
 attribution. Model, not measurement: trust it for RELATIVE choices between two schedules.
 
-## 2. uiCA (ext/tools/uiCA, Ice Lake model from uops.info) — the most accurate ICL model
+## 2. uiCA — UNAVAILABLE (uops.info unreachable from this cluster; instruction data never downloaded). Use llvm-mca + the PMU instead.
 Analyzes RAW MACHINE CODE of a function in your built binary:
     bench/gen/tools/uica_fn.sh build/$(hostname -s)/bin/<entry> <function_symbol>
 Cross-check llvm-mca with it; where they disagree on a port count, uiCA is usually right
