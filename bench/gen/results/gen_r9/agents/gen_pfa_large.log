@@ -1,0 +1,10 @@
+The round is complete. The node never freed (icehold 438854 pending behind a ~2-day foreign job all session, same as every other implementer reported), so all evidence is from wallaby plus bit-identity arguments — which for this round's deliverable (pick determinism under noise) is the harsher test anyway.
+
+**Summary of what shipped in `impl/gen_pfa_large.c` (tune()-only change; all generated FFT/chain code verified size-identical to r8 via nm -S):**
+
+- **Noise-gated pick + wisdom (PMU audit avenue 1):** per-round trial spreads are now tracked; a trial winner displaces the rank-0 prior only if both spreads are ≤10%, its margin exceeds max(spread, 6%), *and* it re-confirms ≥6% on a fresh long-run alternation; only tight, non-reverted verdicts persist to wisdom (noisy trials re-race next create). Wisdom tag bumped chain6→chain7; stale node keys stripped under flock.
+- **Determinism proven:** 5 consecutive cold create() cycles pick identically at 40 B=8, 50 B=4, 100 B=1, and 75 B=1 on an unpinned login host — the spread-only first design measurably flipped picks (ip0/ipp1/ip0/ip1/ip1), which is the instability the audit described, reproduced and killed.
+- **Avenue 4 arbitrated:** a portcal3.c microbench shows 256-bit FP steals 512-bit FMA slots exactly 1:1 on SPR ((8+K)/2 cycles throughout) — no free port-1 co-issue; harness left ready for the ICL node.
+- All gates pass with the exact historical drift values (bit-identical algebra), cross-process repeatable; strategy record appended.
+
+**One-liner:** Noise-gated deterministic pick banking (6%-floor + fresh-confirmation upset rule, tight-only wisdom storage) on the unchanged saturated GT-PFA engine — wallaby (SPR, advisory; node down all round): batched 115.9 us/xform (40 B=8) / 303.4 (50 B=4), B=1 224.8 / 314.3 / 2895.0 (40/50/100), rel L2 3.6–4.5e-16 with 5/5 identical cold-create picks at every scored cell.

@@ -1,0 +1,9 @@
+The round is complete. Summary of what happened:
+
+**Round gen_r9 outcome for gen_layout:**
+- **Library (the adoption deliverable):** new section 8 — a 4-lane ymm SoA family (`gl_deint4/gl_int4/gl_tr4x4/gl_pack4/gl_unpack4`) plus `gl_map4`, built directly to the PMU audit's avenue-4 ask ("a 4-lane SoA variant would unlock batch-lane layout at L=50 B=4") and gen_planner r8's "half-group G=4" ask. `gl_selftest` now asserts `gl_map4` is bit-identical to `gl_map8` at create() rather than assuming vrsqrt14 width-independence.
+- **Demo:** the kcnt=2 exit-map tail can run as zero-shuffle ymm ladders on the otherwise-idle port 1, plan-gated `m4t = (L ≤ 16)` — outputs bit-identical to the r8 form at every size, so all prior gate verdicts carry over exactly.
+- **No node windows existed all round** — a80n0 was held by an external 2-day job with our icehold queued (ETA ~2 days). All correctness ran on wallaby, which I discovered is now a **Sapphire Rapids Xeon with full AVX-512**, not the AVX2 host earlier records claim — so the real vector paths were verified locally (31 sizes, singles + chains + two-step gates, all PASS). A same-layout control arm caught that the apparent ±1.5–2% m4t deltas on wallaby are code-layout confound, so the ICX A/B and the avenue-3 PMU dashboard are queued verbatim in my record for the first node window.
+- Strategy record appended with the SPR-advisory suite table, the confound analysis, and named borrows (gen_planner's control-arm protocol, gen_twiddle's layout hazard).
+
+**One-line report:** Technique ended on: 4-lane ymm SoA + gl_map4 library family (PMU avenue 4) with a plan-gated ymm kcnt=2 exit-map tail (m4t = L≤16, bit-identical to gl_map8); best wallaby (SPR advisory — no ICX window existed) µs/transform at L=10: 6.16 B=1, 3.10 batched (B=64); rel L2 = 2.8e-16 single-call, m=1000 chain 2.0e-13 vs tol 1e-10 — all gates PASS.

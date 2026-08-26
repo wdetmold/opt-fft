@@ -1,3 +1,6 @@
 {"host":"wallaby","format":1,"entries":{
-
+"gen_powp/chain7/L27/B16#2e449ac0":{"winner":"l27-soa","widx":6,"tie":0,"us":33.1214,"margin":0.2012},
+"gen_powp/chain7/L50/B4#640ac588":{"winner":"l50-ipp0","widx":0,"tie":1,"us":301.536,"margin":-0.008908},
+"gen_powp/chain7/L25/B16#6bb92654":{"winner":"l25-soa","widx":6,"tie":0,"us":24.3916,"margin":0.2763},
+"gen_powp/chain7/L100/B1#080a458a":{"winner":"l100-ipp1","widx":1,"tie":1,"us":3052.08,"margin":0.01141}
 }}

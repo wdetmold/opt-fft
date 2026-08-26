@@ -1230,3 +1230,154 @@ results/wisdom_a80n0.json under flock (entries sub-dict, file left valid,
    term left anywhere; every placement variant is already measured against
    it (r2/r3/r5) — a genuinely new idea would have to cut the 3-stream
    traffic itself, and c is read-once-per-step by contract.
+
+## Round gen_r9
+
+Standings into the round (r8 board): led 40 (159.71 vs next entry 235.3),
+50 B=4 416.64 and 100 B=1 4567.72 with the gen_race trunk fractionally
+ahead at both (410.90 / 4562.29) — riding this engine's own pick, so the
+class effectively holds all three cells. The r9 brief is counter-directed:
+of its four avenues, avenue 2 (two-axes fusion) was closed by accounting in
+my r7, the r8 attribution declared the engine uop-saturated on this host,
+and avenue 1 — BANK THE PICKS — is both the brief's named cheapest win and
+a hole my own r7 record admits ("the challenger playoff CAN still install
+ipk1 in a noisy window"). This round spent itself on avenue 1, plus a
+microbench that arbitrates avenue 4 (port-1 co-issue) for everyone.
+
+**HARNESS NOTE (round-defining): the Ice Lake node was unreachable the
+entire session.** The icehold (438854) sat PD "Resources" behind another
+user's ~2-day jobs on both axxxl nodes; gen_dense_prime and gen_pfa_small
+hit the same wall (their r9 records). Everything below is wallaby (SPR
+Gold 6448Y login host) plus bit-identity arguments — and for THIS round's
+deliverable that is the harsher test: proving pick determinism on an
+unpinned 49-user login host with 2x load swings is strictly harder than on
+the node's leased quiet cores. Node re-proof is queued first thing.
+
+### What changed
+
+**1. NOISE-GATED PICK + WISDOM STORAGE (avenue 1, the deliverable).**
+tune() now keeps every candidate's per-round trial times (tr[][]) and uses
+their relative spread (max-min)/min as the noise measure, with two rules:
+
+- **UPSET RULE**: a trial winner may displace the rank-0 prior only if
+  (a) both spreads are tight (<= GEN_TIGHT = 10%), (b) its margin over
+  rank 0 exceeds max(the larger spread, GEN_UPSET_MIN = 6%), AND (c) it
+  holds >= 6% again on one FRESH long-run alternation (chain_longrun — the
+  r7 playoff's evidence shape, now factored into a shared helper) that it
+  has not seen. Otherwise the pick reverts to rank 0. The rank order IS
+  the banked held-lease evidence of r4-r8; quiet-floor gaps among the
+  leading families are 1-3% (coin-flip band, belongs to the prior), while
+  the genuine cross-host upsets this pool exists for measured 9-16% (ipk1
+  on CLX/SPR per gen_powp, NT under contention per my r2) and clear the
+  bar comfortably.
+- **STORAGE RULE**: only tight, non-reverted verdicts persist to wisdom. A
+  reverted upset is a forced default, not a measurement — installed for
+  the current plan, never stored, so the next create() re-races ("re-race,
+  never trust, a noisy trial"). Engine picks have been routed through
+  gen_race wisdom since r3; this closes the noisy-verdict hole the PMU
+  audit named.
+
+All families remain bit-identical, so neither rule can affect correctness,
+gates, or cross-process repeatability. Wisdom tag chain6 -> chain7 (race
+shape + storage policy changed; no stale verdict replays — the r7
+doctrine). GENPFL_VERBOSE now prints per-round times, spreads, and the
+storage decision. My two leftover chain6 keys were stripped from
+results/wisdom_a80n0.json under flock (round protocol; file left valid, 15
+foreign entries untouched).
+
+**2. DETERMINISM PROVEN — the brief's requirement, on the harsher host.**
+Harness build/tryout/gen_pfa_large/det5.c (left for everyone): N
+consecutive COLD create() cycles under GEN_RACE_NO_WISDOM=1, comparing the
+installed pick. On wallaby: **5/5 identical at 40 B=8 (ip0), 50 B=4 (ip1),
+100 B=1 (ipp1), and 75 B=1 (ip1, odd-L lean path)**. The negative control
+matters more: my FIRST gate design (margin > max(spread, 3%) only — no
+floor, no confirmation) was NOT deterministic, flipping
+ip0/ipp1/ip0/ip1/ip1 across 5 cycles at 40 B=8. Mechanism: within-create
+spread underestimates BETWEEN-create window drift, so each cycle's upset
+looked locally decisive. The 6% floor plus the fresh-evidence confirmation
+killed it. Lesson recorded: **a noise gate keyed only to in-window spread
+cannot deliver determinism; it needs a margin floor calibrated to
+between-window drift and a confirmation on evidence the challenger has
+not seen.**
+
+**3. Avenue 4 (port-1 co-issue) ARBITRATED — negative on SPR, harness
+ready for ICL.** portcal3.c (build/tryout/gen_pfa_large/, portcal2's
+TSC-calibrated method) measures 8 indep zmm FMA chains + K indep ymm
+side-streams. Wallaby/SPR result, core cycles/iter: ZMM8 baseline 4.00;
+8ZMM+K ymm FMA = **(8+K)/2 exactly** (K=2: 5.02, K=4: 6.00, K=8: 8.00,
+K=12: 10.00); same for ymm MUL (6.00/8.00) and ymm in-lane SHUF
+(6.14/8.00); pure ymm FMA runs 2/cycle (P=8: 4.00 — no third port even
+unmixed). **256-bit FP steals 512-bit FMA slots 1:1 when zmm is in
+flight** — consistent with p0+p1 fusing into the 512-bit pipe, exactly the
+design documented for ICL too. The PMU audit's "port 1 idles, side-work
+could co-issue nearly free" hope is dead on SPR and predicted dead on the
+node; portcal3 on a leased ICL core settles it in 30 seconds when the
+reservation returns. Do not build ymm side-work candidates before that
+run.
+
+**4. Everything else UNTOUCHED, verified.** nm -S function-size diff of
+the full TU vs impl_8: the ONLY differences are tune (changed) and
+chain_longrun (new) — all ~104 generated FFT/chain functions are
+size-identical, so the r6 unit-growth codegen-drift trap did not fire.
+
+### Operation count
+
+Unchanged everywhere (278/434/661/968 FMA-port vector ops per line at
+40/50/80/100; r6 coverage counts stand). The confirmation adds 2 x PS
+chain steps at create() time only when an upset is pending displacement —
+zero cost in the common case, ~0.5-2 s worst case, budget untroubled
+(cold create measured 0.3-2.4 s here; warm wisdom hit ~1 ms, verified
+setup=0.000 s on a second L=100 create).
+
+### Measured on WALLABY (SPR login host — ADVISORY; the node was down, the
+### monitor's scoring pass is the ICX measurement)
+
+Gates, shipped source, all EXACTLY the historical values (bit-identical
+algebra, tune()-only change): single 3.582/4.336/4.522e-16 at 40/50/100
+(tol 1e-12); two-step m=2 1.857/2.361/2.721e-15 (tol 3e-14); full chains
+3.804e-14 (40 B=8 m=128, anchor 2.612e-14) / 5.028e-14 (50 B=4 m=128,
+2.922e-14) / 4.181e-14 (100 m=64, 2.416e-14), tol 1e-10; chain outputs
+bit-repeatable across processes at all three cells; odd-L (75) create +
+chain gate pass. Wallaby chain context (not scored): 40 B=8 115.9 / B=1
+224.8; 50 B=4 303.4 / B=1 314.3; 100 B=1 2895.0 us/xform — SPR runs this
+engine 1.3-1.6x faster than the ICX board numbers, matching the
+xarch_spr_r5 advisory.
+
+### What did NOT work / incidents, with the numbers
+
+1. **Spread-only noise gate: refuted by its own determinism test** (5
+   cycles: ip0/ipp1/ip0/ip1/ip1 at 40 B=8). Numbers and mechanism in item
+   2 above. Fixed with the 6% floor + confirmation; 5/5 after, four cells.
+2. First verbose run on wallaby read 90%+ spreads (unpinned churn) and the
+   gate correctly reverted + refused storage — then a quiet run minutes
+   later read 0.2-8% spreads and stored. Both behaviors are the design.
+3. **Node unreachable all session** (icehold 438854 PD behind ~2-day
+   foreign jobs; reserve.log full of "sbatch: command not found" from the
+   wallaby-side guard — it cannot resubmit without the slurm PATH shim).
+   Everything above ships on wallaby evidence + bit-identity; node
+   re-proof and portcal3-on-ICL are queued.
+
+### Borrowed, plainly
+
+- **PMU_AUDIT.md (the monitor's)**: avenue 1 verbatim — the noise-gated
+  storage requirement and the 5-cycle determinism bar.
+- **gen_race (since r3)**: the wisdom substrate. The gate lives
+  engine-side because the verdict semantics (rank prior, playoff,
+  confirmation) are engine-specific; the storage contract is unchanged.
+- **gen_dense_prime gen_r9 (concurrent)**: the "tag wallaby-advisory
+  verdicts as pending-ICX" doctrine, applied throughout this section.
+- **My own r7 playoff / r8 portcal2**: chain_longrun is the playoff arm
+  factored out; portcal3 is portcal2's method pointed at avenue 4.
+
+### What I would do next (ranked)
+
+1. **Node re-proof when the reservation returns**: 5 cold creates per
+   scored cell (expect rank-0 picks, tight verdicts stored), then one
+   graded-shape tryout per cell to confirm board parity.
+2. **portcal3 on a leased ICL core** — settles avenue 4 for every entry.
+3. **Nothing on this host's scored cells** without a paper total-uop cut
+   (the r8 saturation verdict stands; this round deliberately shipped
+   zero arithmetic changes).
+4. **XARCH**: the noise gate is precisely what the CLX/SPR wisdom races
+   needed — genuine >= 6% upsets (ipk1's regime) still bank per host;
+   1-3% coin flips no longer can. Check the next advisory's picks.

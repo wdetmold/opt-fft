@@ -1341,3 +1341,187 @@ SPR-candidate only).
    interesting number is LLC-miss bytes/step (~9-14 MB measured vs 32 MB
    state+c) -- if a future idea claims a traffic cut, demand its
    longest_lat_cache.miss delta, not its DRAM accounting.
+
+## Round gen_r9
+
+Standings into the round (r8 board): **L=25 shipped 41.025 where 31.4 was
+available (-29.8%)** — and the monitor's PMU audit proved it was NOT code:
+r7 and r8 binaries are counter-identical; the scoring window's own cold race
+banked `l25-ip0` as a -0.97% "tie" from a contended window.  Worse, that
+poisoned entry was STILL LIVE in wisdom_a80n0.json at r9 start
+(`gen_powp/chain6/L25/B16#6bb92654 -> l25-ip0`), and impl_9 carried the r8
+source unchanged — same candidate names, same sig, same key — so an
+untouched entry would have WARM-HIT it and replayed the 41 µs regression in
+the r9 scoring window.  27: led (43.357).  50/100: shared-shell coin flips
+(421.7 vs gen_pfa_large 416.6; 4596.6 vs 4567.7).  The r9 brief's avenue 1
+(bank the picks, noise-gated) names this entry's wound as the round's
+cheapest big win, and the NOTICE says the node is queued-busy (both Ice Lake
+nodes held by other users; our hold first in queue, worst case Aug 27) —
+tryout node runs impossible, so this is the pure-logic round avenue 1 was
+advertised to be.  Kernel arithmetic is untouched; only tune() changes.
+
+### What was built (three mechanisms, one file, all in tune())
+
+**1. WISDOM TAG chain6 → chain7.**  The immediate fire: the r8 window's
+poisoned l25-ip0 verdict (and every other chain6 short-horizon verdict) can
+never replay.  This alone recovers the L=25 cell if the r9 scoring race runs
+clean — everything else makes "runs clean" much more likely and makes the
+result durable.
+
+**2. ADAPTIVE NOISE-GATED TRIALS.**  Every deciding measurement now runs
+until its evidence is demonstrated or provably sufficient, capped:
+- *Floor-stability metric* `pwp_spread3`: spread of an arm's 3 smallest
+  round times, (s3-s1)/s1 — min-of-mins methodology (gen_batchlane r4's
+  held-lease protocol) applied to the race's own evidence.  <3 samples =
+  1.0 (undemonstrated).
+- *Base race*: the r4 min-of-rounds loop (4 rounds) now records per-round
+  times (the trial body factored into `pwp_trial_once`, measurement
+  unchanged); afterwards the two LEADERS buy up to 6 extra rounds until both
+  floors are stable (leaders recomputed each round — a settling floor can
+  change who leads; also-rans' exact times decide nothing).
+- *Both playoffs* (soa-vs-interleaved and rank-0 challenger): 3 rounds
+  minimum as before, now extended up to 9 until both arms' floors are
+  stable OR the margin dwarfs the noise (margin >= 2Q — more rounds cannot
+  flip the verdict).  This is the r6 playoff's missing half: the r6 fix made
+  the comparison fair in shape; r9 makes it run until it is fair in fact.
+- Q of the deciding measurement (playoff arms if one ran, else the leaders'
+  base trials) feeds the store gate.  Tolerance GENPWP_NQTOL, default 5%.
+
+**3. QUALITY-MARKED BANKED VERDICTS.**  tight = (Q <= tol) OR (margin >=
+2Q).  A tight verdict stores as a plain candidate name — BANKED, honored
+until the tag/sig machinery re-keys it (r10's scoring warm-hits r9's tight
+verdict: cross-round determinism, the brief's "recover 0.1265
+deterministically").  A verdict still noisy after the extension stores as
+`name~q<pct>@<unixtime>` — PROVISIONAL: the lookup honors it only within
+GENPWP_NQHORIZON (default 1800 s), long enough to pin the driver's two
+repeatability processes (seconds apart — the reason not-storing was never an
+option; an unpinned noisy race would flip between processes and flag NOT
+REPEATABLE on the non-bit-identical soa family), short enough that the next
+scoring window RE-RACES a coin flip instead of replaying it.  "Re-race,
+never trust, a noisy trial" — the brief's words, implemented as an expiry.
+The r2–r8 round-end wisdom-strip protocol RETIRES for scoring-window
+verdicts: banking tight verdicts is now the design.  (My own future NODE dev
+sessions: I will still strip my dev-session keys at round end — a leased
+core next to active neighbors can produce a SUSTAINED-bias window that reads
+tight-but-wrong, my r8 "arguably honest for that environment" observation;
+the scoring window holds all 24 slots and is the arbiter.  The spread gate
+catches fluctuating noise, not sustained bias; nothing from a dev host can.)
+
+### Measured on WALLABY (SPR Gold 6448Y login host, 51 users, taskset core
+### 108 — the node was queued-busy ALL ROUND; these are correctness +
+### determinism numbers and cross-arch signal, NOT scored numbers)
+
+Determinism (the brief's acceptance test), 5 consecutive create() cycles:
+- **Cold** (GEN_RACE_REFRESH=1, race every time): 25: 5/5 `l25-soa`
+  (margins +24.9..+32.1%, Q 0.1–12%); 27: 5/5 `l27-soa` (+19.5..+22.9%);
+  50: 5/5 `l50-ipp0` (rank rule, margins -0.7..-1.9% inside hysteresis);
+  100: 4/5 `l100-ipp1`, one `l100-ipp0` at +3.3%/Q 3.1% — an honest
+  >hysteresis window verdict between two near-tied ipp variants on a busy
+  login host (wallaby has always inverted picks vs the node; r1 record).
+- **Deployment path** (wisdom on): 5/5 identical picks, warm setup
+  2.0–4.5 ms (50 ms budget) — identical BY CONSTRUCTION once cycle 1 banks;
+  this is what makes the acceptance test hold on any host.
+- **Provisional lifecycle** (forced via GENPWP_NQTOL=0.0001 at 50, where
+  margins ~1% cannot dwarf noise): stored `l50-ipp0~q0@1787711924`; warm
+  hit 2 ms inside horizon (repeatability pinned); GENPWP_NQHORIZON=1 +
+  sleep 2 → create() re-raced (1.26 s) and re-stored tight.  At 25 the
+  same forcing could NOT produce a noisy verdict: playoff self-extended to
+  6 rounds and margin 27.6% >= 2×8.7% kept it tight — soa's dominance is
+  never bankable-away by the gate, which is the point.
+
+Gates, all eight sizes, wallaby (node re-run belongs to the monitor's
+scoring pass): single call 3.60–5.04e-16 (tol 1e-12); two-step m=2
+**1.467/1.624/2.361/2.721e-15** at 25/27/50/100 — the EXACT r7/r8 values
+(shipped chain arithmetic bit-identical to r8); graded chains
+3.061/3.147/5.028/4.181e-14 (exact r8 values) at 1.09–1.73x honest anchors;
+lite sizes m=2 2.0–2.9e-15; two-process repeatability cmp-identical at
+25/27 (soa picks, wisdom-pinned).  Setup: cold 0.31–0.56 s (25/27),
+1.1–2.1 s (50/100), worst 4.64 s (121) [60 s budget]; the adaptive
+extensions cost nothing when windows are clean (3 playoff rounds, 0 extra
+base rounds — observed in most runs above).  Dev timings for the record
+(SPR, quiet-ish): 24.5 / 33.6 / 306 / 2990 µs graded; B=1 30.0 / 38.2 /
+305 µs at 25/27/50.  -Wall -Wextra: the 16 pre-existing unused-candidate
+warnings only.  Build marker token: "r9 noise-gated banked verdicts".
+
+### What did NOT work / boundaries, with the numbers
+
+* **The spread gate cannot catch sustained bias** (stated above, so nobody
+  oversells this mechanism): a window that is consistently 30% slow for one
+  arm reads tight.  Defenses layered instead: the scoring window's full
+  quiet, the dev-key strip discipline, and the horizon on anything that
+  wobbled.  If a tight-but-wrong verdict ever banks in a scoring window,
+  GEN_RACE_REFRESH (monitor-side) or a tag bump remains the manual purge.
+* **L=100 cold determinism is 4/5 on wallaby**, and that is CORRECT
+  behavior: run 4's ipp0-by-3.3% beat both the hysteresis band (3%) and the
+  2Q rule (Q 3.1%).  Two genuinely near-tied candidates on a drifting host
+  produce honest alternating verdicts; banking exists precisely so one
+  verdict is then pinned.  Do not "fix" this with a wider hysteresis — at
+  the node the r6 5/5 evidence separates ipk1 from ipp1; wallaby's ipp0/
+  ipp1 tie is a different host's truth.
+* Avenue dispositions (whiteboard, node-dependent, recorded so r10 spends
+  zero time rediscovering): **Avenue 2** (two-axes y×z fusion at 100/50) is
+  re-opened by the audit's counters (L=100: 2.34G l1d.replacement lines =
+  ~4x algorithmic minimum, p0+p5 0.82/cyc; L=50: 77 GB into L2, 1.07/cyc)
+  DESPITE gen_pfa_large's r7 shell-level closure — the counters say the
+  traffic is there even with the L2 plane scratch; the success metric is
+  l1d.replacement ~2x down, not wall time.  Full-round scope, needs the
+  node, coordinate with gen_pfa_large so only one of us burns it.
+  **Avenue 3**: my cells' signatures are already in the r8 record (25: 68%
+  port-bound — near done; 27: 60%, memory-shaped; 50/100: traffic, see
+  avenue 2).  **Avenue 4** (port-1 co-issue): struck at the whiteboard for
+  the soa engine — the map ladder is on the x-pass critical path, twiddles
+  are compile-time broadcast constants, and the graded 25/27 batches are
+  B=16 (no B%8 remainder volumes to route as ymm side work).  The real
+  port-1-adjacent play is the audit's **4-lane SoA variant at L=50 B=4**
+  (256-bit FP dispatches p0+p1, no 512-bit license, and it unlocks
+  batch-lane layout where the 8-lane form cannot run) — a new engine
+  build, node-dependent, queued as the r10 candidate for the weakest
+  shared cell.
+
+### Borrowed, plainly
+
+- **PMU_AUDIT.md (monitor)**: the diagnosis this round implements — the
+  audit's counter-identity proof of r7≡r8 and the "noise-gated storage"
+  prescription are its avenue 1, verbatim.  The provisional-with-expiry
+  mechanism (pin repeatability now, re-race next window) and the
+  margin>=2Q sufficiency escape are new here.
+- **gen_batchlane (gen_r4)**: min-of-mins floor methodology, now applied
+  by the race to its own rounds (pwp_spread3).
+- **gen_dense_prime / gen_pfa_small (gen_r9, read before starting)**: the
+  node-is-down round shape — static validation + wallaby correctness,
+  "pending ICX" tags on anything timing-shaped; also their avenue-1
+  dispositions ("no internal picks to bank") confirmed this entry is where
+  avenue 1 lives: mine is the panel's biggest internal tuner (8–13
+  candidates, two playoff flavours).
+- **gen_race (gen_r2 lib)**: unchanged wisdom machinery; the quality marker
+  rides inside the stored winner NAME so no gen_race API change was needed
+  (their file is not mine to edit) — gen_race owner: if you standardize a
+  quality field, I will migrate off the ~suffix.
+
+### Operation count
+
+Unchanged everywhere (192/218/434/968 scored, 534/850/1850/1552 lite
+FMA-port vector ops per line; soa 388/408 record-lineage per pencil).  The
+shipped chains are bit-identical to r8/r7 at every size (two-step and
+graded drifts reproduce r8 to the last digit).  tune() cost: +0–6 base
+rounds and +0–6 playoff rounds, only when the window is noisy; observed
+cold setups 0.31–4.64 s vs the 60 s budget.
+
+### What I would do next (ranked)
+
+1. **When the node hold lands: nothing to re-tune by hand.**  The scoring
+   run's own chain7 cold race (now noise-gated) banks the verdicts; verify
+   on the r9 board that L=25 recovered ~31.4 and that wisdom_a80n0.json
+   holds plain-name (tight) gen_powp/chain7 entries afterwards.  If any
+   entry is provisional (~q marker), the window was noisy — tell the
+   monitor, and the r10 run re-races it by design.
+2. **4-lane SoA at L=50 B=4** (audit avenues 2+4 combined for my weakest
+   shared cell) — engine build + node A/B; success metric l2_lines_in
+   down AND wall time, champion signature p0+p1+p5.
+3. **Two-axes fusion at 100**: coordinate with gen_pfa_large FIRST (their
+   r9 record was not yet written this round); the counters re-opened what
+   their r7 header closed, and only one of us should burn the round on it.
+4. **XARCH**: the three DFT5 knobs (W5/LIFT5/N15) and NOTW3/XCOL2 remain
+   compiled-in race candidates; with banking live, each host's first quiet
+   race now settles its pick permanently — check the CLX/SPR advisories
+   pick up the banked verdicts rather than re-rolling.

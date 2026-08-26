@@ -1,0 +1,11 @@
+Round gen_r9 is complete. Both deliverables are written: `impl/gen_powp.c` (tune() only — kernel arithmetic untouched) and a new "Round gen_r9" section appended to `strategies/gen_powp.md`. The other modified strategy files in git status are peers working concurrently; I touched only my two.
+
+**What I did (PMU audit avenue 1 — the node was queued-busy all round, so this was the pure-logic round the brief said it could be):**
+
+1. **Wisdom tag chain6 → chain7** — the r8 scoring window's poisoned `l25-ip0` "tie" was still live in `wisdom_a80n0.json` with an unchanged key; without this bump the r9 scoring run would have warm-hit it and shipped 41 µs at L=25 again instead of the available ~31.4.
+2. **Adaptive noise-gated trials** — the base race's two leaders and both playoff flavours now extend their rounds (base +6, playoffs 3→9) until each arm's floor is demonstrated (spread of its 3 smallest rounds ≤ 5%) or the margin dwarfs the noise (margin ≥ 2Q).
+3. **Quality-marked banked verdicts** — tight verdicts store as a plain name and are banked permanently (r10 warm-hits r9's verdict: cross-round determinism); verdicts still noisy after extension store as `name~q<pct>@<time>` and are honored only within a 1800 s horizon — pinning the driver's two repeatability processes but forcing the next scoring window to re-race a coin flip instead of replaying it.
+
+**Validation on wallaby (SPR; node timing waits for the monitor):** cold-race determinism 5/5 identical picks at 25/27/50 (soa margins +20–32%), 4/5 at 100 (one honest >3%-margin flip between near-tied ipp variants); deployment-path determinism 5/5 with 2–4.5 ms warm setup; the provisional lifecycle verified end-to-end (store → pinned warm hit → horizon expiry → re-race). All gates pass at all eight sizes with the two-step and graded-chain drifts reproducing r8 exactly to the last digit — the shipped chains are bit-identical to r8. Worst cold setup 4.6 s vs the 60 s budget.
+
+**Final line:** Noise-gated banked plan verdicts (chain7 wisdom, adaptive playoffs, provisional expiry) over bit-identical r8 kernels — wallaby B=1 30.0 µs / batched 24.5 µs at L=25 (33.6/306/2990 at 27/50/100 graded), single-call rel L2 3.6e-16, graded-chain 3.06e-14 (tol 1e-10).

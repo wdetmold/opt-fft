@@ -1,0 +1,8 @@
+Done. Everything shipped and verified; my footprint is exactly `impl/gen_race.c` and `strategies/gen_race.md` (plus the repaired `results/wisdom_a80n0.json`, documented in the record).
+
+**One line:** Noise-gated banked picks (6% upset floor + fresh-evidence confirmation, reverted upsets never stored) + prefetch-all cross-class .so compiles, routing each cell to its measured class winner — best wallaby (SPR-advisory, node down all session): **0.907 µs/xform batched** (L=10 B=64) and **2.574 µs/xform at B=1** (L=12), rel L2 = **2.9–5.7e-16** (all gates PASS, two-step ≤2.7e-15 vs 3e-14).
+
+Supporting notes for the record:
+- The shipped (eng9) verdict is **5/5 deterministic** at L=25/40/31 with 28–44% margins — the brief's determinism bar, proven on the harsher unpinned host; L=25 routes to powp (who now banks their internal pick through my wisdom layer, closing the PMU audit's 25% lucky-pick hole end-to-end) and L=40 to pfa_large, fixing the r8 board's two lost cells at the mechanism (prefetch-all starts the 83–115 s heavyweight compiles at the suite's first cold create).
+- Incident found and fixed while dogfooding: the r1–r8 wisdom merge/strip parsers were line-oriented and wiped compact single-line JSON files — my strip briefly emptied `wisdom_a80n0.json`; known foreign content was restored from git and the parsers are now layout-agnostic with tests covering both formats.
+- Node re-proof is queued first thing when the reservation returns, per the record's next-list.

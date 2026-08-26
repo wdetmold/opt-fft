@@ -1081,3 +1081,173 @@ twiddle problem still never entered this file.
 4. **Cross-arch**: the new sizes ship Ice Lake defaults (div tail, stock
    sched, no fusion); the standing knobs (-DBL_MAPRCP etc.) are the race
    axes on CLX/SPR as always.
+
+## Round gen_r9 -- the factor swap: put the small factor where the map fuses (-1..-2.2% at 10/15/20)
+
+Standings into the round (r8 board): led 20 (12.770 vs pfa_small 13.048), and
+1-2 thousandths behind the converged copies at 10 (1.148 vs race 1.146), 12
+(1.914 vs pfa_small 1.911), 15 (4.376 vs race 4.374). The r9/r10 brief is
+counter-directed: (1) bank engine-internal picks, (2) traffic fusion at
+100/50/40, (3) the champion-signature dashboard, (4) idle port 1.
+
+### Round context first: what applied to this engine and what could not run
+
+- **Avenue 1 (bank the picks): this engine has NO internal tuner.** Every pick
+  is a compile-time default (BL_MEM15, MAPTAIL_*, SCHED*, and now BL_SWAP*);
+  create() is branch-free -- malloc + gl_map_huge, no racing, no RNG, no
+  clock. Determinism proof as the brief demands: 5 consecutive fresh-process
+  create()+chain cycles at L=15 m=600 produced BIT-IDENTICAL outputs (and the
+  same at every A/B this round). The pick-instability class of bug cannot
+  exist in this entry; the knob AXES are published for gen_race to race
+  per-host (r5 next-step #1, unchanged).
+- **Avenue 3 (the dashboard) was BLOCKED this session: no perf anywhere.**
+  The reservation died at 20:59 and came back at 23:13 on a DIFFERENT node --
+  a81n2, same Xeon Gold 6326 -- where /tmp/perf does not exist.
+  perf_event_paranoid is already 2 on a81n2 (so no Will action needed there),
+  but the staging copy referenced by TOOLS.md is INCOMPLETE:
+  ext/tools/perf-install/ contains only lib64/ plugins and libexec/, no
+  bin/perf. The binary lived only in a80n0's /tmp and is gone. MONITOR: one
+  scp of a perf 5.15 binary to a81n2:/tmp/perf re-arms the counters; please
+  also re-stage the missing ext/tools/perf-install/bin/perf so the next node
+  hop is a one-copy fix. All r9 verdicts below therefore stand on same-core
+  interleaved TIME only; the l1d.replacement before/after the brief asks for
+  is queued for when perf returns.
+- **Avenue 4 (port 1) is closed for this engine class by microarchitecture,
+  not by measurement**: on ICL-SP the port-1 FP pipe IS the lower 256-bit
+  half of port 0's fused 512-bit FMA unit. A 512-bit uop dispatched on port 0
+  consumes both halves, so 256-bit FP "co-issue" on port 1 adds ZERO capacity
+  to a kernel that keeps p0+p5 fed with zmm work -- converting any of our FP
+  to ymm strictly loses (3x256 = 1.5 zmm-equivalents/cycle vs 2). Port 1 is
+  free capacity only for non-FP side work (we have none in the hot path) or
+  for engines that leave p0 partially idle. The audit's suggestion is real
+  for scalar-setup-heavy engines; for batch-lane SoA it is a no-op. A 4-lane
+  ymm variant remains interesting for B<8 REGIMES (correctness/coverage), not
+  for throughput.
+
+### The round's one idea: FACTOR-SWAPPED map pencils (BL_SWAP10/12/15/20)
+
+The r4 audit located the fused-map x-pencil's residual in register pressure
+(15: 27 spill stores + 15 spill loads + 12 folded rsp operands; 12: 31 rsp
+touches): the map's ~7 temps ride on the WIDE factor's stage-2 codelet
+(DFT5X2 = 2 cores + 10 map ladders in one block at 15). The never-raced axis,
+free by PFA symmetry: swap the factor ORDER in the map pencil only -- large
+factor in stage 1 (map-free, in place), small factor in stage 2 where the map
+fuses. Same FP count, same 4L ld + 4L st (mem form) / 2L+2L (reg form), but
+the fused-map codelet shrinks to DFT2/DFT3/DFT4 + 2/3/4 ladders. Sweep
+pencils keep the shipped order (they spill zero; nothing to buy).
+
+Slot tables for all four swapped forms were derived with the r6 safe
+placement (sigma(c) = (Q^-1 mod P) c) and VERIFIED in Python against a
+reference DFT with the exact load-all-store-all group semantics + in-place/
+disjointness assertions (the r8 method):
+  10 sw: n=(2a+5b)%10, k=(6c+5d)%10;  12 sw: n=(3a+4b)%12, k=(9c+4d)%12;
+  15 sw: n=(3a+5b)%15, k=(6c+10d)%15; 20 sw: n=(4a+5b)%20, k=(16c+5d)%20.
+At 15 the swapped stage-1 groups are EXACTLY the shipped stage-2 DFT5 groups.
+New macros: M3STM/M4STM (mem-form small-DFT + fused map), R4L/R5L (stage-1
+DFT into named regs), R3STM/R2STM (reg-form small-DFT + map). All correctness
+was validated on wallaby BEFORE any node time (wallaby has AVX-512): full
+three-gate battery at 10/12/15/20 + B=1 + mixed B=12/B=9 + all eight other
+class sizes, all PASS -- the node session spent zero minutes on debugging.
+
+### Static models said "wash"; the node said otherwise -- and the naive spill
+### story is NOT the mechanism
+
+llvm-mca (icelake-server) on the extracted x-pencil loops modeled the
+bottleneck as port-0-class FP at ~361 of 377 cycles (12) and predicted the
+swap worth only 1-2% of the x-pass. Asm rsp-touch counts in chainsteps:
+12: 35 -> 16, 10: 12 -> 12, 15: 18 -> 22, 20: 40 -> 44. Note carefully: the
+size with the BIGGEST spill cut (12) LOST the race, and 15/20 WON without
+one. The honest reading (unconfirmable without perf, see above): the win is
+dependency-shape, not spill count -- the small-factor stage-2 gives each
+store a 2-3-op tail after its map ladder instead of a 5-11-output block, and
+stage-1's map-free large-factor DFT5s interleave with the previous column's
+in-flight ladders. Whatever the mechanism, it reproduced 5/5 interleaved
+rounds at three sizes and reversed nowhere.
+
+### The same-core races (a81n2 core 2, held lease, interleaved --samples 4,
+### control first, first invocation discarded as warmup)
+
+| case | ship (r8 path, this window) | swap | swap tail flip | verdict |
+|---|---|---|---|---|
+| L=10 B=64 m=1000 | 1.147-1.150 | 1.131-1.138 (rcp) | **1.121-1.125 (div)** | **swap+div, -2.2%** |
+| L=12 B=64 m=600  | **1.916-1.918** | 2.005-2.009 (rcp) | 1.983-1.986 (div) | swap LOSES +3.5..4.7%; ship kept |
+| L=15 B=32 m=600  | 4.377-4.408 | **4.332-4.368 (div)** | 4.488-4.502 (rcp) | **swap, -1.0%** |
+| L=20 B=32 m=256  | 13.459-13.519 | **13.237-13.335 (div)** | 13.482-13.525 (rcp) | **swap, -1.4..1.6%** |
+
+Sched attributes re-raced on the new codelets (codelet-local rule): 10 keeps
+sched-pressure (without: 1.157 vs 1.122, +3.2%); 15 keeps stock (attr: 5.07-
+5.14 vs 4.34, +16%); 20 keeps stock (attr: 13.84-14.12 vs 13.28, +4.5%).
+Map-tail news: on the swapped REGISTER codelets div now wins (MAPTAIL_SW10=1
+shipped; MAPTAIL_SW12 recorded=div but inactive) -- gen_pfa_small r3's "the
+tail verdict is a property of the surrounding codelet" now measured a third
+time, in the third direction.
+
+### Shipped defaults and confirmation
+
+BL_SWAP10=1 (+div tail), BL_SWAP15=1, BL_SWAP20=1, BL_SWAP12=0. Five
+interleaved confirmation rounds, ship vs r8 control, same core:
+10: 1.121-1.124 vs 1.147-1.149 (5/5); 12: wash (bit-identical path);
+15: 4.340-4.368 vs 4.378-4.408 (5/5); 20: 13.291-13.335 vs 13.459-13.499
+(5/5). MKL 2022 same core same window (built fresh into my scratch -- a81n2
+had no node-built baselines, r1 harness note repeats): 4.684 / 7.914 /
+16.754 / 58.297 -> ratios 4.17x / 4.13x / 3.86x / 4.38x.
+
+Gates (ship build, on a81n2): single call 2.9/2.9/3.5/3.1e-16 at 10/12/15/20
+(tol 1e-12); two-step m=2 8.87e-16 / 9.20e-16 / 1.266e-15 / 1.262e-15 (tol
+3e-14, 24-34x margin); graded chains 1.336e-13 / 4.869e-14 / 5.536e-14 /
+3.618e-14 vs anchors 1.081e-13 / 3.887e-14 / 4.784e-14 / 2.835e-14 (tol
+1e-10) -- 10's chain drift IMPROVED from r8's 1.673e-13. 12's chain is
+bit-identical to r8; 10/15/20 are new rounding (full gates re-run, above).
+B=1 single + m=2 PASS at all four; 5x fresh-process determinism PASS; all
+eight other class sizes (14/21/22/28/33/35/44/55) single + m=2 PASS on the
+node. B=1 m=64 chains: 10.31 / 17.61 / 39.86 / 117.5 us (the nine-round-old
+remainder gap, unchanged).
+
+### What did NOT work, with the number that killed it
+
+- **Swap at 12**: 2.005-2.009 (rcp) / 1.983-1.986 (div) vs ship 1.916-1.918
+  -- the biggest spill cut of the four (35 -> 16 rsp) and the clearest LOSS.
+  The shipped R4STM's four interleaved map ladders are worth more than the
+  spill traffic they cost. Do not rediscover this, and do not trust rsp
+  counts as a proxy for time on this engine.
+- **rcp tail on the swapped 15/20**: +2.6% / +1.6% (table above). Div stays.
+- **sched-pressure on the swapped 15/20**: +16% / +4.5%. Stock stays.
+- **PMU dashboard**: blocked, no perf binary on a81n2 (see monitor note).
+
+### Borrowed, plainly
+
+- The swap idea is new this round (PFA order symmetry + the r6 safe
+  placement machinery, which made all four derivations one generator run).
+- **gen_pfa_small r3/r4**: the codelet-local map-tail rule (raced again, hit
+  again) and the register-budget framing that pointed at the map codelet.
+- **Literature 10 / my r4**: the held-lease interleaved protocol for every
+  number above; and the r8 Python-simulate-before-C table method.
+- For **gen_pfa_small**: our 10/15/20 engines were converged copies before
+  this round; the swap transfers mechanically (tables in this record). Take
+  it -- and take the 12 negative result with it.
+
+### Operation count
+
+FP unchanged: 84 / 96 / 156 / 208 vector instrs per pencil per 8 volumes at
+10/12/15/20. Map x-pencil forms now: 10 register swapped (2L ld + 2L st,
+div tail), 12 register unswapped (rcp ladder), 15 memory swapped, 20 memory
+swapped (4L + 4L, div tails). Sweeps, pack/unpack, 7/11-smooth sizes:
+untouched. Zero twiddles, zero shuffle-port ops in every transform, still.
+
+### What I would do next (ranked)
+
+1. **Re-arm the PMU** (monitor: one scp to a81n2:/tmp/perf + restore
+   ext/tools/perf-install/bin/perf) and take the champion-signature
+   dashboard + l1d.replacement before/after for the three swapped cells --
+   the round's avenue-3 deliverable, measurement-blocked this session.
+2. **Race BL_SWAP on the memory-form family** (14/21/28/35/22/33/44/55): the
+   swap is one generator run per size; at 14/21/28 the map codelet drops
+   from DFT7+7 ladders to DFT2/3/4+few -- bigger codelet delta than at 15.
+   Only worth node time if those sizes are ever scored (they were not in
+   cases.txt; round-6-style draws hit them via the trunk).
+3. **B=1 / 4-lane regime** (ninth round on the list): now framed correctly
+   by the port-1 analysis -- a ymm variant buys COVERAGE at B in 4..7 (half
+   the replication waste), never throughput at B>=8.
+4. **Cross-arch**: BL_SWAP10/12/15/20 and MAPTAIL_SW* join the knob axes;
+   CLX's weaker FMA and smaller L1 could flip any of them (the 12 verdict
+   especially -- its loss is an ILP-vs-pressure tradeoff).

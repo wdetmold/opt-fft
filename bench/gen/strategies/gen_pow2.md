@@ -1149,3 +1149,143 @@ posix_memalign at 128).
    memory-hierarchy sweep of one architecture); 2/4/8 generic and trivial.
    Round-6-style library draws route through gen_planner/gen_race for
    non-2^k; nothing in this class blocks assembly.
+
+## Round gen_r9 — the z-codelet re-form shuffles deleted through the store
+## path: 256-bit extract-to-memory stores (-16 p5 uops/zpair), raced on
+## wallaby (node queued-busy all round)
+
+Standings into the round: led L=32 at 56.455 us (3.13x vs mkl_dfti 173.35,
+r8 board; gen_race's 55.326 above me is its wrapper with 26.5% spread).
+Round conditions were unusual and shaped everything: BOTH Ice Lake nodes
+were held by other users all session (our hold 438856 first in queue;
+NOTICE says tryout node runs WILL FAIL until it lands), so per the NOTICE
+this round was developed model-side plus measured on wallaby (SPR Gold
+6448Y, the xarch_spr_r5 host) with the usual rotated-order same-core
+interleaved pairs on a pinned quiet core (core 97, load avg 0.5 on 128).
+All wallaby numbers below are DEV SIGNAL, not score; the monitor's ICL
+run lands with the hold.
+
+### The idea (this round's one lever, and where it came from)
+
+The r9 brief's avenue 4 says port pressure is the remaining currency and
+port 1/the store path idle in every kernel; my own r8 OSACA audit put the
+fused z/y q-group floor at 539 cyc with port 5 carrying ALL 256 shuffles
+(4 zpairs x 64) plus its FMA share.  What no record had noticed: the
+zpair's slot RE-FORM (16 vshuff64x2 + 16 512-bit stores per pair) only
+ever moves ALIGNED 256-bit halves — rA takes the low halves of an O pair,
+rB the high halves.  Those bytes can be written directly as 32 x 256-bit
+stores: vmovupd ymm for low halves, vextractf64x4-TO-MEMORY for high
+halves.  Extract-to-memory is a pure store-port op on ICL/SPR (no p5 uop
+— uops.info: p237+p4 only), 256-bit stores retire 2/cyc so the store
+bandwidth cost vs 16 x 512-bit is NEUTRAL, and the fused-uop count is
+unchanged (32 stores replace 16 shuffles + 16 stores) so the front end is
+neutral too.  Net: **-16 p5 uops per zpair, q-group port floor 539 -> 507
+(-6%)**, bit-identical bytes at the same addresses.  Store-forward-fail
+exposure: none — the consuming y-pass reads these rows one full plane
+later (GP2_ZYIL), thousands of cycles after the split stores commit.
+
+Same trick at G=2: zquad16's ZQ_SCAT granules are aligned 128-bit lanes,
+so each output row is 16 xmm stores (vextractf64x2-to-memory, also
+store-port-only) replacing 12 shuffles + 4 zmm stores.  The L=16 z-phase
+is outright port-5-bound (r6: 96 shuffles vs ~92 FMA per quad), the
+strongest case on paper — but the store-uop count grows there (+12/quad),
+which showed in the smaller win.  zrow64/zrow128 store full slots
+directly (no re-form) — nothing to convert; their TR8-internal shuffles
+feed registers and cannot take the store path.
+
+### What shipped
+
+* **GP2_ZST=1** (L=32 zpair re-form via ymm + vextractf64x4-to-memory)
+  and **GP16_ZST=1** (L=16 ZQ_SCAT via xmm extract stores), both default
+  ON; =0 arms are the r8 codegen, kept compilable as cross-arch race axes.
+* Asm audit (exact ship flags, icelake-server): static zpair body 231
+  insns in BOTH arms (front-end neutral, as designed); vshuff64x2 32 -> 16,
+  vextract->mem 0 -> 16.  Whole binary: vshuff64x2 416 -> 256.
+* Everything else untouched.  L=32 chain output bit-identical to the r8
+  ship arithmetic (cmp), so all gate digits reproduce exactly.
+
+### Operation count (L=32, per step-volume)
+
+z-phase shuffles 512 pairs x 64 -> x 48 = 32.8K -> 24.6K; FMA-class
+unchanged (~220K); stores +8.2K uops on the store ports (neutral in
+cycles at 2 x 256b/cyc).  Summed port floor ~126.5K -> ~122K cyc; fused
+z/y q-group floor 539 -> 507.
+
+### Measured on wallaby (SPR 6448Y, core 97, rotated same-core pairs,
+### graded-shape cases; NOT the scoring host)
+
+| case | zst0 (r8 arithmetic) | zst1 (SHIPS) | verdict |
+|---|---|---|---|
+| L=32 B=8 m=250 | 41.46-41.72 | **40.72-41.44** (best 40.720) | zst1 wins 6/6 adjacent pairs, ~-1.5% |
+| L=32 B=1 m=250 | 41.55-42.66 | **40.71-41.61** (best 40.717) | zst1 wins 6/6 (one 80.7 cold outlier discarded) |
+| L=16 B=8 m=300 | 5.127-5.263 | **5.085-5.117** (best 5.085) | zst1 wins 6/6, ~-0.9% |
+| L=64 B=2 m=64 | 557.97/558.51 | 557.54/558.46 | WASH — untouched path, no code-layout tax |
+
+Expectation for the ICL score run: the z/y phase there ran 12% over a
+539-cyc floor that is now 507; if measured tracks floor the step gains
+~4K of ~167K cyc, i.e. **-2%ish**, consistent with the SPR reading.  The
+knob is exactly what the r10 re-race should confirm on the node, with
+tools/pmu.sh port-5 dispatch as the counter-signature (avenue 3: p5 uops
+per step should drop ~8K).
+
+### Gates (ship build = flagless default, wallaby runs, check.py by hand)
+
+L=32: single 2.902e-16 (B=8) tol 1e-12; two-step fused m=2 **1.338e-15**
+(tol 3e-14); chain end m=250 3.328e-14 (tol 1e-10); bit-repeatable across
+independent runs AND bit-identical to the r8 arithmetic (zst0-vs-zst1 cmp
+at m=250) — the exact r6/r7/r8 digits, as they must be.  L=16: single
+2.367e-16, chain m=300 2.351e-14, zst arms bit-identical.  L=64: chain
+m=64 bit-identical across arms.  2^k regression L=2/4/8/64/128 singles:
+PASS at 0 / 0 / 1.3e-16 / 3.2e-16 / 4.1e-16.  -Wall -Wextra: only the
+pre-existing mode-0 -Wrestrict notes.
+
+### What did NOT work / notes for the monitor
+
+* **OSACA is now BROKEN on the shared FS**: ext/tools/osaca-pkg/osaca has
+  lost its .py sources (only __pycache__/data remain, dirs dated today
+  14:43 — looks like NFS churn; a stale .nfs handle also sat in my logs/
+  this morning).  `python3 -m osaca` per TOOLS.md dies with "no module
+  osaca.__main__".  The r8 methodology (scratch-TU port floors) was
+  replaced this round by the instruction-level asm audit, which is
+  deterministic for this change (vshuff64x2 is p5-only on ICL; extract-
+  to-memory is p237+p4 — both documented), plus the measured SPR race.
+  Monitor: uiCA was already dead (r8); with OSACA gone too, the only
+  working model is llvm-mca WITH the r8 hand-corrections.
+* **Avenue 1 (bank the picks) is a no-op for this entry**: create() has
+  no internal race — engine selection is a compile-time G-dispatch,
+  setup ~0 s, deterministic by construction (5 consecutive create()
+  cycles trivially identical).  The knob inventory {ZST, FTW, MAPDIV,
+  PREMAP, XU, ZU1, ZYIL, KS, CPS, HP32, GP16_*} remains compile-time —
+  it is gen_race/trunk material if per-host variant builds ever land.
+* Nothing else was attempted: one lever, raced clean, shipped.  The r5/r8
+  wall analysis still stands for everything except the z/y port floor
+  this round actually moved.
+
+### Borrowed / attribution (gen_r9)
+
+* **The r9 PMU brief avenue 4** (port-pressure-off-p0/p5 as the remaining
+  currency) pointed at the store path; the specific observation that the
+  zpair re-form's shuffles are avoidable BECAUSE custody rows take O-pair
+  halves at aligned offsets is this entry's, new this round.
+* **My own r8 OSACA audit** supplied the 539-cyc q-group floor and the
+  "p5 carries all shuffles" attribution that made the -16-uops arithmetic
+  worth building.
+* Session protocol: rotated-order same-core interleaved pairs (my r5),
+  min-vs-median outlier discipline (gen_batchlane r2), bit-identity cmp
+  gating (standing since r2).
+
+### What I would do next
+
+1. **Node confirmation of ZST** when the hold lands (r10): rotated pairs
+   on ICL, plus tools/pmu.sh port-5 dispatch before/after (the counter
+   signature: ~8K fewer p5 uops/step at L=32).  If ICL disagrees with SPR
+   the knob is a wisdom-race axis, not a default.
+2. **GP2_ZYIL re-race under ZST** (the skew balanced shuffle-heavy z
+   against FMA-heavy y; z just lost 25% of its shuffles, so the optimal
+   interleave ratio may have moved — cheap, bit-identical either way).
+3. The TR8-internal shuffles (48/pair) are the remaining p5 mass in the
+   z-phase; they feed registers, so the store-path trick cannot reach
+   them.  A 256-bit two-stage transpose costs 2x the uops — paper says
+   no; do not build without a port budget first.
+4. L=128 single-call conversion fusion and the rest of the r8 list are
+   unchanged.

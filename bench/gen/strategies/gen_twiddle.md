@@ -1293,3 +1293,169 @@ GEN_TWIDDLE_LIB_ONLY adoption compiles clean. setup <= 0.1 s at L=100.
    forces a T write (in-place st would clobber unread sites), which is a
    new full-volume stream — exactly the r7 mechanism-2 killer at 50/100.
    Analyzed this round, not built; recorded so nobody rediscovers it.
+
+## Round gen_r9
+
+### Adoption status (the score)
+
+- **gen_bluestein's adoption stands** (tw_chirp + colmajor filler/audit); the
+  LIBRARY half of the file is UNCHANGED for the fourth round running (the
+  frozen-layer doctrine) — `gcc -c impl/gen_bluestein.c` verified clean
+  against the shipped file.
+- **refnd double-cexp gate reference, pitch #10**: gen_powp and gen_pfa_large
+  still build the create()-gate reference W with double `cexp` (250 ulp on a
+  1e-13 yardstick at L=100). `tw_fill_dft_cplx` remains the one-line fix.
+- **Brief avenue 1 (bank the picks) does not apply to this engine**: create()
+  contains no plan-time race and no nondeterministic pick — factorization,
+  gates and knobs are all deterministic functions of (L, host), and chain
+  outputs are bit-repeatable across independent node runs (re-verified this
+  round). Nothing to bank; determinism is by construction.
+
+### What SHIPPED: the 8-lane tail cleanup — packed axis-1 across plane seams
+### + masked/vector w<8 and j-tails (−6..−20% at seven graded cells, bit-identical)
+
+The engine's 8-pencil structure bled at every L not divisible by 8, in three
+places, all fixed this round with lane-composition-only changes (per-pencil
+arithmetic is elementwise, so ALL outputs are bit-identical to gen_r8 —
+verified by cmp at 25 sizes locally, singles + m=3 chains, scalar and AVX-512
+builds, forced-gate and NOGF arms, AND with node codegen at 12/15/25/27/100
+singles + graded chains):
+
+1. **Packed axis-1 (the big one).** Axis 2 has always packed its pencil rows
+   ACROSS planes (that is what the kblk = 8/gcd(L,8) custody is FOR); axis 1
+   never did — it swept per plane, paying ceil(L/8) groups per plane
+   including a w = L mod 8 group that ran a FULL recursion on mostly-zero
+   lanes through SCALAR gather/scatter loops (47% of pencils at L=15, 33% at
+   12, 23% at 31). Now axis-1 pencils are numbered g = (x−x0)·L + z across
+   the slab and groups of 8 span plane seams: rec calls drop from
+   L·ceil(L/8) to ceil(L²/8) per volume (−35% at 10, −25% at 12, −21% at 25,
+   −17% at 20, −15% at 27) and every group runs full 8-lane vector paths.
+   Split groups (≤ 2 planes since L ≥ 8; provably never dangle past a slab)
+   use new two-pointer masked forms `twd_gather_i2`/`twd_scatter_i2`: per row
+   the 16 wanted doubles are [2a from plane A | 16−2a from plane B], built by
+   two plain loads based at B−2a (always-mapped: the tail of plane A's same
+   row) merged with two masked loads from A, then the ordinary deinterleave
+   shuffles — zero scalar lane work. The ≤ 1 partial group per slab
+   (pencil count mod 8, only in unblocked custody) stays scalar
+   (`twd_*_i2t`). In-place chain safety: every pencil is gathered exactly
+   once and written exactly once; split groups write only their own pencils
+   into the next plane. L < 8 keeps the per-plane loop (unscored).
+2. **Masked w<8 tails in `twd_gather_i`/`twd_scatter_i`** (axis-0's LL mod 8
+   group; the gf-arm's per-plane axis-1 z-tails at 27/50/100): two
+   zero-masked loads (maskz lanes are +0.0 = exactly the old zero fill) or
+   two masked stores replace up to 4w scalar ops per row.
+3. **Vectorized axis-2 tails.** The old `gather_z`/`scatter_z`/
+   `scatter_z_map` fast path handled only w == 8 AND j+4 ≤ n: the last
+   L mod 4 complex of EVERY z-pencil (20% of all map sites at L=15, 11% at
+   27) and ALL of any w<8 group ran scalar loops including scalar sqrt/div
+   per map site. Now: w<8 groups run the same tr8x8 tile path with zero rows
+   for q ≥ w and per-q stores; j-tails load/store masked through one
+   transpose. Map arithmetic on vectorized ex-scalar sites uses NEW
+   `twd_map8x` — an EXACT vector replica of scalar twd_map1 (mul, fma, sqrt,
+   add, div-for-sc, muls, u pair-duplicated from the re lane; matched gcc's
+   -O3 contraction on the first try) — so even those sites stay
+   bit-identical.
+
+### Measured on the node (NOTE: a81n2 this round — the a80n0 hold expired and
+### the queued icehold landed on the sibling Ice Lake node at 23:13; same CPU
+### model, absolute times comparable but not identical-silicon to the r8 board.
+### ONE held lease, same-core interleaved ROTATED pairs vs the rebuilt r8
+### control, gen_batchlane r4 protocol + gen_pow2 r5 rotation; graded chains,
+### min us/xform)
+
+| L | B | r8 ctl (same window) | gen_r9 | delta | mechanism |
+|---|---|---|---|---|---|
+| 10 | 64 | 6.455/6.585 | **5.192/5.571** | **−16..−20%** | packed ax1 (20 → 13 groups) + ax2 w=4 tail |
+| 12 | 64 | 9.138/9.366 | **7.602/7.860** | **−15..−18%** | packed ax1 (24 → 18) |
+| 15 | 32 | 19.887/20.625 | **17.818/18.586** | **−9..−11%** | w=7 scalar tails deleted + jt=3 ax2 tails |
+| 20 | 32 | 36.566/37.458 | **32.785/33.444** | **−10%** | packed ax1 (60 → 50) |
+| 25 | 16 | 80.844/81.335 | **74.200/76.936** | **−6..−9%** | packed ax1 (100 → 79, w=1 groups gone) |
+| 27 | 16 | 128.811/129.175 | **121.439/121.510** | **−5.7%** (4/4) | masked gf ax1 tails + ax2 jt=3 gather tails |
+| 31 | 16 | 270.446/273.033 | **263.706/267.142** | **−2.3%** (4/4) | same, w=7 |
+| 32 | 8 | 198.8–202.9 (6 prs) | 198.3–208.7 | wash (signs flip; first-pair +5% was window luck, r7's L=50 lesson re-learned) | no new path executes |
+| 40 | 8 | 341.835/345.365 | 339.577/340.240 | −1% lean | no new path (L≡0 mod 8) |
+| 50 | 4 | 743.865/745.380 | **728.066/730.945** | **−2.1%** (4/4) | masked gf tails + ax2 jt=2 |
+| 100 | 1 | 7430.4/7447.2 | 7411.4/7421.6 | −0.3% lean (traffic-bound, as the PMU audit says) | masked gf tails |
+
+Ship-binary tryout reads (different cores/windows): 12 B=64 **8.109**
+(sd 0.01%), 12 B=1 **7.991** (r8 reads: 9.342/9.473 — B=1 −15.6%), 15 B=32
+**18.043**. Wallaby (SPR) pre-reads agreed on every verdict, keep/kill was
+decided on the ICL pairs.
+
+### What did NOT work, with the number that killed it
+
+- **Vectorizing the scatter_z_map j-tail with a full-width exact map**
+  (tr8x8 + twd_map8x per pencil on jt ≤ 3 useful complex): wallaby +8% at
+  L=25 (jt=1) and +2% at 27 (jt=3) vs the packed-ax1-only build, 4/4 each.
+  Mechanism: **the divider unit prices vsqrtpd/vdivpd per OP, not per useful
+  lane** — 8 zmm sqrt+div for 8 scalar sites loses to 8 scalar sqrt/div
+  (~3x). Shipped fix: the map's j-tail stays SCALAR; the vector map runs
+  only where lanes are full (w<8 full tiles). Boundary for the panel: pack
+  divider work densely or leave it scalar; shuffles/loads vectorize at any
+  occupancy, sqrt/div does not.
+- The nm -S layout check (gen_planner r7's detector) shows twd_exec_vol /
+  twd_chain_step grew ~+4.5/+5.2 KB (the packed sweep + i2 forms inlined).
+  Watched for the r8-style gate-off layout tax at 32/40 (which execute none
+  of the new code): 32 washed over 8 pairs, 40 leaned −1%. No tax this time;
+  if a future round sees one, `noinline` on twd_gather_i2/twd_scatter_i2 is
+  the first lever.
+
+### Borrowed this round, named
+
+- **My own axis-2 custody design (via gen_bluestein r4's kblk)**: the packed
+  axis-1 is literally "do to axis 1 what axis 2 already does" — slabs hold
+  kblk·L ≡ 0 (mod 8) pencils, so blocked custody never even needs the
+  scalar tail.
+- **gen_batchlane r4 / gen_pow2 r5**: held-lease same-core interleaved
+  rotated pairs — every keep/kill above.
+- **gen_planner r7**: nm -S as the layout-drift detector, run BEFORE spending
+  node windows.
+- **gen_rader r4 (port-relocation reasoning)**: used to diagnose the map
+  j-tail loss as divider pricing without burning extra windows on variants.
+
+### Operation count (demo, delta vs gen_r8)
+
+Butterfly/twiddle arithmetic: IDENTICAL (bit-identical outputs everywhere).
+Per volume at unblocked sizes: axis-1 rec invocations drop
+L·ceil(L/8) → ceil(L²/8); ALL per-plane scalar tail loops (4w ops/row,
+gather+scatter) deleted; split groups cost +2 loads/row (gather) and
++2 masked stores/row (scatter) vs aligned groups. Axis-2: scalar tail sites
+(8·(L mod 4) per group + all w<8 groups) become tr8x8-tile vector work except
+the map's j-tail sites (scalar by measurement, above). Axis-0 and gf-arm
+axis-1 z-tails: 4w scalar ops/row → 2 masked ops + 2 shuffles/row. Plan
+memory, tables, create() work: unchanged (setup ≤ 0.1 s at L=100 stands).
+
+### Gates (ship binary, on the node; tryout's map-check leg still dies on the
+### '$W/c.bin' quoting bug — check.py run by hand, r2 recipe)
+
+Bit-identity to gen_r8 carries every r8 gate value (incl. two-step m=2);
+re-measured anyway on a81n2: singles 2.959e-16 (12) / 3.375e-16 (15) /
+3.698e-16 (25) / 3.884e-16 (27) / 4.817e-16 (100), tol 1e-12; graded chains
+5.321e-14 (12 m=600, anchor 3.887e-14) / 5.802e-14 (15 m=600, 4.784e-14) /
+3.809e-14 (25 m=256, 2.796e-14) / 3.082e-14 (27 m=200, 2.567e-14) /
+3.694e-14 (100 m=64, 2.416e-14), tol 1e-10; all chains bit-repeatable.
+Local: 25-size bit-identity sweep vs the r8 binary (native AND
+-march=x86-64 scalar builds, singles + m=3 chains, incl. 9/21/44/49/77/96/
+101/121/127/128); NOGF-arm bit-identity at 27/31/40/50/100 (multi-slab
+packed custody); forced-gate bit-identity at 9/10/12/15/20/25; all knob
+combinations (NOGF / DS / DENSEBF / MAPPAIR / PF / DS+DENSEBF /
+GF_MIN_BYTES=1) compile -Wall -Wextra clean; GEN_TWIDDLE_LIB_ONLY adoption
+compiles clean.
+
+### What I would do next (gen_r10)
+
+1. **Packed axis-1 for the gf arm** — analyzed, not built: split groups need
+   a two-rowbase scatter_gf (per-lane GB phases differ by L mod 8; the
+   aligned-tile path needs a per-lane alignr + 2 masked stores when the
+   lane's phase ≠ 0). Group-count math: 27: 108→92, 50: 28→25, 100: 26→25
+   per slab-set, but at gcd(L,8)=1 seven of eight groups pay the split-store
+   overhead — net estimate only +1-2% at 27, less elsewhere. Marginal;
+   build only if a window is spare.
+2. **PMU signature reads** (brief avenue 3): /tmp/perf was staged on a80n0;
+   the hold now lands on a81n2 — ask the monitor to re-stage before
+   counter-directed work.
+3. The L=100 cell remains traffic-bound (0.82/2.0 p0+p5, PMU audit) and this
+   engine's streams are already minimal (r7/r8 analysis); the remaining
+   lever there belongs to two-axes fusion inside a class engine, not to this
+   demo's handoff.
+4. refnd pitch #11 if still double-cexp.

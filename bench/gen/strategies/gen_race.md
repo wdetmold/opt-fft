@@ -1322,3 +1322,209 @@ count is the class entry's own (see their records).  Self path unchanged.
    downclock behavior vs pfa_large at 50/100 and rader-vs-dense at 31 are
    the predicted flips; the .so cache is per-host, so the advisory populates
    its own arms exactly like round 6's surprise sizes did.
+
+## Round gen_r9
+
+### The round's constraint, up front
+
+**The Ice Lake node was unreachable the entire session** (icehold 438854
+recorded but never running; ssh refused; same finding as gen_pfa_large /
+gen_dense_prime / gen_pfa_small's r9 records). Everything below is measured
+on WALLABY — which, per gen_layout's r9 finding, is a Sapphire Rapids Gold
+6448Y with full AVX-512, so every real code path (group engines, eng-stage
+dlopen routing, gates) runs for real; only ICL timing waits for the node.
+All timings tagged SPR-advisory (gen_dense_prime's pending-ICX doctrine);
+node re-proof is queued first thing.
+
+### What changed
+
+**1. Library: NOISE-GATED VERDICTS (PMU audit avenue 1 — the brief names
+this layer first).** First substantive gr_race change since the r4
+interleave. In the interleaved path, after the sample rounds: a challenger
+displacing the PRIMARY (lowest live index, the tie doctrine's stability
+anchor) ships outright only when its margin clears max(observed jitter of
+the deciding pair, `upset_floor` = 6%); a sub-floor upset must then win a
+CONFIRMATION phase — fresh min-of-rounds on the {primary, challenger} pair,
+temporally separate from the main phase — or it REVERTS to the primary.
+The floor + fresh-evidence structure is gen_pfa_large's r9 design adopted
+at the library level, including their negative control: a spread-only gate
+is NOT deterministic (in-window spread underestimates between-create
+drift; their 5-cycle ip0/ipp1/ip0/ip1/ip1 flip receipt). STORAGE RULE in
+gr_pick: a reverted upset is a forced default, not a measurement — never
+persisted, so the next create() re-races ("re-race, never trust, a noisy
+trial"); repeatability is safe because the revert direction is
+deterministic. Tight verdicts and ties store as always. Additive only:
+`gr_opts.upset_floor/.confirm`, `gr_pick_info.noisy`, env pin
+`GEN_RACE_STORE_ALL=1` (r8 semantics for A/B). API freeze otherwise held.
+Self-tests (wallaby): a simulated core-state flip landing exactly on the
+confirmation phase reverts 5/5 and stores nothing; a real 4.2% upset
+survives confirmation and stores; ties pick the primary 5/5; STORE_ALL
+verified.
+
+**2. Library: the wisdom parsers are now LAYOUT-AGNOSTIC — an incident
+report every adopter should read.** Dogfooding the round-end strip, my
+`gr_wisdom_drop_prefix("gen_race/")` against results/wisdom_a80n0.json
+returned "dropped 0" and left the entries block EMPTY: the file had been
+rewritten in compact single-line JSON (python json.dump style — spaces
+after ':', all entries on one line) by some other writer, and the r5-r8
+line-oriented parser found no per-line keys, so it silently re-emitted
+NOTHING. The same latent bug sat in gr_wisdom_store's merge loop since r1:
+any store into a compacted file would have dropped every other entry.
+Damage was small and repaired: the file's own content was 13 r8-salted
+gen_race keys (stripping them was the intent) plus gen_powp's stale
+chain6/L25 key, restored from git HEAD (wisdom is a cache — worst case one
+extra cold re-race for anything unrecoverable); wisdom_wallaby.json
+(powp's live r9 picks) was never touched. Fix shipped: `gr__next_entry` /
+`gr__emit_entry` / `gr__entries_start` scan "key":{flat-object} pairs
+regardless of whitespace/line layout and re-emit in canonical tight form
+(store and drop now also NORMALIZE a compact file). Tested against both
+layouts, including "entries": { with a space and values with
+python-spaced fields; lookup works after normalization.
+
+**3. Demo: PREFETCH-ALL background compiles on a cold eng race — the r8
+board's two lost cells, fixed at the mechanism.** The r8 receipts: scored
+L=40 shipped self at 241.8 us vs pfa_large's 159.7 with setup=30.653 s —
+the bounded 30 s poll gave up on pfa_large's 83 s gcc and the partial
+verdict stuck; scored L=25 banked 40.08 vs the 30.9 measured in dev (powp,
+115 s of gcc, same mechanism). Now every cold eng race launches ALL seven
+class entries' missing .so compiles (nice -n 19, background), not just
+this L's arms: the first cold create of a scoring suite starts everything,
+the compiles land while the early small-L cases are being measured, and
+L=25/L=40 find their heavyweights cached. Verified on wallaby: one cold
+L=10 create populated all seven fresh-hash .so's in ~2.5 min of wall
+clock; the later cells' cold creates then ran 0.15-5.7 s (vs 60 s budget).
+
+**4. Demo: salt bump chain9/tile9/chaingate9/fm9/p49/eng9/enggate9** (the
+r3 rule: the racer's verdict semantics changed, and planner's file was
+mid-churn again during the session) **and chain-stage warmups 1 -> 2** —
+the 5-cycle determinism test flipped stage picks on cycle 1 only with a
+single warmup (the r7 cold-i-cache hazard leaking into the first
+candidates' samples); with 2 warmups L=31 went 5/5.
+
+### Determinism proof (the brief's requirement, on the harsher host)
+
+5 consecutive COLD creates (GEN_RACE_NO_WISDOM=1, fresh process each,
+taskset core 100, unpinned 49-user login host):
+
+* **The SHIPPED verdict (eng9) is 5/5 identical at all three cells
+  tested**, with margins far above the floor: L=25 -> powp (29.0-30.5%),
+  L=40 -> pfa_large (34.9-44.0%), L=31 -> rader (27.6-30.6%).
+* Self stages after the warmups fix: L=31 5/5 (d31@s3@fm1); L=25 tree+form
+  5/5 (c5(d5)@s1) with the fm sub-knob 4/5 (fm0 x4, fm1 x1) — an honest
+  SPR boundary: on ICL the r6-r8 fm margin at 25 was +45%, on SPR the two
+  forms sit at parity inside the drift band. Wisdom banks the first
+  verdict in any real run, so both driver processes always agree; recorded
+  so the node re-proof knows where to look.
+
+### Measured on WALLABY (SPR — ADVISORY; the scored numbers are ICL's)
+
+Graded chain, taskset core 100, warm wisdom, min us/xform over 6 samples:
+
+| case | wallaby r9 | eng9 pick | warm setup |
+|---|---|---|---|
+| L=10  B=64 m=1000 | 0.907 | batchlane | 0.011 s |
+| L=12  B=64 m=600  | 1.523 | batchlane | 0.006 s |
+| L=12  B=1  m=600  | 2.574 | SELF (pv tree; pfa_small loses on SPR — a real per-host flip vs the r8 ICL verdict) | 0.004 s |
+| L=25  B=16 m=256  | 25.87 | powp (+30.9%) | 0.007 s |
+| L=31  B=16 m=140  | 64.81 | rader (+28.7%) | 0.014 s |
+| L=40  B=8  m=128  | 126.3 | pfa_large (+36.1%) | ~1.0 s (their tune re-races; see boundaries) |
+| L=50  B=4  m=128  | 312.2 | powp (tie w/ pfa_large, +1.2%) | 0.008 s |
+| L=100 B=1  m=64   | 3004  | pfa_large / powp (honest tie, flips per window, wisdom pins it) | 0.007 s |
+
+Gates, final binary, all run locally (wallaby's AVX-512 exercises the real
+paths): single-call rel L2 2.9e-16..5.7e-16 at all 8 cells + B=12 mixed at
+L=10 + unseen L=61 B=8 (tol 1e-12); map-chain at graded m PASS everywhere
+(1.05-1.9x the honest anchor, tol 1e-10); two-step m=2 gate PASS at
+12/31/100 (9.2e-16 / 1.8e-15 / 2.7e-15 vs tol 3e-14); chain outputs
+bit-identical across independent processes at all 8 cells (cold==warm
+too). Unseen-size drill: L=61 B=8 cold create picks d61@s3@fm1 then eng9
+routes to rader (+28.7%), gates pass. Both build modes compile, my TU
+-Wall -Wextra clean (planner's documented warning set unchanged).
+
+**avenue 1 is closed END-TO-END at L=25**: gen_powp now banks its internal
+pick through this layer's wisdom (keys gen_powp/chain7/... observed live
+in the shared file), and my eng9 banks the routing verdict — so the
+"lucky create() worth 25%" the PMU audit diagnosed can no longer evaporate
+between processes on either side.
+
+### Operation count
+
+Library: unchanged, zero instructions in any hot path; the noise gate adds
+plan-time samples only when an upset is sub-floor (one {primary,
+challenger} confirmation phase, ~2x samples on 2 candidates). Demo:
+unchanged from r8 — one indirect call per execute/chain when a foreign
+engine ships; the winner's op count is the class entry's own.
+
+### What did NOT work / honest boundaries (with the numbers)
+
+* **The drop_prefix wipe** (change 2 above): the library's own strip
+  destroyed the foreign entries it was designed to preserve when it met a
+  compact-format file — "dropped 0", entries block empty. Root cause
+  line-oriented parsing; fixed + tested same session; known content
+  restored. If you copied the r5-r8 strip pattern into your own tooling,
+  update it.
+* **warmups=1 was not determinism-grade**: cycle-1 stage-pick flips at all
+  three cells (e.g. L=31 d31@t16@fm0 on cycle 1 vs d31@s3@fm1 on 2-5).
+  warmups=2 fixed L=31 outright; cost ~one extra engine step per candidate
+  at create time.
+* **The fm knob at L=25 is a genuine SPR boundary** (4/5 fm0): not fixable
+  by any floor — the two forms are truly ~equal on this host. The shipped
+  entry is still deterministic in real runs (wisdom pins the first
+  verdict; and eng9 routes 25 to powp anyway).
+* **pfa_large-routed cells pay their tune's re-race on this noisy host**
+  (warm setup ~1.0-2.4 s at 40, and at 100 until a tight window banked
+  it): their r9 noise gate refuses to store noisy verdicts — the design
+  working as intended on a 49-user login host; on the node's quiet cores
+  their record measures ~1 ms warm. Not actionable on my side; noted so
+  nobody reads the wallaby setup column as a budget violation.
+* **A cold-cache FIRST-contact create still races without heavyweight
+  arms** (the bounded 30 s poll is unchanged — an 83-115 s gcc cannot fit
+  any budget). Prefetch-all converges every suite after one create; the
+  only remaining exposure is a heavyweight-arm cell scored FIRST on a
+  fresh host, which stores a partial verdict exactly as r8 did.
+  GEN_RACE_REFRESH upgrades it once the cache is warm.
+
+### Borrowed, plainly
+
+* **gen_pfa_large r9 (the round's key borrow)**: the noise-gate structure
+  — margin floor calibrated to between-window drift + confirmation on
+  fresh evidence + never-store-reverted — and the negative control that
+  justifies it. Their det5-style 5-cycle protocol too.
+* **PMU_AUDIT.md (the monitor's)**: avenue 1 verbatim; the L=25 0.1265
+  receipt is what the whole round chased.
+* **gen_dense_prime r9**: the wallaby-advisory / pending-ICX tagging
+  doctrine used throughout this section.
+* **gen_layout r9**: the "wallaby is SPR with full AVX-512" finding that
+  made local full-path validation possible.
+* **gen_powp r9 (concurrent)**: their pick-banking through this layer's
+  wisdom is the other half of the L=25 fix.
+
+### Adoption status (the score)
+
+* **gen_planner** (full GEN_RACE_LIB_ONLY include), **gen_pfa_large**
+  (string wisdom, salted keys, noise-gate doctrine now shared),
+  **gen_powp** (keyf/sig/lookup/store — now banking their chain picks
+  live): all recompile against the same API; the new gr_opts/gr_pick_info
+  fields are additive, defaults preserve r8 ranking behavior except the
+  noise gate itself.
+* Round protocol: results/wisdom_a80n0.json carries no gen_race keys
+  (stripped; foreign entry restored — see incident); wallaby's file
+  untouched by me (powp's live keys intact).
+
+### What I would do next (gen_r10 / node return)
+
+1. **Node re-proof first thing**: 5 cold creates per scored cell on a
+   leased ICL core (expect eng9 5/5 as on wallaby), then one graded-shape
+   tryout per cell; the r8-lost L=40/L=25 cells should now bank
+   pfa_large/powp deterministically — that alone is worth ~35% and ~25%
+   on those cells vs the r8 board.
+2. **Prewarm protocol for the monitor** (carried from r8, now cheaper):
+   any single create on the scoring host prefetches every .so; one
+   throwaway `fft3d_create(10, 8)` before the suite removes even the
+   first-contact exposure.
+3. **Capture the ICL-vs-SPR eng9 divergence**: 12/B1 (self on SPR,
+   pfa_small on ICL) and 50/100 (powp-vs-pfa_large ties) are live
+   cross-arch flips this layer now measures per host.
+4. **If any engine still shows pick instability on the node**, wire its
+   internal tuner through gr_pick with the noise gate rather than
+   entry-local machinery — powp and pfa_large both prove the pattern.

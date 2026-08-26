@@ -1,9 +1,3 @@
 {"host":"a80n0","format":1,"entries":{
-"gen_race/eng8/L25/B16#9e79f9da":{"winner":"gen_powp.c309e387","widx":1,"tie":0,"us":13406.4,"margin":0.2688},
-"gen_race/enggate8/L25/B16/gen_powp.c309e387":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
-"gen_race/chaingate8/L25/c5(d5)@s1@fm1":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
-"gen_race/chaingate8/L25/c5(d5)@t32":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
-"gen_race/fm8/L25/B16#d5c31220":{"winner":"fm1","widx":0,"tie":0,"us":342.011,"margin":0.08504},
-"gen_race/chain8/L25/B16#43381b96":{"winner":"c5(d5)@s1","widx":3,"tie":0,"us":337.522,"margin":0.3319},
 "gen_powp/chain6/L25/B16#6bb92654":{"winner":"l25-ip0","widx":0,"tie":1,"us":46.987,"margin":-0.009742}
 }}

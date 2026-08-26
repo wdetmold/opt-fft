@@ -267,3 +267,111 @@ reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
 reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
 reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
 reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
+reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
+reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
+reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
+reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
+reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
+reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
+/home/lqcd/wdetmold/fft/bench/gen/reserve_guard.sh: line 4: squeue: command not found
+reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
+/home/lqcd/wdetmold/fft/bench/gen/reserve_guard.sh: line 4: squeue: command not found
+reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
+/home/lqcd/wdetmold/fft/bench/gen/reserve_guard.sh: line 4: squeue: command not found
+reservation submission failed: ./reserve.sh: line 104: sbatch: command not found
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold
+squeue: error: Invalid user: -n
+
+squeue: error: Unrecognized option: icehold

@@ -1107,3 +1107,147 @@ structural residue only: pass 2's per-slab blocks and the two overlap tails.
 2. Cross-arch: race GSPLIT_RMAX (and SPLITZ<L>, MT knobs) per host; the split/
    replicated crossover is a tr8-vs-FMA balance CLX will move.
 3. Tuned batched cells: saturated (r5-r7 verdicts stand); protect, don't chase.
+
+## Round gen_r9
+
+### Headline
+The context round: the one op-count cut my rival measured and I had not adopted.
+gen_batchlane gen_r7's PHI-LIFTED DFT5 v-pair (lit 08 6.3, adapted by them:
+sin(2pi/5) = phi * sin(pi/5) EXACTLY, so the scaled-reflection pair v1/v2 factors
+through one shared u = sa - PHI5*sb) is now in BOTH of this entry's DFT5 forms:
+D5CORE (tuned batched stage-2 at 10/15/20, incl. the D5X2 hazard pair and the
+X5 register-explicit binds) and M_DFT5 (the split B=1/B%8 pencils at 10/15/20).
+6 vector ops instead of 8 per DFT5; pencil FP per 8 vols 10: 88 -> 84, 15:
+162 -> 156, 20: 216 -> 208 -- exactly the deltas their r7 shipped, which is
+where their r8-board lead at my three DFT5 cells lived (10: 1.148 vs my 1.152;
+15: 4.376 vs 4.416; 20: 12.770 vs 13.048). L=12 has no DFT5 and ships
+bit-identical to r8 (cmp-verified, batched and B=1). Constants PHI5/KL5 exact
+to the last bit (50-digit Decimal; KL5 - S51*PHI5 - S52 == 0 in double).
+
+### NODE ACCESS CAVEAT (read before comparing boards)
+The Ice Lake node was NOT reachable this session: both axxxl nodes were
+allocated to another user's ~2-day jobs at 21:00 (our icehold 438851 was
+CANCELLED mid-hold, the guard's re-queued 438854 sat PD "Resources" all
+session; polled for 40+ min). Every timing below is therefore from WALLABY
+(login host, Xeon Gold 6448Y = SAPPHIRE RAPIDS, taskset core 100, same-core
+interleaved adjacent pairs, min over --samples 4, first invocation discarded)
+-- a cross-arch signal, not a scored number -- plus the llvm-mca ICL model.
+All correctness gates were run in full locally (wallaby has AVX-512; the
+binary exercises the real paths). The monitor's next leaderboard is the ICL
+measurement.
+
+### What changed
+1. **D5VPAIR / M5VPAIR**: the lifted pair
+       u  = sa - PHI5*sb          (FMA)
+       v2 = S52*u                 (mul)
+       v1 = S51*u + KL5*sb        (FMA)   KL5 = 1.25/sin(pi/5)
+   replacing 4 mul + 4 FMA with 2 FMA + 2 mul + 2 FMA per DFT5 (both
+   components), zero latency change. NOT bit-transparent (same exact values,
+   different rounding) -- all gates re-run, nothing recycled.
+2. **Per-size knobs, the MT<L>/SPLITZ<L> pattern**: -DLIFT5=0 global,
+   -DLIFT5_10/15/20=0 per size. Implemented as a per-function enum constant
+   (D5LIFT_) so ONE macro body serves all sizes and the dead branch folds;
+   the enum form was cmp-verified bit-identical to a #if-selected form and
+   timing-identical (3.540 vs 3.541 at 15 batched, same core same minutes).
+3. Nothing else. Batched engine structure, split rotation chain, generic
+   engine (module 5 there is the table-driven fold, different arithmetic --
+   untouched, cmp-verified bit-identical to r8 at 35/45 B=8 and 14 B=1).
+
+### Measured on WALLABY (SPR; cross-arch signal only)
+Same-core interleaved, r8-arithmetic control (bit-identical to the r8 ship,
+proven below) vs lift, four rounds each, min us/xform:
+
+| case | ctl (r8) | lift | delta |
+|---|---|---|---|
+| L=10 B=64 m=1000 | 0.914-0.919 | 0.920-0.921 | **+0.6% (lift LOSES on SPR)** |
+| L=15 B=32 m=600  | 3.574-3.583 | 3.542-3.546 | **-0.9%** |
+| L=20 B=32 m=256  | 8.740-8.755 | 8.634-8.665 | **-1.2%** |
+
+B=1 raced too but the login node's neighbor noise (49 users; 2x state flips
+within rounds) made every B=1 verdict unusable; not claimed.
+
+### The ICL arbitration without the node (tools/TOOLS.md, this round's use)
+uiCA is BROKEN in ext/tools (setup incomplete: no instrData/ -- flagged for
+whoever owns tools). llvm-mca (LLVM 22, icelake-server) on the gcc
+-march=icelake-server x-pass loop bodies extracted from soa_chain_<L>
+(the loop containing the map vdivpd), 100 iterations:
+
+| L | lift instrs/iter, cycles | nolift instrs/iter, cycles | model delta |
+|---|---|---|---|
+| 10 | 326, 27975 | 323, 28263 | **lift -1.0%** (despite 3 MORE instrs) |
+| 15 | 532, 43957 | 527, 43963 | wash in the x-pass (15's DFT5 win lives in the sweep pencils) |
+| 20 | 700, 58864 | 687, 59560 | **lift -1.2%** |
+
+So the SPR loss at 10 is host-specific scheduling, NOT a property of the
+lift: the ICL model agrees with gen_batchlane's measured ICL win at 10
+(-0.8%, four clean same-core pairs, their r7 record) on the same codelet
+shape. SHIP DEFAULT: lift ON at all three sizes; the SPR advisory race
+should build -DLIFT5_10=0 (this is exactly the per-size-knob scenario).
+
+### Gates (full graded shapes, run locally on wallaby AVX-512; node re-run
+### belongs to the monitor's scoring pass)
+Single call 2.9-3.5e-16 at 10/12/15/20 B=8 and B=1 (tol 1e-12). Two-step
+m=2 B=1: 1.074e-15 / 8.948e-16 / 1.243e-15 / 1.332e-15 (tol 3e-14, >=22x
+margin). Full graded chains: 10 B=64 m=1000 1.504e-13 (anchor 1.081e-13),
+12 B=64 m=600 4.869e-14 (3.887e-14), 15 B=32 m=600 5.487e-14 (4.784e-14),
+20 B=32 m=256 5.231e-14 (2.835e-14) -- 1.25-1.85x the honest anchor, same
+tier as r8 (and 15/20 EQUAL gen_batchlane's r7 post-lift drift to the last
+digit: converged engines drift identically). Mixed remainders B=12@12,
+B=9@15, B=9@20 PASS; un-rotate parities m=3/4/5 at 10 B=1 PASS; generic
+sanity 14 B=8 m=100, 21 B=1 m=50, 34 B=3 m=20 PASS; everything
+bit-repeatable across processes.
+
+Bit-identity matrix (cmp on chain outputs, local builds):
+* -DLIFT5=0 vs the r8 ship: IDENTICAL at 10/15/20 batched + split -- the
+  refactor is provably transparent, r8 remains one flag away.
+* Default (lift) vs r8: L=12 IDENTICAL batched and B=1 (no DFT5 at 12);
+  15/20/10 differ as expected.
+* -DLIFT5_10=0: L=10 IDENTICAL to r8 (batched + B=1), L=15 IDENTICAL to
+  the lifted build -- the per-size knob isolates correctly.
+* Generic engine: IDENTICAL to r8 at 35/45/14 (module-5 fold untouched).
+
+### Raced and NOT shipped
+* **MEM15SW=1 (hybrid sweep) under the lift** -- gen_batchlane's r7 found
+  the lift flips their 15 hybrid verdict (their BL_MEM15 1 -> 2, -0.25%);
+  mine does NOT flip on SPR: mem 3.539-3.553 vs hybrid 3.536-3.556
+  fast-state minima over five rounds -- a wash, outlier rounds both ways.
+  Ship default stays MEM15SW=0; re-race on ICL/CLX with the knob.
+* PMU avenue 1 (bank the picks) needs no work here: this entry has ZERO
+  plan-time picks -- every internal choice (MT<L>, SPLITZ<L>, LIFT5_<L>,
+  MEM15SW, GSPLIT_RMAX, GM15PFA) is a compile-time constant, create() is
+  table-building only, and 5 consecutive create() cycles are trivially
+  identical. Determinism was never at risk in this file; gen_race owns the
+  cross-entry racing.
+
+### Borrowed, plainly
+* **gen_batchlane gen_r7**: the lifted DFT5 v-pair, taken whole -- the
+  factoring, the constants' derivation, and the knowledge (their four
+  same-core ICL pairs per size) that it WINS on the scored host. This
+  round is the mirror image of r5: then their map-8 body, now their DFT5.
+* **gen_batchlane gen_r4 / gen_pfa_large gen_r4**: held-core interleaved
+  adjacent-pair protocol, applied on wallaby for want of the node.
+* llvm-mca loop-extraction arbitration is the r8 tools mandate
+  (tools/TOOLS.md discipline: model for RELATIVE choices, node for scores).
+
+### Operation count
+Pencil FP per 8 vols: 10: 84 (2xDFT5 lifted), 12: 96 (unchanged), 15: 156
+(3xDFT5 lifted), 20: 208 (4xDFT5 lifted); loads/stores unchanged (10/12
+register-explicit 2L+2L, 15/20 memory 4L+4L). Split pencils: same -4/-6/-8
+vector FP at 10/15/20 via M_DFT5. Map, sweeps, rotation chain: unchanged.
+Two new broadcast constants (PHI5, KL5).
+
+### What I would do next (ranked)
+1. **Confirm on the node** the two boards this round could not: (a) the
+   lift's ICL deltas at 10/15/20 (expect ~-0.8/-0.7/-1.0% per batchlane's
+   r7 and the mca model), (b) LIFT5_10 stays ON for ICL. If the next
+   leaderboard shows 10 regressing instead, -DLIFT5_10=0 is the one-flag
+   revert.
+2. **Cross-arch races now have real per-size work**: SPR flips LIFT5_10
+   (measured here, +0.6%); race LIFT5_<L> x MT<L> x MEM15SW per host.
+3. **Port-1 co-issue** (PMU audit avenue 4) remains unspent in my cells:
+   the concrete shape here would be running the B%8 remainder volume as a
+   ymm 4-lane pair INTERLEAVED into the 8-lane group sweep instead of
+   after it. Real restructure, needs the node's counters to validate
+   (l1d + port_1 dispatch); do not attempt against a model only.
+4. Batched cells otherwise remain saturated (r5-r8 verdicts stand);
+   protect, don't chase.

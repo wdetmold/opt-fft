@@ -1184,3 +1184,169 @@ map-chain m=140 2.559e-14 -- all identical to r7.  Class duty vs r7, node
 same-window: **127: -25.5% (35.2 ms), 107: -25%, 59: -20%, 23: -15%,
 113: -8..9%, 101: -5..12%, 89: -9..14%, 73: -1..10%, 61: -1..4%**; 31/37/41/43/
 53/67/79/103 unchanged.
+
+
+## Round gen_r9
+
+### Where this round started
+
+r8 leaderboard: **84.745 us/step** at the graded cell (L=31 B=16 m=140), leading
+the crossover (gen_dense_prime 113.5, gen_bluestein 292.6, MKL/FFTW 833-883).
+The rounds 9-10 brief is counter-directed; the PMU audit names gen_rader at 31
+THE champion signature (IPC 2.15, p0+p5 = 1.60/2.0 -- "what done looks like"),
+so the graded cell stays bit-frozen.  **Constraint that shaped the whole round:
+both Ice Lake nodes were held by other users from round start (our hold first
+in queue, jobs 438854/438856 PD, ssh denied; scheduler worst-case Aug 27); the
+monitor's NOTICE says develop model-side with the analyzers and wallaby
+correctness runs.  NO node window existed this round -- every timing number
+below is a WALLABY number and labeled so.**  Wallaby fact established this
+round that upgrades all its numbers: it is a **Xeon Gold 6448Y = SAPPHIRE
+RAPIDS** -- one of the three graded architectures, not a random dev box.
+
+### The four brief avenues, triaged for this entry
+
+1. **Bank the picks: nothing to bank, verified.**  create() contains no timing
+   race and no host-dependent branch -- engine choice (m2/m3/dense), conv
+   form, pairing gates, arena and prefetch gates are all pure functions of
+   (L, compile flags).  Demonstrated, not just argued: 5 consecutive
+   create()+chain cycles at 103 on wallaby produce byte-identical outputs.
+   The L=25 instability mechanism structurally cannot happen in this entry.
+2. **Two-axes fusion**: gen_pfa_large/gen_powp cells, not my geometry (and
+   for MY chain the r7 closed-form stands: custody already sits on the
+   5-sweep floor).
+3. **Champion dashboard**: 31 closed by counter evidence; the dashboard duty
+   for the other primes is staged as the pmu phase of r9_ab.sh (needs the
+   node).
+4. **Port-1 co-issue**: not attempted -- every candidate side-task in this
+   engine (map, fold tails) is data-dependent on the 512-bit stream, and the
+   panel's five map-fusion negatives say relocated work loses when it
+   lengthens the critical path.  Left for a round with node time.
+
+### What was built: PAIRED-COLUMN RP3_WINO at p = 103 -- and then DEFAULTED OFF by measurement
+
+rp3_chunk2_17 + RP3_WINO2: the r8 pairing applied to the outer-C3 kernel
+family, m = 17 only (the one rp3 prime on the blocked conv and the one that
+is DRAM-resident; the full-unroll rp3 kernels 43/67/79 stay 1-wide -- the r8
+m=10..18 rp2 lesson).  Fold via js/js2 two-row loads (RP3_FOLD1 lost in r6
+and pairing doubles its stack bill), glue loops rolled, combine kp/km-
+scattered, dispatch through rp_w2_on/rp_chunk_any2, z pairs automatically
+through rp_zquad2.  Stack 578 zmm slots = 37 KB.  Knob: **-DRP_W23 enables;
+DEFAULT OFF** -- the default build is the r8 engine bit for bit.
+
+Why OFF, when the r8 evidence said pairing wins at DRAM sizes -- the round's
+main measured finding:
+
+- Raced on wallaby (chain B=1 m=4, 3 interleaved rounds, sd 0.1-0.5%):
+  1-wide 7062/7091/7104 vs 2-wide **9587/9593/9593 us/step = +35%, 3/3**.
+- CALIBRATION on the same host, same session: the r8-shipped rp2 2-wide at
+  113 -- which the NODE proved wins -8..9% -- reads only **+2.8%** on wallaby
+  (16251-16300 vs 15717-15882, 3/3).  So the known dev-host anti-pairing bias
+  is ~3-11 points on this kernel family; it CANNOT explain +35.  The loss is
+  a property of THIS kernel.
+- RP_PROF attribution: x 2.03 -> 2.62 ms (+29%), y 1.92 -> 2.59 (+35%),
+  z 1.32 -> 2.30 (+74%).  Every paired pass loses; the paired z (69 KB
+  staging + slots) loses worst.
+- Mechanism, consistent with all of it: rp3's glue-to-conv ratio is ~2x
+  rp2's (8 conv calls of m^2 = 289 vs rp2's 5 of 784, with fold/WINO-
+  build/reconstruct/T/combine glue scaling with H = 51 and M).  The pairing
+  buys shared broadcasts INSIDE the conv tiles and pays doubled stack arrays
+  across ALL the glue -- at this glue ratio the price exceeds the prize, at
+  least on SPR.  And SPR is a graded xarch machine: even if ICL flips the
+  verdict, a 35% SPR loss is exactly the "wins only on Ice Lake" flag the
+  brief warns about, which is gen_race's knob to arbitrate, not a default.
+- The ICL verdict stays unmeasured this round; r9_ab.sh phases build/cmp/
+  race103/race97/pmu/l31/gates run it in one command when the hold lands.
+  Adopt only on a clean 2/3-min ICL win AND a defensible xarch story.
+
+### Verified this round (wallaby -- correctness, plus the timing above)
+
+- **Bit-identity battery, all 30 class primes**: default build vs the TRUE r8
+  binary (bin_r8_local, built last round from r8 source) AND vs the -DRP_W23
+  build: all identical, execute; chain m=4 at 103 identical across all three.
+- **Gates at 103** (both arms): single rel_l2 9.085e-16 (tol 1e-12),
+  map-chain m=4 7.410e-15, **two-step 5.006e-15** (tol 3e-14); L=31 B=16
+  single 4.059e-16 -- identical to r8 to the last digit, as they must be.
+- **Codegen audit**: rp3_chunk2_17 = 3510 instructions / 20.3 KB static
+  (SMALLER than the 1-wide's 32.5 KB peeled form), 564 vmovapd vs the r7
+  pathology's 2443, conv i loops rolled as pinned.  The static shape is
+  clean -- the loss is dynamic (stack traffic volume), which no static
+  histogram shows: static audits catch code-SIZE pathologies, not
+  working-set ones.
+- llvm-mca NOT used to adjudicate: its ICL model dispatches all 512-bit FMA
+  to port 0 (the r8-recorded blind spot) -- exactly the quantity pairing
+  changes.  Measured instead (see above), which is what settled it.
+
+### What did NOT work, with the number that killed it
+
+- **The 2-wide RP3_WINO as a default: +35% on wallaby/SPR, 3/3** (the whole
+  story above).  Code kept behind -DRP_W23 with the ICL race staged; the r8
+  extrapolation "pairing wins at DRAM sizes" is now bounded: it held where
+  conv dominates (dense: 100% conv; rp2: 5 big products), it FAILS where the
+  glue ratio is high (rp3 WINO).  Written down so the 2-wide idea is not
+  re-applied to glue-heavy kernels on faith.
+- **A harness trap that invalidated my first A/B, written down so nobody
+  repeats it: `impl` is a SYMLINK to `impl_N` for the current round.**  My
+  "control built from impl_9/gen_rader.c" WAS my edited file; the first
+  30-prime battery and first timing A/B compared the new engine against
+  itself (the timing read a perfect wash -- both arms ~9.8 ms -- which is
+  what quietly flagged it).  Every verdict above was re-established against
+  bin_r8_local (the r8 session's binary, mtime Aug 25 14:48) and a -DRP_W23=
+  off build.  Rule: a control must be a BINARY from the previous round or a
+  flag-disabled build -- never "the snapshot directory", which is live.
+- **97 (m=24) 2-wide, prefetch-at-103 (RP_PFMIN_KB=34816)**: not decidable
+  without the node; staged as bin_r9w24 / bin_r9pf in r9_ab.sh.
+
+### Borrowed this round, named
+
+- **My own gen_r8 machinery**: RP2_CONV_BLK2 verbatim as the paired conv;
+  the interleaved-slot layout and rolled-glue doctrine; the RP_* knob
+  taxonomy.
+- **gen_dense_prime r3/r5**: bit-identity-by-lanewise + cmp battery -- this
+  round it was the ONLY cross-round safety story, and it caught the symlink
+  trap when re-run honestly.
+- **gen_batchlane r4 protocol, adapted**: same-core interleaved arms, 3
+  rounds, min-sets -- run on wallaby cores since no lease exists; wallaby
+  verdicts labeled as SPR data, not ICL proxies.
+- **results/PMU_AUDIT.md**: the champion-signature framing and the avenue-1
+  determinism duty (discharged: deterministic by construction, 5x verified).
+- **The r6 lesson, sharpened by calibration**: "wallaby misleads at DRAM
+  sizes" is now quantified (~3-11 points anti-pairing on this family via the
+  113 control experiment) -- which is what made +35% readable as a real
+  loss rather than bias.  Calibrate the proxy with a node-proven case before
+  trusting any proxy verdict; that calibration was this round's best trick.
+
+### Operation count (shipped)
+
+The shipped default moves ZERO instructions anywhere: it is the r8 engine bit
+for bit (30-prime cmp).  The -DRP_W23 arm (off): at 103 per column-pair per
+conv tile, 2 stack loads + 8 broadcasts + 16 FMA vs 2 x (1 + 8 + 8) 1-wide;
+kernel-table broadcasts halved; glue stack arrays doubled (37 KB slots + 32 KB
+z staging) -- the doubling is what the SPR race says dominates.
+
+### What I would do next
+
+1. **Run r9_ab.sh when the hold lands** (build / cmp / race103 / race97 /
+   pmu / l31 / gates).  Expected: ctl ~11.0 ms at 103; if w23 wins on ICL
+   despite SPR, it is a race-layer (per-host wisdom) candidate, not a
+   default -- flag it to gen_race with both numbers.
+2. **If w23 loses on ICL too, close the rp3-pairing item permanently** and
+   record the glue-ratio boundary next to the r8 m-boundaries: pairing pays
+   at glue:conv below ~1:4 (dense, rp2 m>=25), not at rp3's ~1:2.
+3. **The 89 bimodality** (r8 item 2, still unspent): pmu.sh l1d/llc counters
+   across windows before building anything.
+4. **Dense-engine j-major table layout** (r7 item, thrice queued): re-model
+   with counters at 127 first.
+5. Harness: r9_ab.sh under build/tryout/gen_rader/ holds the session; its
+   build phase generates in97b1/c97b1; reserve.sh --status needs the slurm
+   PATH prefix on wallaby; **impl is a symlink to the live impl_N -- controls
+   come from prior-round binaries or flag-off builds, never from impl_N**.
+
+### Measured summary (the reply line)
+
+No Ice Lake window this round (nodes queued-busy; NOTICE-directed model-side
+round); the shipped binary is bit-identical to r8 everywhere, so the board
+numbers stand: **L=31 B=16 m=140: 84.745 us/step, B=1: 85.21; single rel_l2
+4.059e-16, two-step 1.784e-15**.  New: 2-wide RP3_WINO at 103 built and
+verified (gates 9.085e-16 / 5.006e-15; 30-prime bit-identity), shipped
+DEFAULT OFF on a calibrated SPR loss (+35% vs the +2.8% bias ceiling); ICL
+race staged in r9_ab.sh.

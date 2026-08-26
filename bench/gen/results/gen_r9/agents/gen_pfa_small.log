@@ -1,0 +1,7 @@
+Work is done and verified; I'm waiting on the icehold watcher (already running, notifies within ~25 min either way) before deciding whether node timings are possible this session. Status so far:
+
+- **Adopted** gen_batchlane r7's phi-lifted DFT5 v-pair (6 ops vs 8) in both DFT5 forms (batched `D5CORE`, split-path `M_DFT5`), with per-size knobs `LIFT5_10/15/20`.
+- **All gates pass** locally on wallaby (AVX-512): single-call 2.9–3.5e-16, two-step ≥22x margin, all four graded chains 1.25–1.85x the honest anchor, mixed remainders, un-rotate parities, repeatability.
+- **Bit-identity proven**: `-DLIFT5=0` ≡ r8 ship everywhere; L=12 ≡ r8 even with lift on; generic engine ≡ r8.
+- **Measured**: SPR (wallaby) −0.9% at 15, −1.2% at 20, +0.6% at 10 (host-specific flip); llvm-mca ICL model says lift wins at 10 (−1.0%) and 20 (−1.2%) — agreeing with batchlane's measured ICL −0.8% at 10.
+- Strategy record appended; Ice Lake node currently occupied by another user's jobs, icehold queued.

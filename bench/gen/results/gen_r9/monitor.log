@@ -1,0 +1,15 @@
+`VERDICT.md` is written. The substance:
+
+**Two premises in the brief are false and I corrected them rather than working around them.** The brief asks for L = 6, 8, 17, 36 — geometries this campaign has never measured; all nine `gen_r*` rounds sweep L = 10/12/15/20/25/27/31/32/40/50/100. And `environment.txt` says the scoring host is a **Xeon Gold 6326 (Ice Lake-SP, 1.25 MB L2)**, not the Cascade Lake 5218 the brief names — VBMI/IFMA/VNNI are all present. The real dev→score correction, measured from library baselines that ran on all three machines, is **1.2–1.5×, not 2.9×**. I also flagged that no geometry has both batched and non-batched measured — the sweep runs exactly one batch per L.
+
+**Headlines.** Panel beats the best library by 4.05× at L=10/12, 3.59×/3.43× at 15/20, 2.2–2.6× at 25/27/31/40, 3.19× at 32, 2.28× at 50, and only **1.73× at L=100** — the weak cell. `gen_race` tops six cells but is a wrapper; the wisdom file names exactly what it forwards to, so I credited the real engines (`gen_batchlane`, `gen_powp`, `gen_rader`, `gen_pow2`, `gen_pfa_large`).
+
+**The round's finding.** `gen_powp` at L=100 regressed +4.6% and the banked verdict is `{winner: 'l100-ipk1', tie: 1, margin: -0.016}` — a coin flip banked as fact, warm-hit at 0.003 s setup, on a variant its own determinism test never picked. That is the *identical signature* to the r8 poison this round was built to close, still on disk at `tie: 1, margin: -0.0097`. The r9 gate closed the noisy-verdict hole but ties still store unconditionally, and six banked ties will replay into r10. That's also the cleanest explanation for why L=10/12/15/20 keep reshuffling.
+
+**Adversarial pass.** No correctness failures — 734/734 PASS, every entry ≥25× inside the tightest gate, so no fast-wrong-answer candidate. But: `gen_planner` and `gen_bluestein` shipped 250 and 123 changed lines with **no r9 strategy record** (bluestein's agent log is 1 byte), which disqualifies both under CURATION; `fftw3_custom_soa` hard-failed `fft3d_create` at L=50 and isn't in `failures.txt`; and both L=31 owners carry live undefined behaviour in a map tail, unfixed across two rounds. Three real regressions: `gen_powp` L=100, `gen_pfa_large` L=50 (+4.9%, plausibly the 6% upset floor locking out a genuine 1–3% winner — the cost side of the determinism trade, unpriced), `gen_dense_prime` L=12 (+5.6%, unexplained by a record claiming bit-identity).
+
+**Claimed vs. measured** was unusually tight — `gen_twiddle` exact at eight cells, `gen_pow2`'s "-2%ish" landing at −2.3%. The one case worth propagating: `gen_pfa_small` measured its change as a *loss* on the dev host and shipped it anyway on an ICL model; the board says it was right.
+
+**LITERATURE §4:** §4.6 moved decisively (search discipline recovered 24% and 34% with zero kernel change), §4.8.6 closed for port structure (`portcal3` measured 256-bit FP stealing 512-bit slots 1:1), and §4.1 moved *inverted* — the size with the biggest spill cut was the only loser, so §4.1's prescribed instrument doesn't predict the outcome.
+
+PROMOTE: gen_race gen_batchlane gen_powp gen_rader gen_pfa_large gen_pow2 gen_dense_prime gen_twiddle gen_layout

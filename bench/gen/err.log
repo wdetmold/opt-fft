@@ -1,0 +1,8 @@
+impl/gen_twiddle.c: In function ‘tw_loadu8’:
+impl/gen_twiddle.c:890:1: warning: AVX512F vector return without AVX512F enabled changes the ABI [-Wpsabi]
+  890 | {
+      | ^
+impl/gen_twiddle.c: In function ‘tw_storeu8’:
+impl/gen_twiddle.c:895:20: note: the ABI for passing parameters with 64-byte alignment has changed in GCC 4.6
+  895 | static inline void tw_storeu8(double *q, tw_v8 v)   /* unaligned store */
+      |                    ^~~~~~~~~~

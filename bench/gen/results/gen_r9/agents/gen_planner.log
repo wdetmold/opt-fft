@@ -1,0 +1,11 @@
+Status update while I wait for the benchmark node:
+
+**Done so far (round gen_r9, both changes coded and locally validated on wallaby):**
+
+1. **Noise-gated create() race (PMU-audit avenue 1)** — the min-of-3 interleaved race now extends itself (contenders only, up to 9 rounds) whenever the hysteresis winner and any contender within 10% sit closer than the pair's own measured trial noise; at the cap, the deterministic 2%-simplest-first hysteresis breaks the tie instead of window luck. Wisdom storage stays unconditional (gen_race r8's store-always rule for cross-process repeatability) — the gate lives in the sampling. **Proven locally: 5 consecutive cold creates pick identically at L=25, 50, and 100 on a busy login node** (before the change, back-to-back L=100 races flipped trees).
+
+2. **c-line custody at large L (avenue 2, adopted from gen_pfa_large's c-bypass)** — at separate-map sizes where state+c bust L3 (includes scored L=100: 32 MB vs 24 MB on the node), each x-plane's consumed c lines are `clflushopt`'d so the read-once c stream stops evicting the m-step-resident state. Cache op only — outputs verified bit-identical. The default gate reads the host's actual L3 from sysfs (custody correctly stays OFF on this 60 MB-L3 login node), and a **custody playoff** inside the race measures on/off per host and banks the verdict in wisdom as a new `@f0/@f1` tag (old binaries treat it as unknown-tag → re-race, forward compatible).
+
+All local gates pass: full L=2..128 numpy sweep, graded chains at 25/27/91/100, two-step m=2 gate at 100 (2.9e-15 vs 3e-14), mixed batch B=12 @s4, wisdom warm-path tag replay with bit-identical cross-process outputs.
+
+**Blocked on the node**: a80n0 is held by another user's ~2h20m lattice job (currently 1h34m in); our icehold is queued next. A watcher is polling, and node scripts are staged in /tmp for the custody A/B + PMU counters (l1d.replacement per the mission's success metric), the 5× determinism proof, and the full graded battery. I'll run those the moment the reservation starts.

@@ -1284,3 +1284,144 @@ per GEMM at 17/19/20/23/29: C 3/3/3/3/4 -> 2/2/2/2/3, S 2/3/3/3/4 ->
 4. Fix or replace uiCA (fetch instructions.xml offline and rerun
    ext/tools/uiCA/setup.sh) -- llvm-mca's 1-FMA/cyc ICL model is fine
    relatively but will mislead anyone reading absolute cycles.
+
+## Round gen_r9
+
+### Where this round started
+
+r8 leaderboard: **113.507** at the graded cell (L=31 B=16 m=140; gen_rader
+84.745 — the settled arithmetic crossover); roster 5.063 / 7.715 / 15.218 /
+38.849 at 10/12/15/20.  My r8 record's item 1 named the round's lever: the
+z-phase is the largest off-floor term left at 31 (~30 us vs ~20 us floor),
+its pair kernel running 0.75 loads/FMA with only 16 accumulator chains —
+while r8 had just measured the 24-accumulator rotating-register shape worth
+-5.7% on the x/y GEMMs.  The round-9 brief's counter avenues mapped onto
+this class: (1) bank-the-picks — N/A, this engine has NO internal tuner
+(create() is closed-form deterministic; five consecutive creates produce
+identical plans by construction, nothing to bank); (2) two-axes fusion —
+not my cells (all L2-resident; r6 custody negative stands); (3) champion
+signature — pending node time, see below; (4) port-1 co-issue — struck at
+the whiteboard for this engine: the map ladder is on the z-feed critical
+path, not independent side work, and the only 128-bit phase (z-fold) already
+dispatches on p1.
+
+**HARNESS NOTE, the round's constraint: the a80n0 reservation DIED ~21:00
+(heartbeat stale, ssh refused, job 438854 recorded but never beat) and the
+guard cannot resubmit from wallaby (no sbatch binary; reserve.log shows the
+loop failing).  No node windows existed for this round's decisions as of
+this writing.  Everything below is (a) bit-identity + gates, machine-
+independent, and (b) wallaby SPR same-core interleaved min-sets (login host,
+quiet at 0.3 load; the r5 protocol minus the node).  Node re-race + PMU
+signature are queued first thing when the reservation returns.**
+
+### What shipped: the r8 24-accumulator lever applied to the L=31 z-phase
+
+gdp31_zuv3 replaces the per-pair z-GEMM inside fold31zx_core (all three
+variants: flat, padded, padded+lazy-map).  THREE mirrored row pairs per
+group; the C- and S-GEMMs SPLIT into separate 15-j loops of 24 accumulators
+(6 rows x 4 k-vectors) with ONE rotating table register and six live
+128-bit-pair broadcasts: 4 table loads + 6 broadcasts feed 24 FMAs per j
+= **0.417 loads/FMA (was 12/16 = 0.75)**, and accumulator drains stretch
+240 -> 360 FMAs with 24 independent chains per drain window (was 16) —
+exactly the r8 GEMM mechanism one layer down.  The C results round-trip a
+1.5 KB stack block to free the register file for the S loop — the
+split-with-Cblk structure that beat the merged form in the r7 race.  The
+group drain does the r3 fused U/V combine unchanged (C halves re-loaded
+from the stack block).  Per-accumulator op sequence (init, FMAs j=1..15
+ascending, combine) is IDENTICAL to zpair31_uv, and the stack round-trip is
+bit-preserving, so **outputs are BIT-IDENTICAL to r8** — the whole
+correctness story, as in r5/r8.  Old pair kernel kept behind -DGDP_ZPAIR2.
+
+Static validation before any timing (the r8 tool discipline):
+- objdump (icelake-server build): every 24-FMA j-loop body is exactly 4
+  rotating vmovapd table loads + 6 vbroadcastf64x2 + 24 clean vfmadd231pd
+  into 24 distinct zmm — **zero spills** (automated innermost-loop scan);
+  31 live zmm as designed (24 acc + 6 broadcasts + 1 table).
+- llvm-mca (icelake-server, RELATIVE use only): new body RThroughput
+  24.0 cyc / 24 FMA vs old pair block 48.0 / 48 — in-loop FMA-saturated
+  parity, no new bottleneck; the win lives at drain boundaries and load
+  ports, invisible to in-loop RThroughput (same signature as r8's table).
+
+### Measured on wallaby (SPR Gold 6448Y login host, quiet, ONE core,
+### interleaved same-core min-sets; ADVISORY — the score machine is ICX)
+
+| cell | r8 control (mins) | gen_r9 | delta |
+|---|---|---|---|
+| 31 B=16 m=140 (core 104, 5 rounds) | 86.24 / 86.28 / 86.71 / 87.21 / 87.23 | **83.43 / 83.60 / 83.71 / 83.77 / 84.08** | **-3.3%, 5/5 pairwise** |
+| 31 B=16 m=140 (core 100, earlier window, 4 rounds) | 170.7-173.3 (loaded core) | 161.4-170.8 | -2..-6%, 4/4 |
+| 31 B=1 m=140 | 86.35 / 86.46 / 86.66 | **84.17 / 84.51 / 85.71** | **-2.3%, 3/3** |
+
+(Two curiosities for the record: wallaby cores differ ~2x by neighbor load —
+core-pin and interleave or the numbers are garbage; and quiet SPR runs the
+31-chain at ~84 us vs the ICX node's 113 — consistent with the xarch_spr_r5
+advisory's SPR speedups.  The ICX delta may be LARGER than -3.3% because the
+z-phase is a bigger share there; r8's identical lever measured -5.7% on ICX
+GEMMs after reading -2-3% class effects elsewhere.  Unproven until raced.)
+
+Correctness, all on this host: outputs bit-identical to the r8 control at
+ALL 13 dev cells (5/7/10/12/13/15/17/19/20/23/29/31x2), single AND chain
+m=4; numpy gates fresh on the shipped binary: single rel_l2 3.917e-16
+(tol 1e-12), **two-step 1.724e-15** (tol 3e-14), m=140 map-chain 2.551e-14
+(anchor 2.312e-14, tol 1e-10); 17/29 two-step gates PASS; two-run
+repeatability cmp-identical; scalar (non-AVX512) build verified end-to-end
+at L=31 (chain gates PASS); -DGDP_ZPAIR2 -DGDP_ZG2 knob build reproduces
+the r8 binary's outputs bit-for-bit.
+
+### Built, measured, REJECTED: the same lever at generic L (zrow6_k1..k4)
+
+The 6-consecutive-rows split-C/S form of the generic z-pass (KQ+6 loads per
+6*KQ FMAs = 0.417 at KQ=4; per-row op sequence unchanged, bit-identical,
+zero spills at every KQ) **LOSES on wallaby**: 17 B=4 m=8: 17.4-18.0 vs
+16.7-16.8 (+4-7%, 3/3); 29 B=4 m=8: 97.8-98.7 vs 92.8-95.1 (+5%, 3/3);
+23: wash (41.2-42.1 both).  Mechanism, best reading: the generic pair
+kernel is lean (no FMA-saturated fold feed to hide under), so the chunkier
+fold(x6) -> C-loop -> S-loop phase structure and the C stack round trip
+cost more than the deleted table loads — the same "OoO already covers the
+lean kernel" boundary as my r6 custody/lazy-map and r7 pipelining
+negatives, now measured on a third restructure.  Why 31 wins and generic
+loses: fold31zx's z-GEMM sits inside a dense always-inline block with the
+x-GEMM adjacent; the generic kernel is a bare call in a row loop.
+**Shipped DEFAULT OFF behind -DGDP_ZG6** (kernels compiled, knob-selected)
+— raceable on ICX/CLX where the verdict may flip; do not re-derive.
+
+### What I would do next
+
+1. **Node re-race of the shipped default vs the r8 control at 31 (B=16 and
+   B=1), first thing when the reservation returns** — expected -2..-6% from
+   the SPR direction and the r8 precedent; then tools/pmu.sh both arms and
+   record p0+p5 dispatch per cycle (brief avenue 3): r8's whole-chain
+   signature vs the champion's 1.60/2.0 tells whether another schedule
+   round at 31 can pay at all.
+2. **Race -DGDP_ZG6 on ICX** (one window: 17/23/29 B=4 m=8) — the SPR
+   negative may not transfer; if it wins on ICX, flip the default there via
+   the wisdom/race layer, not unconditionally.
+3. The remaining 31 items after this: divider floor (~21 us, closed on
+   ICX), y-pass fold feed (u/v build is 15 plain-loop iterations/block —
+   the zrow31_fold zmm treatment could apply; ~small), and the true asm
+   software-pipelined drain (the r7 ceiling estimate, full-round scope).
+4. Harness: reservation death mid-round is now a measured failure mode —
+   record wallaby-advisory verdicts with explicit "pending ICX" tags so the
+   next agent knows which conclusions are score-machine-proven and which
+   are not.  The r9dev A/B kit (bin_r8/bin_r9 + per-cell in/c bins) lives
+   in build/tryout/gen_dense_prime/r9dev/.
+
+### Borrowed this round, named
+
+- **My own gen_r8** (the 24-acc rotating-register shape and its live-range
+  arithmetic; the split-beats-merged structure from gen_r7's C+S negative).
+- **gen_batchlane gen_r4**: the same-core interleave protocol, applied to
+  wallaby cores in the node's absence.
+- **The r8 brief's tool mandate**: objdump spill scan + llvm-mca relative
+  check before any timing — again zero dead measurement windows.
+- **PMU_AUDIT.md** (monitor): the four-avenue map; avenues 1/2/4 dispositioned
+  for this class at the whiteboard (no internal picks to bank; L2-resident
+  cells; no independent 256-bit side work), avenue 3 queued on node return.
+
+### Operation count (shipped)
+
+FMA counts identical to r5-r8 at every size (bit-identical outputs).  L=31
+z-phase per block: table loads 15 pairs x 15 j x 8 -> 5 groups x 15 j x
+(4 C + 4 S) = 1800 -> 600; broadcasts unchanged (1800); new C stack traffic
++240 ops/block; accumulator chains per drain window 16 -> 24; drains per
+block 15 fused -> 5 C + 5 S (+1 solo row unchanged).  Net ~-35k uops/step
+on the z-phase feed path.  Generic sizes: shipped path unchanged from r8.

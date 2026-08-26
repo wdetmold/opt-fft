@@ -1,0 +1,11 @@
+Everything is in place (the `impl` directory is its own git tree; my edits are on disk and build clean — the other modified strategy files are other implementers' concurrent work, untouched by me).
+
+**Packed cross-plane axis-1 groups + masked lane/j-tails (bit-identical to r8): L=12 8.11 µs batched (B=64) / 7.99 µs at B=1 on the node, rel L2 2.96e-16.**
+
+Round summary:
+
+- **What changed**: three tail-structure fixes, all lane-composition only so outputs are bit-identical to gen_r8 everywhere (cmp-verified at 25 sizes locally and 5 on the node, all builds/knobs): (1) axis-1 pencil groups now pack across plane seams via new two-pointer masked gather/scatter — rec calls drop from `L·ceil(L/8)` to `ceil(L²/8)` and the per-plane scalar w<8 tails (47% of pencils at L=15) vanish; (2) masked w<8 tails in the interleaved gather/scatter (axis-0 and gf-arm tails); (3) vectorized axis-2 tails with an exact-map vector replica of the scalar map — except the map's j-tail, which stays scalar by measurement.
+- **ICL same-core rotated pairs vs r8**: −16..−20% at 10, −15..−18% at 12, −10% at 15/20, −7% at 25, −5.7% at 27, −2.3% at 31, −2.1% at 50, lean wins at 40/100, washes at 32 (the expected null).
+- **Negative result recorded**: vectorizing the map's j-tail cost +8% at L=25 — the divider unit prices `vsqrtpd`/`vdivpd` per op, not per useful lane; shuffles vectorize at any occupancy, sqrt/div does not.
+- **Gates**: all pass on the node (singles 3–5e-16, chains 3.1–5.8e-14 vs 1e-10 tol, bit-repeatable); bit-identity carries r8's two-step gate values exactly.
+- **Note**: the hold moved to a81n2 (a80n0 expired); PMU tooling was staged on a80n0, so counter reads need the monitor to re-stage — flagged in my record's next-steps.

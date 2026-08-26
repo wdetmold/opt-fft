@@ -1246,3 +1246,200 @@ unchanged (≤ 5 ms at L=100).
 3. The odd-L kernel remains the last unfolded structure (multiplicative
    symmetry = Rader territory, out of class); L=100 remains algorithmic.
 4. Library A/B ladder and adoption offers from r2–r7 all stand.
+
+## Round gen_r9
+
+### The round's shape, up front
+
+The counter-directed brief gave this layer two direct jobs: PMU-audit avenue 4
+names "a 4-lane SoA variant would unlock batch-lane layout at L=50 (B=4),
+where the 8-lane form cannot run" — a layout-layer primitive by definition —
+and gen_planner's r8 list asks for "half-group G=4 (ymm lanes or 2-site zmm)
+for B=4 — L=50 is the one". Both are built this round (library section 8).
+The API-freeze doctrine (r3, held four rounds) yields here because the ask is
+explicit and monitor-authored, not speculative.
+
+**Node availability defined the round's measurement story**: a80n0 was
+occupied by an EXTERNAL user's job (438852, 2-day time limit) for the entire
+session; the panel's icehold (438854) sat queued with an estimated start two
+days out. No tryout window, no PMU window. Everything below was verified and
+(advisory-)measured on wallaby — and here is a finding for every implementer:
+**wallaby is NOT the AVX2 host my r1 record called it. It is a Sapphire
+Rapids Xeon Gold 6448Y with full AVX-512 (F/VL/BW/DQ/...)** — the login host
+evidently changed at some point. The real vector paths, including every
+AVX-512 selftest assertion, now run locally; only Ice Lake TIMING requires
+the node. (Scalar builds are still exercised via explicit -march=x86-64.)
+Counters remain node-only: wallaby has perf_event_paranoid=4 and no perf
+binary; uiCA is also unbuilt here (instrData module missing from
+ext/tools/uiCA — setup was done on the node).
+
+### What changed
+
+**Library (section 8, NEW — the first API growth since r5):**
+
+- `gl_deint4 / gl_int4` — interleaved↔split for 4 complex in ymm, one
+  `vpermt2pd` per output (AVX512VL forms).
+- `gl_tr4x4` — in-register 4×4 double transpose, 8 shuffles; the ymm unpacks
+  dispatch p1/p5 on ICX where every 512-bit shuffle is p5-only.
+- `gl_pack4 / gl_unpack4` — 4 interleaved streams ↔ lane-SoA `[site][2][4]`
+  blocks, 8 shuffles per 2 sites, scalar fallback included; stream stride =
+  L³ gives gen_batchlane its 4-volume lanes at B=4 (L=50), stride = pencil
+  pitch gives ymm pencil SoA; also the natural B%8 remainder-volume form
+  (avenue 4's "remainder volumes as a ymm lane-pair").
+- `gl_map4` — the graded chain map on 4 interleaved complex in 2 ymm:
+  identical ladder to gl_map8 at half width (pair-compressed |w|², 1e-300
+  guard, vrsqrt14 + 2 Newton, ONE vdivpd — ymm div is 8-cycle tput vs zmm's
+  16, so per-complex divider cost is unchanged). 256-bit FP dispatches on
+  ports 0 AND 1 — port 1 idles in every kernel the PMU audit measured, so a
+  ymm map tail can co-issue under 512-bit main work.
+- `gl_selftest()` extensions: pack4 layout + unpack4 round trip (all hosts),
+  and under AVX512VL a **bit-equality assertion of gl_map4 against gl_map8**
+  on the same inputs (vrsqrt14's approximation is width-independent on real
+  Intel hardware — ASSERTED at create(), not assumed; if a future part
+  disagrees, create() fails loudly instead of silently breaking chain
+  bit-identity), plus deint4/int4 and tr4x4 exactness (involution check).
+  Verified passing on SPR silicon this round; ICX re-verifies at every
+  create().
+
+**Demo entry (one change, dogfooding the new primitive):** the kcnt=2
+exit-map tail (L ≡ 2 mod 8: 10, 18, 50...) can now run as pure ymm — each
+row is 2 complex = one ymm, two rows share one gl_map4 ladder, c loads and
+stores are plain ymm. This deletes the r7 form's vinsertf64x4/vextractf64x4
+pairs (port 5 = the second FMA pipe) and moves the ladder to p0/p1, at the
+cost of ~2× the ladder uops per complex (two half-width ladders replace one
+shared zmm ladder). **Plan-gated `p->m4t = (L <= 16)`** — see the measured
+boundary below. Output is bit-identical either way (the selftest guarantees
+it), so all r8 gate numbers carry over exactly on both settings. Knob:
+`-DGL_DEMO_NOMAP4=1` reverts to the r7/r8 zmm packing unconditionally.
+
+**Avenue 1 (bank the picks), for the record:** this entry has no plan-time
+race to bank. Every internal pick — wpitch (collision model), ldt (L>=16),
+m4t (L<=16), nt0/nt2 (size+alignment proofs) — is a pure deterministic
+function of (L, host ISA); five consecutive create() cycles pick identically
+by construction. Nothing to route through gen_race's wisdom cache.
+
+### Operation count
+
+FFT arithmetic unchanged everywhere. kcnt=2 exit tails with m4t: per 4 rows
+(8 complex), the r7/r8 form's 2 pack-inserts + 2 c-inserts + 2 extract-stores
+(~6-10 port-5 shuffle-class uops) and one zmm ladder (~14 p05 + 1 zmm div)
+become ZERO shuffles + two ymm ladders (~28 p015 uops + 2 ymm divs). Total FP
+uops rise ~1.6×; exclusive-p5 uops drop to zero; divider occupancy unchanged.
+That trade only pays where these tails are a large fraction of exit chunks —
+at L=10 they are 1 of 2; at L=50, 1 of 7. Library: gl_pack4 costs 8 shuffles
+per 2 sites (vs gl_pack8's 24 per 4 sites); gl_map4 ops as above.
+
+### Measured — wallaby (SPR Gold 6448Y), ADVISORY ONLY (score is Ice Lake; no node window existed this round)
+
+Correctness first (real AVX-512 paths, driver + check.py, this round's
+binary): singles PASS at all 11 suite sizes and off-suite 2, 3, 5, 7, 8, 9,
+14, 16, 17, 18, 22, 24, 33, 36, 44, 63, 64, 96, 127, 128 (rel L2
+0.7–8.7e-16, tol 1e-12); m=3 map-chains PASS at 10/12/18/25/32/50/100
+(1.0–3.4e-15 vs anchors, tol 1e-10); two-step gates 0.9–2.9e-15 at ten sizes
+(tol 3e-14); **the m4t and NOMAP4 arms produce BIT-IDENTICAL chain outputs
+at every size tested** (cmp on full chains at 10/12/18/25/32/50/100), so the
+monitor's r8 gate verdicts transfer to this binary exactly. All knob builds
+(-Wall -Wextra, icelake-server + x86-64, all 10 GL_DEMO_* combinations)
+compile clean.
+
+Graded-suite advisory timings, quiet-ish wallaby core (min of 4 samples,
+sd 0.5–2.0%; useful as the campaign's SPR xarch context, not as score):
+
+| L | B | m | SPR µs/xform | ICX r8 board |
+|---|---|---|---|---|
+| 10 | 64 | 1000 | 3.10 | 4.89 |
+| 12 | 64 | 600 | 5.23 | 8.09 |
+| 15 | 32 | 600 | 12.52 | 19.45 |
+| 20 | 32 | 256 | 22.99 | 34.20 |
+| 25 | 16 | 256 | 59.59 | 94.10 |
+| 27 | 16 | 200 | 77.31 | 123.84 |
+| 31 | 16 | 140 | 117.87 | 199.98 |
+| 32 | 8 | 250 | 91.52 | 149.14 |
+| 40 | 8 | 128 | 206.17 | 333.49 |
+| 50 | 4 | 128 | 714.30 | 943.97 |
+| 100 | 1 | 64 | 6096.9 | 9307.9 |
+
+The whole suite runs 1.3–1.6× faster on SPR than the ICX board — bigger L2
+(2 MB) and clock; the shape is uniform, no cell inverts. This is consistent
+with the xarch doctrine: the engine ports without surprises.
+
+### The m4t boundary, and the measurement that almost lied
+
+Interleaved same-core A/B batteries (map4-tail arm vs NOMAP4 arm), graded
+cases, min of 4 samples per run:
+
+- **L=10 B=64** (tails = 1/2 of exit chunks): first battery map4 wins 2/3
+  pairs by −3..4% (3.05/3.08/3.01 vs 3.18/3.08/3.17); second battery a wash.
+- **L=50 B=4** (tails = 1/7): map4 loses 3/3 pairs by +1.3..2.4%
+  (713/716/720 vs 704/699/707).
+- **L=18/26/34 B=8**: window noise (spreads to 9%) — unusable.
+- **The control that mattered**: after building the plan-gated binary (m4t=0
+  at L=50, i.e. the IDENTICAL inner path as the NOMAP4 arm), the gated
+  binary read 700/704 vs the NOMAP4 arm's 716/713 in the same interleaved
+  session — a 1.5% delta between binaries executing the same instructions
+  in the tail. That is exactly the magnitude of the "L=50 map4 loss", which
+  is therefore substantially CODE-LAYOUT confound (gen_twiddle r5's hazard;
+  gen_planner r8's same-layout control arm doctrine, reconfirmed on a login
+  host). Wallaby cannot resolve ±2% between differently-laid-out binaries.
+
+Shipping decision under unresolvable noise: `m4t = (L <= 16)` — enabled only
+in the regime where both the uop math and the one clean battery favor it
+(tail fraction ≥ 1/2; in-suite that is L=10 only), r8-proven form everywhere
+else. Since the two forms are bit-identical in output, this is a pure
+scheduling knob with exposure bounded to one cell, and the monitor's quiet
+window (or gen_race, per host) can flip `GL_DEMO_NOMAP4` if the node
+disagrees. The avenue-4 co-issue hypothesis for zmm-resident exits therefore
+remains OPEN, not confirmed: recorded so nobody cites this round as proof
+either way.
+
+### What did NOT work / could not be done, with the reason
+
+- **No node windows at all** (external job held a80n0 with a 2-day limit;
+  icehold queued behind it). The r9 numbers above are SPR-advisory; the ICX
+  A/Bs (m4t at 10/50, and the champion-signature dashboard) are QUEUED — the
+  exact commands are in this record's next-steps for whoever gets the first
+  window. The PMU dashboard (avenue 3) for my cells is one lease away:
+  `tools/pmu.sh taskset -c $CORE bin --L {25,32,50,100} ... --chain m` and
+  read p0+p5/cycle against the 1.6 champion signature.
+- **uiCA on wallaby**: instrData module unbuilt (setup ran on the node).
+  llvm-mca was not substituted for the exit-port question because the r8
+  lesson stands — at these cells the binder is the measured ~2.1
+  vector-uops/cycle cap, which the models do not carry; a model verdict
+  would not have changed the shipping decision.
+- **kcnt=1/kcnt=4 ymm analogues deliberately not built**: kcnt=4 tails
+  already run zero-shuffle zmm pairs (r7) — a ymm split there doubles ladder
+  uops with no p5 relief to buy back (nothing to delete); kcnt=1's zmm pack
+  is 6 shuffles per 8 rows and its ymm form needs vinsertf128 pairs (p5
+  again) — the static math is a wash before the doubled ladder cost. If a
+  node window ever shows exit-p5 saturation at 25, revisit with counters in
+  hand.
+
+### Borrowed this round, named
+
+- **The PMU audit (monitor) + gen_planner gen_r8 item 3**: the 4-lane ask
+  itself — section 8 is built to their words ("unlock batch-lane layout at
+  L=50 (B=4)"; "half-group G=4 (ymm lanes)").
+- **gen_planner gen_r8**: the same-layout control arm (r8nl) protocol — it
+  caught the L=50 layout confound above before I shipped a wrong boundary.
+- **gen_twiddle gen_r5**: the code-layout hazard doctrine, third campaign
+  confirmation.
+- **gen_batchlane / gen_pfa_small (transitively)**: the [site][2][N]
+  lane-SoA block convention that gl_pack4 mirrors from gl_pack8.
+
+### What I would do next (gen_r10 / first node window)
+
+1. **Run the queued ICX verdicts**: (a) m4t A/B at L=10 and L=50 graded
+   cases (2×2 interleaved, one lease); (b) the avenue-3 dashboard for this
+   entry at 25/32/50/100 — p0+p5/cycle vs the 1.6 signature plus
+   l1d.replacement, to finally attribute the demo's ~4× gap over its own
+   kernel-FMA floor between staging traffic and port pressure, with numbers.
+2. **Adoption of section 8**: gen_batchlane's B=4 unlock at L=50 is the
+   named target (their r8 list has no room, but the primitive now exists
+   with a selftest guarantee); gen_planner's G=4 half-group and any B%8
+   remainder path are one include away. The gl_map4 bit-identity assertion
+   means adopters keep chain repeatability for free.
+3. **Promote dm_tr8x8_ld → gl_tr8x8_ld** still waits on an actual ask (r8
+   offer stands).
+4. If the campaign wants the SPR advisory expanded: the full-suite sweep
+   above took ~4 minutes on a login core and is reproducible verbatim from
+   this record.
