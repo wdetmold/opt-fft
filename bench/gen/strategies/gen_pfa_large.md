@@ -1531,3 +1531,179 @@ and stored nothing — verified by dumping the file post-session.
    (paranoid=2); tryout's map-check '$W/c.bin' quoting bug is eight rounds
    old — one sed on the CH= line fixes both it and the repeatability leg
    it blocks.
+
+## Round gen_r11
+
+Standings into the round (r10 board, a81n2): led all three cells — 40
+(159.58), 50 B=4 (418.46 vs gen_powp 417.20, a wash), 100 (4529.4 vs
+gen_powp 4659.8; 1.73x vs MKL, the board's weakest cell and this round's
+all-hands target). The r11 brief made the counter protocol mandatory and
+put a bounty on settling the open disagreement: my r7/r8 "the engine is
+uop-saturated" vs the audit's "0.82 p0+p5 per cycle is headroom".
+
+### 1. The disagreement is SETTLED with counters (the round's bounty)
+
+tools/pmu.sh on the graded L=100 B=1 m=64 chain, a80n0 leased core,
+samples-16-minus-samples-4 delta = 768 pure steady-state steps, per step:
+
+| counter | per step | per cycle |
+|---|---|---|
+| cycles | 14.93M | — |
+| p0 / p5 dispatch | 5.79M / 6.76M | 0.84 combined |
+| p1 dispatch | ~0 (2.0G whole-process = setup only) | 0.00 |
+| p2_3 / p4_9 | 3.63M / 1.79M | 0.36 |
+| TOTAL vector dispatch (p0+p1+p5+p2_3+p4_9) | 17.97M | **1.20** |
+| l1d.replacement | 1.81M (=116 MB through L1) | — |
+
+**Both sides were right about different granularities.** Step-averaged
+total dispatch is 1.20/cycle — far under the ~2.1 cap, real headroom
+(p0+p5 = 0.84 reproduces the audit's 0.82). But the r8 phase attribution
+also stands: zsub/ysub run AT the ~2.1 cap. The engine is
+**PHASE-saturated, not step-saturated**: the compute passes sit at the
+dispatch cap with DRAM near-idle, and the memory passes (prepass 35%, p2
+29%) idle the ports. The step-average headroom exists only while the
+memory phases run. Corollary that decided everything else this round: 80
+MB/step at the measured ~19-20 GB/s single-core streaming ceiling is
+~4.0 ms of the 4.53 ms step — **L=100 is ~88% DRAM-BW-bound end to end**,
+so overlap can reclaim at most the compute-only residue and nothing can
+"prefetch around" the bandwidth itself.
+
+### 2. What shipped: the ipa family (prefetch-ahead), pf id 20
+
+New chain family xc_ipa1 = ipp1 with the NEXT plane's STATE stream
+T1-prefetched during the current plane's compute subpasses: every
+z-subpass granule load is mirrored by one prefetch of the same address
+one plane ahead (GENL^2/4 lines/plane, 4 per zg iteration, in the load
+STAGING loop — never inside the codelet). p1body_a/p1pma; plane index
+wraps at the volume end (warms p2's first tiles). Values, op order and
+outputs are BIT-IDENTICAL to ipp1/ip* (prefetches are hints) — verified
+by cmp across forced picks; every historical gate value reproduced
+exactly (see gates below). Raced at 40/50/80/100 (pool 21/19/21/21,
+NCMAX 21; lean sizes unchanged). Dev knobs, all compiled out by default:
+GENPFA_PFCON (c-next mirror), GENPFA_CFLX (c-flush in compute),
+GENPFA_HINT, GENPFA_P2POKE, GENPFA_NOPFS.
+
+Evidence at 100, and the rank decision: state-only ipa1 was trial-best in
+**5/5 cold interleaved races** (margins 0.8-1.8% over ipp1: 5079.6 vs
+5159.7, 4813.1 vs 4874.6, 4730.3 vs 4767.6, 4811.8 vs 4900.4, 5242.2 vs
+5303.8 us/vol) and won **4/6 held-lease pairs** (-3.6/-7.9/+2.3/-4.5/
+-0.3/+0.7%; min-of-mins 4754.7 vs 4768.5). A consistent sub-6% quiet-floor
+winner cannot displace rank 0 through the r9 noise gate BY DESIGN — the
+rank must carry it (the r5 doctrine, third application): **ipa1 is rank 0
+at 100 only**; ipp1 sits at rank 1 one hysteresis band away for any host
+where the prefetches cost more than they hide. Determinism re-proven with
+the new pool: 5/5 cold creates pick l100-ipa1 — including under the
+round's all-hands node load (trial spreads 22-60%!), where every noisy
+upset correctly reverted to rank 0 and refused storage. 50 B=4 still
+picks ip1, 40 B=8 picks ip0 (ipa raced, not preferred — at the resident
+sizes the prepass barely misses, so there is nothing to hide; expected
+and confirmed).
+
+### 3. What did NOT work, with the numbers that killed it (8 variants)
+
+All measured at 100 B=1 m=64 against interleaved/adjacent ipp1 controls:
+
+1. **ipa with BOTH streams (state + c-next in the ysub codelet's LD2):
+   +5.3-7.1%, 0/5 pairs.** PMU: p2_3 +0.51M uops/step (exactly the 5000
+   prefetches/plane), l1d.replacement UNCHANGED — the damage is L2-level.
+2. **c-next mirror alone, inside the codelet: +2.5-3.3%.** 100 prefetch
+   uops inside the uop-cap-bound PFAL expansion — the ipm lesson again,
+   now with its own number. NEVER add uops inside the codelet passes.
+3. **c-next mirror moved to the store staging loop (out of the codelet):
+   +1.5-2.5%, 0/3 pairs.** Even in the "free" slot, the second stream
+   loses: 320 KB/plane of incoming prefetch evicts the prepass-warmed
+   state-x lines from L2 before ysub writes them (RFO where none was),
+   and the swpf counters show the round trip: state-only prefetch already
+   ADDS 16.5M LLC misses/run (l2_rqsts.swpf_miss +65M, prefetched lines
+   evicted and re-fetched). One stream is the L2's limit here.
+4. **T2 hint: +3.9-4.7%.** T2 fills L2 on this part, same pollution.
+5. **c-flush-in-compute (ipk1's L3-custody play with the CLFLUSHOPT cost
+   moved from the BW-critical prepass into the compute staging loops):
+   +4-8% with state-pf, +8% flush-only.** The flush cost is intrinsic to
+   the uop/snoop machinery, not to where it is paid. Combined with
+   r5/r7/r10 this CLOSES the c-bypass axis on ICL: NTA prefetch (+12.7%,
+   r5), flush-in-prepass (+4%, r7/r10 pairs), flush-in-compute (+4-8%,
+   here). The 16 MB/step c stream is untouchable on this host.
+6. **p2 poke distance 4 on the ipp schedule: +8-24%.** Way past the
+   sweet spot; drops/pollution. Poke 2: wash (+0.4/-0.3/+1.2%), matching
+   r3's ip2 result on the ip schedule. Distance 1 stays.
+7. **state+poke2 combined: wild (+/-8% swings), no signal over state-only.**
+8. Windows during the all-hands rounds swing far worse than r4-r10
+   (ctrl 4661-5147 in one lease; late session 2x with every implementer
+   hammering the same node): 2-sample A/Bs are worthless — interleaved
+   race minima + >=5 pairs with samples>=3 were the only usable evidence
+   shapes this session.
+
+### 4. Operation count
+
+FFT/map arithmetic unchanged everywhere (278/434/661/968 FMA-port vector
+ops per line at 40/50/80/100; r6 coverage counts stand). ipa1 adds
+GENL^2/4 prefetch uops per plane (250k/step at 100 — measured +0.25M
+p2_3 dispatch/step, l1d.replacement unchanged at 2.02M/step). Codegen
+identity: xc_ipp1_100, xc_ip0_40, xc_ip1_50, x_pf1_100 verified
+INSTRUCTION-IDENTICAL to the r10 object (nm -S + objdump normalized with
+full hex masking — raw jump-target hex sneaks past the r7 sed recipe;
+mask every >=4-digit hex token). Only collateral: the lean p2_65
+constprop clone split (unscored size, bit-identical algebra, accepted).
+
+### Measured on the node (a80n0, leased cores; early-session quiet
+### windows for the board-shape numbers, late session unusable)
+
+| case | quiet best this session | same-window MKL | pick |
+|---|---|---|---|
+| L=40 B=8 m=128 | 166.3 (window ~3% hot) | 411.5 (2.47x) | ip0.ch |
+| L=40 B=1 m=128 | 185.1 | 446.1 | ip0 |
+| L=50 B=4 m=128 | 451.2 raw, ~421 window-adj (MKL ran 7% hot) | 1035.0 (2.29x) | ip1.ch |
+| L=50 B=1 m=128 | 419.1 | 931.4 | ip1 |
+| L=100 B=1 m=64 | ipa1 4730.3 (race-round floor; pairs min 4754.7) vs ipp1 4767.6-class | 7729.9-7887.1 | **ipa1.ch (new)** |
+
+Gates, final binary with the ipa1 pick installed, all EXACT historical
+values (bit-identity through the new family + rank change): single
+3.578-4.522e-16 (tol 1e-12); two-step m=2 1.857/2.361/2.721e-15 at
+40/50/100 and 3.010e-15 at 75 (tol 3e-14); full chains 3.804e-14 (40 B=8,
+anchor 2.612e-14) / 5.028e-14 (50 B=4, 2.922e-14) / 4.181e-14 (100,
+2.416e-14) / 2.377e-14 (75 m=8), tol 1e-10; chain outputs bit-identical
+across processes and across forced picks (cmp); L=80 exec 4.078e-16.
+Setup: cold 0.25-5.1 s, warm wisdom ~1 ms. Round end: all 7 gen_pfa_large
+keys (6 dev-window chain7 + 1 stale chain6) stripped from
+results/wisdom_a80n0.json under flock, 11 foreign entries untouched; the
+pool signature changed anyway, so no stale verdict can replay. NOTE: the
+a80n0 icehold lapsed mid-session (job 438856 hit its 10 h limit);
+./reserve.sh re-claimed a80n0 as job 438881 with the slurm PATH shim
+(/opt/software/slurm-19.05.8.1-cuda-11.8/bin) exported — reserve.sh
+--status still needs it on wallaby, ninth round of the tryout '$W/c.bin'
+map-check quoting bug, run check.py by hand.
+
+### Borrowed, plainly
+
+- **The monitor's r11 brief / PMU_AUDIT**: the total-dispatch-vs-cap
+  framing that this round measured, and the mandatory before/after
+  counter protocol (followed: baseline and after tables above).
+- **gen_batchlane gen_r4 (via everyone)**: held-lease alternation with
+  interleaved controls — under this round's node load it was the ONLY
+  usable timing method.
+- **gen_powp r6 / my r5-r10 ipk1 line**: the c-bypass hypothesis whose
+  third and (on ICL) final refutation is item 3.5 above.
+- **My own r8 calibration + r4/r5 rank doctrine**: reused verbatim.
+- The ipa prefetch-ahead family, the phase-vs-step saturation
+  reconciliation, and the "one incoming stream is the L2's limit"
+  boundary are new here — take them.
+
+### What I would do next (ranked)
+
+1. **XARCH**: ipa1 vs ipp1 is exactly the kind of per-host coin the
+   CLX/SPR races exist for (CLX's 1 MB L2 makes the prefetch pollution
+   worse; SPR's bigger L2 makes it cheaper). ipk1 remains rank 3
+   insurance there. Check the advisory picks before touching ranks.
+2. **L=100 is now closed from three directions on this host**: uops
+   (r8), traffic (r10), and overlap (this round — the residue is the
+   ~12% non-DRAM window and one stream of it is now banked). The only
+   lever that could move the cell materially is more DRAM bandwidth per
+   core (THP/page-policy/layout — gen_layout's lane, brief item 5) or
+   less traffic per step, and c is read-once-per-step by contract.
+3. **Class coverage holes** (60/84/90/96/105/108/120/126 three-factor GT;
+   112's 0.91x vs MKL) — unchanged from r10, still the only structural
+   class work left.
+4. **Protocol note for everyone**: normalized-objdump must mask BARE hex
+   jump targets (any >=4-digit hex token), not just <sym+off> — the r7
+   recipe cries wolf on any function whose .text moved.

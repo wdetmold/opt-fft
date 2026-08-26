@@ -1708,3 +1708,186 @@ quiet at 50, +2-3 s quiet at 100); warm wisdom path unchanged (ms-scale).
    the next fidelity lever is running the playoff arms on SEPARATE c
    buffers (one per arm), which removes the cross-arm custody coupling
    entirely at the cost of 16 MB more race arena.
+
+## Round gen_r11 (all hands on L=100)
+
+Standings into the round (r10 board, a81n2): led 25 (30.863), 27 (43.723 —
+gen_race's warm-hit of my own pick edged me by noise), 50 (417.201);
+L=100 4659.795 at 10.9% run spread vs gen_pfa_large's 4529.429 — the r10
+playoff/banking machinery landed the right family (ipp1-class) and the
+residual gap is window noise on a shared-shell engine.  The r11 brief: all
+hands on L=100, counters mandatory before/after, and settle the
+uop-saturation disagreement with data.  Node: a80n0 (reservation 438881).
+
+### Counter protocol FIRST — and this engine's answer to the open question
+
+Method: forced-ipp1 (GENPWP_PF=10, GEN_RACE_NO_WISDOM=1), whole-process
+counters at --samples 2 and --samples 10, SUBTRACT — a 512-chain-step delta
+with create()/gates/warmup cancelled out (ADOPTED from gen_pfa_large's r11
+768-step delta method).  tools/pmu.sh for ports, /tmp/perf directly for the
+dtlb set.  Per 512 steps, r10-lineage binary (baseline) vs r11 ship:
+
+| counter (512-step delta)        | r10 baseline | r11 ship | delta |
+|---|---|---|---|
+| cycles                          | 10.60G (window-elevated) | 7.87G (quiet) | (windows differ; A/B below is the time evidence) |
+| p0 / p1 / p5                    | 3.246G / 0.020G / 3.841G | 3.232G / 0.023G / 3.826G | flat |
+| p2_3 / p4_9                     | 2.834G / 1.030G | 2.838G / 1.041G | flat |
+| l1d.replacement                 | 1.031G (2.02M lines/step) | 1.031G | flat |
+| dtlb_load_misses.walk_completed | 1.282M (~2.5K/step) | 26.8K | **-98%** |
+| dtlb_load_misses.walk_active    | 83.5M cyc (~163K/step, ~0.8%) | 0.96M | **-99%** |
+| dtlb_load_misses.stlb_hit       | 207.7M (~405K lookups/step) | 1.95M | **-99%** |
+
+**Uop-saturation verdict for this engine at L=100: total vector dispatch
+(p0+p1+p5+p2_3+p4_9) = 10.97G / 10.60G cycles = 1.04 uops/cycle
+(quiet-window after: 1.39), p0+p5 0.67–0.90 — NOWHERE NEAR the ~2.1
+all-port cap.**  This corroborates the audit's "0.82 = headroom" reading
+and gen_pfa_large's r11 1.20 step-average on the shared shell, and
+coexists with gen_bluestein's 2.03-at-cap: the cap is real (their engine
+hits it) but PER-ENGINE — this shell at 100 is traffic/DRAM-bound, so uop
+deletion does not pay here and effective bandwidth is the only lever.
+
+### What was built: THP re-home of the chain-hot streams (ADOPTED from
+### gen_layout gen_r11, their adoption recipe for this entry, verbatim)
+
+gen_layout measured the mechanism: a80n0 runs THP=madvise on kernel 5.15,
+so the driver's posix_memalign buffers get ZERO huge pages at any size (no
+MADV_COLLAPSE before 6.1; khugepaged irrelevant in-process) — the L=100
+chain streams state (16 MB) + c (16 MB) through 4K pages every step.  My
+baseline numbers above price that at ~2.5K completed walks + 163K
+walk-active cycles + 405K STLB-hit lookups per step.  The change, all in
+tune()/fft3d_chain (kernel arithmetic untouched):
+
+1. At vbytes >= 8 MiB (100 graded; 81/121/125 lite; 25/27/50 gated OFF —
+   their per-volume working sets are STLB-covered) the plan owns a
+   gl_map_huge arena (2 MiB pages, prefaulted at create) with two buffers
+   STV/CV.  fft3d_chain gates PER CALL on gl_thp_bytes(out) < 50%
+   (gen_layout's new primitive — verify, don't assume; a THP=always host
+   disables the whole mechanism for free): steps then run with the state
+   in STV, c staged once per volume into CV (one 16 MB copy vs m=64
+   4K-paged re-reads), and the LAST write of every volume exits to the
+   driver's out directly — trailing map_span for the deferred families,
+   last-step dst for the plain ones.  ZERO extra state copies; the state
+   only changes address.  Values BIT-IDENTICAL (memcpy is exact, same
+   arithmetic in the same order): proven by cmp of full m=64 chain + single
+   outputs, ship vs GENPWP_NOREHOME control, and cv vs GENPWP_NOCV.
+2. TRIAL-REGIME FIDELITY (the r10 lesson applied forward): at re-home
+   sizes the race's tout/tcf ARE the arena buffers, so every trial and
+   playoff runs in the cache+TLB regime the graded chain now has — and
+   trial 4K phases become gl_arena_take-deterministic (576 B stagger)
+   instead of malloc luck.  Wisdom tag chain8 -> chain9 (a chain8 verdict
+   was measured in the 4K regime and must re-race).  The arena is
+   allocated BEFORE the wisdom lookup so a warm-hit plan re-homes exactly
+   like the cold-raced plan that banked the verdict.
+3. Knobs: GENPWP_NOREHOME (A/B control arm, also kills the arena),
+   GENPWP_NOCV (state-only re-home).  soa (25/27), execute, and the dense
+   fallback untouched.
+
+### Measured on the node (a80n0, held-lease same-core alternating pairs,
+### forced ipp1, graded L=100 B=1 m=64; sd 0.04–0.2% windows)
+
+Ship vs GENPWP_NOREHOME control: **4590.3/4593.1/4595.8/4594.1/4594.4 vs
+4698.2/4686.3/4682.7/4678.5/4693.6 — 5/5 clean pairs to the re-home,
+-1.8..-2.3% (~-2.0%), min-of-mins 4590.3 vs 4678.5**.  A sixth pair's
+window went busy (ship sample sd 5.45%) and is discarded as noise, recorded
+honestly.  cv-vs-NOCV (is the once-per-chain c copy worth it): cv
+4520.8/4422.2/4417.4 vs nocv 4704.4/4451.0/4500.5 — **cv wins 3/3**
+(c is half the 4K-page stream; the 16 MB copy at ~0.35% of the call buys
+back more than it costs, same verdict as gen_layout's demo).  cv stays the
+default.  Full-pool cold-race runs in quiet windows: **4439.5 and 4417.4
+us/xform** session bests (MKL same session 7813–7893); the r10-lineage
+baseline tryout read 4844.2 in its own window.  Note the time win (~2%)
+EXCEEDS the raw walk-active accounting (~0.8%): the 405K/step STLB-hit
+lookups and 4K-boundary prefetch-stream breaks do not show in walk_active
+— the inverse of gen_layout's finding on their slower engine (their win
+was SMALLER than the counters); recorded so the next adopter prices both
+directions.
+
+Off-case and parity: 100 B=2 (multi-volume re-home loop) 4606.8, PASS.
+25: 40.97 / 27: 51.42 / 50: 436.57 in busy dev windows — code paths
+untouched below the gate (see boundary note below on the 25 race).  Lite
+smokes: 81 B=2 execute 3022.6 (setup 2.97 s), 125 B=1 execute 15272
+(setup 9.08 s) — both PASS, both now re-home their chains.  Setup at 100:
+4.1–4.3 s cold full-pool quiet, 10.3 s at B=2 under contention (60 s
+budget; the arena prefault is ~10 ms of that).  Warm wisdom unchanged
+(ms-scale).
+
+Gates (hand-run on the node; tryout's map-check leg still ships the
+'$W/c.bin' quoting bug, ninth round): single 4.522e-16 (tol 1e-12);
+two-step m=2 **2.721e-15** (tol 3e-14); graded m=64 chain **4.181e-14**
+vs honest anchor 2.416e-14 (tol 1e-10) — the EXACT r7–r10 digits, as a
+bit-identical change must read; single + chain outputs cmp-identical
+across independent processes and across all three knob arms.
+
+### What did NOT work / boundaries, with the numbers
+
+* **The dev-window race banked l25-ip0 AGAIN — and the session protocol
+  caught it.**  My 25/27/50 parity tryouts (fresh leases, 12 implementers
+  active) cold-raced on contended cores; the 25 race banked l25-ip0 as a
+  TIGHT -0.5% "tie" (46.6 us/vol trial) — the exact r8 wound shape: a
+  SUSTAINED-bias window reads tight to the spread gate (my r9 record's
+  documented boundary, now observed live under chain9).  All gen_powp/
+  chain9 dev keys were stripped from wisdom_a80n0.json under flock, twice
+  (mid-session and at end).  The scoring window's all-24-slot quiet race
+  is the arbiter, as designed; monitors: absent entries are deliberate.
+* **Uop deletion at 100 is confirmed dead for this engine** (1.04–1.39
+  all-port vs the 2.1 cap): gen_bluestein's spill-diet lever does not
+  transfer here.  Conversely my traffic-bound verdict does not transfer to
+  THEIR engine — measure your own, the round's lesson in one line.
+* The re-home does NOT apply at 50 B=4 (2 MB volumes, ~2K-page per-volume
+  working set, STLB-covered): gated off by size, nothing to win there —
+  recorded so nobody sells THP as a small-L lever on this shell.
+* Harness: inline multi-line ssh commands land in $HOME and silently run
+  against the wrong CWD (cost three round trips AGAIN despite my own r1
+  note) — the reliable pattern is a script file under build/tryout/ that
+  cd's itself, then `ssh node "bash <abs-path> <core>"`.  r11_pmu.sh /
+  r11_ab.sh / r11_nocv.sh / r11_chk.sh in build/tryout/gen_powp/ are the
+  reusable set.
+
+### Borrowed, plainly
+
+- **gen_layout (gen_r11)**: the entire mechanism — the THP=madvise
+  finding, gl_thp_bytes, the zero-copy re-home recipe ("gate on
+  gl_thp_bytes(final_out) < half, run steps in a gl_map_huge volume, exit
+  the last step to final_out"), and the cv staging verdict.  This round is
+  their finding adopted at the cell it was aimed at; the trial-regime
+  extension (race tout/tcf on the same arena) and the warm-path-safe
+  allocation order are mine.
+- **gen_pfa_large (gen_r11, read from their impl source)**: the
+  samples-delta counter method, the 88%-DRAM-bound step accounting and the
+  heavier-overlap kill list (both-streams/T2/c-flush-in-compute all lose)
+  that scoped this round to bandwidth-side work, saving me from re-testing
+  their negatives on the shared shell.
+- **gen_bluestein (gen_r11)**: the per-engine cap framing ("at ~2.1
+  all-port with p0+p5 < 1.6 only deleting uops pays") — used here in the
+  contrapositive: at 1.04 all-port, deletion pays nothing and bandwidth is
+  everything.
+- **gen_batchlane r4 / gen_pfa_small r4** (standing): held-lease same-core
+  alternating pairs and min-of-mins reads for every number above.
+
+### Operation count
+
+FMA-port vector ops per line unchanged at all eight sizes (192/218/434/968
+scored, 534/850/1850/1552 lite; soa 388/408 per pencil).  The re-home adds
+ONE c-volume memcpy per volume-chain at re-home sizes (16 MB at 100, ~0.35%
+of the call, measured to buy back more than it costs) and zero uops
+anywhere else — port deltas flat to <1% in the table above.  Chain outputs
+bit-identical to r7–r10 at every size.
+
+### What I would do next (ranked)
+
+1. **Verify on the r11 board** that L=100 lands ~4.4–4.6 ms class (parity
+   or better vs gen_pfa_large — if they adopt the same re-home, the cell
+   converges again and the remaining gap is genuinely zero on this shell)
+   and that wisdom_a80n0.json holds plain-name chain9 verdicts from the
+   scoring window.
+2. **Below the 80 MB/step DRAM floor** the only remaining structural idea
+   is cross-step tiling of the x-pass with the next step's plane pass —
+   closed twice at the whiteboard (full barrier between a streaming axis
+   and any plane pass); do not reopen without a paper schedule that
+   actually cuts DRAM volume, not passes.
+3. **XARCH**: the re-home is self-gating per host (gl_thp_bytes measures,
+   the race re-decides under chain9) — check the CLX/SPR advisories see
+   huge-backed arenas at all (their THP mode is unverified) before reading
+   any flip as code.
+4. If gen_race standardizes a quality field or a THP-regime marker in
+   wisdom entries, migrate the ~q suffix and note the regime there.

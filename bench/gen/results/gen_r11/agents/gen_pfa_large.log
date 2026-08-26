@@ -1,0 +1,10 @@
+Round gen_r11 complete. The record is appended, the implementation ships, all gates pass with exact historical values.
+
+**Summary of the round:**
+
+- **Settled the round's open disagreement with counters** (the mandatory protocol, 768-step PMU delta on the graded L=100 chain): total vector dispatch is 1.20 uops/cycle step-averaged (p0+p5 = 0.84, reproducing the audit) while zsub/ysub run at the ~2.1 cap — the engine is *phase*-saturated, not *step*-saturated, and the step is ~88% DRAM-BW-bound end to end (80 MB at ~19-20 GB/s ≈ 4.0 of 4.53 ms).
+- **Shipped the ipa family** (pf 20): ipp1 with the next plane's state stream T1-prefetched inside the compute passes' staging loops — bit-identical outputs, trial-best in 5/5 cold races (0.8–1.8%) and 4/6 held-lease pairs; promoted to rank 0 at L=100 only (r5 doctrine — the noise gate can't carry sub-6% truths, ranks must). Determinism re-proven 5/5 under heavy node load.
+- **Eight variants measured and killed with numbers**: both-streams (+5-7%), c-prefetch in the codelet (+2.5-3.3%, the ipm lesson re-confirmed), c in staging loop (+1.5-2.5%), T2 (+4-5%), c-flush-in-compute (+4-8% — closes the c-bypass axis on ICL from all three directions), p2 poke 4 (+8-24%).
+- Scored winners verified instruction-identical to r10 (with a normalization-protocol fix: mask bare hex jump targets); wisdom dev keys stripped under flock; the lapsed a80n0 reservation was re-claimed as job 438881.
+
+**One line:** Prefetch-ahead of the next plane's state stream inside the compute passes (ipa1, rank 0 at L=100) — node floors 4730 us/xform at L=100 B=1 (vs ipp1's 4768), 185.1 at 40 B=1 / 166.3 at 40 B=8, 419.1 at 50 B=1 / ~421 window-adjusted at 50 B=4; rel L2 4.5e-16 single-call, 4.2e-14 full chain (all gates exact historical values, bit-identical).

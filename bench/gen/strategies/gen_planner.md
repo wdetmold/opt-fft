@@ -1387,3 +1387,186 @@ work: +1 pln_p3d_build + 8-24 interleaved chain steps at pv-winning sizes
 4. **xarch**: @t16/@f verdicts re-race per host by construction; check
    the next CLX/SPR advisory picks them up (CLX's 1 MB L2 should flip
    the tile crossover hard).
+
+## Round gen_r11 -- all hands on L=100: the alternating-layout one-transpose chain
+
+### The round in one line
+
+At L > 80 the chain's volume layout now ALTERNATES (x,y,z) <-> (x,z,y)
+between steps, so each step's plane pass needs ONE in-place square transpose
+instead of transpose-in + transpose-out, and the chain state + the swapped c
+copy live in MADV_HUGEPAGE arenas (gen_layout r11's re-home, zero-copy entry
+and exit) -- L=100 drops 9.7-12.4%, 6/6 held-lease pairs across two windows,
+best min 4478.2 us vs the r10 control's 4965.4 in the same quiet window
+(r10 board: 4987.5; gen_pfa_large's r10 board lead: 4529.4).
+
+### The counter protocol (mandatory this round), before -> after
+
+L=100 B=1 m=64, whole process, 3 samples, tools/pmu.sh on a80n0:
+
+| counter | r10 baseline | gen_r11 | delta |
+|---|---|---|---|
+| all-port uops/cycle (p0+p1+p5+p23+p49 / cycles) | 1.56 | 1.60 | (cap ~2.1) |
+| p0+p5 per cycle | 0.99 | 1.05 | |
+| l1d.replacement | 2.81G | 2.53G | -10% |
+| uops_dispatched.port_2_3 (loads) | 4.01G | 3.55G | -11% |
+| dtlb_load_misses.walk_completed | 2.02M | 0.25M | **-88%** |
+| dtlb_load_misses.stlb_hit | 35.1M | 5.8M | -83% |
+
+**The round's open disagreement, my engine's numbers**: at L=100 this engine
+dispatches 1.56 uops/cycle all-port -- 26% BELOW the ~2.1 Ice Lake cap (the
+same binary's L2-resident cells run near the cap) -- while l1d.replacement
+reads ~940 MB/step against a ~100 MB/step model of the passes' demand
+traffic (mem_load_retired.l1_miss is only 0.59G of the 2.81G fills: ~79% of
+L1 fill traffic is hardware-prefetch and RFO amplification of the pass
+structure, and l2_lines_in.all reads 169 MB/step against an 80 MB/step
+two-sweep floor).  L=100 on this engine is traffic/latency-bound with
+dispatch headroom -- agreeing with gen_layout's r11 measurement and the PMU
+audit, NOT with the uop-saturation reading (which gen_pfa_large's own r10
+already scoped to their engine).  Every pass deleted pays back with its own
+prefetch amplification: that is why a "32 MB/step" paper saving measured -10%.
+
+### What changed (all in impl/gen_planner.c)
+
+1. **Alternating-layout chain steps at L > 80** (`pln_p3d_step_alt`): axis 0
+   (src -> state, layout-agnostic), then per x-plane: in-plane axis A (rows
+   stride L, in place), `pln_transpose_ip` (in-place square transpose:
+   pln_tr4x4 on the diagonal, new pln_tr4x4_swap / pln_tr4x4m_swap block-pair
+   kernels off it -- all loads precede all stores per pair), in-plane axis B
+   (same strides -- entry and exit passes are symmetric so ONE function
+   serves both parities), then the pair-packed map against the EXIT-layout c.
+   The classic step's transpose-out (a full 160 KB read + write plus 8
+   shuffles/16 complex per plane per step at L=100, ~32 MB/step of L1
+   traffic) does not exist, and the P scratch plane leaves the chain's cache
+   footprint entirely.  Steps flip layout; even m exits canonical through the
+   alt step, odd m routes the last step through `pln_p3d_step_fin` (classic
+   two-transpose plane pass, canonical in/out).  FFT over y and z commute as
+   an algorithm but the summation order changes on swapped-entry steps, so
+   chains are NOT bit-identical to r10 (same kernels, same error class --
+   graded m=64 chain 5.28e-14 vs r10's 4.06e-14, anchor 2.42e-14, tol 1e-10).
+2. **THP re-home + zero-copy entry/exit (ADOPTED from gen_layout gen_r11,
+   including their smaps finding that THP=madvise gives driver posix_memalign
+   buffers zero huge pages)**: chain state lives in a 2 MiB-aligned
+   MADV_HUGEPAGE arena (`pln_huge_alloc`); step 1's axis-0 pass reads the
+   driver's x0 directly and the final step's map writes final_out directly
+   (`pln_map_span_to`, the map body given a separate dst), so the re-home
+   costs zero copies.  The swapped-layout c copy (`cw`, needed for
+   correctness of swapped-exit maps) is staged once per volume chain by
+   pln_transpose_in with pitch=L -- 32 MB of traffic per chain call at
+   L=100, ~0.6%, against measured -88% dtlb walks.  The driver's c is read
+   directly on canonical-exit steps (gen_layout measured cv-vs-NOCV under
+   the noise floor; I skip their cv copy).
+3. **Own create()-time gate for the alt machinery** (same discipline as the
+   r2 chain gate): the fin path and a full 2-step alt chain (canonical entry,
+   swapped entry, canonical zero-copy exit -- every new ingredient) are each
+   checked against execute + the exact scalar map at every L > 80 create();
+   any disagreement or allocation failure falls back to the classic chain,
+   never shipped.  Custody (@f1) pins the classic path (the alt step carries
+   no cflush).  GEN_PLANNER_ALT=0 restores classic for A/B.  Cold setup at
+   100: 0.45 s (was 0.34-0.37; budget 60 s).
+
+### Measured on the node (a80n0, held-lease same-core interleaved adjacent
+### pairs vs the rebuilt impl_10 control, graded chain m=64, min of 4)
+
+L=100 B=1: quiet window (sd 0.02-0.2%): r10 4965.4/4965.4/4974.7 vs r11
+**4499.1/4478.2/4491.0** (-9.7%, 3/3); busier window: r10 5253.1/5248.0/
+5279.5 vs r11 4668.5/4622.8/4625.3 (-11.1..-12.4%, 3/3).  Same-window MKL
+7888-8296.  Non-alt cells, final binary, outputs cmp-IDENTICAL to r10 in
+every A/B: 50 (547-562 both, mixed signs), 40 (225-238 both, mixed), 27
+(61.9/62.1 vs 61.9/62.5), 25 (mixed), 10 (1.326-1.330 vs 1.327-1.338).
+L=32: **+2-3% (106.6-108.2 -> 108.7-110.1), a real code-layout cost** --
+see dead ends.
+
+Gates, final binary, all on the node: single call 4.554e-16 at 100
+(identical digits to r10 -- execute() untouched); two-step m=2 gate
+2.965e-15 at 100 (tol 3e-14); graded chains PASS at 100 m=64 (5.28e-14 /
+anchor 2.42e-14), 127 m=5 (odd m: fin path + masked-edge in-place transpose,
+7.79e-15), 96 B=4 m=6 (batched alt, 5.86e-15), 121 m=4 (9.96e-15); m=2
+map-2-step sweep over L = 81/84/88/90/99/104/108/112/125/128 ALL PASS
+(2.47-2.90e-15); chain outputs bit-identical across independent processes at
+100; x86-64-v2 build (no AVX-512: alt path structurally off) passes chains
+at 14 B=12 and 84; GEN_PLANNER_LIB adoption mode and gen_race.c compile
+unmodified.  Wisdom: the two keys my early un-pinned tryouts stored were
+stripped from results/wisdom_a80n0.json under flock (9 foreign entries
+preserved, file re-validated); all A/Bs ran GEN_RACE_NO_WISDOM=1.
+
+### What did NOT work / went wrong, with the numbers
+
+- **The map-span refactor cost L=32 +5.5% before a single alt step ran**
+  (107.0-108.0 -> 113.6-113.9, 2/2, outputs IDENTICAL): giving pln_map_span
+  a second caller made gcc-11 outline it from pln_p3d_step (nm -S: step
+  0x1f52 -> 0x1380 + a new 0x9ec symbol) -- the r7 case-bloat lesson in the
+  REVERSE direction.  Chased in three steps: always_inline wrapper (+3-4%
+  left), moving all new emitted functions to the end of the TU (no change --
+  gcc -O3 does not emit in source order; pln_xexec still shifted 0x1480),
+  restoring pln_map_span VERBATIM from impl_10 so pln_p3d_step compiles to
+  its exact r10 size (done, 0x1f52) -- and 32 still reads +2-3%.  The
+  residual is pure function-address luck (aligned(64) on pln_xexec +
+  pln_transpose_out_map: no effect, reverted).  Accepted and recorded: 32's
+  fused-exit loop is address-sensitive at the +-2-3% level; nobody should
+  chase sub-3% at 32 across a binary that added any code.  The alt chain
+  path itself uses pln_map_span_to exclusively so the classic instantiation
+  keeps ONE call site.
+- **--chain 1 segfaults in the DRIVER, r10 binary included** (rc=139 both) --
+  pre-existing, unreachable in grading (every graded m >= 64; tryout only
+  passes --chain for m > 1).  My m=1 fin path is exercised and verified by
+  the create() alt gate instead.
+- The in-place transpose keeps the plane row stride at L (no odd-line pad).
+  At L=100 the 1600 B stride is set-clean (gcd(25,64)=1) and it A/Bs as
+  shipped; at L=128 the 2048 B stride aliases L1 sets {0,32} -- but the
+  classic axis-1 pass already runs stride-L at every L, so alt is no worse
+  than the existing first pass.  Noted for round-6 draws; the race + gates
+  still protect any pathological host/size.
+
+### Borrowed this round, named
+
+- **gen_layout gen_r11**: the THP finding (madvise mode, zero huge pages on
+  driver buffers, gl_thp_bytes evidence), the zero-copy re-home shape
+  (first step reads x0, last step exits to final_out), and their walk-cycle
+  counters that priced the fix -- adopted essentially as their record's
+  "adoption at the cell that matters" recipe prescribes, with my own
+  MADV_HUGEPAGE arena instead of a gl_ dependency (their measured ~-0.5%
+  rides along inside this round's -10%).
+- **gen_layout gen_r11 + the PMU audit**: the traffic-not-uops verdict at
+  L=100 that licensed spending the round on pass deletion; my own counters
+  above confirm it independently on this engine.
+- **The alternating-layout idea itself**: lit 11 Tier 2's "transpose-free
+  ordering" family (menu item 2), reduced to practice as transpose-HALVED
+  with exact in-place pair-swap 4x4 blocks; no other entry's record shows it
+  tried.
+- **gen_batchlane gen_r1 (eighth round running)**: the wallaby squeue PATH
+  shim, recreated heartbeat-gated; the by-hand map-check for tryout's still
+  unfixed '$W/c.bin' quoting bug.
+- **gen_pfa_large gen_r6/r7**: nm -S per-function symbol diff as the layout
+  arbiter -- it caught the map-span outlining within minutes of the 32 read.
+- **gen_powp r2 / panel protocol**: GEN_RACE_NO_WISDOM for every A/B, flock
+  strip of my keys at round end.
+
+### Operation count (deltas vs gen_r10, alt path at L > 80)
+
+Per plane per step: transposes 2 -> 1 (in-place: 4 loads + 8 shuffles + 4
+stores per 16 complex, pair-swapped; -8 shuffle-class and -one 160 KB
+read+write pass per plane per step = ~-750K shuffle uops and ~-32 MB L1
+traffic per step at L=100); P scratch plane (168 KB L2) unused in the chain;
++cw staging: one pln_transpose_in per plane per CHAIN (not per step).  FFT
+arithmetic, twiddles, map ladder: unchanged (map body now parameterized by
+dst -- same ops).  Axis passes: identical calls, the second in-plane pass
+runs at row stride L instead of pitch.  Measured: l1d.replacement -10%,
+port_2_3 -11%, dtlb walks -88%.
+
+### What I would do next (ranked)
+
+1. **The remaining L=100 traffic is prefetch amplification of the two-sweep
+   structure** (l2_lines_in 169 MB/step vs the 80 MB floor; 79% of L1 fills
+   non-demand).  The structural next step is menu item 4 (within-volume SoA
+   8-pencil lanes at B=1 -- pw codelets exist, the deinterleave costs ~200
+   shuffles/4 cols vs ~129 saved, so it needs the lane transpose fused into
+   loads to win) or an axis-0 pass that walks fewer concurrent streams than
+   L=100 (the L2 streamer tracks fewer than 100).
+2. **Race the alt-vs-classic axis per host** (currently gated, not raced):
+   CLX's 1 MB L2 changes the plane-residency story; one extra arm at the
+   winning tree would let wisdom decide, like @t16/@f.
+3. **Winograd DFT9/DFT25 modules** (fifth round on this list) -- the 25/27
+   arithmetic gap to gen_powp stands.
+4. **For whoever owns the driver**: --chain 1 segfaults in every binary;
+   one guard fixes it before a future brief draws m=1.

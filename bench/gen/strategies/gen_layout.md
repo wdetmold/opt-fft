@@ -1609,3 +1609,150 @@ build, and x86-64). Setup unchanged.
    floor, as the dashboard now proves.
 3. **gl_tr8x8_ld promotion and the r2–r7 adoption offers all stand.**
 4. If a future round re-stages nodes: /tmp/perf restage command above.
+
+## Round gen_r11 (all hands on L=100)
+
+### The round's shape, up front
+
+The brief's approach menu names this layer explicitly (item 5): "THP
+verification at 32 MB (smaps!), stream-count tiling, 4K-stagger audit of the
+three passes (layout owner)". This round DELIVERS the THP item end to end —
+primitive, verified finding on the scoring host, and a zero-copy fix shipped
+in the demo chain — plus this entry's contribution to the round's open
+uop-saturation disagreement, settled with counters below. Node: a80n0
+(reservation 438856), counters live via /tmp/perf.
+
+### The finding (verify, don't assume — now with a primitive)
+
+- **a80n0 runs THP mode `madvise` on kernel 5.15.0-84.** Consequences,
+  measured not assumed: (a) the driver's `posix_memalign` buffers (in / out /
+  c — the chain's state and map constant, 16 MB each at L=100) get ZERO huge
+  pages at any size; (b) there is no `MADV_COLLAPSE` (needs kernel >= 6.1),
+  so nobody can fix an already-faulted buffer in place; (c) khugepaged runs
+  at 4096 pages per 10 s — irrelevant within a benchmark process lifetime.
+  Only `MADV_HUGEPAGE`-at-fault memory (the layer's `gl_map_huge` arenas) is
+  huge-backed on this host. Verified with the new primitive: a 32 MB
+  gl_map_huge arena reads 100% AnonHugePages-backed; a 32 MB posix_memalign
+  block reads 0%.
+- **What that costs at L=100 (PMU baseline, r10 binary, full graded case,
+  whole process):** **dtlb_load_misses.walk_completed 2.87M**,
+  dtlb_store walks 2.67M, **dtlb_load_misses.walk_active 199M cycles of
+  21.54G total (0.93%)**, dtlb_load_misses.stlb_hit 135M. The chain streams
+  state (16 MB) + c (16 MB) through 4K pages every step: ~12K page walks per
+  step, an STLB (2048 entries) working set of ~12K pages.
+
+### What changed
+
+**Library (section 1c, NEW — the brief's ask overrides the API freeze):**
+
+- `gl_thp_bytes(ptr, len)` — bytes of [ptr, ptr+len) actually backed by
+  transparent huge pages, parsed from /proc/self/smaps (AnonHugePages per
+  VMA, clamped to the overlap; -1 if unreadable). ~100 µs per call —
+  create()/first-execute money. Use it on any buffer you did not allocate
+  before assuming TLB reach; the demo's fft3d_chain is the worked example of
+  acting on the verdict.
+
+**Demo entry (one structural change): zero-copy chain-state re-home.**
+At the first fft3d_chain call per (x0, final_out) pair, if the volume is
+large enough for reach to matter (`V·16 >= GL_REHOME_MIN_BYTES`, default
+8 MiB — L=100 only in the suite) the plan audits the driver's state buffer
+with gl_thp_bytes. If it reads < 50% huge-backed, steps 1..m-1 run with the
+state in a THP arena volume (`stv`): **step 1 already reads x0 directly, and
+the LAST step's axis-2 exit writes final_out directly, so the state re-home
+costs ZERO extra copies** — only the buffer address changes. c is staged
+once per chain call into a second arena volume (`cv`, one 16 MB memcpy vs
+m=64 strided re-reads through 4K pages). dm_placement derives from
+(stv, cv), so with the re-home active NO chain-hot stream has a
+driver-determined 4K phase any more (the stagger audit's remaining
+exposure, closed). Knobs: `GL_DEMO_NOREHOME=1` (A/B arm), `GL_DEMO_NOCV=1`
+(state-only), `GL_REHOME_MIN_BYTES`. Arithmetic, operation order and output
+are bit-identical to the in-place path — verified by cmp of full m=64 chain
+outputs on the node (all r8–r10 gate verdicts therefore transfer exactly).
+
+### Operation count
+
+FFT arithmetic unchanged, zero new uops in any pass. Per chain call at
+L=100: +1 volume memcpy (c → cv, 32 MB of traffic, ~0.35% of the call);
+−~12K page walks per step and −130M STLB-hit lookups per case run.
+
+### Measured on the node (a80n0, leased cores via tryout.sh, graded chain, min µs/xform)
+
+Counter protocol (MANDATORY this round) — L=100 B=1 m=64, whole process,
+same events, before → after:
+
+| counter | r10 baseline | re-homed | delta |
+|---|---|---|---|
+| dtlb_load_misses.walk_completed | 2.87M | **0.127M** | **−96%** |
+| dtlb_store_misses.walk_completed | 2.67M | 0.224M | −92% |
+| dtlb_load_misses.walk_active (cycles) | 228M (dirty win.) / 199M (baseline win.) | **7.5M** | **−30×** |
+| dtlb_load_misses.stlb_hit | 130–135M | **1.76M** | −98% |
+| l1d.replacement | 2.71G | 2.73G | flat (as expected: TLB, not cache) |
+
+Timing, interleaved same-window A/B (re-home vs GL_DEMO_NOREHOME arm), sd
+0.04–0.06% windows: pair 1 9190.9 vs 9265.8 (−0.81%), pair 2 9252.5 vs
+9236.3 (+0.18%), pair 3 9203.4 vs 9283.5 (−0.86%). An earlier window's pair:
+9182.1 vs 9195.7 (−0.15%). **Verdict: ~−0.5% at L=100, wins 3 of 4 pairs;
+min-of-mins 9190.9 (vs r10 board 9326.7).** The mechanism is proven at −96%
+walks; the time win is smaller than the raw walk-cycle count because the
+OoO window hides most walk latency behind the chain's other stalls — that
+gap (228M walk cycles, ~80M visible) is itself a finding, recorded.
+
+Regression sweep (re-home gated off below 8 MiB — these check the
+code-layout hazard only): L=32 B=8 151.2 (r10 board 149.0, r10 re-reads
+151.6–153.4 — flat); L=10 B=64 5.08 (board 4.99 — flat); L=50 B=4 937.5
+(board 933–943 — flat, beats MKL 944.9 same window).
+
+### The uop-saturation disagreement (the round's open question), this entry's numbers
+
+At L=100 this entry dispatches p0 7.78G + p1 2.23G + p5 8.24G + p23 11.29G +
+p49 2.48G = 32.0G uops over 21.5G cycles = **1.49 uops/cycle all-port —
+30% BELOW the ~2.1 cap**, with p0+p5 at 0.74. The same binary at L=25/32
+(r10 dashboard) runs 2.07–2.10 all-port. So on THIS engine the data is
+unambiguous: the 2.1 cap is real and binding at the L2-resident middle, and
+L=100 is NOT uop-saturated — it is traffic/latency-bound (l1d.replacement
+2.7G against a ~0.5G streaming floor). The audit's "0.82/cycle is headroom"
+reading holds at L=100; gen_pfa_large's saturation accounting, if true for
+their engine, must come from their own port mix — measure, don't infer
+across engines.
+
+### What did NOT work / was closed with a number
+
+- **In-place THP collapse of driver buffers: impossible on this host.**
+  MADV_COLLAPSE needs kernel 6.1 (node: 5.15); khugepaged at 4096 pages/10 s
+  cannot collapse 48 MB within a run; THP=madvise means no fault-time huge
+  pages for buffers nobody madvised before faulting. The copy-free re-home
+  (only the state, whose last step exits to final_out anyway) is the
+  cheapest remaining mechanism — that is why it is shaped the way it is.
+- **The TLB fix is worth ~0.5%, not the ~2% the raw counters suggest** —
+  most walk latency was already hidden. Recorded so nobody sells THP as a
+  large-L silver bullet on this engine class: it is a small, real, ~free
+  win, and it composes with everything.
+- **The c re-home (cv) vs state-only (NOCV)**: NOCV leaves 24M walk-active
+  (vs 7.5M with cv) and saves one 32 MB copy — the difference is under the
+  window noise floor; shipped WITH cv (cleanest counters, won the A/B).
+  The NOCV knob exists for a host where the copy hurts.
+- **Timing windows lied twice this round** (a +9% NOREHOME arm reading in a
+  window whose next run was clean; a 3.1% sd PMU window) — the sd-gated
+  interleaved-pairs protocol caught both. Fourth campaign confirmation.
+
+### Borrowed this round, named
+
+- The brief/monitor's menu item 5 wording ("smaps!") is the spec gl_thp_bytes
+  was built to; the PMU_AUDIT protocol (baseline counters → change → counters)
+  is followed as prescribed.
+- gen_dense_prime r3's interleaved same-window A/B protocol, as every round.
+
+### What I would do next (gen_r12)
+
+1. **Adoption at the cell that matters**: gen_pfa_large owns L=100 at
+   4529 µs with the same driver-buffer exposure (their chain state is
+   final_out too). At their 2× shorter step, the same ~80M visible walk
+   cycles are worth ~1–2%. The recipe is three lines: gate on
+   `gl_thp_bytes(final_out, bytes) < bytes/2`, run steps in a gl_map_huge
+   volume, exit the last step to final_out. gen_powp's L=100 entry, same.
+2. **gl_thp_bytes belongs in every create() the way gl_selftest does** —
+   it is how round-6-style surprise hosts (THP=always vs madvise) get
+   detected instead of assumed. The race layer can persist the verdict.
+3. The demo's L=100 residual remains algorithmic (O(L) table re-read per
+   group — r10 dashboard); no further layout lever visible on this engine.
+4. gl_tr8x8_ld promotion and the r2–r10 adoption offers all stand.

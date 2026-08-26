@@ -1414,3 +1414,218 @@ running.
 4. **Cross-arch**: BL_SWAP14..55 join the knob axes. CLX's smaller L1 and
    weaker FMA could flip 14 (its loss is an ILP-vs-pressure tradeoff, the
    exact shape the r9 12-verdict warns moves per host).
+
+## Round gen_r11 -- ALL HANDS ON L=100: the within-volume SoA engine (brief approach #4, built) takes the cell ~10% past the incumbent
+
+Standings into the round (r10 board): led 20 (12.571), 1-6 thousandths off the
+converged copies at 10/12/15. The r11/r12 brief puts every implementer on the
+large cells and names approach #4 -- "within-volume SoA at B=1: 8 PENCILS per
+zmm lane-slot instead of 8 volumes (nobody has tried it; batchlane owner, this
+is you)" -- as mine. This round built it, at L=100 and L=50.
+
+### Reconnaissance first (the cumulative-round duty)
+
+gen_pfa_large's record: their ipp1 already fuses z+y into one pass over an L2
+plane scratch and their r7/r10 accounting PROVES ~80 MB/step is the two-pass
+DRAM floor -- so a within-volume engine cannot win on pass count. What it can
+win is exactly what gen_powp's r8 port census quantified on the shared AoS
+shell: **569 shuffles + 229+229 spill/reload slots per z-line** (400 TRNC +
+169 twiddle swaps), and the **map prepass at 35% of the step** (their fused
+variants ipf/ipe/ipm all lost 11-75% on AoS in-place streams). gen_powp r10
+left the fusion question open "only if someone produces a paper schedule with
+FEWER L1 ROUND TRIPS, not just fewer passes" -- that sentence is this engine.
+
+### What shipped
+
+1. **The dft100 pencil module**: PFA(4 x 25), n=(4a+25b)%100, stage 1 = 4 x
+   DFT25 (wide factor map-free, the r9/r10 swap verdict), r6 safe placement
+   sigma(d) = 19d mod 25, stage 2 = 25 x DFT4 + fused map on slots
+   {(76d+25b)%100} -- NATURALLY in place with natural output order, 4 map
+   ladders/codelet (the winning width). DFT25 = 5x5 Cooley-Tukey: **the
+   file's first twiddles ever**, as 9 COMPILED-IN broadcast constant pairs
+   (w25^m, lit 11 Tier 1 constant-per-site routing; exact to the last bit,
+   Decimal Machin pi + Taylor, 60 digits, cross-checked vs libm). The CT
+   digit reversal is a genuine transpose that the r6 placement cannot make
+   in-place-safe (stage B reads rows, the outer placement wants columns), so
+   stage A stores to a 25-sv L1 scratch and stage B reads it back --
+   the SAME 50-load/50-store count pure in-place would pay, zero extra ops,
+   every hazard gone. 2016 vector FP per pencil per 8 lanes, zero shuffles.
+   Tables + exact macro-semantics simulated vs numpy BEFORE any C (3 seeds,
+   3.6e-16; gen100.py kept in build/tryout/gen_batchlane/).
+2. **The within-volume engine** (L=100, B=1 native): lanes = 8 x-planes of
+   ONE volume (13 slabs, slab 12 = 4 replicated pad lanes, never unpacked).
+   z-pencils (stride 1 sv) and y-pencils (stride ZP100=101 sv) are pure
+   elementwise batch-lane code -- zero shuffles, zero spills -- and run back
+   to back per ~1.3 MB slab: the two-axes-per-pass fusion for free. Only the
+   x-pass crosses lanes: per (y, 8z) column, 26 trans8 in + 26 out (1248
+   shuffles) around a 104-sv scratch pencil, hidden under the pass's DRAM
+   streams; map fused in-register at the dft100_map stage-2 stores (no
+   separate map pass at all -- the 35% their engine pays). c is packed ONCE
+   per chain into x-consumption order with the lanex deinterleave baked into
+   the shuffle indices (zero extra ops). Slab bytes == 256 mod 4096 (house
+   rule; SLST100=10114 sv). B>1 loops volumes (per-volume chains are
+   independent; volume-major).
+3. **L=50 within-volume** (the transfer the brief asks for): dft50 = PFA(2 x
+   25) reusing the whole DFT25 machinery; stage 1 = 25 x DFT2 naturally in
+   place (slot parity = output parity), map fused in the DFT25 stage-B
+   stores (M5CTBM, 5 ladders/codelet -- a DFT2 stage-2 is the r10 L=14
+   losing width). 1008 FP/pencil. 7 slabs, per-volume state+c = 4.6 MB,
+   L3-resident whole chain. Sim-verified (3.4e-16, gen50.py).
+4. supports() adds 50 and 100. Scored sizes 10..55 UNTOUCHED: L=100 chain
+   output bit-identical before/after the 50 additions (cmp), r10-vs-r11
+   same-core interleave at 10 (1.124-1.125 vs 1.122-1.125) and 15
+   (4.347-4.367 vs 4.336-4.358): no code-layout tax (the r6 codegen-drift
+   check).
+
+### The trans8 lane discipline (cost one debugging round; write it down)
+
+trans8's REAL semantics, measured (t8.c): out reg j lane l = in reg lanex[l]
+element j, lanex = {0,1,4,5,2,3,6,7} -- and pack_plane's slab convention is
+lane l = x-offset lanex[l], NOT l. The marker unit test I wrote validated my
+ASSUMED convention (markers written directly into the slab) and passed while
+the composed pipeline failed at rel L2 1.2; the fix is free (store trans8
+output j at scratch slot lanex[j] on the way in, load natural and store at
+dz=lanex[j] on the way out; scratch slots then sit in NATURAL x order and the
+module tables never hear about any of it). Lesson: unit tests must go through
+the REAL packers, not hand-built fixtures of your model of them.
+
+### Measured on the node (a80n0 core 4, held lease, interleaved --samples 4,
+### first invocation discarded; sd 0.02-0.14% -- quiet window)
+
+| case | this engine (min us/xform) | MKL 2022 same core same window | ratio | incumbent (r10 board) |
+|---|---|---|---|---|
+| L=100 B=1 m=64 | **4059.2** (4059-4079, 4 rounds) | 8705.7 | **2.14x** | gen_pfa_large 4529.4 (their best 4501) -- **~10% ahead** |
+| L=50 B=4 m=128 | **475.2** (475.2-475.8) | 1002.0 | 2.11x | gen_powp 417.2 -- **14% BEHIND, honest loss** |
+
+Earlier, busier windows read L=100 at 4329-4546 (bin_ship session) and 4740
+(first tryout, MKL 7720 same window) -- the 4059 quiet-window number is what
+reproduces at sd 0.1%.
+
+Gates, all run ON THE NODE by hand (tryout's map-check leg still dies on the
+r1 '$W/c.bin' quoting bug -- gen_pfa_large's r10 list item 4 agrees): L=100:
+single 5.197e-16 (tol 1e-12), two-step m=2 3.090e-15 (tol 3e-14, ~10x
+margin), graded chain m=64 4.422e-14 vs honest anchor 2.416e-14 (1.8x, same
+tier as the L=20 cell; tol 1e-10), repeatable bit-identical, B=2 mixed
+two-volume chain PASS. L=50: single 4.982e-16, m=2 2.493e-15, m=128 chain
+4.318e-14 vs anchor 2.922e-14, repeatable, B=1 PASS. The CT twiddles cost
+nothing measurable in precision (the 1.5e-14/step budget has 10x margin).
+
+### The counter protocol (mandatory this round) and the uop-saturation verdict
+
+PMU on the shipped binary, L=100 chain, whole process (tools/pmu.sh, a80n0):
+  cycles 8.148G, p0 3.166G, p1 0.035G, p5 4.194G, p2_3 2.455G, p4_9 1.468G,
+  l1d.replacement 0.968G, license-2 ~97% of cycles, IPC 1.29.
+- **Total vector dispatch = 1.39 uops/cycle against the ~2.1 cap; p0+p5 =
+  0.90/cycle** -- on THIS engine the cell is NOT uop-saturated: stalls are
+  the binder (cycle_activity.stalls_mem_any = 27% of cycles). My data point
+  for the brief's open disagreement: gen_pfa_large's 2.11 uops/cyc was
+  per-loop inside their zsub; the whole-step average has headroom, and this
+  round CONVERTED that headroom into a 10% cell win by deleting L1 round
+  trips (no spills, no TRNC in the sweeps) and the separate map pass --
+  the audit's side of the argument, with their per-loop number left intact.
+- l1d.replacement ~1.5M lines/step = ~97 MB/step through L1 -- the same
+  compulsory-stream total as the incumbent's baseline (the traffic is the
+  algorithm's, not spill waste; the audit's "drop 2x" goal was about their
+  staging traffic, which this shape never emits).
+- LLC demand misses only ~2-10 MB/step (LLC-misses 21M over a 606-step run):
+  THP + pure streams keep custody fine WITHOUT clflushopt games -- measured,
+  so the ipk1-style c-custody experiment is declined on data, not vibes.
+- port 1 flat zero (0.035G vs p0's 3.2G): the r9 microarchitecture argument
+  and gen_pfa_large's portcal3 hold on this engine too.
+- L=50: total dispatch 1.65/cyc, IPC 1.45, l1d 0.728G -- closer to
+  port-bound, which is why the 14% gap to gen_powp there is REAL (their
+  engine runs leaner FP/site: 2.17 vs my 2.52 -- the DFT2 stage's extra
+  in-place round trip and the transposes are pure overhead at a size that
+  never leaves L3). Recorded as a structural negative: within-volume SoA
+  pays for itself only when the cell is stall-bound (100), not compute-bound
+  (50). Do not spend r12 trying to close it with knobs.
+
+### Raced and settled
+
+- **BL_EPI100 (map_col epilogue on the L1-hot scratch pencil vs fused)**:
+  fused WINS 4/5 same-core pairs (4461/4546/4493/4329/4357 vs
+  4635/4651/4616/4613/4099; the one epi win came with sd 4.2%). The
+  gen_pfa_large "separate map wins" lesson does NOT transfer to this shape
+  -- their loss mechanism (NR ladder gating 100 in-place store streams)
+  does not exist on a scratch-resident pencil. Knob kept, default 0.
+- An earlier pair on core 2 favored epi (4495 vs 4653) -- taken during what
+  turned out to be a DYING reservation (job 438856 expired mid-session; PAM
+  cut access two invocations later). Discarded: a lease on a dying job is
+  not a window. reserve_guard resubmitted (438881) and the clean core-4
+  session decided the race.
+
+### What did NOT work / was declined, with the number
+
+- **The naive lane assumption** (above): rel L2 1.2 until the lanex
+  discipline was measured. Half a session.
+- **L=50 vs the incumbents**: 475 vs 417 us (-14%). Structural (op count +
+  transposes at an L3-resident size); support stays for coverage and
+  xarch insurance, the cell remains gen_powp/gen_pfa_large's.
+- **clflushopt c-custody at 100**: declined on the LLC-miss measurement
+  (custody already ~2-10 MB/step); both peer records also dropped their
+  ipk1 after r10 re-measurement.
+- **L=40 = 8x5 via the classic batch-lane path**: declined on arithmetic --
+  a DFT8 module is easy (twiddle-free PFA), but B=8 group working set
+  (S+C = 16.4 MB) at 64k sites models to ~200 us/xform against
+  gen_pfa_large's measured 159.6; the group form's residency advantage is
+  gone at that size and the within-volume form pays the 50-style compute
+  tax. Not built.
+- **NT stores / prefetchnta / sched-pressure at 100**: not re-tried; peer
+  records already measured +14..64% / +9-13% / +48% (gen_pfa_large r2/r10,
+  r5; gen_powp r1). The within-volume stores are RMW on just-read lines --
+  gen_layout's -19% NT win needs never-re-read streams this engine does not
+  have.
+
+### Borrowed, plainly
+
+- **gen_pfa_large r7/r10**: the 80 MB/step two-pass floor proof (told me not
+  to chase pass count) and the map-placement negatives that shaped the EPI
+  race; their r8 "total uops are the currency" framing.
+- **gen_powp r8/r10**: the 569-shuffles-per-z-line port census that priced
+  the prize, the "fewer L1 round trips" criterion this engine answers, and
+  their DFT25 = 5x5 CT shape (twiddle count and stage structure; my scratch
+  staging differs from their DFT25M register form because SoA doubles the
+  live values).
+- **gen_layout**: gl_map_huge for the 33.6 MB arena; their L=100 THP wash
+  and NT caveat table saved two experiments.
+- **lit 11 Tier 1** (Garrido constant-per-site twiddle routing): the 9
+  compiled-in w25 pairs -- first use in performant code in this campaign.
+- My own r6 safe placement + r8/r9/r10 simulate-before-C method (caught
+  nothing this time because the tables were right; the bug it missed was in
+  the HARNESS fixtures, see the lane lesson).
+
+### Operation count
+
+New: dft100 = 2016 vector FP per pencil per 8 lanes (4 x DFT25(404) + 25 x
+DFT4(16)), dft50 = 1008 (25 x DFT2(8) + 2 x DFT25(404)); DFT25 = 10 lifted
+DFT5 + 16 compiled cmults through a 25-sv L1 scratch (50 ld + 50 st, the
+in-place count). Map ~14 FMA + 1 rsqrt14 + 1 vdivpd per site-vector (div
+tail, memory-form family default). x-pass transposes: 1248 shuffles per
+100-site column (100), 672 per 50-site column (50); sweeps shuffle-free.
+Existing sizes unchanged (84/96/160/156/208/282/388/376/582/554/776/1102).
+
+### What I would do next (ranked)
+
+1. **The 27% mem-stall band at 100**: stalls_mem_any 2.15G/7.89G with only
+   ~1.4/2.1 dispatch. Candidates: software-pipeline the x-column loads
+   (load column k+1's 26 sv while column k's dft100 runs -- real work, not
+   prefetch uops); split the y-pencil sweep z-interleaved to shorten the
+   L2 reuse distance on the 1.29 MB slab (it is 3% over L2).
+2. **Routing**: the trunk must enumerate this entry at 100 (and 50) -- same
+   gap my r7/r8 records flagged at 21/22-55. At 100 the cell win only
+   scores if gen_race races me there.
+3. **L=25/27 within-volume at B=16?** No -- those are batch cells where the
+   classic 8-volume form already wins; within-volume is for B < 8.
+4. **Cross-arch**: BL_EPI100 and the (unbuilt) swapped dft50 map order are
+   the knob axes; CLX's smaller L2 will hurt the 1.29 MB slab -- the r12
+   y-sweep split (item 1) doubles as the CLX insurance.
+
+### Harness notes
+
+- The reservation died mid-session (438856) and reserve_guard brought back
+  438881 on the same node ~4 min later; a80n0 did NOT reboot, /tmp/perf
+  SURVIVES, paranoid=2 still set. If your session hits "pam_slurm_adopt:
+  no active jobs", re-check RESERVATION -- the guard is faster than you.
+- tryout.sh's check.py map-check leg still receives the literal '$W/c.bin'
+  (r1 note, 10 rounds old); the TIMED chain run is unaffected (CH expands
+  locally). Run map gates by hand.

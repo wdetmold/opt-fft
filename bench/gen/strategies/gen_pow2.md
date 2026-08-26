@@ -1434,3 +1434,163 @@ are the verdicts, the absolutes are the window.)
 3. If the campaign ever moves scoring to SPR/CLX: re-race ZST there from
    the wisdom layer (SPR dev signal agreed with ICL; CLX's downclocked
    512-bit units and store bandwidth may not).
+
+## Round gen_r11 — the all-hands large-size round: ONE-SWEEP FUSED CHAIN STEP
+## ships at L=128 (-14% wall, -61% demand DRAM reads); the same structure
+## measured OUT at L=64, killing the r4/r5 "L3-bandwidth-bound" theory with
+## counters; the regime boundary mapped for the L=100 owners
+
+Standings into the round: led L=32 at 54.478 us (3.11x MKL 2022, r10 board).
+The r11 brief sends every implementer at the large-size traffic problem from
+their own class's angle; my class's large sizes ARE the two traffic regimes
+(L=64: 8.7 MB working set, the L3 regime; L=128: 68 MB, the DRAM regime —
+the closest 2^k analog to L=100's 32 MB).  Session: reservation 438881 on
+a80n0 was ALIVE and tryout-able this round, but reserve.sh --status still
+false-negatives on the login host, so as in r4-r10 I replicated tryout.sh's
+exact steps over ssh (same gcc line, same gen_input/check.py), slot lease 3
+/ core 5 held for the session and released after.  Counters per the
+mandatory protocol: tools/pmu.sh baseline BEFORE the change, after, both
+below.  Windows were mobile (neighbor bursts to sd 10%+); every verdict is
+from rotated-order same-core adjacent pairs, clean (sd<=0.2%) pairs only.
+
+### The idea (new this round; supersedes my own r5 paper-kill)
+
+At 64/128 the two-sweep step crosses the L3/DRAM boundary twice per step
+(z/y sweep r+w, x sweep r+w) plus one c read: ~22 MB/step at 64, ~173 at
+128.  My r5 note killed cross-step fusion as "traffic-neutral" — but that
+argument assumed the x-pass stays ONE pass.  Split the x-FFT into its own
+two radix stages (exactly vfft64i/vfft128i's internal pass 1 / pass 2) and
+the chain step becomes ONE volume sweep over G-plane tiles:
+
+    x-stage-2(s) + map(s) + z(s+1) + y(s+1) + x-stage-1(s+1)
+
+with the tile (8 planes = 557 KB at 64, ~L2; 16 planes = 4.3 MB at 128,
+~L3) staying cache-resident across all five phases.  Volume crossings drop
+to ONE r+w per step (+c): ~13 MB at 64, ~104 at 128.
+
+Two structural points worth stealing:
+* **In place, no ping-pong, no RFO.**  Label the stage-1 outputs A_b[k]
+  (label l = G*k + b).  A sweep's tile t reads labels {G*t+b}, stores its
+  stage-2 outputs (logical X-plane n = t + 8*k1) at tile position k1, and
+  the tail stage-1 re-stores in-tile — so the physical home of a label
+  permutes by a FIXED DIGIT MAP each sweep.  At 64 (8x8 split) the map is
+  the involution s(8a+b)=8b+a: sweeps just alternate consecutive-plane and
+  stride-8-plane tiles (a parity flag).  At 128 (8x16 split) it is not an
+  involution: an explicit perm[128] of label->physical composes per sweep
+  (new_pp[16k+b] = pp[b<8 ? 16b+2k : 16(b-8)+2k+1]), and the epilogue reads
+  logical plane n from pp[16*(n&7)+(n>>3)].  Plane identity is a base
+  pointer; the permutation costs zero data motion.  Because stage-2 stores
+  land on the lines its own loads just brought in, there is no
+  write-allocate RFO — an in-place property a ping-pong buffer would lose.
+* **TILE-ORDER c (the r4 GP2_CT lesson, one step further).**  The first
+  fused build kept x-fastest c and LOST at both sizes (+4%/+10%): stage-2's
+  map reads c as 8-16 touches at 1-KB stride with an 8.25-KB per-PC stride
+  — no prefetcher covers that scatter.  Storing c in tile-consumption order
+  (slot (t,y,g,k1), one sequential ~0.5/4 MB stream per tile, the c pointer
+  LINEAR in the slot-loop index) flipped 128 from +10% loss to -14% win.
+  Rule for the record: a fused operand's layout must match the FUSED
+  consumer's walk order, not the original pass's.
+
+Bit-identity: stage-1/stage-2 use the same DFT8S/dft16s/CTWS on the same
+values in the same order as vfft64i/vfft128i's two passes (the H buffer is
+replaced by the tile planes), so the fused chain output is BIT-IDENTICAL to
+the two-sweep engine's — cmp-verified at 64 and 128 every build, all gate
+digits reproduce r8's exactly.
+
+### Measured on the node (a80n0 core 5, rotated same-core adjacent pairs)
+
+L=128 B=1 m=8 chain (DRAM regime): **12.19-13.05 ms/step-vol vs two-sweep
+14.02-14.62 — 5/5 pairs, -9..-15%** (best 12.19; was 13.42 in r8's quiet).
+Same-window MKL 2022: 21.6 ms -> ratio ~0.57 (**1.75x**, was 1.60x).
+Counters (pmu.sh + LLC events, whole 2-sample run, fused vs base):
+cycles 3.94G -> 3.39G (-13.8%); IPC 0.70 -> 0.85;
+**LLC-load-misses (demand DRAM reads) 42.0M -> 16.4M (-61%)**;
+LLC-loads 56.0M -> 30.4M; l2_lines_in.all 158M -> 196M (+24% — the tile
+revisits, the intended trade); instructions +5%.
+
+L=64 B=2 m=64 chain (L3 regime): fused **715.5 vs 701.7 us — a ~2% LOSS**
+(with tile-order c; 3/3 pairs 720-722 vs 692 before the c fix), despite the
+traffic goal landing: LLC-loads 53.6M -> 34.1M (-36%), l2_lines_in 244M ->
+219M.  **The counters kill the r4/r5 "32.5 GB/s L3-bandwidth wall" theory:
+the two-sweep engine's demand L3 reads are only ~13 MB/step (~19 GB/s) —
+the L2 prefetchers cover the rest UNDER the compute, so the 22 MB/step was
+never binding and "22 MB / 677 us = L3 BW" was a coincidence of compute
+time.**  The fused sweep pays +10% instructions (vertical-pass addressing,
+plane-pointer reloads: port_2_3 +200M, port_1 +113M) for traffic nobody was
+paying for.  PMU baseline for the record (two-sweep, L=64): p0+p5 = 1.13/cyc
+(champion signature 1.6), total dispatch 1.54 uops/cyc, l1d.replacement
+320.6M/run — traffic headroom by the brief's dashboard, yet the traffic cut
+loses: at this size the residual is LATENCY/instruction-bound, not BW-bound.
+
+Ship state: **GP128_FUSE=1 ships; GP64_FUSE=0 default** (both arms
+compilable — the 64 fusion is a legitimate wisdom-race axis for a
+smaller-LLC or slower-prefetch host).  L=32/L=16 paths untouched:
+chain outputs cmp-IDENTICAL to the r10 ship binary's; code-layout tax
+raced at L=32 (rotated pairs, clean windows 55.50-56.10 vs 55.55-55.72) —
+a wash, mixed signs.  Quiet-window L=32 this session: **53.686 us B=8
+(sd 0.03%), 53.835 us B=1 (sd 0.03%)**.
+
+### Gates (ship build = flagless default, node, check.py by hand)
+
+L=128: single 4.092e-16 (tol 1e-12); m=2 fused **2.469e-15** (tol 3e-14,
+12x margin); chain m=8 5.564e-15 (tol 1e-10); repeatable (cmp x2) — r8's
+exact digits, as bit-identity requires.  L=32: single 2.902e-16 (B=8) /
+2.915e-16 (B=1); m=2 **1.338e-15**; chain m=250 3.328e-14 / 2.948e-14.
+L=64: single 3.214e-16, m=2 1.723e-15, chain m=64 2.342e-14.  L=16: single
+2.367e-16, chain m=300 2.351e-14.  2^k singles 2/4/8/16: 0 / 0 / 1.4e-16 /
+2.4e-16.  -Wall -Wextra: the pre-existing mode-0 -Wrestrict set + the
+pre-existing r10 'nxt' unused-parameter note; nothing new.
+
+### What did NOT work, with the number that killed it
+
+* **Fused sweep with the x-fastest c layout (first build)**: L=64 720-803
+  vs 692-694 (+4% and window-sensitive), L=128 16.7 vs 14.7-15.2 ms (+10%).
+  Mechanism recorded above; fixed by the tile-order c layout, which is the
+  actual novelty this round.
+* **Fused sweep at L=64 at all** (with the c fix): +2%, 3/3 pairs.  Closed
+  with the counter attribution above — not a scheduling failure, a regime
+  fact.  Do not rebuild; race it per-host if scoring ever moves.
+
+### Transfer note for the L=100 owners (the round's all-hands cell)
+
+L=100 B=1 (32 MB in+out) is the **L=128 regime** — expect one-sweep fusion
+with tile-order c to pay double-digit percent there; the 100 = 4x25 axis
+split gives tiles of 4 or 25 planes and the same label algebra applies (the
+digit map just isn't 8x8).  L=40/50 (15 MB, LLC-resident) are the **L=64
+regime** — my measured loss there says two-axes fusion will NOT pay on this
+host unless your counters show demand DRAM traffic; check LLC-load-misses
+before spending the round (the brief's l1d.replacement dashboard did NOT
+predict this — demand-vs-prefetch at the LLC boundary is the discriminating
+counter).  On the r11 open disagreement: at L=64/128 this engine runs
+1.13-1.5 total-dispatch uops/cyc against the ~2.1 cap — uop saturation is
+NOT what binds the large cells; at 128 it is demand DRAM latency/BW
+(IPC 0.70 -> 0.85 purely by traffic cut), at 64 it is unoverlappable
+latency+instruction count.
+
+### Borrowed / attribution (gen_r11)
+
+* The one-sweep restructure supersedes my own r5 paper-kill (the "two
+  sweeps stay two sweeps" argument fails once the x-pass splits into its
+  DIT stages across the step boundary) — the stage-split-across-steps idea
+  is this entry's, new this round; lit 11 Tier 2's two-axes-per-pass is the
+  cousin (theirs fuses y*z within a step, mine fuses x across steps).
+* **gen_r4 GP2_CT** (my own): the layout-not-prefetch doctrine, extended to
+  "fused operands take the FUSED consumer's walk order."
+* The LLC-demand-vs-prefetch discriminator (LLC-loads/LLC-load-misses vs
+  l1d.replacement) as the test for "is this cell really traffic-bound" —
+  this round's method contribution; peers should run it before building
+  fusion.
+* Session protocol unchanged (rotated same-core pairs, bit-identity cmp
+  gating, held-lease ssh replication documented since r4).
+
+### What I would do next
+
+1. **L=128 residual**: 12.2 ms vs a ~7.4 ms DRAM floor (104 MB at 14 GB/s).
+   The gap is the tile's THREE L3 round trips (stage-2, z/y, stage-1;
+   ~208 MB/step of L3 traffic).  A z-into-stage-2 fusion (run zrow128 on
+   each output plane's rows as stage-2 finishes them, per 8-row groups)
+   would cut one trip; needs care with the zrow's full-row requirement.
+2. If the trunk routes a 2^k >= 96 cell anywhere, GP128_FUSE is the arm to
+   race; at 64 race GP64_FUSE only on hosts with LLC < ~12 MB.
+3. Nothing at L=32 — unchanged, still closed ([port || L2], r8 attribution;
+   bit-identical for the fifth round).

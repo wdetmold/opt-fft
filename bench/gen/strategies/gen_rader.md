@@ -1509,3 +1509,197 @@ single rel_l2 4.059e-16, two-step 1.784e-15, map-chain 2.559e-14 — bit-identic
 to r8/r9.  Adopted: RP_W2MIN=24 (p=97: **~10.9-11.2 vs 11.5-12.0 ms/step,
 -4..6%, 7/7 clean-window rounds**; gates 5.548e-16 / 3.140e-15).  Closed on
 node evidence: rp3 pairing (+13% ICL / +35% SPR), prefetch-at-103 (wash).
+
+## Round gen_r11
+
+### Where this round started
+
+r10 leaderboard (a81n2): **84.838 us/step** at the graded cell (L=31 B=16
+m=140; gen_race 84.519 rides this engine), leading the crossover
+(gen_dense_prime 109.865, gen_bluestein 272.9, MKL/FFTW 848-883).  The r11
+brief is ALL HANDS ON L=100 with a MANDATORY counter protocol; my class has
+no composite cells, so this class's angle on the large-size round is its own
+DRAM-regime primes (101..127 -- same traffic-bound regime as 100) plus the
+measurement duties.  Node: a80n0 (job 438881), ONE held lease (slot 0,
+core 2), interleaved arms as always.  NODE-IDENTITY NOTE (gen_dense_prime
+r11 saw the same): a80n0 is NOT a81n2 -- same-node contrasts only.
+
+### Read first, and what it changed (the cumulative-round duty)
+
+- **gen_dense_prime r11 SETTLED the brief's open disagreement** with a
+  calibration microbench (r11dev/ubcap.c -- run it on any new host): there
+  is NO ~2.1 total-uop cap; the node sustains 3.0 total vector uops/cyc.
+  The real wall is a **512-bit L1 access ceiling of ~1.12/cyc, loads and
+  stores POOLED** (ymm and 8-byte broadcasts have their own 2/cyc class);
+  zmm FMA saturation is only reachable below 0.56 zmm loads/FMA.  This
+  retroactively explains my r7 "dense engine runs 2x above its load-port
+  model" mystery: every port floor this entry ever computed assumed 2x512b
+  loads/cyc -- the actual SKU does half that.
+- **gen_batchlane r11 took L=100** (4059 us, 2.14x) with within-volume SoA;
+  **gen_layout r11** measured the host at THP=madvise (driver posix_memalign
+  buffers get ZERO huge pages) and shipped a zero-copy chain-state re-home
+  (~-0.5% at L=100 m=64, dtlb walks -96%); **gen_pfa_small r11** recommends
+  the DIFFERENTIAL counter method (samples=4 minus samples=2 cancels
+  create/driver pollution).
+
+### What was built -- and REVERTED on node evidence (the shipped file is the r10 engine, comment/description-only delta, instruction stream identical)
+
+Two zero-copy changes to the FLAT chain (p >= 67: 67 71 73 79 83 89 97 101
+103 107 109 113 127), both borrowed from gen_layout r11's recipe:
+
+1. **memcpy deletion**: the flat chain opened with memcpy(out, x0, vol) +
+   an IN-PLACE prologue z; the padded path (p <= 61) has read x0 directly
+   since r5.  Rebuilt the prologue as out-of-place z-quads x0 -> state
+   (-2 volume sweeps per chain call on paper).
+2. **Zero-copy THP re-home**: chain state in a gl_map_huge arena at a
+   +2048 B page phase (the r3 anti-alias trick vs the page-aligned driver
+   c volume); prologue z reads x0 directly, LAST step's map writes
+   final_out directly -- zero extra copies claimed.
+
+Verified before racing: outputs BIT-IDENTICAL to the r10 binary at 13 37 61
+67 89 97 103 113 127 (execute + chain m=4, wallaby battery), 31 B=16 m=140,
+89 B=2 (shared-arena batch loop), repeatable; node cmp identical at 113/127;
+control = a binary built from impl_10 source (the r9 symlink-trap rule).
+
+**Node races (a80n0 core 2, held lease, interleaved arms, min us/step):**
+
+| case | ctl (r10) | nrh (memcpy-fix only) | ship (fix + re-home) |
+|---|---|---|---|
+| 127 m=4, 3 rounds | 34977-35993 | 35521-36526 | 35521-36561 |
+| 127 m=8, 2 rounds | 34394/35163 | 34401/34484 | 34640/34594 (wash) |
+| **127 m=2, 4 rounds** | **36091-36225** | 36305-36924 (**+0.6%, 4/4**) | 37586-38054 (**+4.1%, 4/4 non-overlapping**) |
+| 113 m=2, 3 rounds | 19699-20451 | 19150-21197 | 19539-21268 (inconclusive window) |
+
+m=2 weights the per-chain fixed cost 4x heavier than m=8; the arms converge
+at m=8 and separate cleanly at m=2 => ALL deltas live in per-chain fixed
+costs, and both changes LOSE there.  **REVERTED both.  Mechanisms, so
+nobody re-derives this:**
+
+- **An in-place custody chain pays no RFO anywhere** (r7's NT-store
+  analysis, now paid forward): the "zero-copy" re-home exit is NOT zero
+  cost -- the last-step map writing a cold final_out adds a whole 32 MB
+  RFO read per chain that the in-place exit never paid (~2.7 ms at 127 =
+  exactly the ship-minus-nrh gap).
+- **glibc's 32 MB memcpy writes NT (no RFO) and the in-place z_0 re-owns
+  lines via its own loads** -- so memcpy + in-place z is CHEAPER than one
+  out-of-place RFO'd z_0 despite 64 MB more nominal traffic.  "Fewer
+  sweeps" accounting that ignores RFO and NT gets the sign wrong.
+- **The TLB prize was measured, and it is small for THIS engine**: dtlb
+  walk_active at 127 m=8 = 117M cycles of 19.0G (0.6%); the re-home cuts it
+  to 48M (-59%) = a ~0.3% prize.  My x-pass touches p pages per chunk but
+  consecutive chunks re-touch the SAME pages, so the STLB absorbs it --
+  unlike gen_layout's L=100 demo geometry.  Their recipe pays on
+  out-of-place/staged chains at large m (their cell: m=64); it does NOT
+  transfer to in-place custody chains at the m ~ 4 the suite implies at
+  large L.  This is my r5 arena lesson ("per-volume overheads do not
+  amortize at small m") re-derived in zero-copy clothing -- the boundary
+  is now quantified from both sides.
+
+### The counter protocol (mandatory) -- dashboards refreshed in the corrected currency
+
+Whole-process (tools/pmu.sh, ctl binary, chain B=1 m=4; create()'s dense
+self-check pollutes ~30-60% of these totals -- r10 caveat holds):
+
+| p | p0+p5/cyc | TOTAL vector/cyc | l1d.repl | IPC |
+|---|---|---|---|---|
+| 113 | 0.90 | 1.45 | 573M | 1.76 |
+| 127 | 0.85 | 1.48 | 867M | 1.73 |
+
+Differential per chain step (samples=4 minus samples=2, the gen_pfa_small
+r11 method; 8 steps per differential):
+
+| p | p0 | p5 | p2_3 | p4_9 | l1d lines/step | ~cycles/step |
+|---|---|---|---|---|---|---|
+| 113 | 29M | 29M | 22M | 9.5M | **9.2M (~590 MB)** | ~55M |
+| 127 | 57M | 58M | 92M | 8M | **13.9M (~890 MB)** | ~112M |
+
+Reading: neither pool is anywhere near saturation (p0+p5 ~1.05/cyc, 512b
+accesses ~0.5/cyc vs the 1.12 ceiling) -- these kernels are LATENCY-bound on
+chunk-local L1 thrash, exactly the r10 residue: at 113 the measured 9.2M
+line fills/step match ~1700 fills per chunk-pair against an ~83 KB/chunk
+working set (54 KB slot arrays + 29 KB source rows) that cannot fit 48 KB
+L1D at m=28; at 127 the dense engine's per-chunk 63.5 KB table walk
+dominates (890 MB/step through L1 vs a 160 MB sweep floor).  My whole-chain
+numbers corroborate gen_dense_prime's verdict: nothing here is uop-capped;
+deleting cross-L2 round trips, not port surgery, is the only lever -- and
+the r8 pairing already took the accessible half of it.  CAVEAT for the
+differential method at small timed regions: the CYCLES differential at 113
+came out negative (create-time variance exceeds 2 chains of work) -- port
+and l1d counters difference cleanly, cycles need the timing runs instead.
+
+### Struck at the whiteboard (gen_dense_prime r11's costing discipline)
+
+A Rader cross-class entry at L=100: the only Rader-shaped angle is
+Rader-25 on Z_25* (C20, even h=10 -> my rp2 machinery at m=5) inside a
+PFA(4x25) axis -- but a 25-point via two twiddled 5-stages costs ~404
+vector FP (gen_pfa_small r11 measured form) vs the fold+conv+glue of a
+Rader-25 at comparable count with far worse glue ratio, and the incumbent
+cell (batchlane 4059 us) is traffic-, not arithmetic-, limited.  No Rader
+entry can win 100; recorded so nobody re-costs it.
+
+### What did NOT work, with the number that killed it
+
+- The round's whole build: memcpy deletion **+0.6% at 127 m=2 (4/4)**,
+  zero-copy THP re-home **+4.1% at 127 m=2 (4/4)**, both wash at m=8 --
+  reverted; mechanisms above.  The staged sources/logs live in
+  build/tryout/gen_rader/r11/ (race1/race_m/race_m2/race113_m2/pmu_*.log).
+- First local battery read all-FAIL: gen_input.py silently writes nothing
+  without the env sourced -- source env.sh in EVERY shell, check inputs
+  exist before trusting a cmp verdict.
+- Driver `--chain 1` is a silent no-op (no output line): use m=2 vs m=8 to
+  decompose per-chain fixed costs, never m=1.
+
+### Borrowed this round, named
+
+- **gen_layout gen_r11**: the zero-copy re-home recipe + gl_thp_bytes THP
+  finding -- adopted, raced, and REJECTED here with the regime boundary
+  contributed back (theirs stands at L=100 m=64 out-of-place; mine closes
+  in-place custody chains at small m).
+- **gen_dense_prime gen_r11**: the corrected machine currency (512b access
+  pool 1.12/cyc, no total-uop cap) -- adopted as this entry's accounting
+  basis; their a80n0-vs-a81n2 node-identity warning; the whiteboard-costing
+  discipline; ubcap.c noted for any future host.
+- **gen_pfa_small gen_r11**: the differential counter method (with the
+  cycles caveat found here).
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol.
+- My own r5/r7/r9 lessons, applied: control from a prior-round binary
+  (symlink trap), per-volume overheads vs small m, in-place = no RFO.
+
+### Operation count (shipped)
+
+Identical to r10 at every size: the shipped source differs from r10 by the
+header comment and description string only; objdump shows an identical
+instruction stream (rodata displacements shift by the longer string), and
+chain outputs are cmp-identical on the node at 113/127 and at the graded
+cell.  All r10 gate digits inherited exactly (re-verified fresh on a80n0:
+31 B=16 single 4.059e-16, two-step 1.784e-15, map-chain m=140 2.559e-14
+anchor 2.312e-14; 113 single 9.758e-16, two-step 5.335e-15, chain m=4
+7.210e-15).
+
+### Measured summary (the reply line)
+
+L=31 B=16 m=140 on a80n0: **85.448 us/step min (sd 0.08%), MKL 848.6 same
+window**; B=1 96.1-96.7 this window (the documented short-unit ramp
+signature on a fresh a80n0 core; a81n2 board form: 85.2-85.3).  Single
+rel_l2 4.059e-16 (B=16) / 4.073e-16 (B=1), two-step 1.784e-15, map-chain
+2.559e-14 -- bit-identical lineage since r4.  Class duty this window:
+113 18.48-18.94 ms, 127 34.98-35.25 ms (ctl/final forms, same engine).
+
+### What I would do next
+
+1. The class remains CONVERGED on this hardware (r10 verdict, now with the
+   corrected-currency dashboards agreeing): the residue at 97..127 is
+   chunk-local L1 thrash from working sets that exceed L1D by construction;
+   shrinking them meaningfully (E/O phase split, VF-mirror deletion) saves
+   only ~3-13% of the per-chunk footprint against a 2x overshoot -- modeled
+   this round, not worth a window until someone shows a >30% footprint cut.
+2. The **89 bimodality** (r8 item) is still the one open measurement --
+   needs a slow window with pmu.sh, still luck-gated.
+3. For gen_race on CLX/SPR: unchanged r10 list (RP_W2MIN in {22,24,25,99},
+   prefetch gates), plus run gen_dense_prime's ubcap ldonly/ldonly256 trio
+   before trusting any port floor on a new host.
+4. Harness: reserve.sh needs the slurm PATH prefix from wallaby; tryout's
+   remote chain-leg check.py still gets literal '$W/c.bin' (run map-checks
+   by hand, as every round); --chain 1 is a silent no-op; gen_input.py
+   needs env.sh; a80n0 reads this engine's 31 cell at 85.45 vs a81n2's
+   84.8-85.2 -- same-node contrasts only.

@@ -1220,3 +1220,156 @@ that removes the fused tile's register spills; arithmetic bit-identical.
    change again, re-race the boundary (a one-knob, two-size check).
 4. If anyone ever needs the axis-2 gather side too: budget vinsertf64x4's
    p05 cost against the deleted p5 first (a static audit, no lease needed).
+
+## Round gen_r11 (all hands on L=100)
+
+### The mandatory counter protocol, run first -- and it settles the brief's
+### open disagreement for this engine class
+PMU baseline (a80n0, /tmp/perf, tools/pmu.sh, leased core, whole process =
+6 samples + warmup of the graded L=100 B=1 m=64 chain), r10-lineage binary:
+
+| counter | baseline (r10 arith) | after (r11 ship) |
+|---|---|---|
+| cycles | 39.05G | 40.34G (dirtier window) |
+| p0 / cyc | 0.557 | 0.538 |
+| p1 / cyc | 0.068 | 0.083 |
+| p5 / cyc | 0.579 | 0.560 |
+| p2_3 (loads) | 20.82G | **19.73G (-5.2%)** |
+| p4_9 (stores) | 11.27G | **10.73G (-4.7%)** |
+| p0+p5 / cyc | 1.14 | 1.10 |
+| ALL-PORT vector uops / cyc | **2.03** | 1.94 |
+| l1d.replacement | 3.26G | 3.12G |
+| min us/xform same run | 14102 | **13587** |
+
+**gen_bluestein at L=100 dispatches 2.03 all-port vector uops/cycle -- AT the
+node's ~2.1 global cap -- while p0+p5 is only 1.14 of the 2.0 FMA ceiling and
+DRAM is nowhere near bound (~80 MB/step at 5.6 GB/s).**  For the brief's
+open question (pfa_large r7 "uop-saturated" vs audit "0.82/cyc = headroom"):
+BOTH are right, per engine.  The binding resource on this host is TOTAL
+vector dispatch, not any port and not traffic, once a kernel is uop-dense
+enough to reach the cap; pfa_large's 0.82 p0+p5 cell is traffic-bound
+(their l1d numbers), my 1.14-p0+p5 cell is cap-bound.  The actionable rule
+is gen_layout r10's, adopted verbatim: at ~2.1 all-port with p0+p5 < 1.6,
+port surgery and traffic tricks are dead -- ONLY deleting uops (any port)
+pays, and it pays ~proportionally.  Wallaby confirmation of the corollary:
+the same A/B is a WASH on SPR (8574/8628/8659 new vs 8736/8595/8552 old,
+alternating pairs) -- SPR's second full 512-bit FMA pipe means it is not at
+this cap; the win is Ice-Lake-shaped, exactly as the rule predicts.
+
+### Where the 14.1 ms actually lives (new tooling result: /tmp/perf RECORD
+### works on the node, -F 2000; report shows raw addresses -- map them
+### through `nm <bin> | sort` ranges, the binary's static syms resolve fine)
+L=100 B=1 m=64 chain, cycles:u samples: conv_mid14 31.2%, axis_pass
+(inlined contig gather/scatter + custody map, axes 0/1) 30.3%,
+first_gather_tr 10.0%, conv_rows_mid (inlined dit4) 9.8%, dif4_stage 9.7%,
+last_scatter_tr 6.6%.  97.9% attributed.
+
+### What changed (one function): conv_mid14 respilled by hand -- 5 phases
+objdump of the shipping r10 conv_mid14: 566 insns per 14-block, of which
+102 are rsp spill accesses (~20%) -- the fused DFT-14 holds u[7]+v[7]
+(28 zmm) across both DFT-7s plus ~12 dot-product temps + 6 constants =
+~40 live, and gcc sprays spills.  My own gen_r8 record declined fixing this
+("spills ride the idle load/store ports for free, llvm-mca says FP-bound")
+-- WRONG at the cap: at 2.03 all-port, every spill uop is wall time.  The
+r8 decline was reasoned from a per-port model exactly where the global-cap
+blind spot (TOOLS.md) sits.
+Rewrite: five low-liveness phases per block, each staged through the
+block's own slots (1.75 KiB, L1-hot): A fwd-DFT7(u even half) in place;
+B1 fwd-DFT7(v odd half) in place; B2 memory-to-memory pointwise (load u_k,
+v_k, 2-pt butterflies, bh cmuls, store u'_k, v'_k; ~16 live); C1
+inv-DFT7(v'); C2 inv-DFT7(u').  Each DFT-7 phase is the exact conv_mid7
+shape, which compiles spill-free (its objdump: 0 rsp accesses -- checked
+before designing this).  Costs 3x14 extra L1-hot load/store pairs, deletes
+the ~102 chaotic spills: **566 -> 479 insns/block, rsp accesses 102 -> 1**
+(icelake-server gcc, verified objdump both).  Same ops in the same order:
+**outputs bit-identical** (cmp: single + full m=64 chain at L=100 and at
+L=105, which adds nv<8 tail groups on the same M=224).  Control arm:
+-DBST_MID14F restores the r10 form.  A 3-phase variant (u staged, v+
+pointwise+v-inverse fused) measured 497 insns / 38 rsp -- the constants +
+k-loop still overflow -- and was superseded by the 5-phase before racing.
+conv_mid14 runs ONLY at M=224/448+ (graded: exactly L=100); every other
+cell is byte-identical code.
+
+### Measured on the node (a80n0, held lease, same-core control-first
+### alternating pairs, -DBST_MID14F control vs ship; L=100 B=1 m=64)
+Core 4: 14127.6/13750.9, 14176.4/13690.4, 16162.2/15798.2, 14653.2/14595.8
+-- 4/4 to ship (-2.7/-3.4/-2.3/-0.4%).  Core 2 (noisier window):
+16348.6/13720.7, 14278.9/14462.7, 16179.9/14085.7 -- 2/3.  Total 6/7 pairs.
+Session bests: ship **13586.9** (PMU window) / 13691.5 (fresh-core tryout)
+vs control 14102.2/14127.6; board r10 was 14132.  Same-window MKL 7719-7756.
+Net ~**-3% at L=100**, mechanism confirmed by counters (loads -1.09G,
+stores -0.53G, FP ports unchanged, l1d.replacement -4.6%).  Parity reads
+(paths untouched): L=50 B=4 1417.9 (mid7 was already spill-free), L=25 B=16
+172.6, L=10 B=64 13.23 -- all board-parity.
+
+### Gates (ship build; sweep on wallaby AVX-512 paths per gen_layout r9,
+### graded cells re-confirmed on the node via tryout)
+Singles B=1, 35 sizes {2,3,5,7,9,11,13,16,17,21,23,24,33,35,40,47,48,49,56,
+63,64,65,71,80,96,97,100,101,104,105,112,113,120,127,128} ALL PASS
+<= 1.05e-15 (tol 1e-12).  Two-step m=2: L=100 4.109e-15, L=101 5.858e-15,
+L=105 4.212e-15, L=112 3.473e-15, L=50 3.333e-15, L=25 2.059e-15 (tol
+3e-14).  Graded chains: L=100 m=64 3.564e-14 (anchor 2.416e-14 -- r8/r10's
+exact digits, as a bit-identical change must read), L=50 6.128e-14
+(2.922e-14), L=25 4.826e-14 (2.796e-14), L=10 m=1000 2.295e-13 (1.081e-13),
+L=105 m=64 3.209e-14 (1.564e-14).  Chain + single outputs cmp-identical
+across runs.  Scalar -march=x86-64 build (conv_mid14 is AVX512-only; scalar
+takes dft14 stages): singles + m=2 PASS at {21, 50 B=4, 100}.  create()
+still ~0 s.
+
+### Sized and SKIPPED, with the numbers (the next uop-deletion ledger)
+- **last_scatter_tr spills**: 76 zmm rsp movs per 4-column block (646-insn
+  body) -- ro[8]+r1o[8]+LAST_LOAD temps ~30 live.  Ceiling ~1.2M uops/step
+  = ~1.3% of wall; needs either recomputing shared legs (u0-u3 feed both
+  r0 and r1) or organized r1 staging.  first_gather_tr: 32 zmm spill movs,
+  ~0.5% ceiling.  Skipped this round on risk/reward; first candidates next.
+- **axis_pass lane-offset idivs**: 8 idiv per 8-row group (objdump), the
+  (r/div)*A + (r%div)*B lane loop.  ICL idiv is ~18 cyc; ~0.5-0.8%
+  ceiling via incremental (q, rem) tracking.  Touches the group
+  decomposition everywhere -- skipped, queued.
+- **Split re/im state format between chain steps** (delete the 4
+  de/interleave permutes per element in axes 0/1 gather/scatter): measured
+  shuffle share is only p5-p0 ~ 0.9G of 22.6G p5 -- ~1-1.5% ceiling for a
+  full-surface rewrite of every gather/scatter variant.  Declined.
+- **M = 2L = 200 via chirp periodicity** (NEW degree of freedom, nobody has
+  used it): b_{n+2L} = b_n exactly, so a CYCLIC convolution at M = any
+  multiple of 2L is exact -- the M >= 2L-1 linear-embedding constraint is
+  not the only legal grid.  At L=100 that offers M=200 = 8*25 (-10.7% data
+  vs 224), but 200's chain needs a 25-point tail (5x5 CT with twiddles,
+  ~16-19 vec-ops/pt) or PFA(2x25) at len 50 -- the r8 flap-count boundary
+  (DFT-13's +16%/pt killed -7% data) predicts a loss or a wash, and the
+  machinery is a round of work.  Documented so the planner/others know the
+  constraint is soft; on the existing grid every graded L already has
+  M <= 2L+something-small except none -- the trick only matters where 2L
+  factors better than the grid value.
+- **3-phase conv_mid14**: built, measured statically (497/38), superseded.
+
+### Borrowed this round, named
+- **gen_layout gen_r10**: the PMU dashboard method and the decision rule
+  ("~2.1 all-port with p0+p5 < 1.0-1.6 => stop rebalancing, delete uops")
+  -- this round IS that rule applied to my own r8 wrong turn; also their
+  /tmp/perf restage recipe.
+- **gen_pfa_large gen_r10**: the NT-at-100 kill and ymm-side-work kill
+  (standing nulls I did not re-test), and the 80 MB/step floor accounting
+  that let me classify my cell as compute- not traffic-bound.
+- **gen_batchlane r4 / gen_pow2 r3** (standing): held-lease same-core
+  control-first pairs; both A/B sets above are that protocol.
+- **gen_rader r9** (standing): control arm is a flag-disabled build of the
+  same source, never an impl_N snapshot.
+
+### Operation count (delta vs r10)
+FP arithmetic: zero change (bit-identical outputs).  Per 14-block of
+conv_mid14: +42 L1-hot loads +42 L1-hot stores (staging), -102 rsp spill
+accesses, net -87 insns (-15%); x16 blocks x 1250 axis-groups x 3 axes
+per step at L=100 => ~-5M dispatched uops/step modeled, -1.6G loads+stores
+measured process-wide (-3% wall at the cap).
+
+### What I would do next (gen_r12)
+1. **last_scatter_tr / first_gather_tr spill diet** (the 1.3% + 0.5%
+   sized above) -- same treatment, needs a schedule that either recomputes
+   the shared u-legs or stages r1o through the w buffer.
+2. **axis_pass incremental lane offsets** (kill the 8 idivs/group).
+3. Re-race BST_MID14F on SPR/CLX when the next XARCH lands (SPR measured a
+   wash locally -- the knob exists so the race can pick per host; CLX's
+   downclocked divider and 1 MB L2 may reweight both directions).
+4. bluestein_cost(L) for gen_planner (ninth carry, unchanged constants).
+5. The M = 2L periodicity note above if anyone ever builds a cheap 25-tail.

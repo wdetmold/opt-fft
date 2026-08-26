@@ -1388,3 +1388,162 @@ engine: untouched. Zero twiddles, zero shuffles in the batched transforms, still
    structure (batchlane's r9 note) -- cross-arch material, not ICL.
 4. Batched cells otherwise saturated; protect, don't chase. B=1/split and generic
    paths remain my lead (r7/r8) and shipped untouched this round.
+
+## Round gen_r11
+
+### Headline
+The all-hands-on-L=100 round, worked as a CROSS-CLASS ENTRY: this entry now CLAIMS
+50 = 2x25 (B=4 graded) and 100 = 4x25 (B=1 graded) -- both coprime pairs my class
+always could serve and my r6 deliberately left to gen_pfa_large/gen_powp. L=100 is
+B=1, i.e. exactly the shape of my r7/r8 per-volume split chain, and the round's work
+was rebuilding that chain's large-L structure around the traffic counters. Node
+numbers (a80n0, held slot-1 lease on core 3, adjacent interleaved runs, min):
+
+| case | first working cut (r8 rotation form) | ship | MKL same window | gen_pfa_large same window |
+|---|---|---|---|---|
+| L=100 B=1 m=64 | 14,496-16,649 | **6009 quiet best; 6555 in the busier final window** | 7756 quiet / 8552 busy | 4501 board / 5674 busy window |
+| L=50 B=4 m=128 | 1006-1020 | **721-735** | 948 board / 970 | 418 board (and gen_powp 417) |
+
+I do NOT take either cell -- gen_pfa_large keeps 100 (they lead me ~15% same-window)
+and powp/pfa_large keep 50 -- but this entry is now the second engine at 100, ahead
+of every library (1.16-1.30x vs MKL), and the round's structural findings transferred
+into counters anyone can check. Every gate passes on the node at the graded m
+(100: chain 2.92e-14 vs anchor 2.42e-14; 50: 4.00e-14 vs 2.92e-14; two-step and
+single-call at 12+ size/batch combos locally). ALL pre-r11 paths -- tuned 10/12/15/20
+batched+split, generic batched, generic rotation split at L<44 -- ship BIT-IDENTICAL
+to r10 (cmp on .chain files at 34 B=3, 21 B=1, 14 B=8, 12 B=64, 10 B=8, 15 B=9,
+20 B=1; tuned node sanity 15 B=32 m=600 = 4.354 us, board-equal).
+
+### What changed (four pieces, each raced on the node)
+
+1. **Module 25 = twiddled 5x5 Cooley-Tukey** (gdft25; BORROWED: gen_pfa_large r1's
+   DFT25 decomposition -- stage A stores U[5*k1+n2] so stage B reads 5 contiguous
+   slots, 16 nontrivial W25 twiddles). Split-complex v8 with the lifted M_DFT5:
+   ~404 vector FP vs the h=12 fold's ~650. This entry's FIRST twiddled stage;
+   tables long-double at create() in consumption order. Raced vs the fold at 100:
+   CT wins every matched round (min 13,135 fold vs 12,684 CT on the day-1 engine,
+   -4%; kept). -DG25CT=0 races back. Also speeds the existing 75=3x25.
+   NOTE: the op ratio (1.6x) is exactly the r6 "marginal zone" -- it wins here
+   where the fold's 25-deep dot products spill anyway.
+2. **gstep_slab: the large-L split step, rebuilt around traffic** (L >= GSLAB_MIN=44;
+   below that the r8 rotation form ships bit-identically). Three stages of redesign,
+   each measured:
+   - Slab fusion (lit 11 Tier 2 two-axes-per-pass, from my class's angle): pass 2
+     (stride L) and pass 3 (stride 1, map fused) run back to back per x-slab.
+     First cut: -13% vs the rotation form at 100 (12,684 vs 14,508).
+   - Pass 1 IN PLACE + the pass-2/3 ping-pong volume replaced by ONE reused
+     L2-resident scratch slab (160 KB at L=100): 12,684 -> 6244-7742. This is the
+     round's big move: the r8 rotation form's rotated stores are L=100 concurrent
+     64 B write streams + 100 rotated c read streams, and the counters show what
+     that does (below). gen_pfa_large's r1 "fusion only while cache-resident /
+     minimum miss streams" lesson, applied to my structure.
+   - Pass-3 HALF-TURN stores (my own r7 trick, per slab): store the pencil output
+     vector whole at the inner-swapped offset instead of tr8-ing back -- parity
+     alternates per step, c is read in the matching parity (one extra c copy built
+     per chain), one unpermute when m is odd. -1..-3% in matched states, and it
+     removes 0.8M p5-only uops/step (the counters read p5 4.69G vs p0 3.76G before).
+3. **gspencil_ip: the r4 batched IPOK rule ported to the split pencils.** Both
+   claimed pairs are IPOK (25 == 1 mod 2 and mod 4): stage 1 writes back to its own
+   slots, stage 2 reads inmap[j2*P+k1] and scatters to the CRT slots -- the 2L-v8
+   tr/ti round trip AND its 16 KB stack footprint per call are gone (the buffered
+   pencil + gdft25's ur/ui + the pass-3 lane buffers totalled ~45 KB per pass-3 call
+   against a 48 KB L1). Used in slab passes 1+3; pass 2 and non-IPOK pairs keep the
+   buffered form. -2.5% at 50, ~-1% at 100, and l1d.replacement -21%/step.
+4. **Slab c-warm** (-DGWARMC=1, ship default): one prefetch loop over the c slab
+   BEFORE pass 2, so pass 3's c stream hides behind pass-2 compute: -2..-8% at 100,
+   best in every interleaved round (6088 vs 6552-7818). GWARMS (warming S itself,
+   no compute to hide behind) LOSES +3%; combined loses too. This knowingly races
+   AGAINST the standing no-prefetch rule and wins because the rule's evidence came
+   from issue-bound passes; these are latency-bound cold 800 B-stride walks the L2
+   streamer cannot follow across pages. The rule is now scoped, not dead.
+
+### The counter protocol (mandatory this round) -- before/after, differential method
+Counters via tools/pmu.sh; per-step numbers are DIFFERENTIALS (samples=4 minus
+samples=2 = exactly 2 chains = 128 graded steps -- cancels setup, IO, driver
+overhead; recommended to everyone, the raw full-run counters are ~3x inflated by
+driver work). L=100 B=1 m=64, per chain step:
+
+| metric/step | r8 rotation form | r11 ship | gen_pfa_large (same method) |
+|---|---|---|---|
+| time (quiet min) | 14.50 ms | **6.01 ms** | 4.50 ms board |
+| LLC misses | 2.94M lines (188 MB!) | **0.44M (28 MB)** | 0.30M (19 MB) |
+| l2_lines_in | 1.81M (116 MB) | **0.80M (51 MB)** | 0.79M (50 MB) |
+| l1d.replacement | 3.02M (193 MB) | **2.75M (176 MB)** | 2.00M (128 MB) |
+| p0+p5 dispatch | 15.2M | 12.8M | 14.0M |
+| loads (p2_3) | 6.19M | 7.00M* | 3.97M |
+| stores (p4_9) | 4.31M | 4.49M* | 1.98M |
+
+(*my load/store counts stay high because the split-complex layout runs 2 arrays
+plus stack lane buffers; the r11c IPOK pencils cut what they could.)
+The success metric the brief set -- l1d.replacement -- moved less than the
+decisive one: the rotation form was blowing L3 (188 MB/step of DRAM traffic for a
+32 MB problem); the slab form cut DRAM 6.7x and L3->L2 2.3x, and that is where
+the 2.4x time came from.
+
+### THE OPEN DISAGREEMENT, SETTLED WITH COUNTERS (the round's arbitration item)
+Is the engine uop-saturated at L=100 (gen_pfa_large r7 accounting) or is 0.82/cycle
+headroom (PMU audit)? Measured total vector dispatch per cycle
+(p0+p1+p5+p2_3+p4_9 / cycles, differential, this host):
+  - my ship: ~26.9M uops over 24.4M cycles = **1.10-1.31/cycle** (quiet state);
+  - gen_pfa_large: ~20.0M over 16.1M = **1.24/cycle**; p0+p5 alone 0.87/cycle.
+Both engines sit FAR below the ~2.1 uops/cycle vector cap and the 1.6/cycle
+champion signature. The audit's reading is correct -- there IS dispatch headroom --
+but it is unusable while line delivery gates issue: the SAME instruction stream
+runs IPC 0.45-0.51 in the rotation form vs 1.30-1.34 in the slab form (instruction
+count within 10%, cycles 2.6x apart). L=100 is CACHE-LATENCY-BOUND, not
+uop-saturated and not DRAM-bandwidth-bound (LLC misses at 28 MB/step = ~5 GB/s,
+nowhere near the ~20 GB/s single-core roofline). The lever that moves this cell is
+locality structure, not scheduling.
+
+### What did NOT work / was declined, with the number
+* **rcp map tail at 100** (PS_RCPMAP): +2-3% (rcp 6885-6924 vs div 6659-6784, three
+  matched rounds). Fifth codelet-local confirmation, and the most surprising: even
+  with FMA dispatch at 0.6/cycle the divider stays the right choice -- the map's
+  latency chain, not its throughput, is what matters in a latency-bound pass.
+* **GWARMS** (S-slab warm before pass 2): +3% alone, worse combined with GWARMC.
+  A prefetch loop with no compute behind it just serializes the misses earlier.
+* **Claiming L=40** (=5x8): declined by arithmetic. B=8 means the batched SoA-8
+  path, whose 8-volume arena (2 x 8.2 MB + c) is the bandwidth-bound regime my r6
+  measured at 0.95-1.1x MKL on every similar size; pfa_large's 2.53x is out of
+  reach without a volume-major engine. Not worth a scored-cell slot in the race.
+* The first slab cut (out-of-place pass 1, per-slab D->S ping-pong through DRAM)
+  was itself already +13% over rotation but 2x off the final: the in-place pass 1
+  + single scratch slab was the actual unlock. Numbers above.
+* tryout.sh's chain map-check leg still passes the literal '$W/c.bin' (unchanged
+  harness bug since r1); all chain gates here were run by hand on the node.
+
+### Borrowed, plainly
+* **gen_pfa_large gen_r1**: the DFT25 5x5-CT decomposition and stage-A store order
+  (taken whole into gdft25), the "fusion only while cache-resident, minimize miss
+  streams" lesson (which predicted my rotated-store problem exactly), and the
+  in-place x-pass rationale.
+* **My own r7 half-turn and r4/r2 IPOK disjointness rule**, recombined per-slab and
+  ported to the split pencils.
+* **gen_batchlane gen_r4 / gen_pfa_large gen_r4**: held-lease interleaved
+  adjacent-pair protocol (standing; slot-1 lease held for the whole session).
+* The differential-PMU method (samples=4 minus samples=2) is, as far as I know, new
+  here -- take it, raw full-run counters are misleading (driver overhead ~3x).
+
+### Operation count (claimed sizes, per volume per step)
+Pencil (4,25): 25 x DFT4 (16) + 4 x gdft25 (~404 + 100 v8 ur/ui round trip) ~= 2016
+vector FP per 8 pencils; (2,25): 25 x DFT2 + 2 x gdft25 ~= 908. Step = pass 1
+in-place (ceil(L^2/8) pencils, stride L^2) + per slab [ceil(L/8) pencils stride L
+into scratch + ceil(L/8) x (2*ceil(L/8) tr8-in + 1 in-place pencil + L map8c +
+half-turn stores)]. Map unchanged (hs-form ladder + one vdivpd, in-register).
+Twiddles: 16 W25 constants, the entry's first and only twiddled stage.
+
+### What I would do next (ranked)
+1. **The remaining 25% to gen_pfa_large at 100 is load/store volume**: their
+   interleaved-complex 4-lane layout runs 3.97M loads + 1.98M stores/step vs my
+   5.60M + 3.55M (r11c recovered ~0.5M). The split-complex two-array layout costs
+   ~2x the touched lines per pencil. A site-interleaved (re|im) slab variant of the
+   split path -- the batched engine's layout at B=1 -- would halve line touches;
+   real rewrite, next round's candidate.
+2. **Transfer gstep_slab to the 14..42 generic split cells** (currently rotation,
+   bit-frozen this round): 44 measured -21% (433 vs 551), 50 -28%; race the
+   GSLAB_MIN threshold down per size (34/38/42 next).
+3. **gen_pfa_large should steal GWARMC** (their p1 reads c for the deferred map --
+   same cold stream shape), and anyone with a latency-bound pass should re-check
+   the no-prefetch rule's scope the way this round did.
+4. Cross-arch: race G25CT / GSLABSW / GWARMC / GSLAB_MIN per host; SPR's bigger L2
+   (2 MB) will move the slab-fusion crossover and may flip GWARMC.

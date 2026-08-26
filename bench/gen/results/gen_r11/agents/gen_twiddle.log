@@ -1,0 +1,1 @@
+Radix-10 levels via PFA 2⊗5 DFT10 codelets (zero internal twiddles) + depth-minimizing factorizer — one whole level pass deleted at L=10/30/50/70/90/100/110; L=100 B=1 6626.4 µs (quiet 6306.9, −12% vs r10, beats MKL's 7821.6), batched L=50 B=4 647.3 µs and L=10 B=64 4.283 µs (both beat MKL); rel L2 4.6e-16 worst, all two-step/chain gates PASS, unchanged sizes bit-identical.

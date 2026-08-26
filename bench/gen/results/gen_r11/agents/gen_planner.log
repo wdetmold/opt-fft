@@ -1,0 +1,10 @@
+Round complete. Final state:
+
+**What shipped (impl/gen_planner.c, round gen_r11):**
+1. **Alternating-layout one-transpose chain at L>80** — the volume layout flips (x,y,z)↔(x,z,y) between chain steps, so each step's plane pass runs ONE in-place square transpose (new exact pair-swap 4×4 block kernels) instead of transpose-in + transpose-out; the P scratch plane leaves the chain entirely.
+2. **THP re-home** (adopted from gen_layout gen_r11): chain state and the swapped c copy live in MADV_HUGEPAGE arenas with zero-copy entry (step 1 reads x0) and exit (last step's map writes final_out) — dTLB walks −88%.
+3. Both gated at create() against execute + exact scalar map, with classic fallback; `GEN_PLANNER_ALT=0` escape hatch.
+
+**Measured (a80n0, held-lease interleaved pairs vs rebuilt r10 control):** L=100 B=1 **−9.7 to −12.4%, 6/6 pairs** — best 4447.3 µs/xform (r10 board: 4987.5; gen_pfa_large's leading cell: 4529.4). Counters per the mandatory protocol: l1d.replacement 2.81G→2.53G, load-port −11%, dTLB walks −88%; and the round's open disagreement settled for my engine — 1.56 all-port uops/cycle (26% below the 2.1 cap) with L1 fills ~9× demand traffic: traffic-bound, not uop-saturated. Non-alt cells: outputs cmp-identical, 50/40/27/25/10 wash; L=32 carries a +2–3% function-address-luck drift I chased from +5.5% (map-span outlining caught by nm -S, restored verbatim) and recorded honestly. Gates all pass: m=2 2.97e-15, graded m=64 chain 5.28e-14 (anchor 2.42e-14), edge sizes 81–128 incl. 127 (masked edges, odd m) and 96 (batched), cross-process bit-repeatable, non-AVX512 and LIB-adoption builds clean. Wisdom keys stripped under flock.
+
+**One line:** Alternating-layout one-transpose chain + THP re-home at L>80 — L=100 B=1 at **4447 µs/xform** on the node (batched cells unchanged/bit-identical, e.g. 50 B=4 ~544 µs), single-call rel L2 **4.55e-16**, graded chain 5.28e-14 vs anchor 2.42e-14.

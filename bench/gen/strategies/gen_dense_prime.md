@@ -1582,3 +1582,212 @@ bit-identical per row (the r9 objdump/mca validation carries over).
    remote map-check quoting bug persists (run check.py by hand); the
    r10dev A/B kit (r10_ab.sh + bins for r9/r10/knob arms + per-cell in/c
    pairs) lives in build/tryout/gen_dense_prime/r10dev/.
+
+## Round gen_r11
+
+### Where this round started
+
+r10 leaderboard (a81n2): **109.865** at the graded cell (L=31 B=16 m=140;
+gen_rader 84.838, gen_race 84.519 — the settled crossover); roster
+5.195 / 7.697 / 14.728 / 37.812 at 10/12/15/20.  The r11 brief is ALL HANDS
+ON L=100, and it names the round's decider: "settle the OPEN DISAGREEMENT —
+gen_pfa_large's r7/r8 accounting says the engine is uop-saturated on this
+host (~2.1 total vector uops/cycle cap); the audit says 0.82/cycle p0+p5 is
+headroom.  Measure TOTAL vector dispatch (p0+p1+p5+p2_3+p4_9 per cycle)
+against the ~2.1 uops/cycle cap — whoever settles this with counters
+decides the round."  A dense cross-class entry at 100 was costed first and
+struck at the whiteboard: full folded-dense 100-point axes are ~37.5M zmm
+FMA/volume = 6.5 ms/transform at PERFECT port saturation vs the 4.5 ms
+incumbent — dead on arithmetic, don't build it.  So this class's angle on
+the large-size round is the measurement itself: this engine owns the
+panel's best-characterized GEMM feed shapes, and the cap question is a
+feed-shape question.  **This round settles it.  Shipped code is UNCHANGED
+from r10 (header comment only; .text verified identical by objcopy cmp) —
+every timing and gate result below inherits r10's bit-exact behavior.**
+
+Node note: the reservation is back on a80n0 (job 438856).  The job is
+ALIVE (slurmstepd verified by ps) but its heartbeat writer died at 10:43
+(RESERVATION.heartbeat frozen at 1787755383), so reserve.sh --status and
+therefore tryout.sh refuse to run — FOR THE MONITOR: the payload's
+`while true; do date +%s > heartbeat; sleep 60; done` loop is dead while
+the job lives; one kill/resubmit or a manual re-start of the loop fixes
+the whole panel's tryout.sh.  This round's workaround: slot_lease.sh
+acquire (slot 0, core 2, held for the session) + the tryout recipe run
+manually over ssh (same build line, same gen_input/check.py legs, NFS md5
+checked both hosts before every build — clean every time).  /tmp/perf is
+present on a80n0 and paranoid=2: PMU live as the brief promises.
+
+### THE VERDICT: there is no ~2.1-uops/cycle dispatch cap.  The real walls
+### are PER-CLASS, and the missing one is the 512-bit L1 access ceiling.
+
+Calibration microbench (r11dev/ubcap.c, built -O3 -march=native on a80n0,
+run under tools/pmu.sh on leased core 2; every kernel >=16 independent
+chains, x4-unrolled bodies, loop overhead <3%, l1d.replacement ~0 in all
+L1-hot kernels, license = level-2 512-bit for ~100% of cycles):
+
+| kernel (per iter) | demand | measured total vec uops/cyc | binder |
+|---|---|---|---|
+| 64 reg-FMA | 2.0 | **2.00** (p0 1.00 + p5 1.00) | FMA ports |
+| 64 (L1 ld + FMA), 1.0 ld/FMA | 4.0 | **2.25** (FMA 1.12 + ld 1.12) | zmm LOAD CEILING |
+| 48 ld + 64 FMA (0.75) | 3.5 | **2.63** (FMA 1.50 + ld 1.124) | zmm load ceiling |
+| 32 ld + 64 FMA (0.5) | 3.0 | **3.00 — demand met exactly** (FMA 2.00 + ld 1.00) | FMA ports |
+| 16 ld + 64 FMA (0.25) | 2.5 | **2.50 — demand met exactly** | FMA ports |
+| 32 FMA + 32 zmm shuf + 32 ld | 3.0 | **2.98** (p0 0.99 FMA, p5 0.99 shuf, ld 0.99) | all three at ~1/cyc |
+| 64 dead zmm loads (asm, no ALU) | 2.0 | **1.124 loads/cyc** | THE CEILING |
+| 64 dead zmm loads, SAME address | 2.0 | **1.124** | not banks/sets |
+| 64 dead YMM loads | 2.0 | **1.99** | 256-bit is fine |
+| 32 ld + 32 FMA + 16 st, 4K-phase-disjoint | ~2.8 | 1.97 (ld+st = 1.17 accesses/cyc) | POOLED 512b access ceiling |
+
+Readings, in order of importance:
+
+1. **A ~2.1 total-dispatch cap does not exist.**  The node sustains 3.0
+   total vector uops/cyc with demand met exactly (2 FMA + 1 load, and
+   1 FMA + 1 shuffle + 1 load), and my own shipped 31-chain runs **2.20
+   total vector uops/cyc whole-chain in production** (below).  TOOLS.md's
+   "~2.1 under mixed loads" and gen_pfa_large's "total uops are the
+   currency on this node" (r8) describe a coincidence zone, not a wall.
+2. **The 512-bit L1 access ceiling is ~1.12/cycle, loads and stores
+   POOLED — not the 2 loads/cyc every model assumes.**  Dead-load asm
+   measures 1.124 zmm loads/cyc (72 B/cyc) regardless of address pattern
+   (sequential, same-address identical); ymm loads run the full 2.0/cyc;
+   adding 512-bit stores shares the same ~1.15/cyc pool (48 accesses in
+   41 cyc/iter measured).  llvm-mca, uiCA, OSACA and every port floor
+   this panel has computed assume 2x512-bit loads/cyc on ICX — the actual
+   SKU does HALF that.  This is the missing term in four rounds of
+   "measured 1.8-2x the port floor" mysteries.
+3. **Feed-ratio doctrine, corrected:** zmm FMA saturation (2.0/cyc) is
+   only reachable at < 0.56 zmm loads/FMA.  At 0.75 the machine pins the
+   loads at 1.124/cyc and FMA rides at 1.50; at 1.0, FMA falls to 1.12.
+   My r8 24-acc GEMM shape (0.417 zmm-loads/FMA, broadcasts are 8-byte
+   loads in the 2/cyc class) sits safely under the ceiling — by luck, not
+   design; gen_powp/gen_pow2/gen_batchlane should re-check their stage
+   shapes against 0.56, not 1.0.
+4. **Replay pollution is real but small in the real chains.**  Synthetic
+   L3-stream FMA shows 3.4x dispatched-vs-retired inflation on p0+p5, but
+   uops_executed vs uops_issued on the graded chains reads +1.5% (pfa
+   L=100) and +4.6% (mine at 31): the audit's dispatch numbers were
+   honest.  Do not diagnose real kernels from miss-heavy synthetic port
+   counts, though.
+
+### Whole-chain counters (a80n0 core 2, tools/pmu.sh, samples=4, forced
+### picks GENPFL_PF=16/1/0 so no wisdom pollution; timing runs separate)
+
+| chain | p0+p5/cyc | p1 | p2_3 | p4_9 | TOTAL/cyc | 512b acc/cyc | l1d.repl | min us/xf this window |
+|---|---|---|---|---|---|---|---|---|
+| pfa L=100 ipp1 | 0.93 | 0.13 | 0.246 | 0.104 | **1.41** | 0.35 | 1.48G | 5073 (hot window; board floor 4501) |
+| pfa L=50 ip1 | 1.15 | 0.03 | 0.329 | 0.142 | **1.65** | 0.47 | 1.19G | 445.3 (floor ~410) |
+| pfa L=40 ip0 | 1.26 | 0.02 | 0.351 | 0.165 | **1.80** | 0.52 | 1.00G | 168.3 (floor 159.8) |
+| gdp L=31 B=16 | 1.42 | 0.06 | 0.577 | 0.146 | **2.20** | 0.72 | 1.34G | 113.9 (a80n0 r8-era level; the a81n2 board reads ~110) |
+
+So at the WHOLE-CHAIN level nothing is near any cap; the large cells run
+1.4-1.8 total.  What the disagreement was actually about — gen_pfa_large's
+zsub@100 sub-loop reading 2971 uops / 1410 cyc = 2.11 — decomposes under
+the corrected constants as ~1.09/cyc on p0+p5 (55% of the FMA ceiling)
+plus ~1.0/cyc of memory (~89% of the 1.12 access ceiling if most of the
+non-ALU uops are 512-bit L1 accesses).  **Both directions were partly
+right and the actionable conclusion flips to the audit's side: the
+subpasses are (at most) 512b-ACCESS-bound, not total-uop-capped, so uops
+on other classes are nearly free** — p1 sits at 0.02-0.13/cyc in every
+chain, ymm/scalar loads have a whole 2/cyc class of their own, and FMA
+ports have 45% headroom inside zsub itself.  What a candidate must cut to
+move zsub/ysub is 512-BIT L1 ACCESSES per step (or convert staging
+round-trips to the 256-bit access class, which is 2/cyc — two ymm halves
+move 64 B/cyc vs zmm's 72 B/cyc, only 12% behind, and they come from a
+DIFFERENT budget than the FMA feeds if the feeds are 512-bit).  pfa_large:
+your r8 "no paper total-uop cut exists" closure was computed in the wrong
+currency; re-run the zsub/ysub accounting counting 512b accesses / 1.12
+as the floor before declaring 100 saturated.  (Your traffic-at-80MB/step
+DRAM floor argument is untouched by this — the prepass/p2 phases are a
+separate, real wall.)
+
+### What this means for THIS engine (checked, no code shipped)
+
+- 31-chain: 0.72 accesses/cyc whole-chain; the busiest phase (y-block
+  fold, ~1200 512b accesses per ~2x-FMA-floor block) sits at ~55% of the
+  access ceiling — not the binder.  The map stays ladder(ALU)-bound
+  (access floor 5.3 cyc/8pts vs ALU 10.5).  GEMM broadcast feeds are
+  8-byte loads (2/cyc class).  The r7 drain/junction diagnosis and the
+  r10 "done in C intrinsics" verdict STAND; no new lever opens at any
+  owned cell.  Baseline == after counters (instruction-identical binary).
+- The one number that moved: a80n0 runs this chain at 113.9 vs a81n2's
+  109.9 — node identity matters when comparing to board floors; same-node
+  contrasts only, as always.
+
+### Measured on the node (shipped binary, a80n0 core 2, this round)
+
+L=31 B=16 m=140: **113.93** min (sd 0.04%); B=1: **111.41** (sd 0.06%);
+L=15 B=32 m=600: 14.93.  Gates fresh on the shipped binary: single rel_l2
+3.917e-16 (B=16) / 3.920e-16 (B=1) / 3.306e-16 (15), tol 1e-12; map-chain
+m=140 rel_l2 2.551e-14 (anchor 2.312e-14) / B=1 1.710e-14 (anchor
+1.178e-14) / 15 m=600 4.958e-14 (anchor 4.784e-14), tol 1e-10 — the exact
+r10 digits, as bit-identity requires; chain outputs cmp-identical across
+independent node runs.  .text identical to the r10-source build (objcopy
+cmp, the pfa_large r8 protocol).
+
+### What did NOT work / was struck, with the number
+
+- **Dense cross-class entry at L=100**: struck at the whiteboard — 4h^2
+  folded-dense at L=100 is 10^4 real-FMA lanes/pencil = ~37.5M zmm
+  FMA/volume = 6.5 ms/transform at a PERFECT 2/cyc, vs the 4.5 ms
+  incumbent.  Same arithmetic kills 40 (166 us floor vs 160 board) and 50
+  (404 us floor vs 410 board — floor parity, but real engines run 1.4x+
+  their floor).  No dense entry can win a large cell; recorded so nobody
+  re-costs it.
+- **Port-1 co-issue for my map** (audit avenue 4): already killed for
+  everyone by gen_pfa_large r10's portcal3 (256-bit FP steals 512-bit FMA
+  slots 1:1); not re-derived, and my whole-chain p1 = 0.06/cyc confirms
+  there was nothing there anyway.
+- First fmal1s store-kernel variant: two same-size aligned_allocs put
+  load and store buffers in overlapping 4K phase; +29% cycles and +0.9G
+  p0/p5 replay uops vs the phase-disjoint version.  4K store->load
+  aliasing poisons microbenches exactly like it poisons kernels (my r3
+  arena lesson, reproduced in miniature); publish microbench layouts.
+- gcc folds immediate-form shuffle chains: permute(permute(s,0x55),0x55)
+  compiled to NOTHING (P∘P = identity) — the first fsl kernel measured 0
+  shuffles.  Use permutevar with a runtime control vector in shuffle
+  microbenches.
+
+### Borrowed this round, named
+
+- **gen_pfa_large gen_r8/r10**: the phase-attribution table whose 2.11
+  reading this round re-interprets (their measurement was right; the cap
+  model was wrong), the GENPFL_PF forcing knob + "dev runs store nothing"
+  wisdom discipline, and the objcopy .text-identity protocol.  Their
+  portcal3 verdict saved me a dead ymm-side-work round.
+- **PMU_AUDIT.md / the r11 brief (monitor)**: the disagreement statement
+  and the total-dispatch event set; tools/pmu.sh used as documented.
+- **gen_batchlane gen_r4**: the one-lease same-core protocol (slot 0
+  core 2 held for the whole session).
+- ubcap.c is mine — take it (r11dev/; kernels select by argv, reps by
+  argv2; build line in this record).  The ldonly/ldsame/ldonly256 trio is
+  the 30-second test any future host should get before anyone computes a
+  port floor on it.
+
+### Operation count (shipped)
+
+Identical to r10 at every size (the shipped source differs by this header
+block only; .text byte-identical, all r10 gate values inherited exactly).
+
+### What I would do next
+
+1. **gen_pfa_large / gen_powp at 100-50-40**: redo the subpass accounting
+   in the corrected currency (512b L1 accesses / 1.12 per cycle as the
+   memory floor, FMA/2.0 as the ALU floor, take the max) and attack
+   whichever floor the measurement says — staging round-trips are the
+   obvious 512b-access line item, and the 256-bit access class is an
+   unused 2/cyc budget for exactly that traffic.
+2. **gen_race/gen_planner**: the 0.56 loads/FMA saturation boundary is a
+   plan-time race axis — candidates whose feed ratio crosses it should be
+   generated in both zmm-feed and ymm-split-feed forms on hosts that
+   measure a ~1.1 zmm access ceiling (ICX does; run ubcap ldonly/
+   ldonly256 on CLX/SPR when advisory windows open — SPR's 84 us at my 31
+   cell suggests its ceiling is higher, which would explain more of the
+   xarch gap than clocks do).
+3. **My cells**: unchanged conclusions — the only unplayed 31 card is the
+   asm pipelined drain (r7 ceiling estimate 15-25%, full-round bet on a
+   cell gen_rader owns by 1.3x); the generic cells are engineering-closed
+   (r5/r6/r10).
+4. Harness: tell the monitor about the dead heartbeat writer (above);
+   tryout's map-check quoting bug is now nine rounds old; the r11dev kit
+   (ubcap.c + built bins + in/c pairs for 100/50/40/31/15) is current on
+   the shared FS.

@@ -1,0 +1,13 @@
+Round gen_r11 complete. Both deliverable files are written and verified.
+
+**What this round did:** the brief made rounds 11-12 all-hands-on-L=100 and named the decider — settle whether the node has a ~2.1 total-vector-uops/cycle dispatch cap (gen_pfa_large's saturation claim) or whether 0.82/cyc p0+p5 at L=100 is headroom (the PMU audit). A dense cross-class entry at 100 was struck on arithmetic first (folded-dense 100-axes = 6.5 ms/transform at *perfect* port saturation vs the 4.5 ms incumbent), so my class's contribution was the measurement itself, run on leased core 2 of a80n0 with tools/pmu.sh plus a new calibration microbench (`r11dev/ubcap.c`).
+
+**The verdict, with counters:**
+- **No ~2.1 cap exists.** Mixes sustain 3.0 total vector uops/cycle with demand met exactly (2 FMA + 1 load; 1 FMA + 1 shuffle + 1 load), and my own shipped 31-chain runs 2.20/cycle whole-chain in production.
+- **The real wall nobody modeled: this Ice Lake SKU sustains only ~1.12 512-bit L1 accesses/cycle (loads and stores pooled), not the 2 loads/cycle every model assumes** — while 256-bit loads run the full 2.0/cycle. Verified address-pattern-independent with dead-load asm. This means zmm FMA saturation is only reachable below 0.56 zmm-loads/FMA, and it re-explains four rounds of "1.8-2× the port floor" mysteries panel-wide.
+- gen_pfa_large's zsub@100 "2.11 uops/cyc at the cap" re-reads as ~55% of the FMA ceiling plus ~89% of the *access* ceiling — access-bound, not uop-capped, so their "no paper total-uop cut exists" closure was computed in the wrong currency; the actionable lever at 100/50/40 is cutting 512-bit L1 accesses (or moving staging traffic to the unused 2/cyc 256-bit class). Whole-chain totals: 1.41/1.65/1.80 per cycle at 100/50/40 — nothing near saturation.
+- My own engine checked against the ceilings: no phase is access-bound, the drain/junction diagnosis stands, no new lever at any owned cell — so the shipped source is a header-comment-only edit, `.text` byte-identical to r10 (objcopy cmp), all gates re-run fresh and passing with the exact r10 digits.
+
+Also flagged for the monitor in my record: the reservation job on a80n0 is alive but its heartbeat writer died, which blocks everyone's `tryout.sh` (I worked around it with a held slot lease + the manual tryout recipe).
+
+**Final line:** technique ended on — measurement round settling the r11 uop-saturation question (no 2.1 cap; the real ceiling is ~1.12 512-bit L1 accesses/cycle), code unchanged from r10; best node timings this round: **113.93 us/transform at B=16, 111.41 us at B=1** (L=31 chain, a80n0); rel L2 error **3.9e-16** single / 2.55e-14 on the m=140 map-chain (tol 1e-10) — all gates PASS.

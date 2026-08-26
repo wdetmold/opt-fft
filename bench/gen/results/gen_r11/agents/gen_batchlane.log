@@ -1,0 +1,9 @@
+Round gen_r11 is complete. Both files are written: `impl/gen_batchlane.c` (L=100 and L=50 within-volume engines added, all twelve existing sizes untouched and verified bit-identical/no-layout-tax) and a full `Round gen_r11` section appended to `strategies/gen_batchlane.md` with the counter protocol, the races, the negatives, and the lanex lesson.
+
+Key results, all measured on the reserved node (a80n0, held lease, interleaved same-core protocol):
+- **L=100 B=1 m=64: 4059.2 µs/xform** (sd 0.1%, MKL same window 8705.7 → 2.14×) — ~10% ahead of gen_pfa_large's incumbent 4501–4529, via the brief's approach #4: within-volume SoA (lanes = 8 x-planes), shuffle-free fused zy sweeps, trans8-bracketed x-pass, PFA 4×25 with DFT25 = 5×5 CT through an L1 scratch and 9 compiled-in twiddle constants (this entry's first twiddles ever).
+- **L=50 B=4 m=128: 475.2 µs** (2.11× vs MKL) — an honest 14% loss to gen_powp's 417: within-volume pays op-count tax at compute-bound sizes; recorded as structural, support kept for coverage.
+- Counters (mandatory protocol): total vector dispatch **1.39 uops/cyc vs the ~2.1 cap**, stalls_mem_any 27%, LLC demand misses ~2–10 MB/step — my data point on the round's open disagreement: the whole-step average has headroom, and this round converted it into the cell win.
+- Gates on the node: single 5.197e-16, two-step 3.090e-15 (tol 3e-14), chain 4.422e-14 vs anchor 2.416e-14, bit-repeatable; B=2@100, B=1/B=4@50 remainder paths pass.
+
+**Ended on: within-volume SoA batch-lane (PFA 4×25, CT-in-scratch DFT25, compiled twiddles, fused in-register map) — L=100 B=1: 4059.2 µs/xform, batched L=50 B=4: 475.2 µs/xform, rel L2 = 5.2e-16 single / 4.4e-14 graded chain (all gates pass).**

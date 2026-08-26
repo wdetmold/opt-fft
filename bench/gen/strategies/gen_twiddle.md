@@ -1646,3 +1646,176 @@ unchanged (≤ 0.1 s at L=100; 0.005–0.008 s at 32/40).
    (r8's conclusion stands).
 4. refnd pitch #12 if gen_powp / gen_pfa_large still build gate references
    with double cexp.
+
+## Round gen_r11
+
+### Adoption status (the score)
+
+- **gen_bluestein's adoption stands** (tw_chirp + colmajor filler/audit); the
+  LIBRARY half of the file is UNCHANGED for the sixth round running (the
+  frozen-layer doctrine) — `gcc -c impl/gen_bluestein.c` verified clean
+  against the shipped file.
+- **gen_pow2's tw_cis_ds adoption stands** (their GP2_FTW constant generator).
+- **refnd double-cexp gate reference, pitch #12**: gen_powp and gen_pfa_large
+  still build the create()-gate reference W with double `cexp` (250 ulp on a
+  1e-13 yardstick at L=100). `tw_fill_dft_cplx` remains the one-line fix.
+
+### The mandatory counter protocol first (brief r11: baseline BEFORE code)
+
+Method: tools/pmu.sh on a80n0 (leased core), the graded L=100 chain run at
+--samples 2 and --samples 4, and the DIFFERENCE taken — exactly 128 chain
+steps of counters, setup/warmup excluded by construction. Baseline = the r10
+ship binary (7182.2 µs/xform same window, sd 0.05%).
+
+Per chain step, r10 baseline → r11 ship:
+
+| counter | r10 | r11 | delta |
+|---|---|---|---|
+| cycles | 24.84M | 22.51M | −9.4% |
+| instructions | 37.10M | 30.76M | −17.1% |
+| p0 (FMA) | 8.04M | 7.86M | −2.2% |
+| p1 | 3.13M | 1.94M | −38% |
+| p5 (shuffle) | 10.04M | 9.79M | −2.5% |
+| p2_3 (loads) | 9.49M | 5.91M | **−37.8%** |
+| p4_9 (stores) | 5.78M | 4.67M | −19.2% |
+| l1d.replacement | 3.53M lines | 3.53M lines | **unchanged** |
+| IPC | 1.49 | 1.44 | |
+
+**The round's open disagreement, settled for this engine**: total measured
+vector-relevant dispatch (p0+p1+p5+p2_3+p4_9) at L=100 is 1.47 uops/cycle
+baseline (1.34 after) against the ~2.1 uops/cycle cap the Ice Lake notes
+describe, at IPC 1.49 and p0+p5 = 0.73/cycle. This engine is NOT
+uop-saturated at L=100 — it is traffic-bound, and the binding stream is
+visible in the after-numbers: deleting 37% of the load dispatch bought only
+9.4% of the cycles because l1d.replacement (3.53M lines = 226 MB through L1
+per step, ~1.8x this engine's 128 MB stream floor) did not move. What is
+left at 100 lives in the axis-0 strided pass and the DRAM-resident volume,
+not in the recursion's arithmetic or its lane-buffer traffic.
+
+### What SHIPPED: radix-10 levels via PFA 2x5 DFT10 codelets — one whole
+### level pass deleted at 10/30/50/70/90/100/110 (−11% at 100, −12% at 50,
+### −18% at 10, all 4/4 node pairs; gates exact everywhere)
+
+The all-hands-on-L=100 change from this engine's angle. L=100 factored
+4·25 → three level passes per pencil-group (leaf5, comb5, comb4) with 155
+twiddle multiplies. The coprime pair 2x5 gives DFT10 by Good-Thomas with
+ZERO internal twiddles and zero negations: 5 DFT2s on input pairs {k, k+5}
+(the CRT-even member leads the difference, absorbing the (−1)^b sign), then
+two of twd_leaf5's DFT5 bodies VERBATIM. Output map, derived and
+independently verified (X[k] = Σ_b e_b W10^{kb}, e_b = x_b − x_{b+5}, for
+odd k): even Y[2j] = DFT5(s)[j]; odd Y[(5+2j) mod 10] = DFT5(d)[j], i.e.
+j = 0..4 → Y5, Y7, Y9, Y1, Y3.
+
+Three pieces:
+
+1. **twd_leaf10 / twd_comb10** — whole-level register-resident codelets in
+   the gen_r6/r10 mold (comb10 = the entire k1 = 0..m−1 combine in one
+   noinline call, 9 twiddle mults per k1 feeding the PFA butterfly directly;
+   definitions at FILE END, declarations up top — the r5/r8/r10 layout
+   discipline). ~20 rows live; gcc spills a few zmm, still far cheaper than
+   the whole-level lane-buffer round trip the codelet deletes.
+2. **Depth-minimizing factorizer**: radix 10 joins the candidate set
+   {8, 4, smallest prime, 10}, chain chosen by MINIMIZING LEVEL COUNT with
+   ties broken in the old preference order and 10 LAST. Audited exhaustively
+   (old vs new chains, n = 2..128): exactly 8 sizes change — 10 [2,5]→[10]
+   (one leaf, no combine at all), 30/50/70/110 (3→2 levels), 80 [8,2,5]→
+   [8,leaf10], 90 (4→3), 100 [4,5,5]→[10,10] — everything else, including
+   20/40/60/120 (ties), factors EXACTLY as before.
+3. **twd_butterfly case 10 under -DTWD_DS only** (the r10 case-8 pattern):
+   default builds route r=10 to the codelets in twd_rec's switches; the DS
+   race arm needs the case, DENSEBF reuses comb10 like comb8.
+
+Operation count at L=100 per pencil-group: level passes 3 → 2 (one full
+100-row zmm read+write round trip through the lane buffers deleted), twiddle
+multiplies 155 → 90, twd_rec invocations 25 → 11. At 50: [2,5,5] → [10,5].
+At 10 the whole axis is ONE leaf10 call — no combine level exists.
+
+### Measured on the node (a80n0, ONE core per session via slot lease,
+### same-core interleaved ROTATED pairs vs the r10 control built from
+### impl_10 (verified separate inode), 2 warmups, graded chains, min µs)
+
+| L | B | r10 ctl (same window) | gen_r11 | delta | verdict |
+|---|---|---|---|---|---|
+| 100 | 1 | 7370–7954 | **6582–7057** | **−11%** (4/4) | the round's target cell |
+| 50 | 4 | 710–717 | **625–633** | **−12%** (4/4) | |
+| 10 | 64 | 5.21–5.55 | **4.29–4.35** | **−18%** (4/4) | |
+| 12 | 64 | 7.64–7.93 (7 prs) | 7.70–8.09 | **+0.3..+2.6% (7/7)** | layout tax, below |
+| 25 | 16 | 74.0–75.7 | 74.2–78.3 | wash (mixed signs) | no new code executes |
+| 32 | 8 | 152.3–155.7 | 153.8–156.2 | wash (mixed signs) | |
+
+Ship-binary tryout reads (fresh cores/windows, sd ≤ 0.07%): 100 B=1
+**6626.4** (MKL same window 7821.6 — the demo beats MKL by 15% at the
+weakest cell; quiet PMU-window read **6306.9**, r10 same protocol 7182.2 =
+−12.2%); 50 B=4 **647.3** (MKL 960.7); 10 B=64 **4.283** (MKL 4.667), 10
+B=1 **4.265** (MKL 4.348) — the demo now beats MKL at 10, 32, 40, 50, 100.
+Wallaby (SPR) pre-reads agreed on every verdict before any node window was
+spent (−10% at 100, −2% at 50, −12% at 10).
+
+### Gates (ship binary, on the node; tryout's map-check leg still dies on
+### the '$W/c.bin' quoting bug — check.py run by hand, r2 recipe)
+
+Changed sizes, all on node codegen: singles 2.8–4.6e-16 (tol 1e-12) at
+10/30/50/70/80/90/100/110; two-step m=2 8.6e-16 (10) / 1.6e-15 (30) /
+2.3e-15 (50) / 2.1e-15 (70) / 2.5e-15 (80) / 2.7e-15 (90) / 2.7e-15 (100) /
+2.7e-15 (110) vs tol 3e-14; graded chains PASS inside the anchor band:
+1.259e-13 (10 m=1000, anchor 1.081e-13) / 4.576e-14 (50 m=128, 2.922e-14) /
+4.138e-14 (100 m=64, 2.416e-14), tol 1e-10; every chain bit-repeatable
+(cmp of independent runs). L=100 single accuracy IMPROVED: 4.612e-16 vs
+r10's 4.817e-16 (one fewer twiddled level = fewer roundings — the layer's
+own accuracy claim made visible). Unchanged sizes: outputs BIT-IDENTICAL to
+the r10 binary at 12/15/20/25/27/31/32/40/45/64/77/96/121/127 (wallaby,
+singles + m=3 chains) AND at 12/25/32 with node codegen (graded chains).
+Race arms: DS / DENSEBF / scalar -march=x86-64 builds PASS vs numpy at
+10/50/100/110; all knob combinations (DS / DENSEBF / DS+DENSEBF / MAPPAIR /
+PF / NOGF / XSTG / GF_MIN_BYTES=1) compile -Wall -Wextra clean;
+GEN_TWIDDLE_LIB_ONLY adoption compiles clean. setup ≤ 0.09 s at L=100.
+
+### What did NOT work / residuals, with the number
+
+- **The L=12 layout tax is back, small and real: +0.3..+2.6%, 7/7 rotated
+  pairs, on bit-identical output.** nm -S names it exactly: twd_rec +304 B
+  and its constprop/inlined copies (+245/+370 B) — the two unavoidable new
+  dispatch cases — displace the small-L hot text. The r10 mitigation
+  (definitions at file end, DS-only butterfly case) was applied from the
+  start; this residual is the dispatch sites themselves. Accepted and
+  documented (r8/r10 precedent): the cell belongs to gen_race/gen_pfa_small
+  at 1.9 µs, and the 100/50/10 wins dwarf it. Link-order remains the only
+  lever (r8 conclusion stands).
+- No other negative: every changed size won its pairs and every unchanged
+  size read wash. The PFA sign/output-map derivation was verified
+  symbolically before any build (X = δ_0, δ_1 identities), which is why the
+  first compiled version passed every gate — recommended over debugging
+  butterflies through the harness.
+
+### Borrowed this round, named
+
+- **gen_pfa_small / gen_pfa_large (the campaign's PFA lineage)**: the
+  coprime-factors-need-no-twiddles fact, applied INSIDE a codelet where the
+  index permutation is free register naming — the first PFA structure in
+  this engine.
+- **My own gen_r6/gen_r10 codelet pattern**: whole-level register-resident
+  noinline codelets, file-end placement, DS-only butterfly case.
+- **gen_rader gen_r9 (via my r10)**: control built from impl_10, inode
+  verified — never the live impl symlink.
+- **gen_batchlane gen_r4 / gen_pow2 gen_r5 / gen_race gen_r9**: held-lease
+  same-core interleaved rotated pairs with 2 warmups — every keep/kill.
+- **gen_planner gen_r7**: nm -S as the layout-drift detector.
+
+### What I would do next (gen_r12)
+
+1. **The axis-0 pass is now the L=100 cell's whole story**: l1d.replacement
+   sits at 3.53M lines/step (226 MB, ~1.8x the stream floor) and did not
+   move; instructions fell 17% but cycles only 9.4%. The excess is the
+   axis-0 strided gather/scatter walking 100 concurrent 128 B row streams
+   (hardware prefetchers track ~16). A z-tiled axis-0 sweep (process 8-16
+   (y,z)-columns of ROWS at a time so the live stream count fits the
+   prefetcher) is the measurable next lever; success metric per the brief:
+   l1d.replacement per step down toward 2M, then cycles follow.
+2. **Radix-20 (PFA 4x5) codelet**: 20 = [4,5] and 40 = [8,5] still pay a
+   combine level that a 20-point PFA leaf would delete (40 = 2·20). Same
+   derivation, h... no fold needed — pure exact constants. Worth one window
+   at 20/40 if idle.
+3. xarch: race the new chains on CLX/SPR when the advisory lands (the
+   depth-minimizing factorizer is host-independent; only the custody gates
+   are knobs).
+4. refnd pitch #13 if still double-cexp.

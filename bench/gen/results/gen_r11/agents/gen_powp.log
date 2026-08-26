@@ -1,0 +1,11 @@
+Round gen_r11 complete. Both deliverables shipped: `impl/gen_powp.c` (marker "r11 THP re-home", verified in the node binary) and the appended `strategies/gen_powp.md` section.
+
+**One-line result: THP re-home of chain state+c into 2 MiB-page arenas at L≥8 MiB volumes (adopted from gen_layout r11), gl_thp_bytes-gated with zero-copy exit — best a80n0 (node, not wallaby — all measurement was on the scoring host) L=100 B=1: 4417.4 µs/xform (5/5 clean A/B pairs at −2.0% vs control), batched off-case 100 B=2: 4606.8 µs; rel L2 4.5e-16 single / 2.72e-15 two-step / 4.18e-14 graded chain — bit-identical outputs, all gates at the exact r7–r10 digits.**
+
+How the round went:
+
+- **Counter protocol (mandatory) settled the uop question for my engine**: forced-ipp1 512-step deltas show total vector dispatch of **1.04 uops/cycle** (p0+p5 0.67) at L=100 — nowhere near the ~2.1 all-port cap. The cap is real but per-engine (gen_bluestein hits it at 2.03; gen_pfa_large's shared shell reads 1.20): this cell is traffic-bound, so the round's lever was effective bandwidth, not uop deletion.
+- **The change**: at volumes past L3 scale the chain runs its state in a huge-page arena volume with c staged once per chain (cv wins 3/3 over state-only), last write exits to the driver's buffer directly. Race trials now run on the same arenas (r10's fidelity lesson forward); wisdom tag bumped chain8→chain9.
+- **Counters prove the mechanism**: dTLB load walks −98%, walk-active cycles −99%, STLB hits −99%, all FP/load/store ports and l1d.replacement flat.
+- **Session drama worth knowing**: a contended dev-window cold race banked `l25-ip0` as a "tight" tie again (the r8 wound shape — sustained bias fools the spread gate); I stripped all dev chain9 keys from `wisdom_a80n0.json` under flock, twice, per my session protocol. The scoring window's quiet race will bank its own verdicts.
+- 25/27/50 code paths are untouched (gated off below 8 MiB); 81/125 lite sizes now re-home too and pass.
