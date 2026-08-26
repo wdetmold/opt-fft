@@ -1,7 +1,2 @@
-HARDWARE COUNTERS ARE NOW LIVE (arrived mid-round). /tmp/perf on a80n0, wrapped as
-tools/pmu.sh: per-port uops (port_0/1 = FMA pipes vs port_5 = shuffles), l1d.replacement,
-core_power.lvl2_turbo_license (512-bit throttle cycles). Run it on your leased core:
-    tools/pmu.sh taskset -c $CORE ./bin --L ... (any command)
-Counters are ground truth — retire your rdtsc-derived port estimates where they disagree.
-Also new since round start: llvm-mca (LLVM 22, icelake-server), uiCA, OSACA static
-analyzers. All usage recipes: bench/gen/tools/TOOLS.md. Re-read the brief's tools addenda.
+ROUNDS 9-10 are counter-directed: read results/PMU_AUDIT.md and the brief section
+"ROUNDS 9-10" before touching code. Avenue 1 (bank the picks) is the cheapest big win.

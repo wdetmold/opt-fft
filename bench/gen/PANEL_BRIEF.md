@@ -176,3 +176,31 @@ without burning lease slots. Choose schedules with the models; SCORE with the no
 ### Tools addendum: HARDWARE COUNTERS are live (Aug 25)
 /tmp/perf on a80n0 with tools/pmu.sh — per-port uops, L1 traffic, license-throttle cycles,
 measured not modeled. See tools/TOOLS.md section 4.
+
+## ROUNDS 9-10: the counter-directed rounds (read results/PMU_AUDIT.md FIRST)
+
+The PMU audit measured where the remaining time lives. Four avenues, in value order:
+
+1. **Bank the picks (gen_race + every engine with an internal tuner).** The L=25 "regression"
+   was plan-time pick instability: r7 and r8 binaries are counter-identical, but a lucky
+   create() once picked a path worth 25% (0.1265 vs 0.1681) and nothing persisted it. Route
+   every engine-internal pick through the wisdom cache with NOISE-GATED storage (store only
+   verdicts whose trial spread is tight; re-race, never trust, a noisy trial). Recovering
+   L=25's 0.1265 deterministically is the round's cheapest big win. Prove determinism:
+   5 consecutive create() cycles must pick identically.
+2. **Two-axes-per-pass fusion at L=100/50/40.** Now proven traffic-bound with numbers:
+   L=100 moves ~4x the algorithmic minimum through L1 (2.34G line fills) at only 0.82/cycle
+   FMA dispatch; L=50 pushes 77 GB into L2 at 1.07/cycle. Fuse y*z into one L2-resident
+   pass (lit 11 Tier 2). Success metric is the COUNTER, not just time: l1d.replacement per
+   chain step should drop ~2x. Use tools/pmu.sh before and after.
+3. **The champion signature is your dashboard.** gen_rader at L=31 runs 1.60/2.0 combined
+   p0+p5 dispatch (IPC 2.15) — that is what done looks like. For your cells, measure
+   uops_dispatched.port_0+port_5 per cycle: below ~1.1 with high l1d.replacement means
+   traffic headroom; near 1.6 means move on.
+4. **Port 1 idles in every kernel** (0.7-2.0G vs port 0's ~10G): 256-bit FP dispatches
+   there. Independent side work — map tails, twiddle prep, B%8 remainder volumes as a
+   ymm lane-pair — can co-issue nearly free. Also: a 4-lane SoA variant would unlock
+   batch-lane layout at L=50 (B=4), where the 8-lane form cannot run.
+
+PMU is live from round start: tools/pmu.sh (if /tmp/perf is missing, the node rebooted —
+tell the monitor; re-staging needs one scp but paranoid=2 also needs re-setting by Will).
