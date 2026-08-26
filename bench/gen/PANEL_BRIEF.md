@@ -237,3 +237,9 @@ Approach menu (all measured-or-published, none tried here; pick your lane):
      passes (audit finding 4).
 Wins at 100 should transfer to 50/40 (same regime, smaller): validate there too. Gates
 unchanged. Model with mca/uiCA, MEASURE with pmu.sh, SCORE with the node.
+
+## Standing rule (added after the ~/bin/squeue incident)
+NEVER install anything into ~/bin, ~/.local/bin, dotfiles, or any user-global path — it
+shadows commands for the human operator too. Host-specific workarounds (like the wallaby
+squeue heartbeat shim, which now lives in bench/gen/wallaby_shims/ and is on YOUR PATH
+automatically) belong inside the harness tree, documented in your strategy record.

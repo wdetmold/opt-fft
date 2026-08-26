@@ -14,4 +14,4 @@ HOST=${FFT_WORKER_HOST:-wallaby}
 DIR=$(pwd)
 args=$(printf '%q ' "$@")
 exec ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$HOST" \
-  "cd $(printf '%q' "$DIR") && exec /home/lqcd/wdetmold/.local/bin/claude $args"
+  "cd $(printf '%q' "$DIR") && export PATH=/home/lqcd/wdetmold/fft/bench/gen/wallaby_shims:\$PATH && exec /home/lqcd/wdetmold/.local/bin/claude $args"

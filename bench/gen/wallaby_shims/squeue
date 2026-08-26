@@ -1,0 +1,11 @@
+#!/bin/bash
+# login-host shim (gen_planner r4/r5): squeue does not exist here but the
+# reservation is heartbeat-maintained from the node side.  Answer 'R' for
+# the reserved job iff the heartbeat is fresh (< 300 s), else nothing.
+GEN=/home/lqcd/wdetmold/fft/bench/gen
+BEAT=$GEN/RESERVATION.heartbeat
+now=$(date +%s)
+hb=$(cat "$BEAT" 2>/dev/null || echo 0)
+[ $((now - hb)) -lt 300 ] || exit 0
+for a in "$@"; do case $a in %L) echo "heartbeat-shim"; exit 0;; esac; done
+echo R
