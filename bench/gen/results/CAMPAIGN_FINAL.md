@@ -64,3 +64,20 @@ by measured provenance, not only by latest-round code.
 - Cascade Lake advisory: all 11 cells win (1.66-6.15x); race picks different winners
   per host as designed.
 - SPR spot-check: recorded in results/xarch_spr_r5.
+
+## Extension rounds 9-10 (counter-directed, closed 2026-08-26 on a81n2)
+
+Avenue 1 (bank the picks) DELIVERED: L=25 restored to 0.1264-0.1272 across both rounds
+(r8's instability gone); the noise-gate behaved exactly as designed per the strategy
+records ("gate correctly reverted + refused storage" under a hot window, stored in a
+quiet one); gen_race now wins or co-wins ~half the cells. Avenues 2-4 did not move the
+board: totals r9 1.5619, r10 1.5596 (vs 1.5609 best-of-campaign) — converged. On avenue
+2 there is an open, documented disagreement: the PMU audit reads L=100 at 0.82/cycle
+p0+p5 dispatch with ~100M L1 line-fills per chain (headroom), while gen_pfa_large's own
+r7 accounting declares the engine uop-saturated on this host and closed the avenue. A
+same-node counter session on the r10 binary reproduces the traffic number (unchanged per
+chain), so the fusion question remains genuinely unresolved — the right shape for it is
+a dedicated effort with PMU from day one, not an overnight round.
+
+Final standing: 11/11 cells, total 1.5596 s = 3.54x best stock library; arbitrary-L
+trunk validated on unseen sizes, two Ice Lake nodes, and Cascade Lake.
