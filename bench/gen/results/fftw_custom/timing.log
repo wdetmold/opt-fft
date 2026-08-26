@@ -25,3 +25,69 @@ fftw3_custom_soa         L=31  B=16    m=140   inner=1      min=   220.814 us/xf
 mkl_dfti                 L=31  B=16    m=140   inner=1      min=   849.744 us/xform  median=   849.863  sd=  0.01%      2.61 GF/s  setup=0.032 s
 mkl_dfti                 L=31  B=16    m=140   inner=1      min=   849.924 us/xform  median=   850.017  sd=  0.01%      2.60 GF/s  setup=0.031 s
 mkl_dfti                 L=31  B=16    m=140   inner=1      min=   850.117 us/xform  median=   850.218  sd=  0.01%      2.60 GF/s  setup=0.033 s
+fftw3_custom             L=10  B=64    m=1000  inner=1      min=     6.152 us/xform  median=     6.154  sd=  0.05%      8.10 GF/s  setup=0.000 s
+fftw3_custom             L=10  B=64    m=1000  inner=1      min=     6.114 us/xform  median=     6.115  sd=  0.05%      8.15 GF/s  setup=0.000 s
+fftw3_custom             L=10  B=64    m=1000  inner=1      min=     6.009 us/xform  median=     6.014  sd=  0.05%      8.29 GF/s  setup=0.000 s
+fftw3_custom_soa         L=10  B=64    m=1000  inner=1      min=     4.761 us/xform  median=     4.771  sd=  0.11%     10.47 GF/s  setup=0.000 s
+fftw3_custom_soa         L=10  B=64    m=1000  inner=1      min=     4.506 us/xform  median=     4.514  sd=  0.11%     11.06 GF/s  setup=0.000 s
+fftw3_custom_soa         L=10  B=64    m=1000  inner=1      min=     4.610 us/xform  median=     4.620  sd=  0.11%     10.81 GF/s  setup=0.000 s
+fftw3_custom             L=12  B=64    m=600   inner=1      min=    10.969 us/xform  median=    10.973  sd=  0.06%      8.47 GF/s  setup=0.000 s
+fftw3_custom             L=12  B=64    m=600   inner=1      min=    10.979 us/xform  median=    10.982  sd=  0.01%      8.46 GF/s  setup=0.000 s
+fftw3_custom             L=12  B=64    m=600   inner=1      min=    10.974 us/xform  median=    10.977  sd=  0.03%      8.47 GF/s  setup=0.000 s
+fftw3_custom_soa         L=12  B=64    m=600   inner=1      min=     8.560 us/xform  median=     8.562  sd=  0.05%     10.86 GF/s  setup=0.000 s
+fftw3_custom_soa         L=12  B=64    m=600   inner=1      min=     8.564 us/xform  median=     8.565  sd=  0.03%     10.85 GF/s  setup=0.000 s
+fftw3_custom_soa         L=12  B=64    m=600   inner=1      min=     8.560 us/xform  median=     8.561  sd=  0.06%     10.86 GF/s  setup=0.000 s
+fftw3_custom             L=15  B=32    m=600   inner=1      min=    26.296 us/xform  median=    26.304  sd=  0.04%      7.52 GF/s  setup=0.000 s
+fftw3_custom             L=15  B=32    m=600   inner=1      min=    26.309 us/xform  median=    26.316  sd=  0.01%      7.52 GF/s  setup=0.000 s
+fftw3_custom             L=15  B=32    m=600   inner=1      min=    26.322 us/xform  median=    26.343  sd=  0.04%      7.51 GF/s  setup=0.000 s
+fftw3_custom_soa         L=15  B=32    m=600   inner=1      min=    16.710 us/xform  median=    16.714  sd=  0.05%     11.84 GF/s  setup=0.000 s
+fftw3_custom_soa         L=15  B=32    m=600   inner=1      min=    16.746 us/xform  median=    16.751  sd=  0.06%     11.81 GF/s  setup=0.000 s
+fftw3_custom_soa         L=15  B=32    m=600   inner=1      min=    16.748 us/xform  median=    16.752  sd=  0.02%     11.81 GF/s  setup=0.000 s
+fftw3_custom             L=20  B=32    m=256   inner=1      min=    66.322 us/xform  median=    66.353  sd=  0.02%      7.82 GF/s  setup=0.000 s
+fftw3_custom             L=20  B=32    m=256   inner=1      min=    66.141 us/xform  median=    66.176  sd=  0.03%      7.84 GF/s  setup=0.000 s
+fftw3_custom             L=20  B=32    m=256   inner=1      min=    66.282 us/xform  median=    66.317  sd=  0.03%      7.82 GF/s  setup=0.000 s
+fftw3_custom_soa         L=20  B=32    m=256   inner=1      min=    44.851 us/xform  median=    44.876  sd=  0.03%     11.56 GF/s  setup=0.000 s
+fftw3_custom_soa         L=20  B=32    m=256   inner=1      min=    44.817 us/xform  median=    44.848  sd=  0.05%     11.57 GF/s  setup=0.000 s
+fftw3_custom_soa         L=20  B=32    m=256   inner=1      min=    44.748 us/xform  median=    44.796  sd=  0.06%     11.59 GF/s  setup=0.000 s
+fftw3_custom             L=25  B=16    m=256   inner=1      min=   164.506 us/xform  median=   164.637  sd=  0.03%      6.62 GF/s  setup=0.000 s
+fftw3_custom             L=25  B=16    m=256   inner=1      min=   164.367 us/xform  median=   164.408  sd=  0.02%      6.62 GF/s  setup=0.000 s
+fftw3_custom             L=25  B=16    m=256   inner=1      min=   164.683 us/xform  median=   164.782  sd=  0.02%      6.61 GF/s  setup=0.000 s
+fftw3_custom_soa         L=25  B=16    m=256   inner=1      min=    81.646 us/xform  median=    81.669  sd=  0.04%     13.33 GF/s  setup=0.000 s
+fftw3_custom_soa         L=25  B=16    m=256   inner=1      min=    81.915 us/xform  median=    81.948  sd=  0.04%     13.29 GF/s  setup=0.000 s
+fftw3_custom_soa         L=25  B=16    m=256   inner=1      min=    80.292 us/xform  median=    80.398  sd=  0.05%     13.56 GF/s  setup=0.000 s
+fftw3_custom             L=27  B=16    m=200   inner=1      min=   205.244 us/xform  median=   205.461  sd=  0.06%      6.84 GF/s  setup=0.000 s
+fftw3_custom             L=27  B=16    m=200   inner=1      min=   204.735 us/xform  median=   205.056  sd=  0.07%      6.86 GF/s  setup=0.000 s
+fftw3_custom             L=27  B=16    m=200   inner=1      min=   205.107 us/xform  median=   205.577  sd=  0.10%      6.84 GF/s  setup=0.000 s
+fftw3_custom_soa         L=27  B=16    m=200   inner=1      min=   104.549 us/xform  median=   104.697  sd=  0.08%     13.43 GF/s  setup=0.000 s
+fftw3_custom_soa         L=27  B=16    m=200   inner=1      min=   103.488 us/xform  median=   103.611  sd=  0.09%     13.57 GF/s  setup=0.000 s
+fftw3_custom_soa         L=27  B=16    m=200   inner=1      min=   104.751 us/xform  median=   104.882  sd=  0.07%     13.40 GF/s  setup=0.000 s
+fftw3_custom             L=31  B=16    m=140   inner=1      min=   515.905 us/xform  median=   516.469  sd=  0.06%      4.29 GF/s  setup=0.000 s
+fftw3_custom             L=31  B=16    m=140   inner=1      min=   511.154 us/xform  median=   511.538  sd=  0.07%      4.33 GF/s  setup=0.000 s
+fftw3_custom             L=31  B=16    m=140   inner=1      min=   522.312 us/xform  median=   523.111  sd=  0.07%      4.24 GF/s  setup=0.000 s
+fftw3_custom_soa         L=31  B=16    m=140   inner=1      min=   223.494 us/xform  median=   224.027  sd=  0.14%      9.91 GF/s  setup=0.000 s
+fftw3_custom_soa         L=31  B=16    m=140   inner=1      min=   222.024 us/xform  median=   222.744  sd=  0.13%      9.97 GF/s  setup=0.000 s
+fftw3_custom_soa         L=31  B=16    m=140   inner=1      min=   215.945 us/xform  median=   216.705  sd=  0.15%     10.25 GF/s  setup=0.000 s
+fftw3_custom             L=32  B=8     m=250   inner=1      min=   420.692 us/xform  median=   420.900  sd=  0.02%      5.84 GF/s  setup=0.000 s
+fftw3_custom             L=32  B=8     m=250   inner=1      min=   420.158 us/xform  median=   420.298  sd=  0.05%      5.85 GF/s  setup=0.000 s
+fftw3_custom             L=32  B=8     m=250   inner=1      min=   419.076 us/xform  median=   419.286  sd=  0.02%      5.86 GF/s  setup=0.000 s
+fftw3_custom_soa         L=32  B=8     m=250   inner=1      min=   186.496 us/xform  median=   186.582  sd=  0.04%     13.18 GF/s  setup=0.000 s
+fftw3_custom_soa         L=32  B=8     m=250   inner=1      min=   186.678 us/xform  median=   186.760  sd=  0.05%     13.16 GF/s  setup=0.000 s
+fftw3_custom_soa         L=32  B=8     m=250   inner=1      min=   186.714 us/xform  median=   186.781  sd=  0.04%     13.16 GF/s  setup=0.000 s
+fftw3_custom             L=40  B=8     m=128   inner=1      min=   810.987 us/xform  median=   812.404  sd=  0.12%      6.30 GF/s  setup=0.000 s
+fftw3_custom             L=40  B=8     m=128   inner=1      min=   802.206 us/xform  median=   804.797  sd=  0.11%      6.37 GF/s  setup=0.000 s
+fftw3_custom             L=40  B=8     m=128   inner=1      min=   807.367 us/xform  median=   809.154  sd=  0.09%      6.33 GF/s  setup=0.000 s
+fftw3_custom_soa         L=40  B=8     m=128   inner=1      min=   440.222 us/xform  median=   441.355  sd=  0.13%     11.61 GF/s  setup=0.000 s
+fftw3_custom_soa         L=40  B=8     m=128   inner=1      min=   431.820 us/xform  median=   433.121  sd=  0.14%     11.83 GF/s  setup=0.000 s
+fftw3_custom_soa         L=40  B=8     m=128   inner=1      min=   433.805 us/xform  median=   435.169  sd=  0.16%     11.78 GF/s  setup=0.000 s
+fftw3_custom             L=50  B=4     m=128   inner=1      min=  1732.930 us/xform  median=  1733.919  sd=  0.04%      6.11 GF/s  setup=0.000 s
+fftw3_custom             L=50  B=4     m=128   inner=1      min=  1713.214 us/xform  median=  1715.332  sd=  0.07%      6.18 GF/s  setup=0.000 s
+fftw3_custom             L=50  B=4     m=128   inner=1      min=  1727.314 us/xform  median=  1730.248  sd=  0.08%      6.13 GF/s  setup=0.000 s
+fftw3_custom_soa: fft3d_create failed for L=50 batch=4
+fftw3_custom_soa: fft3d_create failed for L=50 batch=4
+fftw3_custom_soa: fft3d_create failed for L=50 batch=4
+fftw3_custom: does not support L=100
+fftw3_custom: does not support L=100
+fftw3_custom: does not support L=100
+fftw3_custom_soa: does not support L=100
+fftw3_custom_soa: does not support L=100
+fftw3_custom_soa: does not support L=100

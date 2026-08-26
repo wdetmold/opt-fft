@@ -5,42 +5,51 @@ All numbers: chain seconds on bare-metal Ice Lake a80n0, pinned, two-part gate
 
 ## Best-of-campaign composite (per-cell best gate-clean round)
 
-| L | winner | chain s | round | stock best-lib | vs stock | fftw3_custom_soa* |
-|---|---|---|---|---|---|---|
-| 10 | gen_race | 0.0734 | r8 | 0.2914 | 3.97x | — |
-| 12 | gen_pfa_small | 0.0734 | r8 | 0.2969 | 4.05x | — |
-| 15 | gen_race | 0.0840 | r8 | 0.3160 | 3.76x | — |
-| 20 | gen_batchlane | 0.1046 | r8 | 0.3671 | 3.51x | — |
-| 25 | gen_powp | 0.1265 | r7 | 0.4432 | 3.50x | — |
-| 27 | gen_powp | 0.1387 | r8 | 0.4616 | 3.33x | — |
-| 31 | gen_rader | 0.1894 | r7 | 1.6005 | 8.45x | 0.4946 |
-| 32 | gen_race | 0.1107 | r8 | 0.3429 | 3.10x | — |
-| 40 | gen_pfa_large | 0.1635 | r8 | 0.4130 | 2.53x | — |
-| 50 | gen_race | 0.2104 | r8 | 0.4833 | 2.30x | — |
-| 100 | gen_pfa_large | 0.2864 | r7 | 0.4982 | 1.74x | — |
-| **total** | | **1.5609** | | 5.514 | **3.53x** | |
+| L | winner | chain s | round | stock best-lib | vs stock | fftw3_custom_soa* | soa vs stock |
+|---|---|---|---|---|---|---|---|
+| 10 | gen_race | 0.0734 | r8 | 0.2914 | 3.97x | 0.2884 | 1.01x |
+| 12 | gen_pfa_small | 0.0734 | r8 | 0.2969 | 4.05x | 0.3287 | 0.90x |
+| 15 | gen_race | 0.0840 | r8 | 0.3160 | 3.76x | 0.3208 | 0.98x |
+| 20 | gen_batchlane | 0.1046 | r8 | 0.3671 | 3.51x | 0.3666 | 1.00x |
+| 25 | gen_powp | 0.1265 | r7 | 0.4432 | 3.50x | 0.3289 | 1.35x |
+| 27 | gen_powp | 0.1387 | r8 | 0.4616 | 3.33x | 0.3312 | 1.39x |
+| 31 | gen_rader | 0.1894 | r7 | 1.6005 | 8.45x | 0.4837 | 3.31x |
+| 32 | gen_race | 0.1107 | r8 | 0.3429 | 3.10x | 0.3730 | 0.92x |
+| 40 | gen_pfa_large | 0.1635 | r8 | 0.4130 | 2.53x | 0.4422 | 0.93x |
+| 50 | gen_race | 0.2104 | r8 | 0.4833 | 2.30x | n/a (B=4) | — |
+| 100 | gen_pfa_large | 0.2864 | r7 | 0.4982 | 1.74x | n/a (B=1) | — |
+| **total** | | **1.5609** | | 5.514 | **3.53x** | | |
 
-*fftw3_custom columns are SEPARATE by design (Will's rule): genfft-generated custom
-codelets are a configuration no shipped FFTW provides. Measured at the ice graded
-points 17/23 and gen point 31 (chain s, same node/protocol):
+### Notes on the fftw3_custom_soa column
 
-| L (B x m) | fftw3_custom (scalar-split) | fftw3_custom_soa (8-vol batch-lane) | stock MKL same-window | our best |
-|---|---|---|---|---|
-| 17 (32x98) | 0.1867 | **0.0781** | 0.2786 | 0.0277 |
-| 23 (16x165) | 0.6270 | **0.2047** | 0.6922 | 0.0892 |
-| 31 (16x140) | 1.2339 | **0.4946** | 1.9034 | 0.1894 |
+*What it is.* FFTW's own code generator (genfft, driven by an OCaml toolchain we built for
+the purpose) asked for single monolithic straight-line codelets at each exact size — a
+configuration NO shipped FFTW provides — then the identical generated C compiled with the
+element type retyped to an 8-double vector, turning it into an SoA batch-lane split-complex
+kernel (8 volumes per lane-slot, scalar twiddle constants broadcast by the compiler). It is
+kept as a SEPARATE column by project rule: it answers "how good could library-generated code
+be", not "what a library user gets".
 
-**The SoA verdict (Will's question, answered by measurement):** retyping the SAME
-genfft straight-line DAG over an 8-double vector element (gcc vector extensions,
-scalar twiddles broadcast) speeds it up 2.4-3.1x — genfft output DOES enjoy the full
-batch-lane split-complex benefit, contrary to the guess. Consequences:
-(a) FFTW's own generator output, in the right layout, beats FFTW's shipped library
-    3-4x at these primes — the interleaved-API framing, not codelet quality, is the
-    library's binding constraint;
-(b) hand-tuning still matters: our panel kernels beat SoA-custom by another 2.3-2.8x
-    (schedule, fusion, and memory choreography that genfft does not model);
-(c) a 20-line generator retype delivers most of the layout win — the cheapest
-    "first performant implementation" from the whole literature sweep.
+*The layout effect is real and large*: the SoA retype beats the same codelet in scalar-split
+form by 1.3-2.4x (scalar column in results/fftw_custom/), confirming that genfft output DOES
+enjoy the batch-lane benefit — a ~20-line compile-time change worth up to 2.4x.
+
+*But the algorithm still decides where it matters.* Against the best stock library the SoA
+custom wins ONLY at the prime sizes (25: 1.35x, 27: 1.39x, 31: 3.31x; and at the ice points
+17/23 it was 3.5x+) — exactly where libraries fall back to Rader/Bluestein. At CT-friendly
+sizes (10, 12, 20, 32, 40) a monolithic direct codelet has a worse op count than the
+libraries' staged Cooley-Tukey, and the layout gain only brings it back to parity or a
+slight loss (0.90-1.01x). Layout fixes the arithmetic-throughput problem; it cannot fix an
+op-count problem.
+
+*The B>=8 requirement is itself a finding*: batch-lane SoA needs 8 volumes to fill a zmm,
+so the B=4 and B=1 cells (50, 100) cannot use it at all — the layout's advantage is
+conditional on batch shape, which is why the library's plan-time race (which picks
+per-(L,B) layouts) is the right architecture rather than a fixed layout choice.
+
+*Hand-tuning still wins everywhere*: our panel kernels beat the SoA custom by 2.4-4.5x
+across the board — schedule, axis fusion, and memory choreography that a straight-line
+codelet in a generic 3-pass driver does not capture.
 
 ## Round-8 note
 r8 consolidated (+0.5-2.6% at seven cells) but REGRESSED L=25 by 28% (0.1310->0.1681,

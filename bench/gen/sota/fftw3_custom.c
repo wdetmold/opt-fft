@@ -24,18 +24,28 @@ typedef double v8 __attribute__((vector_size(64), aligned(64)));
 #define LANES 1
 #endif
 #include "genfft_shim.h"
+#include "codelets/n1_10.c"
+#include "codelets/n1_12.c"
+#include "codelets/n1_15.c"
 #include "codelets/n1_17.c"
+#include "codelets/n1_20.c"
 #include "codelets/n1_23.c"
+#include "codelets/n1_25.c"
+#include "codelets/n1_27.c"
 #include "codelets/n1_31.c"
+#include "codelets/n1_32.c"
+#include "codelets/n1_40.c"
+#include "codelets/n1_50.c"
 
 typedef void (*codelet_fn)(const R *ri, const R *ii, R *ro, R *io,
                            stride is, stride os, INT v, INT ivs, INT ovs);
 static codelet_fn pick(int L)
 {
     switch (L) {
-    case 17: return n1_17;
-    case 23: return n1_23;
-    case 31: return n1_31;
+    case 10: return n1_10;  case 12: return n1_12;  case 15: return n1_15;
+    case 17: return n1_17;  case 20: return n1_20;  case 23: return n1_23;
+    case 25: return n1_25;  case 27: return n1_27;  case 31: return n1_31;
+    case 32: return n1_32;  case 40: return n1_40;  case 50: return n1_50;
     }
     return 0;
 }
@@ -64,7 +74,7 @@ const char *fft3d_description(void)
     return "genfft custom codelets (17/23/31), split arrays, scalar DAG + autovec";
 #endif
 }
-int fft3d_supports(int L) { return L == 17 || L == 23 || L == 31; }
+int fft3d_supports(int L) { return pick(L) != 0; }
 
 fft3d_plan *fft3d_create(int L, int batch)
 {
