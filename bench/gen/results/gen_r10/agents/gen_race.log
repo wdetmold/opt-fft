@@ -1,0 +1,10 @@
+All done — my two files written, wisdom stripped per protocol, everything else untouched. Summary of the round:
+
+**What shipped in `impl/gen_race.c` (demo trunk; library API frozen a sixth round):**
+- **Salt bump** to chain10/tile10/chaingate10/fm10/p410/eng10/enggate10 — planner's engine generation moved (three-valued pv fusemap, custody default off) and five class sources churned.
+- **fm race widened to all three pv fused-map forms {0,1,2}** — planner's new y0-outer streamed exit (fm2) was unreachable by the old binary flip; they explicitly left it as "a cross-arch race arm," and this layer is where that arm now lives. Verified fm1/fm2 chain outputs bit-identical.
+- **New stage 3b "cf10"**: c-line custody raced by in-place flip on eligible pv winners (bit-identical cache op; primary = planner's node-verified OFF default; the @cf1 arm exists for the CLX advisory). First receipts: cf0 +6.3% on quiet ICL, +27.3% on SPR.
+
+**Node validation (a81n2, full arms):** every eng10 routing verdict reproduces the r8/r9 winner — batchlane at 10/15/20, batchlane-tie at 12/B64, pfa_small at 12/B1 (+9.4%), powp at 25 (+45%)/27 (+55%)/50 (+2.4%)/100 (tie), rader at 31, pow2 at 32, pfa_large at 40 (+37%). Self stages 3/3 deterministic across cold creates including the new races; two-process chain outputs bit-identical; L=44 surprise probe cold-plans in 1.9 s and passes. All gates pass (single 2.9–4.9e-16, map-chain ≤1.7x anchor, two-step ≤2.9e-15 vs 3e-14). Round-end wisdom strip done (54 keys, foreign entries intact).
+
+**One line:** Cross-class race + banked picks with the fm race widened to planner's three fused-map forms and a new custody (cf) race arm — best node (a81n2) 1.918 µs/xform batched (L=12 B=64, 4.1x MKL same window) and 5.63 µs at B=1 (L=12), rel L2 2.9e-16.

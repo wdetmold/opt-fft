@@ -1014,3 +1014,209 @@ L=100 m=2 4.109e-15 (tol 3e-14), chain m=64 3.564e-14 (anchor 2.416e-14,
    ever needed, is fewer FLOPs per butterfly (2,8-split-radix chains,
    lit 11), which only applies to the pow2-M holdout slices (graded
    25/27/31/32 at M=64).
+
+## Round gen_r9 (reconstruction, written in gen_r10)
+
+RECORD HYGIENE NOTE: this section was never written in round gen_r9 itself --
+the r9 agent log (results/gen_r9/agents/gen_bluestein.log) is EMPTY (1 byte)
+though exits.txt says exit=0, and no "Round gen_r9" section was appended.
+The shipped r9 change is reconstructed here from `diff impl_8/gen_bluestein.c
+impl_9/gen_bluestein.c` (123 lines, one change, fully commented in-source):
+
+**j-outer, blocks-inner loop order in dif4_stage / dit4_stage** (knob
+-DBST_NOJX restores blk-outer). Every block of a generic middle stage consumes
+the SAME twiddle triple, so the 6 broadcasts hoist out of the block loop;
+M/len == 4 at every shipping M's generic middle stage, so 3/4 of the stage's
+broadcast uops disappear (gen_rader gen_r8's broadcast amortization, applied
+across blocks instead of column pairs). The M == 4*len case additionally
+unrolls the 4 blocks explicitly. Per-element arithmetic untouched; outputs
+bit-identical. r9 board (NOTE: new host a81n2, absolute numbers not
+comparable to the a80n0 boards): L=10 12.83, 25 169.6, 27 202.5, 31 272.6,
+32 297.2, 40 605.3, 50 (cut off in context), 100 (not in my context copy) --
+all gates ok. This change is load-bearing for r10's radix-16 verdict below.
+
+## Round gen_r10
+
+### What changed (impl/gen_bluestein.c: two adoptions + one raced gate move)
+
+1. **Axis-2 transpose-scatter final layer as 256-bit half stores**
+   (`tr8x8_store`, knob -DBST_NOTRST; named borrow: gen_pow2 gen_r9's
+   vextractf64x4-TO-MEMORY -- p237+p4, zero p5 uop, 256-bit stores retire
+   2/cycle). My last_scatter_tr's transpose feeds MEMORY (unlike gen_pow2's
+   TR8-internal shuffles, which their record correctly says cannot take the
+   store path), so the third shuffle layer can be deleted entirely: layers
+   1+2 become 8 unpacks + 8 vpermt2pd (index vectors chosen so each result's
+   256-bit halves are exactly row v's / row v+4's half-rows), layer 3 becomes
+   8 vmovupd-ymm (low halves) + 8 vextractf64x4-to-mem (high halves).
+   Per full 8x8 block: p5 24 -> 16 uops, stores 8x512 -> 16x256 (bandwidth
+   neutral), front-end uop count unchanged. Stored bytes BIT-IDENTICAL
+   (cmp-verified vs -DBST_NOTRST at L=25/31/100/21). Applies at every size
+   with M >= 16 (the tr path), nv == 8 groups only; nv < 8 and the partial-r1
+   boundary block keep the zmm path. objdump audit: 16 memory-destination
+   vextractf64x4 + 16 vpermt2pd in the shipped function, exactly as designed.
+
+2. **nv < 8 tail groups through a masked contig pipeline**
+   (first_gather_contig_tail / last_scatter_contig_tail, knob -DBST_NOTAIL;
+   named borrow: gen_twiddle gen_r9's masked tail forms -- maskz lanes are
+   exactly +0.0 = the zero pad). Closes my item carried since gen_r3: the
+   last nrows % 8 rows of an axis-0/1 pass (always the tail of the last div
+   block, so a single contiguous run) previously took the generic scalar
+   path. Now: zero-masked loads -> same permutex2var/chirp/pruned-first-
+   stage pipeline; masked-off lanes carry zeros through the linear
+   convolution and are never stored. The fused map runs BST_MAP8 in the tail
+   too (gen_twiddle r9's divider warning -- "sqrt/div price per OP, not per
+   useful lane; keep partial-group divider work scalar" -- does NOT bite:
+   the ladder is rsqrt14/rcp14 + Newton, no divider op). Side effect: the
+   L=101-type tail non-identity recorded in gen_r5 (scalar sqrt/div tail vs
+   ladder elsewhere) is gone -- tails are now ladder-exact like full groups.
+   Graded cells all have nrows % 8 == 0, so this is surprise-size coverage,
+   not graded speed.
+
+3. **Radix-16 fusion gate raised: len >= 32 -> len >= 64** (forward dif16 and
+   the mirrored dit16 condition). The r10 finding that paid for the round:
+   after r9's j-outer dif4/dit4, the register-fused radix-16 pairs LOSE at
+   len = 32/48. Node, held lease, control-first same-core pairs, 3/3 each:
+   - L=63 (M=128): radix-4 2748.3/2744.0/2761.3 vs dif16 2973.3/2983.1/
+     2992.7 us = **-7.7%**
+   - L=96 (M=192): 10231/10222/10307 vs 11459/11304/11306 = **-9.8%**
+   The S2 = len/16 = 2..3 tile loop is too short to amortize the 32-live-zmm
+   spills against the now-lean unrolled j-outer dif4. At len = 64 (M = 256,
+   32 KiB buffer past L1) the deleted pass still pays: L=127 B=1, 6 pairs
+   over two windows, 5/6 to fusion (-1.5..-2% in the clean pairs; one dirty
+   34.7-vs-38.8 outlier pair each way). Outputs bit-identical either way
+   (the r2 design: fusion is scheduling, not arithmetic), so the gate is
+   pure schedule policy. M=128/192 slices cover surprise sizes 57-64 and
+   81-96; no graded cell uses dif16 (M = 224/112/80/64/48/32).
+
+### Measured on the node (a81n2 -- the r9 scoring host; ONE held lease per
+### battery, control-first same-core alternating pairs, new vs
+### -DBST_NOTRST -DBST_NOTAIL control; graded chain cells, min us/xform)
+
+TRST+TAIL vs control (changes 1+2; graded cells have no tails, so these
+pairs are effectively the TRST attribution):
+- L=25 B=16 m=256: 8 pairs over two windows, new 5/8, median -0.8%
+  (172.2/173.6, 173.1/173.0, 170.0/171.3; 169.1/170.8, 169.0/170.3,
+  170.3/170.0, 170.0/171.7, 175.5-dirty/169.6)
+- L=31 B=16 m=140: 8 pairs, new 5/8, wash-to-lean in a noisy window
+  (spread 274-305 us in-window)
+- L=50 B=4 m=128: new 4/5, mean **-1.7%** (1374.4/1383.3, 1556.1/1563.2,
+  1437.7/1425.2, 1460.5/1502.5, 1419.2/1502.8)
+- L=100 B=1 m=64: new 2/3 (14718.7/15878.2-dirty-ctl, 14847.9/14765.4,
+  14566.3/14790.6)
+Verdict: a small lean win that never consistently loses, strongest where the
+blocked-custody chain spends most time in the tr path; same magnitude as
+gen_pow2's own r9 measurement of the trick (-1.5% at their L=32).
+
+Tail-only attribution (bin_trst = -DBST_NOTAIL vs full new) at L=21 B=1
+m=200 (nrows = 441, one nv=1 tail group per axis-0/1 pass): 3/4 pairs to
+trst, all <= 1% (94.6/95.3, 97.3/94.8, 96.4/96.4, 97.1/96.2). A 1/56-groups
+change cannot arithmetically cost 1%; this is inside gen_layout r9's
+measured 1.5% code-layout confound band (they saw that delta between
+binaries executing IDENTICAL tail instructions). Shipped ON for coverage
+and tail exactness; knob kept for the cross-arch re-race.
+
+Ship binary, fresh-core tryout reads, same session (MKL 2022 same window):
+| cell | gen_bluestein | MKL | vs r9 board (same host) |
+|---|---|---|---|
+| L=10 B=64 m=1000 | 13.12 | 4.59 | 12.83 (window parity) |
+| L=25 B=16 m=256 | 174.4 | 122.2 | 169.6 (window) |
+| L=31 B=16 m=140 | 279.4 | 854.4 | 272.6 (window) |
+| L=40 B=8 m=128 | 606.8 | 406.4 | 605.3 (parity) |
+| L=50 B=4 m=128 | 1380.3 | 947.7 | -- |
+| L=100 B=1 m=64 | 14259 | 7838 | -- |
+| L=63 B=1 single | 2748 | -- | was 2973-2993 (-7.7%) |
+| L=96 B=1 single | 10222 | -- | was 11304-11459 (-9.8%) |
+
+### Gates (shipped default build; singles/2-step/chains on wallaby-SPR by
+### hand -- full AVX-512 vector paths per gen_layout r9's host correction --
+### singles re-confirmed on the node via tryout at the 6 cells above)
+Generality singles B=1: 34 sizes {2,3,5,7,9,11,13,16,17,21,23,24,33,35,40,
+47,48,49,56,63,64,65,71,80,96,97,101,104,105,112,113,120,127,128} ALL PASS
+<= 1.1e-15 (tol 1e-12) -- covers every tail type, both PFA parities, all M
+grids incl. both sides of the new len>=64 fusion gate (63/64: M=128, 96:
+M=192, 113-128: M=256), tail-group odd-L sizes (21/35/101/113...), the
+L = M/2 edges, and the giants. Two-step m=2: L=25 2.06e-15, L=31 2.55e-15,
+L=63 3.76e-15, L=96 3.34e-15, L=100 4.11e-15, L=101 5.86e-15 (tol 3e-14,
+>= 5x margin). Graded chains: L=25 4.83e-14 (anchor 2.80e-14), L=31
+4.17e-14 (2.31e-14), L=50 6.13e-14 (2.92e-14), L=100 3.56e-14 (2.42e-14),
+L=10 m=1000 2.30e-13 (1.08e-13), plus tail-exercising L=21 m=200 3.41e-14
+(1.76e-14) and L=101 m=64 5.06e-14 (3.57e-14) -- all <= 2.2x honest, tol
+1e-10. All chains bit-repeatable (cmp-identical across runs). Scalar
+-march=x86-64 build: singles + m=2 chains PASS at {21, 50 B=4, 100}.
+create() still ~0 s. TRST bit-identity and R16-gate bit-identity both
+cmp-PROVEN against knob builds (the control arms are flag-disabled builds
+of the same source, per gen_rader r9's symlink-trap warning -- never
+compare against the impl_N snapshot, `impl` IS the round symlink).
+
+### Brief avenue 1 (bank the picks): N/A for this entry, stated for the
+### monitor -- create() is branch-free and deterministic (M grid is a pure
+### function of L; no internal race, no wisdom interaction); 5 consecutive
+### create() cycles trivially pick identically.
+
+### What did NOT work / was declined without a window, with the reason
+- **2,8-split-radix on the pow2-M holdout slices** (my r5/r7/r8 carried
+  "last arithmetic lever"): DELETED from the list, not just demoted.
+  gen_pow2 r9 measured exactly this class of change on the same
+  port-floor-bound engine shape: -7% ops, ZERO wall (their r5 FTW
+  subtraction, reaffirmed r9). The op-count ledger for this class is now
+  closed on ICL in both directions.
+- **ymm/port-1 side-work (PMU audit avenue 4)**: dead by three independent
+  r9 records -- gen_pfa_large's portcal3 microbench (8 zmm FMA chains + K
+  ymm streams = exactly (8+K)/2 cycles: 256-bit FP steals 512-bit slots
+  1:1), gen_batchlane's microarchitecture argument (ICL port 1's FP pipe IS
+  the lower half of port 0's fused 512-bit unit), gen_layout's confounded
+  tail result. My r10 splits no FP to ymm; the 256-bit stores in change 1
+  are store-port work, which is the one resource this argument does not
+  touch.
+- **Lifted DFT5 (gen_pfa_small r9 / gen_batchlane r7)**: checked against my
+  BST_DFT5_LANE/BST_DFT5V as the survey suggested -- NO op delta for my
+  form. My q-pair already costs 4 ops/component (2 mul + 2 FMA for
+  q1 = S51*d1 + S52*d2, q2 = S52*d1 - S51*d2); the lift (u = d1 - PHI*d2;
+  q2 = S52*u; q1 = S51*u + KL5*d2) is also 1 FMA + 1 mul + (1 mul + 1 FMA)
+  = 4. Their 8 -> 6 win came off a different starting form. Declined on
+  arithmetic; nothing to race.
+- **Gather-side 256-bit load restructure** (the mirror of change 1 in
+  first_gather_tr): declined without a run -- vinsertf64x4-from-memory is
+  p05 + p23 (uops.info), so the "saved" p5 shuffle comes back as a p0/p5
+  blend uop in the FP-contended pool. gen_pow2 validated only the store
+  side; adopting only what was proven.
+- **Tail path at L=21 read +0.6..1% vs the trst-only arm** (numbers above)
+  -- kept anyway; see the layout-confound reasoning. If a future round sees
+  a real regression at odd-L B=1 cells, -DBST_NOTAIL is the first knob.
+
+### Borrowed this round, named
+- **gen_pow2 gen_r9**: vextractf64x4-to-memory through the scatter (change
+  1 is their trick at my hottest p5 site), plus their negative ("op cuts
+  are wall-neutral on a port-floor-bound engine") which deleted my
+  split-radix carry.
+- **gen_twiddle gen_r9**: the masked tail forms (change 2's shape) and the
+  divider-occupancy boundary I checked my ladder against.
+- **gen_pfa_large / gen_batchlane / gen_layout gen_r9**: the three-way
+  port-1 kill, adopted as a standing null.
+- **gen_rader gen_r9**: the symlink trap -- both control arms this round
+  are flag-disabled builds, never the impl_N directory.
+- **gen_batchlane r4 / gen_pow2 r3** (standing): held-lease same-core
+  control-first pairing for every keep/kill above.
+
+### Operation count (delta vs r9 ship)
+Change 1: per full 8x8 scatter block, 8 fewer p5 shuffle uops, +8 store
+uops at half width (store-bandwidth and front-end neutral); no FP change;
+bytes identical. Change 2: per tail group (<= 1 per axis-0/1 pass, only
+when 8 does not divide B*L*L), the 2L-element scalar gather/scatter/chirp
+(+ scalar sqrt/div map in chains) becomes the vector pipeline. Change 3:
+at M = 128/192 only, one extra buffer pass each way (dif4+dif4 vs dif16)
+that removes the fused tile's register spills; arithmetic bit-identical.
+
+### What I would do next
+1. **bluestein_cost(L) for gen_planner** (eighth carry): ~0.66 ns per
+   (row * M(L)*log2 M(L) / 8) + ~0.15 ns/pt/step chain map on ICL,
+   M(L) = min{2^k, 3*2^k>=48, 5*2^k>=80, 7*2^k>=112 : >= 2L-1}.
+2. **Cross-arch re-races** (carried, list grows): BST_MAPFUSE_MAX_MIB,
+   BST_NOCFUSE, BST_BLKFUSE, BST_PF, BST_SCHED, BST_MID12, BST_NO7,
+   BST_M13, BST_NOJX, and now BST_NOTRST / BST_NOTAIL / the len>=64 fusion
+   boundary on CLX (1 MB L2 reweights both the M=256 pass economics and the
+   store-vs-shuffle trade) and SPR.
+3. The len>=64 gate is coupled to the j-outer dif4: if the radix-4 bodies
+   change again, re-race the boundary (a one-knob, two-size check).
+4. If anyone ever needs the axis-2 gather side too: budget vinsertf64x4's
+   p05 cost against the deleted p5 first (a static audit, no lease needed).

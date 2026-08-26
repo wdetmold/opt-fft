@@ -1525,3 +1525,186 @@ cold setups 0.31–4.64 s vs the 60 s budget.
    compiled-in race candidates; with banking live, each host's first quiet
    race now settles its pick permanently — check the CLX/SPR advisories
    pick up the banked verdicts rather than re-rolling.
+
+## Round gen_r10
+
+Standings into the round (r9 board, scored on a NEW node — a81n2, same Gold
+6326 SKU as a80n0): led 25 (31.054 — the r9 banking design recovered the r8
+wound exactly as intended), 27 (43.607), 50 (417.400 vs gen_pfa_large
+437.059); **L=100 shipped 4807.4 where ~4550 was available (-6.3% vs
+gen_pfa_large's ipp1 at 4521.7, shared shell, run spread 6.5% vs their
+2.0%)**.  Cause, read straight out of wisdom_a81n2.json before touching any
+code: `gen_powp/chain7/L100/B1 -> l100-ipk1, tie=1, us=4699.06,
+margin=-0.01596` — the scoring window's own challenger playoff put ipp1
+AHEAD of rank-0 ipk1 by 1.6% (a tight, banked verdict), and the 3% rank
+hysteresis handed the slot back to ipk1 anyway.  The rank prior was my r6
+a80n0 evidence (5/5 held-lease pairs); it is HOST evidence, and it was
+imported onto a different host against that host's own measurement.  Worse,
+the banked plain-name verdict would have WARM-HIT in the r10 scoring window
+and replayed the loss (banking working exactly as designed, on a wrong
+premise).  Kernel arithmetic is untouched this round (bit-identical to
+r7/r8/r9 — the historical gate drifts reproduce to the last digit); all
+four changes are in tune().
+
+### What was built (four mechanisms, all in tune(); marker "r10
+### playoff-authoritative picks")
+
+**1. A DECIDED challenger playoff is AUTHORITATIVE between its two arms.**
+When the interleaved playoff reaches its noise-gated exit (Q <= tol or
+margin >= 2Q), the loser can no longer take the slot back through the 3%
+rank hysteresis (implemented as: if `best == po_w && pick == po_l`, pick
+reverts to the playoff winner).  Rank priors encode one host's held-lease
+history; a decided playoff is the RUNNING host's long-horizon measurement
+and outranks it — per-host truth is what the whole race layer is for.
+Third candidates, undecided (still-noisy after 9 rounds) playoffs, and the
+soa family's deliberate 3% hurdle are all unchanged.
+
+**2. The challenger playoff runs even when rank 0 IS the trial best.**  The
+arms are then the two trial LEADERS (rank-0/best vs runner-up-by-trial).
+Without this, 3/5 cold races on a81n2 put ipk1 first in the contaminated
+short trials (see item 3) and installed it with no long-horizon check at
+all — the override of item 1 never even got evidence to act on.
+
+**3. Trial/playoff CACHE-REGIME FIDELITY at volumes past L3 scale (> 8 MiB):
+base trials warm 3 steps (was 1); playoff arms warm 6 (was 2) and time
+PS=24 steps (was 12).**  Mechanism, measured before/after on a81n2: the
+candidates alternate on the SAME tout/tcf arenas, so a c-custody arm (ipk1
+CLFLUSHOPTs the entire 16 MB c stream every step) hands its successor a
+c-cold cache hierarchy — and at 100 the successor is ALWAYS ipp1 (table
+order), so the measurement systematically charged ipp1 for ipk1's flushes.
+With the r9 shape the in-race playoff read ipk1 4775-5151 vs ipp1
+5363/4805 (ipk1 "winning") in the same session where held-lease GRADED
+m=64 pairs read the opposite: **ipp1 wins 5/6 pairs, floors 4538-4619 vs
+ipk1's 4712-4780 (-2.2..-4.9%)** — the graded shape is the ground truth the
+race exists to predict.  One warm step cannot re-converge 16 MB of c; six
+steps at the arm's own regime can.  Small volumes keep the r6/r9 shape
+exactly (their arenas are L2/L3-resident; nothing to converge).
+
+**4. Wisdom tag chain7 -> chain8**, so the r9 window's banked l100-ipk1
+hysteresis tie can never replay.  (gen_race independently bumped its own
+tags enggate9->enggate10 etc. this round; no API change, my GEN_RACE_LIB_ONLY
+include is unaffected.)
+
+### Measured on the node (a81n2 — the r9/r10 scoring host; the reservation
+### landed this round, first node access since r8)
+
+The decisive A/B (held lease, one core, GENPWP_PF forced, cold race, full
+graded m=64 chains, samples 5-6, order alternated across pairs), run in a
+quiet-ish early window: **ipp1 4538.2/4554.3/4561.7/4609.5/4619.2/4871.5 vs
+ipk1 4712.1/4746.6/4771.2/4772.8/4774.1/4779.7 — ipp1 wins 5/6 pairs,
+min-of-mins 4538 vs 4712 (-3.7%)**.  This matches the r9 board (their ipp1
+4521.7) and the banked playoff margin's direction; it is the OPPOSITE of
+a80n0's r6 5/5.  Window boundary, recorded honestly: later in the session
+the node went busy (12 implementers active, load ~6.6) and the same graded
+pairs compressed to a tie (ipp1 4742/4759 vs ipk1 4795/4769) — contention
+armor compresses the gap here rather than widening ipk1's lead as on a80n0.
+The design outcome is NOT "ipp1 is hardcoded": the quiet scoring window
+races cold under chain8, the faithful playoff decides on that window's
+long-horizon evidence, and banking pins it.
+
+Verification battery (all on a81n2, mixed-to-heavy contention — timing
+numbers are gate evidence, not floors):
+- Gates: single call 3.604/3.725/4.336/4.522e-16 at 25/27/50/100 (tol
+  1e-12); two-step m=2 **1.467/1.624/2.361/2.721e-15** (tol 3e-14 — the
+  exact r7/r8/r9 values, arithmetic bit-identical); graded chains
+  3.061/3.147/5.028/4.181e-14 at 1.09-1.73x honest anchors (exact r9
+  values); all four sizes repeatable (cmp-identical across independent
+  processes, m=2 and graded m).  Lite sizes 49/81/121/125: m=2 gates
+  2.017/2.869/2.687/2.861e-15, cold setups 2.2-8.5 s under contention.
+- Pick determinism (3 consecutive GEN_RACE_REFRESH cycles per size, busy
+  window): 25 3/3 l25-soa (margins +32.8..+37.4%, Q 0.1-0.2%); 27 3/3
+  l27-soa (+19.0..+21.4%); 50 3/3 l50-ipp1 (rank rule, runner inside the
+  accepted <=3% band at -1.2..-2.1%, Q 0.0%).  100 in the busy window: 5/5
+  ipk1 (that window's honest truth — see boundary above).
+- B=1 interleaved path exercises the new leader playoff (l25-ip0 45.47 vs
+  l25-ip1 45.31, decided; near-tie semantics unchanged) and passes its
+  m=256 chain gate.
+- Dev-session chain8 keys STRIPPED from wisdom_a81n2.json under flock at
+  session end (r9 protocol for dev-window verdicts: a contended window can
+  read tight-but-biased; the scoring window's cold race is the arbiter).
+  The r9 chain7 scoring verdicts were left untouched (dead keys to the r10
+  binary; scoring-window property).
+- -Wall -Wextra: exactly the 16 pre-existing unused-candidate warnings.
+- MKL same-core references during the battery: 121.3 (25), 147.5 (27) —
+  ~3.9x / ~3.4x in dev windows.
+
+### What did NOT work / boundaries, with the numbers
+
+* **Item 1 alone was insufficient** (my first cut): with only the
+  authoritative override, 3/5 cold races at 100 never ran a playoff (ipk1
+  was trial best) and the 2/5 that did read ipk1 AHEAD (5151 vs 5363; 4801
+  vs 4805) — the override obediently installed the loser of the graded
+  truth.  The fidelity fixes (items 2+3) are what make item 1 mean
+  something.  Lesson, stated for the panel: **an authoritative decision
+  rule is only as good as the measurement it authorizes; fix the
+  measurement's cache-regime fidelity BEFORE strengthening the rule.**
+* **The playoff cannot out-measure its window.**  In the heavy-contention
+  window even the graded pairs tie (4742/4759 vs 4795/4769); no create()-
+  time machinery can recover a quiet-window verdict from a busy window.
+  Layered defenses unchanged: quiet scoring window + chain8 cold race +
+  banking + dev-key strip.
+* **Cold create at 100 hit 37 s under peak contention** (tryout, 12
+  implementers active; quiet-window estimate ~6 s, r9 was ~2 s).  Still
+  inside the 60 s budget, but the adaptive extensions + longer playoff eat
+  margin under load — if a future round adds candidates at 100, trim the
+  also-ran pool (f0/fr/frw have never won a 100 race in ten rounds) before
+  extending horizons further.
+* tryout.sh's remote map-check leg still dies on the '$W/c.bin' quoting bug
+  (eighth round); gates above were run by hand on the node.  reserve.sh
+  still needs the slurm PATH shim on wallaby.
+
+### Borrowed, plainly
+
+- **gen_pfa_large (gen_r9)**: their determinism lesson — "a noise gate
+  keyed only to in-window spread cannot deliver determinism; it needs a
+  margin floor calibrated to between-window drift and a confirmation on
+  fresh evidence" — is why the override fires only on DECIDED playoffs and
+  why rank priors were not simply swapped (their ranks already had ipp1
+  first at 100; on my engine the same truth arrived via wisdom forensics).
+  Their r9 upset rule (6% floor + fresh-evidence confirmation) is the
+  stricter cousin of my item 1; mine can be looser because the playoff
+  itself is already the long-horizon confirmation.
+- **The monitor's r9 board + wisdom_a81n2.json**: the entire diagnosis was
+  read out of the banked verdict record — banking picks (r9's design)
+  turned a mystery regression into a one-line root cause.  That is the
+  strongest argument yet for the avenue-1 machinery.
+- The cache-regime-contamination mechanism (item 3) is new here; any entry
+  racing a cache-custody candidate (NT stores, CLFLUSHOPT, NTA prefetch)
+  against a caching one on SHARED trial buffers has the same exposure —
+  gen_pfa_large's ipq/ipk/iqn pool at 40/50/100 most directly.  Take the
+  warm-step fix.
+
+### Operation count
+
+Unchanged everywhere (192/218/434/968 scored, 534/850/1850/1552 lite
+FMA-port vector ops per line; soa 388/408 record-lineage per pencil).
+Shipped chains bit-identical to r9/r8/r7 at every size.  tune() cost: the
+leader playoff now runs at essentially every interleaved cold race (+0.3 s
+quiet at 50, +2-3 s quiet at 100); warm wisdom path unchanged (ms-scale).
+
+### What I would do next (ranked)
+
+1. **Verify on the r10 board** that L=100 recovered to ~4550 (parity with
+   gen_pfa_large) and that wisdom_a81n2.json holds a plain-name chain8
+   l100-ipp1 (or a genuinely-measured ipk1 if the quiet window says so —
+   either is the design working; a provisional ~q marker means the scoring
+   window was noisy, tell the monitor).
+2. **4-lane SoA at L=50 B=4** (r9 avenue 2+4 hybrid) remains the one
+   unexplored engine idea for my cells, and gen_pfa_large's r9 portcal3
+   result (256-bit FP steals 512-bit slots 1:1 on SPR, predicted same on
+   ICL) has KILLED its port-1 co-issue rationale — the only remaining
+   angle is the batch-lane layout itself (zero shuffles vs TRNC) at half
+   vector width, which the r8 port census prices as a net loss (2x ops vs
+   +569 shuffles/line saved).  Consider it closed unless portcal3-on-ICL
+   surprises.
+3. **Two-axes fusion at 100**: the counters (2.34G l1d lines, 0.82/cyc
+   p0+p5) still say traffic headroom exists, but two shell-level closures
+   (gen_pfa_large r7 accounting, my r8 attribution: the z-subpass shuffle
+   cost hides under L3-stream slack) stand against it.  Only worth a round
+   if someone produces a paper schedule with fewer L1 round trips, not
+   just fewer passes.
+4. **If any host ever shows the playoff and the graded shape disagreeing
+   AFTER item 3** (check by forcing GENPWP_PF pairs in the same window):
+   the next fidelity lever is running the playoff arms on SEPARATE c
+   buffers (one per arm), which removes the cross-arm custody coupling
+   entirely at the cost of 16 MB more race arena.

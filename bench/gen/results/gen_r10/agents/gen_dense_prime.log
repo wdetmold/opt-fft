@@ -1,0 +1,10 @@
+Both deliverable files are written. Final summary:
+
+**Round gen_r10 complete.** Two levers shipped, both cumulative-round borrowings:
+
+1. **Paired map divides** (gen_powp r5 / gen_layout r5's gl_map16): one `vdivpd` per 16 complex points via `rp = 1/(dA·dB)` in the standalone map pass — wins -1.3…-3% at 17/19/20/23/29, wash at 10/15, and the fused-site variant was raced and rejected (+1.5% 5/5 at 31 — gen_layout's register-fused-exit boundary reproduced; kept behind `-DGDP_MAPZ_PAIR`).
+2. **The r9 6-row 24-acc generic z-kernel, per-L gated at plan time**: the ICX races flipped my r9 SPR rejection — it wins -1.5…-3% (4/4) at 17/19/23/29 and loses at composites, so `create()` now enables it for odd L ≥ 17 (`-DGDP_ZG6`/`-DGDP_NOZG6` for cross-arch).
+
+Also banked: first PMU signature for this engine (p0+p5 dispatch 1.44/2.0, IPC 2.30, low L1 traffic — the 31-cell residual is drain structure, not traffic; champion runs 1.60). Verification: singles bit-identical to r9 at all 14 cells, every numpy gate re-run PASS on the node (two-step 1.726e-15 vs tol 3e-14; m=140 chain 2.551e-14 vs anchor 2.312e-14, tol 1e-10), chain outputs bit-repeatable, scalar build clean.
+
+Technique ended on: paired-divide standalone map + per-L-gated 6-row z-GEMM (24-acc rotating-broadcast family). Best score-machine (a81n2 ICX) µs/transform at L=31 m=140: **109.8 batched (B=16), 110.4 at B=1** (parity with r9 there; the wins land at 17–29 and L=20, -1.3…-5%). Rel L2: **3.9e-16 single, 2.55e-14 on the graded m=140 chain** — all gates pass.

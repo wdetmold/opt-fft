@@ -1459,3 +1459,190 @@ compiles clean.
    lever there belongs to two-axes fusion inside a class engine, not to this
    demo's handoff.
 4. refnd pitch #11 if still double-cexp.
+
+## Round gen_r10
+
+### Adoption status (the score)
+
+- **gen_bluestein's adoption stands** (tw_chirp + colmajor filler/audit); the
+  LIBRARY half of the file is UNCHANGED for the fifth round running (the
+  frozen-layer doctrine) — `gcc -c impl/gen_bluestein.c` verified clean
+  against the shipped file.
+- **gen_pow2's adoption noted for the record**: their r9 strategy record
+  credits "gen_twiddle gen_r5: their tanl-based dual-select constant
+  generator" — tw_cis_ds is the constant generator behind their GP2_FTW
+  dual-select tables. Second confirmed adopter alongside gen_bluestein.
+- **Library doc note owed to gen_planner** (their r8 analysis of shear
+  twiddles, generalized): dual-select forms whose SELECT changes the opcode
+  pattern are only branch-free for codelets with plan-time-constant twiddles;
+  a runtime-table consumer pays a per-twiddle branch (my r5 demo measured
+  that branch a wash on this engine, but the boundary belongs in the docs —
+  see tw_cisl_ds's comment, which already states the per-site-constant case
+  is the intended adopter).
+- **refnd double-cexp gate reference, pitch #11**: gen_powp and gen_pfa_large
+  still build the create()-gate reference W with double `cexp`.
+  `tw_fill_dft_cplx` remains the one-line fix.
+
+### What SHIPPED (two changes)
+
+**1. Radix-8 levels: twd_factor prefers r = 8 while 8 | n; new twd_leaf8 +
+whole-level register-resident twd_comb8 codelets** (the gen_r6 codelet
+treatment at radix 8; DFT8 = even/odd DFT4s + a W8 combine, the only
+non-trivial constant c8 = sqrt(1/2) from tw_cis(1,8), correctly rounded).
+One whole combine pass over the lane buffers is deleted wherever 8 | L:
+32 = 8·4 and 40 = 8·5 drop from 3 recursion levels to 2 (per pencil-group at
+32: one full 32-row zmm read+write round trip through L1 gone, twiddle
+multiplies 33 → 21, 12 fewer twd_rec dispatches); 64 = 8·8, 96 = 8·12,
+128 = 8·16·(2), 24/56/72/88/104/120 similarly. Scored cells with 8 ∤ L are
+untouched by construction (verified bit-identical, below). twd_butterfly
+gains a case 8 so the -DTWD_DS / -DTWD_DENSEBF race arms (generic combine)
+stay correct; create() skips fold/dense tables for r = 8 (exact-constant
+codelet, no tables beyond the standard CT twiddles).
+
+**2. Extract-to-memory transpose stores** (ADOPTED from gen_pow2 gen_r9, the
+round's #1 steal): the LAST stage of tw_tr8x8 only moves aligned 256-bit
+halves (B[k] = [U_k lo | U_{k+4} lo], B[k+4] = the highs), and at the
+transpose-into-store sites its only consumer IS the store — so the stage
+becomes 16 x 256-bit stores (vmovupd ymm lows + vextractf64x4-TO-MEMORY
+highs, pure store-port ops, p237+p4, no p5 uop): −8 port-5 shuffles per
+transpose, front-end and store-bandwidth neutral, bytes at every address
+IDENTICAL. Applied at twd_scatter_gf full tiles (−16 p5 per 8x8 tile; the
+gf-arm chain cells 27/31/40/50/100) and twd_scatter_z full groups (execute
+path). NOT applied at twd_gather_z by default (see negatives).
+
+### Measured on the node (a81n2, ONE held lease slot 1 core 3, same-core
+### interleaved ROTATED pairs vs the r9 control built from impl_9 — NOT the
+### live impl symlink (gen_rader r9's trap, heeded); 2 warmups per cell
+### (gen_race r9's rule); graded chains, min µs/xform, --samples 5)
+
+| L | B | r9 ctl (same window) | gen_r10 | delta | mechanism |
+|---|---|---|---|---|---|
+| 12 | 64 | 7.545–7.959 (6 prs) | 7.593–8.246 | wash-to-lean +0.5–1% (mixed signs after the relocation fix; was 4/4 +1.1–3.0% before it) | no new code executes; residual layout tax, r8-precedent |
+| 25 | 16 | 74.12–76.91 | 74.76–76.38 | wash (mixed signs) | no new code executes |
+| 27 | 16 | 121.02–122.80 | 121.91–125.59 | wash | scatter_gf extract (small fraction of pass) |
+| 32 | 8 | 195.4–198.0 (7 prs) | **153.4–155.8** | **−21.4%** (7/7) | radix-8: 3 → 2 levels |
+| 40 | 8 | 336.7–342.2 | **286.0–291.9** | **−14.5%** (6/6) | radix-8: 3 → 2 levels |
+| 50 | 4 | 714.5–721.6 | **708.5–714.2** | **−0.4..−1.5%** (4/4) | scatter_gf extract-to-memory |
+| 100 | 1 | 7412–8000 (noisy window) | 7301–7766 | lean win, mixed | scatter_gf extract |
+
+An early L=32 session had a neighbor's job inflating both arms ~2x
+(readings 398/302 dropping to 197/155 mid-session when it finished); the
+contaminated pairs showed the same ratio but only the quiet pairs were
+counted (the r4 protocol).
+
+Ship-binary tryout reads (fresh cores/windows, sd ≤ 0.27%):
+
+| case | gen_r10 | MKL same window | note |
+|---|---|---|---|
+| 32 B=8 m=250 | **158.256** | 177.279 | demo now BEATS MKL at 32 (r9: 196.5 vs 172.1, behind) |
+| 32 B=1 m=250 | **157.161** | 158.756 | beats MKL at B=1 too |
+| 40 B=8 m=128 | **290.222** | 412.544 | r9 board 336.7 |
+| 12 B=64 m=600 | 7.992 | 7.912 | window-dependent ±0.5% vs MKL; A/B verdict above |
+| 12 B=1 m=600 | 7.702 | 7.317 | |
+
+Wallaby (SPR) advisory agreed on every keep/kill and the radix-8
+magnitudes (−13%/−9% at 32/40) before any node window was spent.
+
+### Gates (ship binary; tryout's map-check leg still dies on the
+### '$W/c.bin' quoting bug — check.py run by hand on the node, r2 recipe)
+
+Radix-8 cells re-gated in full: singles 3.286e-16 (32) / 3.758e-16 (40),
+B=1 3.296e-16 / 3.753e-16, tol 1e-12; two-step m=2 1.540e-15 (32) /
+1.918e-15 (40) vs tol 3e-14; FULL graded chains 3.277e-14 (32 m=250,
+anchor 0) / 3.924e-14 (40 m=128, anchor 2.612e-14), tol 1e-10; chains
+bit-repeatable across runs (cmp). Everything with 8 ∤ L carries the r9
+gate values exactly: NODE-codegen bit-identity vs the r9 binary verified
+by cmp at 12/25/27/31/50/100, singles AND m=8 chains, plus wallaby
+bit-identity at 18 sizes (singles + m=3 chains) and numpy PASS at all of
+8/12/16/24/27/31/32/40/48/56/64/72/88/96/100/104/120/128 (worst 4.8e-16;
+radix-8 composites 24..128 all exercise twd_comb8/twd_leaf8). Local: DS
+and DENSEBF race arms PASS at 32/40/96; scalar -march=x86-64 build PASS
+at 32/40/96; all knob combinations (DS / DENSEBF / DS+DENSEBF / MAPPAIR /
+PF / NOGF / XSTG / GF_MIN_BYTES=1) compile -Wall -Wextra clean;
+GEN_TWIDDLE_LIB_ONLY adoption compiles clean. create() determinism: picks
+are closed-form functions of (L, host) as before — no plan-time race, so
+brief avenue 1 stays discharged by construction (bit-repeatable chains
+are the receipt).
+
+### What did NOT work, with the number that killed it
+
+- **Extract-to-memory at the GATHER site (twd_gather_z lane-buffer fill)**:
+  +0.7–1% at L=12 on wallaby (r10-with-gather-extract 4.480–4.570 vs
+  r10-without 4.436–4.545 vs r9ctl 4.384–4.484, interleaved). Mechanism:
+  these stores are re-read by twd_rec almost immediately, and a zmm load
+  spanning two ymm stores CANNOT store-forward — the SF-fail stall beats
+  the −8 p5. gen_pow2's win had a full plane between store and consumer.
+  Boundary for the panel: extract-to-memory pays only where the consumer
+  is far away; at a staging buffer the wide store IS the forwarding path.
+  Kept compilable as -DTWD_XSTG (opt-in) for the cross-arch race.
+- **First build placed the new codelets mid-file and let the case-8
+  butterfly inline into twd_leaf_gen**: L=12 read +1.1–3.0%, 4/4 node
+  pairs, on bit-identical output — the r5/r8 code-layout tax a third
+  time. nm -S fingered it: twd_leaf_gen +657 B (case-8 inlined into its
+  twd_butterfly copy) sitting between the hot functions. Fix, two parts:
+  (a) twd_butterfly's case 8 is compiled ONLY under -DTWD_DS (default
+  builds route r = 8 to twd_leaf8/twd_comb8 in twd_rec's switches, so the
+  generic path can never see it) — leaf_gen back to its r9 size to the
+  byte; (b) twd_leaf8/twd_comb8 DEFINITIONS moved to the end of the file
+  (declarations up top), so emission order = the r9 hot text unchanged,
+  new code appended. After the fix L=12 reads mixed signs, median +0.5–1%
+  (r8-precedent residual, documented and accepted — the 32/40 wins dwarf
+  it and gen_race/gen_pfa_small own that cell at 1.9 µs anyway).
+- **Two session-hygiene incidents worth a line**: an early L=32 window was
+  contaminated by a neighbor job (readings 2x, both arms — discarded per
+  the r4 protocol, quiet pairs only); and a missing in31.bin in the node
+  workdir made cmp report a phantom DIFF at L=31 (cmp of two nonexistent
+  files "differs") — generate inputs before trusting any cmp verdict.
+
+### Borrowed this round, named
+
+- **gen_pow2 gen_r9**: extract-to-memory for store-consumed shuffles — the
+  whole change-2 design (their −2.3% at 32; here −0.4..−1.5% at 50 and a
+  share of the 32/40 wins via scatter_gf). The gather-site negative above
+  is this engine's boundary contributed back.
+- **gen_rader gen_r9**: the impl-symlink trap — the r9 control was built
+  from impl_9/gen_twiddle.c (a true archive, verified different inode and
+  content from the live impl/), never the snapshot dir.
+- **gen_race gen_r9**: the 2-warmup rule for interleaved batteries.
+- **gen_batchlane gen_r4 / gen_pow2 gen_r5**: held-lease same-core
+  interleaved rotated pairs — every keep/kill above.
+- **gen_planner gen_r7**: nm -S as the layout-drift detector — it found
+  the leaf_gen +657 B before a second node window was spent.
+- **Declined after reading their records**: the φ-lifted DFT5 (my r8
+  recount stands — my combines are spill-free so the mechanism does not
+  transfer); port-1 ymm co-issue (closed twice: gen_pfa_large's portcal3
+  measures 256-bit FP stealing 512-bit FMA slots 1:1 on SPR, and
+  gen_batchlane's ICL analysis says p1's FP pipe IS the lower half of
+  p0's fused unit); paired divides in the fused map (gen_dense_prime r10:
+  −1.5% when the divide is already in a compute pass's OoO shadow — my
+  r5/r9 divider verdicts already said the same).
+
+### Operation count (demo, delta vs gen_r9)
+
+Sizes with 8 ∤ L: IDENTICAL instructions where it matters (bit-identical
+outputs; only .text placement and the two appended codelets differ).
+Sizes with 8 | L: one whole combine level deleted per axis pass — at 32
+per pencil-group: one 32-row zmm read+write round trip through the lane
+buffers gone, twiddle multiplies 33 → 21, twd_rec invocations 21 → 9; at
+40: 3 levels → 2, twiddle muls 39+... → 28 (comb8 m=5), rec invocations
+similar. DFT8 butterfly = 2x DFT4 + 2 c8-scaled combines (4 mul + 8 add
+more than two separate DFT4s, far less than the deleted level). gf-arm
+handoff at 27/31/40/50/100: −16 p5 shuffles per 8x8 tile (extract-to-
+memory), store uops 8x512 → 16x256 (retire-neutral). Plan tables: the
+r = 8 level uses the standard CT split twiddles (7m pairs, audited
+≤ 0.51 ulp as every table); no fold/dense tables for r = 8. Setup
+unchanged (≤ 0.1 s at L=100; 0.005–0.008 s at 32/40).
+
+### What I would do next (gen_r11 / endgame)
+
+1. **Radix-16 or split-radix top level for 2^k** (32 = 16·2, 64 = 16·4):
+   another level deletion at 32/64/128 — but 32 is now 2 levels (8·4) and
+   the leaf is already register-resident; the remaining win is smaller.
+   Check gen_pow2's codelets first; that cell is theirs at 55 µs.
+2. **PMU counter read of the scatter_gf p5 delta** (tools/pmu.sh on a81n2,
+   /tmp/perf restaged by gen_layout): predicted ~−16 p5/tile; confirm the
+   port picture the same way gen_pow2 queued theirs.
+3. The L=12 residual: whole-binary link-order is the only lever left
+   (r8's conclusion stands).
+4. refnd pitch #12 if gen_powp / gen_pfa_large still build gate references
+   with double cexp.

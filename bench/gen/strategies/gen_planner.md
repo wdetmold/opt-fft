@@ -1216,3 +1216,174 @@ transposes, maps, twiddles: byte-identical to gen_r7.
    sessions on it.
 4. **Protect**: the engine is now r7 + one 10-byte codelet delta; any r9
    work should start from the standings, not from this file's queue alone.
+
+## Round gen_r10 -- three refutations, the r9 machinery node-proven, and a banked tile playoff
+
+### First, the missing gen_r9 record (written here because the r9 session never appended it)
+
+The r9 session ran entirely node-blind (both Ice Lake nodes held by other
+users all round; NOTICE-directed model-side development) and its section was
+never written -- its final log entry is a status update from inside the
+wait.  What it CODED, wallaby-validated, and shipped in impl_9:
+
+1. **Noise-gated create() race** (PMU-audit avenue 1): the min-of-3
+   interleaved race extends itself (contenders within 10% of the winner
+   only, up to 6 extra rounds) whenever the leader's margin sits inside the
+   pair's own measured trial noise; at the cap the deterministic
+   2%-simplest-first hysteresis breaks the tie instead of window luck.
+   Wallaby proof: 5/5 identical cold picks at 25/50/100.
+2. **c-line custody at L >= 89** (adopted from gen_pfa_large's c-bypass):
+   clflushopt each x-plane's consumed c lines in the separate-map path so
+   the read-once c stream stops evicting m-step-resident state; sysfs-L3
+   default gate plus a custody playoff in the race banking @f0/@f1 through
+   wisdom.  Cache op only, outputs bit-identical.  NEVER MEASURED on the
+   node in r9 -- see below for how that went.
+
+The r9 leaderboard (first board on a81n2, the replacement Ice Lake node)
+scored the r9 binary at 10: 1.320, 25: 39.589, 31: 138.384, 32: 105.865,
+40: 240.053, 50: 563.424, 100: 4976.4 us -- and its own quiet-window race
+banked `c5(gt(d4,d5))@f0` at 100: the custody playoff had already measured
+custody OFF as the winner on the very node the sysfs heuristic predicted a
+win.  That was the tell for this round.
+
+### gen_r10: what was tried, in order, with the numbers
+
+**All verdicts below: a81n2 (Ice Lake, our hold), held-lease same-core
+interleaved adjacent pairs, min of --samples 4, shared scratch wisdom so
+both arms run the same tree; outputs cmp'd bit-identical in every A/B.**
+
+1. **gen_pow2 r9's ZST transpose stores -- REFUTED ON ICL (+2..6%).**
+   Their extract-to-memory trick (store the 4x4 transpose's combine rows as
+   256-bit halves: ymm mov low + vextractf64x4-to-mem high, both
+   store-port-only, deleting 4 vshuff64x2/block, front-end neutral,
+   bit-identical bytes) applied to pln_tr4x4.  Node: 32: ctl 113.1-116.5 vs
+   zst 117.3-117.9 (3/3 LOSS); 40: 240.6-244.5 vs 245.5-249.6 (3/3); 100:
+   5534-5761 vs 5860-5861 (3/3).  Mechanism I believe: their custody-row
+   destinations are 64B-aligned; my transpose destinations are complex-
+   granular strided rows (16B-aligned), so half the split 256-bit stores
+   line-cross where the one zmm store was a single access.  Ships as
+   PLN_TRZST=0 default (knob kept as an xarch arm).  NOTE FOR gen_pow2:
+   their r9 ZST shipped default-ON on SPR evidence with the ICL check
+   pending -- this is an adjacent-kernel ICL data point that disagrees;
+   their own node re-race should decide their default.
+2. **The r9 custody -- REFUTED (+6..11% at L=100, 3/3).**  GEN_PLANNER_
+   CFLUSH=0: 5565/5606/5612 vs =1: 5919/5926/6224.  On the exact 24 MB-L3
+   node the r9 sysfs heuristic targeted, the ~2.5K clflushopt uops per
+   plane cost more than the 16 MB read-once c stream's L3 pressure ever
+   did.  Default now OFF everywhere; eligibility + playoff kept so a host
+   where it wins can still bank @f1.  (The r9 scoring race had already
+   picked @f0 -- the playoff machinery worked; the default was wrong.)
+3. **Fused exit at L > 80, walk-order repaired -- STILL LOSES (0.2-2.2%,
+   3/3).**  My r6 dead-end blamed the fused exit's loss at 100 on c-plane
+   re-reads; re-analysis says the z0-outer walk STRIDES the two DRAM
+   streams (output rows + c, 64 B chunks at 16L-byte steps) while
+   streaming the L2-resident P scratch -- backwards.  Built the y0-outer
+   exit (pln_transpose_out_map_yo, bit-identical to the z0 form): it
+   repairs most of the pathology (z0 5722-6018 -> yo 5146-5589 at 100) --
+   the r6 mechanism story was wrong, the walk order was the bulk of it --
+   but the separate pair-packed map still wins 3/3 (5073/5414/5466 vs
+   5146/5424/5589): two sequential full-plane sweeps ride the prefetcher
+   at effectively no cost, and the exit's strided P reads + vdivpd beat
+   the 32 MB of traffic fusion deletes.  Default unchanged (unfused at
+   L > 80); PVFUSE=2 keeps the yo arm reachable for xarch races.
+4. **TILE PLAYOFF -- the round's one shipped win (-2.5..4% at 40, -2.6..3%
+   at 50).**  gen_race's r9 scoring keys raced MY row-width knob on its own
+   composition and banked t16 at 40/50 (margins 2.3/2.8%) -- my race never
+   raced the tile axis (fixed 32 since r3).  Node A/B confirmed: 40: t16
+   232.9-236.6 vs t32 240.6-243.1 (3/3); 50: 567.6-570.2 vs 583.6-585.9
+   (3/3); t16 LOSES at 32 (+3.5..5.9%) and 100 (+4..13%) -- per-(host, L)
+   truth, exactly what playoff + wisdom is for.  Implementation: after the
+   main race, a pv winner is rebuilt at the alternate width (pln_tile_req
+   beats the default, never the GEN_PLANNER_TILE env pin) and the chain
+   step raced interleaved, min-of-12-rep cap; the verdict rides the wisdom
+   value as @t16.  Wisdom values now COMPOSE tags (name@f0@t16); the
+   parser handles any order, unknown tags still force a re-race (old
+   binaries reading @t re-race -- forward compatible).  Tile is
+   bit-neutral (t16-vs-t32 chains cmp-identical; column chunking never
+   reorders arithmetic within a pencil), so all gate digits carry.
+5. **Adoption gate hardening after a caught determinism regression.**  The
+   playoff's first form (adopt on capped min comparison) flipped 2-of-5
+   cold picks at 50 -- a 2.6% truth at a 2% hysteresis edge is a coin flip
+   under contention, gen_pfa_large's r9 lesson replayed in my own code.
+   Shipped form: adoption requires the gate to SETTLE (gap >= max(2%,
+   2x the pair's trial noise)); a capped-out noisy playoff keeps the
+   default deterministically.  Honest boundary, recorded plainly: in a
+   CONTENDED window a cold create at 40/50 may keep t32 (settled-vs-capped
+   varies with neighbor load; 100 and all pre-playoff cells stay 5/5);
+   the deployment path is unaffected -- the quiet scoring window settles,
+   banks @t16, and wisdom pins every later create() (gen_powp r9's
+   banking-pins-the-verdict doctrine, adopted with the mechanism).
+
+### Node validation of the whole engine (final binary, a81n2)
+
+- 5x cold create determinism: 5/5 identical picks AND bit-identical
+  outputs at 25 (c5(d5)@s1), 50 (c5(gt(d2,d5))), 100 (c5(gt(d4,d5))@f0)
+  pre-playoff; with the playoff live: 5/5 at 100, 4/5 at 40 where the
+  MAIN race flipped trees once under 4-agent dev contention (near-tied
+  arm set, r4-r8 known; the noise-gated extension caps at 6 rounds).
+- Two-step m=2 gate: 0.94e-15 (10) .. 2.90e-15 (100) at 10/20/25/27/31/
+  32/40/50/100, tol 3e-14, >10x margin everywhere.
+- Graded chains: ALL 11 acceptance cases PASS, drift 1.06-2.0x honest
+  anchors (e.g. 2.60e-14 at 31 vs anchor 2.31e-14; 4.06e-14 at 100 vs
+  2.42e-14).  Chain times in the (contended) dev windows: 1.51 (10),
+  2.34 (12), 5.62 (15), 18.17 (20), 44.6 (25), 64.2 (27), 145.6 (31),
+  107.5 (32), 233.0 (40 @t16), 573.6 (50 @t16), 5126-5501 (100 @f0).
+- Full numpy sweep L=2..128 single call: ALL 127 PASS (run twice, before
+  and after the playoff landed).
+- Mixed batch B=12 at 27 (@s4 + pv remainder) and B=9 at 15: PASS.
+- r9-vs-r10 chain outputs BIT-IDENTICAL at 25/27/100 with pinned picks
+  (the true impl_9 source rebuilt as control -- gen_rader's r9 symlink
+  trap respected: impl/ is live, snapshots are the control).
+- x86-64-v2 (no AVX-512) build passes chains at 10/14 B=12; GEN_PLANNER_
+  LIB adoption mode and gen_race.c compile unmodified.
+- Wisdom hygiene: whole session on scratch files / GEN_RACE_NO_WISDOM; my
+  11 stale r9-shape keys stripped from results/wisdom_a81n2.json under
+  the flock (45 foreign entries preserved, file re-validated) BECAUSE the
+  race shape changed -- a warm hit on a pre-playoff value would silently
+  skip the tile playoff forever.  The r9+ gen_race parser is layout-
+  independent (their r9 note), so the python round-trip is safe.
+
+### Operation count (deltas vs gen_r8/r9 arithmetic: NONE in any shipped path)
+
+Every shipped execute/chain path is bit-identical to gen_r8 (cmp-proven
+through graded chains).  The refuted arms live behind PLN_TRZST=1 /
+GEN_PLANNER_CFLUSH=1 / PVFUSE=1,2 only.  The tile playoff changes plan-time
+work: +1 pln_p3d_build + 8-24 interleaved chain steps at pv-winning sizes
+(cold setup at 100 measured 0.35 s incl. all playoffs; budget 60 s).
+
+### Borrowed this round, named
+
+- **gen_pow2 gen_r9**: the ZST extract-to-memory store idea, tried
+  faithfully (their asm-audit method included) -- refuted on ICL for my
+  kernel; the negative plus the alignment mechanism is my return gift.
+- **gen_race gen_r9 scoring keys**: the tile9/fm9 axis data that pointed
+  at the t16 win -- adoption-by-reading-their-wisdom, a new channel.
+- **gen_pfa_large gen_r9**: the determinism lesson (in-window spread
+  cannot gate a hysteresis-edge verdict; needs floors/settling + evidence
+  the challenger has not seen) -- applied after reproducing their exact
+  failure; also their portcal3 result (ymm co-issue steals 512-bit slots
+  1:1 on SPR) which struck avenue 4 off my list for free.
+- **gen_powp gen_r9**: the banking-pins-noisy-truths doctrine and the
+  honest 4/5-is-correct framing, both load-bearing in item 5.
+- **gen_rader gen_r9**: the impl-symlink control trap -- my r9-vs-r10
+  bit-identity control was built from impl_9/, not impl/.
+- **gen_batchlane r1/r9**: the slurm PATH shim (reserve.sh --status reads
+  dead without it -- bit me again at session start) and the a81n2 no-perf
+  status (time-only A/Bs this round, PMU dashboard still blocked).
+
+### What I would do next (ranked)
+
+1. **Winograd/real-factor DFT9/DFT25 modules** in the fused codelets --
+   the 25/27 arithmetic gap to gen_powp (1.27/1.37x on the r9 board) has
+   been the top unspent arithmetic item for four rounds.
+2. **B=1 lane-spatial split engine** -- ninth round on this list; B=1
+   cells still run 1.5-2x behind batched and nobody on the panel has
+   built it.
+3. **The L=31/32 class gaps** (1.6-1.9x behind gen_rader/gen_pow2) are
+   hand-codelet arithmetic, not scheduling -- adopt their modules as @s
+   levels only if their records show transferable kernels; do not retune
+   scheduling there, the PMU audit says those engines are near the port
+   floor.
+4. **xarch**: @t16/@f verdicts re-race per host by construction; check
+   the next CLX/SPR advisory picks them up (CLX's 1 MB L2 should flip
+   the tile crossover hard).

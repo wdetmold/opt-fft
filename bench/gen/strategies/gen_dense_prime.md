@@ -1425,3 +1425,160 @@ z-phase per block: table loads 15 pairs x 15 j x 8 -> 5 groups x 15 j x
 +240 ops/block; accumulator chains per drain window 16 -> 24; drains per
 block 15 fused -> 5 C + 5 S (+1 solo row unchanged).  Net ~-35k uops/step
 on the z-phase feed path.  Generic sizes: shipped path unchanged from r8.
+
+## Round gen_r10
+
+### Where this round started
+
+r9 leaderboard (scored on a NEW node, a81n2, Gold 6326 ICX): **109.955** at
+the graded cell (L=31 B=16 m=140; gen_rader 85.210, gen_race 84.694 — the
+settled arithmetic crossover); roster 5.151 / 8.147 / 15.300 / 38.172 at
+10/12/15/20.  My r9 queue: (1) node re-race of the r9 z-lever — the board
+answered it (113.5 -> 110.0, the SPR-predicted win transferred); (2) race
+-DGDP_ZG6 on ICX; (3) PMU signature (avenue 3).  The reservation moved to
+a81n2 mid-campaign; /tmp/perf is present there and paranoid=2 — PMU is
+live.  All numbers below: a81n2, ONE held lease (slot 0, core 2),
+interleaved same-core min-sets (the r4-r9 protocol), NFS md5 checked before
+every build (the gen_powp r5 trap).
+
+### What shipped (two levers, both borrowed)
+
+1. **PAIRED DIVIDES in the standalone map pass** (map_volume): one vdivpd
+   per 16 complex points via the reciprocal-product trick — rp = 1/(dA*dB),
+   recA = rp*dB, recB = rp*dA; the two groups' rsqrt ladders run
+   interleaved (independent chains) and 3 vmulpd buy back one ~16-cyc
+   divider slot.  Borrowed from **gen_powp gen_r5** (their paired-div map,
+   -1.3..-1.6% in an FMA-saturated pass and -6..-16% on B=1 chains) and
+   **gen_layout gen_r5** (gl_map16, the primitive itself — my own r4
+   next-step 3, which THEY built first).  d = 1+|w| >= 1 so the product
+   never under/overflows; rec picks up ~2-3 ulp (3 roundings vs 1), so
+   chain outputs are NOT bit-identical to r9 (singles are — no map there).
+   -DGDP_MAP_DIV8 restores the r9 form.
+2. **The 6-row 24-acc generic z-kernel (zrow6, my r9 SPR reject) selected
+   PER L at plan time**: the ICX races FLIP the r9 wallaby verdict — it
+   WINS at 17/19/23/29 (-1.5..-3%, 4/4 pairwise each) and loses at the
+   composites (12: +3% 4/4; 15/20 lean loss; 13 wash).  create() now sets
+   p->zg6 = (odd L >= 17); -DGDP_ZG6 / -DGDP_NOZG6 force it for cross-arch
+   racing.  Do NOT trust one host's verdict on a lean-kernel restructure:
+   this is the first lever this engine has raced that INVERTS between SPR
+   and ICX.
+
+### Built, raced, REJECTED: paired divides in the FUSED z-load map at 31
+
+The same pairing inside zrow31_fold's GDP_MAPG (ladders interleaved, one
+divide per 16 points on the z-GEMM feed path) LOSES ~1.5%, 5/5 pairwise vs
+the same-source div8 build (112.14/112.18/111.64/112.23/112.20 vs
+110.14/111.71/109.82/110.25/110.04 us/step at 31 B=16).  Mechanism: the
+fused divide was ALREADY hidden under the GEMM's OoO shadow (my r4 RCP
+negative said as much — replacing it with ladder uops lost too), and
+pairing serializes two groups' ladders into one divide on the fold's
+critical path.  This reproduces **gen_layout gen_r5's** register-fused-exit
+boundary (+9.7% at 31 on their engine) on a second engine, in the exact
+context their record flagged as "different enough — measure there": the
+answer is the SAME side of the boundary.  The panel's map-placement rule
+gains a corollary: pairing divides pays ONLY where the map is a standalone
+max-ILP pass; anywhere the divide is fused it was already free.
+Default OFF behind -DGDP_MAPZ_PAIR (CLX/SPR raceable).  The three-arm race
+(a9 / knob8=same-source-div8 / a10) is what separated this from binary
+layout luck — knob8 read same-to-faster than the r9 control while the
+paired arm lost 5/5; without the knob arm the 15-composite window drift
+(a10 "lost" 4/4 at 15 in one window, then overlapped in the next with
+knob8 interleaved) would have been misread as a pairing regression.
+
+### Measured on the node (a81n2 core 2, held lease; shipped binary vs r9
+### control, interleaved min-sets, min us/xform)
+
+| cell | r9 control (same windows) | gen_r10 | delta |
+|---|---|---|---|
+| 31 B=16 m=140 | 109.57-110.01 | 109.82-110.50 | +0.3% (same code path on 139/140 steps; layout-luck band — the same-source div8 arm read 109.82 best-of-day, so treat as parity) |
+| 31 B=1 m=140 | 109.9-111.0 | 110.4-110.7 | parity |
+| 17 B=4 m=8 | 28.06-34.21 | **26.77-30.76** | **-3..-5%, 4/4** |
+| 19 B=4 m=8 | 35.19-36.72 | **34.32-34.88** | **-2.5%, 4/4** |
+| 23 B=4 m=8 | 60.27-62.09 | **58.63-59.50** | **-2.5%, 4/4** |
+| 29 B=4 m=8 | 136.89-142.87 | **133.88-135.64** | **-3%, 4/4** |
+| 20 B=32 m=256 | 39.08-39.67 | **38.64-39.10** | **-1.3%, 4/4** |
+| 15 B=32 m=600 | 15.06-15.65 | 14.71-15.37 | lean win, 3/4 |
+| 12 B=64 m=600 | 7.69-8.58 | 7.79-8.22 | wash-to-lean-win (an earlier window: 4/4 win 7.67-7.68 vs 7.74-7.89) |
+| 10 B=64 m=1000 | 5.07-5.53 | 5.16-5.63 | wash (paired map only; zg6 off) |
+
+Correctness, all on the node, shipped binary: singles BIT-IDENTICAL to r9
+at all 14 dev cells (no map in execute; the zrow6 kernel is bit-identical
+per row); numpy gates fresh at every graded cell — single rel_l2
+2.8e-16..3.9e-16 (tol 1e-12); **two-step 1.726e-15 at 31** (r9: 1.724e-15;
+tol 3e-14) and 9.9e-16..1.9e-15 at all other sizes; graded chains PASS at
+1.04-2.5x their honest anchors (31: 2.551e-14 vs anchor 2.312e-14 — same
+digits as r9, since 139 of 140 steps run the unchanged fused div8 path);
+m=8 prime chains PASS; chain outputs bit-repeatable across independent
+node runs; scalar (non-AVX512) build compiles clean and passed L=7/L=31
+chain gates on wallaby.
+
+### PMU signature (brief avenue 3, first counters for this engine)
+
+Shipped 31-chain, 4 samples, core 2: cycles 9.00G, instructions 20.74G
+(IPC 2.30), port_0 6.48G + port_5 6.47G = **1.44/2.0 combined p0+p5
+dispatch** (champion gen_rader: 1.60/2.0 at IPC 2.15); port_1 0.54G (idle,
+as everywhere on this panel); ports_2_3 5.26G (0.58/cyc), l1d.replacement
+1.34G (0.15 lines/cyc — NOT traffic-bound); 100% of cycles at the level-2
+512-bit license.  Reading: the residual over the FMA floor at 31 is drain/
+junction structure (the r7 decomposition), not traffic — the remaining
+lever is still the hand-scheduled asm pipelined drain, worth its
+full-round cost only if the crossover cell is ever contested again.
+
+### What did NOT work, with the number that killed it
+
+- Fused-site paired divides at 31: +1.5%, 5/5 (above; -DGDP_MAPZ_PAIR).
+- The "standalone map = divider floor, pairing halves it" cost model
+  OVERSHOT: predicted ~5-7% at every generic cell, measured -1.3..-3% at
+  17-29/20 and wash at 10/15.  The volume-major chain lets the OoO window
+  overlap the map pass with the next step's z-pass at small volumes, so
+  the divider was never as exposed as the r4 whole-pass timing implied.
+  Cost models built on a pass timed IN ISOLATION overstate what deleting
+  its bottleneck buys in situ.
+- ZG6 at the composites on ICX: 12 +3% 4/4 — the flip does not extend
+  below 17 or to even L; hence the per-L gate, not a global default.
+
+### Borrowed this round, named
+
+- **gen_powp gen_r5**: the paired-vdivpd map (adopted; their FMA-saturated
+  boundary held) — and their NFS-stale-build warning (md5 both hosts
+  before every build; it fired zero times because it was checked).
+- **gen_layout gen_r5**: gl_map16 (the same trick as a library primitive)
+  and the register-fused-exit negative, which my fused-site race
+  reproduces on a second engine — their "measure there, don't adopt on
+  faith" note is exactly what the knob8 three-arm protocol did.
+- **gen_pow2 gen_r6**: the skip-by-two-records discipline (they declined
+  paired-div citing both boundaries; my results confirm both).
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol,
+  every number above.
+- My own gen_r9 zrow6 kernels (SPR reject, ICX win — the round's reminder
+  that cross-arch verdicts on lean-kernel restructures do not transfer).
+
+### Operation count (shipped)
+
+FFT FMA counts identical to r5-r9 at every size (singles bit-identical).
+map_volume: vdivpd per volume halves (e.g. 31: 3724 -> 1862 on the one
+materialized map per chain; 20: 1000 -> 500 per step; 29 padded: 3132 ->
+1566 per step) at +3 vmulpd per pair and unchanged loads/stores.  Generic
+z-pass at 17/19/23/29: table loads per 6 rows drop 6*(2KQ+4) -> 6+KQ per j
+(0.75 -> 0.417 loads/FMA at KQ=4), drains stretch 2 -> 6 rows; kernels
+bit-identical per row (the r9 objdump/mca validation carries over).
+
+### What I would do next
+
+1. **Cross-arch re-race of the two new knobs** when XARCH windows exist:
+   -DGDP_NOZG6 on SPR (the wallaby verdict says zg6 should be OFF there —
+   the wisdom/race layer should own this flip, and my per-L default is
+   ICX-tuned for the score machine), -DGDP_MAPZ_PAIR and -DGDP_MAP_DIV8 on
+   CLX/SPR (divider strength differs both ways).
+2. **The 31 cell is done in C intrinsics**: 1.44/2.0 p0+p5 with low L1
+   traffic says drain/junction, and every shape lever is now measured.
+   The asm software-pipelined drain (r7 estimate: 15-25% ceiling) remains
+   the only unplayed card; it is a full-round bet on a cell gen_rader owns
+   by 1.3x.
+3. **13 stays on the pair kernel** (wash both ways on ICX) — if anyone
+   builds a 12-row variant, race it at 13 first; the boundary is there.
+4. Harness notes: the reservation is on a81n2 now; /tmp/perf staged and
+   paranoid=2 (PMU live, tools/pmu.sh works as documented); tryout's
+   remote map-check quoting bug persists (run check.py by hand); the
+   r10dev A/B kit (r10_ab.sh + bins for r9/r10/knob arms + per-cell in/c
+   pairs) lives in build/tryout/gen_dense_prime/r10dev/.

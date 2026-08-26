@@ -1,0 +1,8 @@
+Both deliverables are shipped: `impl/gen_rader.c` (RP_W2MIN 25→24, closed-item comments, updated description) and the appended "Round gen_r10" strategy section. Summary of the round:
+
+- **The staged r9 races ran on the landed Ice Lake hold (a81n2)**: 2-wide RP3_WINO at p=103 lost +13% (3/3) on ICL — combined with r9's +35% SPR loss, rp3 pairing is closed permanently on both graded architectures, confirming the glue-ratio law. Prefetch-only at 103 raced a wash; the 36 MiB gate stands.
+- **One adoption**: 2-wide+store-order rp2 pairing extended to m=24 (p=97), worth -4..6% (10.9-11.2 vs 11.5-12.0 ms/step, 7/7 clean-window rounds, both-binaries-per-side to exclude layout confounds after a noisy window briefly inverted the verdict). Every rp2 form boundary is now raced rather than interpolated.
+- **Verified**: 30-prime execute bit-identity vs the r9 control, chain bit-identity at 31/89/97/103/113, all gates pass (97: single 5.548e-16, two-step 3.140e-15; 31: the canonical 4.059e-16 / 1.784e-15 / 2.559e-14). First PMU counter dashboard at the big primes recorded: all sit at p0+p5 ≈ 0.9/cycle (champion is 1.60) with heavy L1 fill — the residue is chunk-local stack traffic, named in the record.
+- The graded L=31 cell stays bit-frozen at its port model: 85.20 us/step B=16, 85.31 B=1 on the node.
+
+Reply line: **2-wide+stord rp2 pairing extended to m=24 (RP_W2MIN=24) via the staged ICL race; rp3 pairing and prefetch-at-103 closed on node evidence; node (a81n2, held-lease) graded cell 85.20 us/xform at B=16 and 85.31 us at B=1, bit-identical to r8/r9; rel L2 4.059e-16 (two-step 1.784e-15).**

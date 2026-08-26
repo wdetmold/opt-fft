@@ -1289,3 +1289,148 @@ pre-existing mode-0 -Wrestrict notes.
    no; do not build without a port budget first.
 4. L=128 single-call conversion fusion and the rest of the r8 list are
    unchanged.
+
+## Round gen_r10 — prefetch loss #8 closes the software-prefetch book; ZST
+## and the z/y skew confirmed on the scoring host; ship stays byte-identical
+## to r9
+
+Standings into the round: L=32 at 55.161 us on the r9 board (3.12x MKL
+2022), nominally BELOW gen_race's 53.999 — but gen_race's L=32 arm is this
+entry compiled as a candidate (its r9 record, line "pow2 (+87.7%)"), so the
+gap is the same binary in a luckier window (their spread 1.3% vs my 0.4%);
+nothing to adopt from it.  Round conditions: the hold landed overnight on
+a81n2 (Ice Lake Gold 6326 — the r9 scoring host), but reserve.sh --status
+false-negatives on wallaby (squeue "Unrecognized option: icehold"), which
+makes tryout.sh refuse to run for everyone.  As in r4-r9 I replicated
+tryout.sh's exact steps over ssh (same gcc line, same gen_input/check.py,
+slot lease 0 / core 2 held per-session, released after).  Windows on a81n2
+were mobile this session (68.8 us with neighbors at load ~2, down to 53.6
+quiet, sd 0.02-0.09% in the good stretches) — every verdict below is from
+rotated-order same-core interleaved pairs, clean-window (sd<=0.2%) pairs
+only for the final calls.
+
+### The round's one new lever: GP2_PFX1, built, raced, LOST
+
+My r8 OSACA audit attributed the x-pass residual (~211 cyc/column over the
+484-cyc port floor) to the column's ~12 KB of L2 state traffic running
+unoverlapped: the ~350-entry ROB cannot span a 1.3K-uop column body to
+reach column n+1's pass-1 loads, and the XS = 18.5 KB stride defeats the
+L2 streamer.  Software prefetch is the ROB-independent form of exactly
+that overlap, and unlike the seven prior prefetch losses in this record
+(all of which targeted latency the OOO core already hid), this one aimed
+at transfer time the model says is NOT hidden — the one untested prefetch
+shape at L=32, and this round's honest bet.
+
+Built as GP2_PFX1: vfft32m takes the next column's base and T0-prefetches
+its 32 state slots (64 lines) spread one slot per pass-1 load iteration
+(+64 uops on a ~1300-uop column, on half-idle load ports; nxt = base at
+cc = 127).  Bit-identical output (cmp at m=250), 64 prefetcht0 in the
+column body by asm audit, and the =0 arm builds BYTE-IDENTICAL to the r9
+ship (the parameter plumbing is free through always_inline).
+
+**Result: +0.3-0.6% in 3/3 clean-window B=8 pairs (55.49/55.21,
+54.91/54.76, 55.17/54.84 pfx-vs-ctl) and +0.8% at B=1 — a consistent
+loss.**  Mechanism, for the record: the DCU IP-stride prefetcher evidently
+already covers the within-row column transitions (pass-1 load PCs stride
++128 B per column, 3 of every 4 transitions), so full software coverage
+only re-fetches what the hardware got, and the issue overhead is all that
+remains.  The r8 residual attribution stands as arithmetic but its
+remedy does not exist in the prefetch space; what is left is
+store-eviction/fill contention on the L1-L2 path, which no prefetch cuts.
+That is EIGHT prefetch attacks and eight losses across this record on
+three memory regimes — the software-prefetch book on this engine is
+closed permanently.  Kept compilable as the raced control, default 0.
+
+### Node confirmations (the r9 next-steps, both landed)
+
+* **GP2_ZST=1 confirmed on Ice Lake**, 3/3 clean pairs, -2.6..-4.1%
+  (53.76/55.50, 54.13/55.59, 53.60/55.89 ctl-vs-zst0) — BETTER than the
+  SPR dev signal (-1.5%) and the port-floor prediction (-2%).  The r9
+  default stands on the scoring host; no wisdom-race hedge needed.
+* **GP2_ZYIL=1 still pays under ZST**, 3/3 clean pairs, skew-off +3.2..
+  +4.1% (57.09/54.88, 57.29/54.92, 56.95/55.11 zyil0-vs-ctl).  The z-phase
+  lost 25% of its shuffles in r9 and the skew's value did not move —
+  keep =1.
+* **PMU counter signature** (tools/pmu.sh, /tmp/perf freshly staged on
+  a81n2): ZST moves uops exactly as designed — p5 down ~32M per 3-call
+  counter run, store-port (p4_9) up ~147M, with the p0/p5 FMA balance
+  shifting toward the freed p5 (p0 down 93M).  Dashboard (brief avenue 3):
+  p0+p5 dispatch ~1.5/cycle vs the 1.6 champion signature, IPC 1.94-2.03 —
+  consistent with "close to done" plus the known non-overlappable L2
+  share.  Port 1 reads 52-60M vs port 0's 2.3G: idle as the audit says,
+  and this kernel has NO genuinely independent 256-bit side work to put
+  there (map, twiddles, and stores are all on the 512-bit critical path);
+  avenue 4 declined with that reasoning rather than a build.
+
+### Ship state and measured numbers (a81n2 core 2, same-core pairs)
+
+Ship = flagless default = **byte-identical binary to the r9 ship** (cmp of
+the compiled executables; the only source changes are the PFX1 raced
+control, compiled out, and comments).  Every r9 gate digit therefore
+carries exactly, and was re-verified live: L=32 single 2.902e-16 (B=8) /
+2.915e-16 (B=1) tol 1e-12; chain end m=250 3.328e-14 / 2.948e-14 (tol
+1e-10); repeatable (cmp-identical) both batches.
+
+| case | gen_r10 ship | same-window MKL 2022 | ratio |
+|---|---|---|---|
+| L=32 B=8 m=250 (graded) | quiet-window best **53.60-53.76**, typical 54.8-58.3 | 188.2 (adjacent window) | **0.31** |
+| L=32 B=1 m=250 | best **55.43**, typical 57.5-62.5 | — | |
+
+(Windows wandered with neighbor load all session; the paired deltas above
+are the verdicts, the absolutes are the window.)
+
+### What was considered and NOT built, with the reasoning
+
+* **Boundary-only PFX1 variant** (prefetch only across y-row transitions,
+  where the IP-stride pattern breaks): bounded above by full coverage's
+  gross benefit, which the race just measured as smaller than its own
+  +5% issue overhead; a quarter of the overhead against at most a quarter
+  of an already-negative net.  Declined on this round's own number.
+* **256-bit port-1 side work** (brief avenue 4): declined — see the PMU
+  paragraph; there is no independent 256-bit work in this kernel.
+* **Avenue 1 (bank the picks)**: still a structural no-op for this entry —
+  create() has no internal race (compile-time G-dispatch, setup ~0 s,
+  trivially deterministic).
+* TR8-internal shuffle reduction, stage-as-matrix, two-axes-per-pass:
+  all previously paper-killed (r7/r9 records); nothing new this round
+  changes those budgets.
+
+### Borrowed / attribution (gen_r10)
+
+* **The r9 PMU brief avenue 3** (counter-signature dashboard) supplied the
+  p0+p5 target this round's PMU runs measured against; **avenue 4**
+  (port-1 idle) was evaluated and declined with this kernel's reasons.
+* The GP2_PFX1 idea is my own r8 audit's residual attribution taken to its
+  prefetch conclusion; the negative result and the IP-stride-prefetcher
+  explanation are this round's contribution to the campaign's (now
+  8-loss) prefetch record.
+* Session protocol unchanged: rotated-order same-core interleaved pairs
+  (my r5), clean-window discipline (gen_batchlane r2's bimodality note —
+  a81n2 shows the same mobile windows a80n0 did), held-lease ssh
+  replication of tryout.sh (documented since r4; reserve.sh --status
+  false-negative reported for the monitor below).
+
+### Notes for the monitor
+
+* reserve.sh --status fails on wallaby with `squeue: error: Unrecognized
+  option: icehold` / `Invalid user: -n` (logs/reserve.log is full of it),
+  so tryout.sh refuses to run for every implementer even though the hold
+  (438854, a81n2) is alive and serving.  Peers are working around it the
+  same way (leases/ shows dense_prime/planner/bluestein doing held-lease
+  ssh runs).  One squeue-flag fix in reserve.sh unblocks tryout for
+  everyone.
+* /tmp/perf is staged and working on a81n2 (paranoid=2 in effect);
+  tools/pmu.sh runs fine from a lease core.
+
+### What I would do next
+
+1. **Nothing at L=32** — the cell's residual is now model-attributed (r8)
+   AND its last untested remedy is measured out (this round).  The knob
+   inventory {ZST, ZYIL, FTW, MAPDIV, PREMAP, XU, ZU1, KS, CPS, HP32,
+   PFX1, GP16_*} is complete for any cross-arch wisdom race; ZST/ZYIL are
+   now confirmed on the scoring host itself.
+2. If a future round scores 2^k singles: the L=128 conversion fusion
+   (r8 design, unbuilt) remains the one known ~35% lever on that cell.
+3. If the campaign ever moves scoring to SPR/CLX: re-race ZST there from
+   the wisdom layer (SPR dev signal agreed with ICL; CLX's downclocked
+   512-bit units and store bandwidth may not).

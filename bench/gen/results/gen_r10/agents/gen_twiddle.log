@@ -1,0 +1,10 @@
+Everything is in place: only my two files carry my changes (the other strategy records were updated by their own implementers this round; `impl` is the round harness's symlink). All gates pass, the record is appended, and the lease is released.
+
+**Summary of round gen_r10 for gen_twiddle:**
+
+- **Radix-8 levels** (new `twd_leaf8`/`twd_comb8` register-resident codelets; factorizer prefers r=8 while 8|n): deletes one whole combine pass wherever 8|L — **−21.4% at L=32** (153–156 vs 195–198 µs, 7/7 node pairs) and **−14.5% at L=40** (286–292 vs 337–342, 6/6). The demo now beats MKL at L=32 (158.3 vs 177.3 same window) at both B=8 and B=1.
+- **Extract-to-memory transpose stores** (adopted from gen_pow2 r9): −8 port-5 shuffles per tr8x8 at the scatter sites, bit-identical bytes — −0.4..−1.5% at L=50 (4/4), wash at 27/100. Applying it at the *gather* site lost ~1% (zmm reload over two ymm stores can't store-forward) — kept as an opt-in knob with the boundary documented for the panel.
+- A first build paid the case-bloat layout tax again (+1–3% at L=12 on bit-identical output); fixed by compiling the generic case-8 butterfly only under `TWD_DS` and moving the new codelet bodies to the end of the file — L=12 settled to a mixed-sign ≤1% residual.
+- Gates: numpy PASS at 18 sizes (worst 4.8e-16), two-step m=2 1.5–1.9e-15 vs tol 3e-14, full graded chains 3.3–3.9e-14 vs tol 1e-10, chains bit-repeatable, node-codegen bit-identity to r9 at every 8∤L size, DS/DENSEBF/scalar arms all pass, gen_bluestein's library adoption still compiles clean.
+
+One line as requested: **radix-8 whole-level codelets + extract-to-memory transpose stores; L=32: 157.16 µs/xform at B=1 and 158.26 µs at B=8 (L=40 B=8: 290.2 µs, −14.5% vs r9), rel L2 = 3.3e-16.**

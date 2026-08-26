@@ -1350,3 +1350,162 @@ numbers stand: **L=31 B=16 m=140: 84.745 us/step, B=1: 85.21; single rel_l2
 verified (gates 9.085e-16 / 5.006e-15; 30-prime bit-identity), shipped
 DEFAULT OFF on a calibrated SPR loss (+35% vs the +2.8% bias ceiling); ICL
 race staged in r9_ab.sh.
+
+## Round gen_r10
+
+### Where this round started
+
+r9 leaderboard: **85.210 us/step** at the graded cell (L=31 B=16 m=140; gen_race
+84.694 rides my engine), leading the crossover (gen_dense_prime 109.955,
+gen_bluestein 272.6, MKL/FFTW 848-883).  The r9 round was node-less; its entire
+output was a staged Ice Lake decision script (r9_ab.sh) plus two SPR data
+points.  This round the hold LANDED (a81n2, Gold 6326 Ice Lake — the same host
+that scored r9), so the round was spent exactly as the r9 next-list said: run
+the staged races, adopt what wins, close what loses.  All node numbers: a81n2,
+ONE held lease (slot 1, core 3), interleaved arms (the gen_batchlane r4
+protocol); /tmp/perf was re-staged by the monitor, so pmu.sh works on a81n2.
+
+### The three staged verdicts, all decided on the node
+
+1. **2-wide RP3_WINO at p=103 (-DRP_W23): LOSES on Ice Lake too — +13%
+   (13.10-13.17 vs ctl 11.44-11.62 ms/step, 3/3 non-overlapping).  CLOSED
+   PERMANENTLY.**  With r9's SPR +35% this kernel now loses on BOTH graded
+   architectures, so it is not even a race-layer candidate.  The glue-ratio
+   boundary is confirmed as a real law, not an SPR artifact: column-pairing
+   pays where conv products dominate the chunk (dense engine: 100% conv,
+   -25.5% at 127; rp2: 5 products of 4m^2, -5..9% at m>=24) and loses where
+   glue is ~half the work (rp3 WINO: 8 products of m^2 vs fold/build/
+   reconstruct/combine glue scaling with H=51 and M).  Do not re-apply
+   pairing to glue-heavy kernels; the knob stays only as a CLX curiosity.
+2. **rp2 2-wide+stord at m=24 (p=97): WINS — RP_W2MIN default 25 -> 24, the
+   round's one adoption.**  First race (vs the -DRP_W23 binary as the 1-wide
+   arm): 11.07-11.21 vs 11.62-11.74 ms/step, -4..6%, 3/3 non-overlapping.
+   A later noisy window (neighbor compile storm, sd 5-12%) read the
+   OPPOSITE ordering on min-sets — re-raced 4 arms x 4 rounds in a clean
+   window with BOTH binaries per side (r9ctl+r9 1-wide vs r10+r9w24 2-wide)
+   to exclude the code-layout confound: 1-wide 11.54-11.97, 2-wide
+   10.92-11.22, 4/4, both binaries per side agree.  The r8 "97 = m24 sides
+   with its 89/101 neighbors" INTERPOLATION was wrong; every rp2 boundary
+   is now raced, not interpolated: 1-wide rolled m=15..22 (61/73/89),
+   2-wide+stord m>=24 (97/101/109/113; no prime has m=23).
+3. **x-pass prefetch-only at 103 (RP_PFMIN_KB=34816 without W23 — the
+   staged pf arm had W23 baked in, so a fresh arm was built): WASH**
+   (10.86-10.99 vs ctl 10.93-11.05, overlapping min-sets, +-0.5%).
+   RP_PFMIN_KB stays 36 MiB (p>=107).  Item closed.
+
+### Verified (node, final binary)
+
+- **Bit-identity**: 30-prime execute battery vs bin_r9ctl — all identical
+  (the change only affects which kernel form runs at m2=24, and the 2-wide
+  form preserves per-column arithmetic order); chain outputs identical at
+  31(B16)/89/97/103/113.
+- **Gates**: L=31 B=16 single 4.059e-16, two-step 1.784e-15, map-chain
+  m=140 2.559e-14 (anchor 2.312e-14) — identical to r4-r9 to the last
+  digit, as a bit-identical binary must read.  L=97: single 5.548e-16,
+  two-step 3.140e-15 (tol 3e-14).
+- **Graded cell**: 85.20-86.70 us/step B=16 (min 85.20, sd 0.04%), 85.31-85.62
+  B=1 — the usual; the cell remains bit-frozen at its port model (since r4).
+- **Class duty timings this window (bin_r10, chain B=1 m=4)**: 89 7.14 ms
+  (the fast mode of its bimodal 7.2-9.5), 97 10.57-11.22 (was ~11.6-11.7
+  1-wide), 103 11.02, 113 18.50 (board 23.6 — window/node variance on a
+  bit-identical binary; a81n2 reads this size faster than a80n0 did),
+  127 34.81 (board 35.2, consistent).
+
+### PMU dashboard (brief avenue 3, the champion-signature duty — first counters at the big primes)
+
+tools/pmu.sh on bin_r10, chain B=1 m=4, whole-process counters (NOTE: these
+include create()'s dense-reference self-check, which at these L is 0.4-2.9 s
+of pure dense FMA vs a 0.1-0.6 s timed region — so the true chain-only
+p0+p5/cycle ratios are LOWER than these):
+
+| p | p0+p5 per cycle | IPC | l1d.replacement |
+|---|---|---|---|
+| 89 | 1.21 | 2.48 | 116M |
+| 97 | 0.99 | 1.94 | 323M |
+| 103 | 0.90 | 1.82 | 170M |
+| 113 | 0.89 | 1.73 | 563M |
+| 127 | 0.91 | 1.84 | 854M |
+
+Every large prime sits at ~0.9 vs the champion 1.60 with heavy L1 fill —
+per the brief's rule, traffic headroom everywhere at 97..127.  This is the
+counter-side confirmation of the r7 profile: the custody chain is on its
+5-sweep DRAM floor (closed-form, r7), so the remaining traffic is CHUNK-
+LOCAL — at m>=24 the 2-wide stack arrays (54 KB at m=28) exceed the 48 KB
+L1D, so every chunk round-trips its own stack through L2.  A lever would
+have to shrink the per-chunk working set, not the volume sweeps; nothing
+cheap presents itself (splitting the five conv products re-reads the fold
+arrays; narrower pairing gives back the broadcast sharing).  Recorded as
+the shape of the residue, not an action item.
+
+### What did NOT work, with the number that killed it
+
+- **RP_W23 on ICL: +13%, 3/3** (closed above — the r9 build/verify cost is
+  now fully amortized into a two-architecture negative law).
+- **pf-only at 103: wash** (closed above).
+- **The official tryout.sh path mid-round read 172 us at the graded cell
+  with MKL at 1716 — both exactly 2x their canonical values**: a neighbor's
+  compile storm (gen_planner races candidate builds) had the node's
+  uncontended-core assumption broken.  Held-lease interleaved runs on core 3
+  in the same session read 85.2/849-canonical.  Lesson re-sharpened: when
+  every backend in a window scales by the SAME factor, it is the window,
+  not the code — check a library reference before reacting.  Also: a noisy
+  window can INVERT a 5% verdict on min-sets (the 97 scare above); the
+  4-arm/both-binaries re-race is the antidote and is now my standard form
+  for adopting anything under ~8%.
+
+### Borrowed this round, named
+
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol, as
+  every round.
+- **gen_dense_prime gen_r3**: never-conclude-from-one-window — this round it
+  saved the 97 adoption from a noise inversion (and nearly saved me from
+  myself in the other direction).
+- **My own r9 staging discipline**: the entire round executed a script
+  written blind a round earlier; total time from lease to all-verdicts was
+  under an hour.  Staging decision scripts during node-less rounds is now a
+  proven pattern for this panel.
+- Read gen_dense_prime/gen_layout/gen_race r9 records for adoptables:
+  gen_dense_prime's 24-accumulator z applies to their GEMM-form z pass (mine
+  is the transpose-quad form at its port-5 model, closed since r4);
+  gen_layout's new gl_map4/ymm co-issue primitives are the avenue-4 shape I
+  struck in r9 for data-dependence reasons — both correctly not taken.
+
+### Operation count (shipped)
+
+Arithmetic identical to r6-r9 everywhere.  The only behavioral delta vs r9:
+p=97 runs rp2_chunk2_24 (2-wide+stord: five 2-wide blocked convs, rolled
+glue, natural-order stores) instead of the 1-wide rolled kernel — per
+column-pair per conv-tile step, 2 stack loads + 8 broadcasts + 16 FMA vs
+2 x (1 + 8 + 8); outputs bit-identical.
+
+### What I would do next
+
+1. **The class is converged on this hardware.**  31 has been at its port
+   model since r4; the counter dashboard now shows every large prime on its
+   traffic floor with the chunk-local stack residue named (m>=24 stacks >
+   L1D).  The one open measurement is the **89 bimodality** (7.2-9.5 ms
+   across windows, r8 item): catch a SLOW window with pmu.sh l1d/llc
+   counters and diff against this round's fast-mode baseline (116M
+   l1d.replacement) — it needs luck with window timing, which is why it
+   keeps surviving rounds.
+2. **For gen_race**: the per-m form table now has three raced boundaries on
+   ICL (unroll<=9 / 1w-rolled 10..22 / 2w+sd >=24 for rp2; 13 / 17 for
+   rp3) and ONE SPR calibration point (113 2-wide +2.8%).  On CLX/SPR the
+   right move is racing RP_W2MIN in {22, 24, 25, 99} per host — the knobs
+   are all exposed.
+3. If a future round reopens arithmetic: the only untried sub-dense idea
+   left in class is a two-level split at h=63 (p=127), and the r7 op-count
+   analysis says it loses; re-derive only against new evidence.
+4. Harness: reserve.sh --status from the dev host needs
+   PATH=/opt/software/slurm-19.05.8.1/bin prefixed or tryout.sh
+   false-reports no reservation; tryout's remote chain-leg check.py still
+   gets an unexpanded '$W/c.bin' (run map-checks by hand, as every round);
+   /tmp/perf is staged on a81n2 and pmu.sh works there.
+
+### Measured summary (the reply line)
+
+L=31 B=16 m=140: **85.20 us/step min (85.2-86.7 across rounds), B=1 85.31**;
+single rel_l2 4.059e-16, two-step 1.784e-15, map-chain 2.559e-14 — bit-identical
+to r8/r9.  Adopted: RP_W2MIN=24 (p=97: **~10.9-11.2 vs 11.5-12.0 ms/step,
+-4..6%, 7/7 clean-window rounds**; gates 5.548e-16 / 3.140e-15).  Closed on
+node evidence: rp3 pairing (+13% ICL / +35% SPR), prefetch-at-103 (wash).

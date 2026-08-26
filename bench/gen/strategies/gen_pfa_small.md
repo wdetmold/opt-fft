@@ -1251,3 +1251,140 @@ Two new broadcast constants (PHI5, KL5).
    (l1d + port_1 dispatch); do not attempt against a model only.
 4. Batched cells otherwise remain saturated (r5-r8 verdicts stand);
    protect, don't chase.
+
+## Round gen_r10
+
+### Headline
+The cumulative round did exactly what it is for: gen_batchlane's gen_r9 FACTOR SWAP
+-- large factor in stage 1 (map-free), small factor in stage 2 where the map fuses
+-- is adopted at 10/15/20, and their 12-loses-verdict is adopted WITHOUT re-measuring
+(their record's explicit instruction: "take it -- and take the 12 negative result
+with it"). This is the technique that produced their entire r9-board lead over me
+(10: 1.121 vs 1.142; 15: 4.339 vs 4.388; 20: 12.671 vs 13.019); our engines were
+converged copies before their swap, and they are converged copies again now: my
+final build's gate drifts EQUAL their r9 record to the last digit at every size
+(m=2: 8.87e-16 / 9.20e-16 / 1.266e-15 / 1.262e-15; graded chains 1.336e-13 /
+4.869e-14 / 5.536e-14 / 3.618e-14). The expected ICL effect is their measured
+-2.2% / -1.0% / -1.4..1.6% at 10/15/20.
+
+### NODE ACCESS CAVEAT (same as r9)
+The Ice Lake nodes were queued-busy the whole session (NOTICE: hold 438856 first in
+queue, worst-case start Aug 27). All timings below are WALLABY (SPR Gold 6448Y,
+taskset core 100, same-core interleaved adjacent pairs, min over --samples 4, first
+invocation warmed) -- a cross-arch signal. The ICL ground truth for the swap is
+gen_batchlane's r9 same-core node race (5/5 rounds at three sizes), measured on
+codelets my final build matches BIT-FOR-BIT in output; the monitor's next
+leaderboard is the confirmation.
+
+### What changed
+1. **dft10_swm / dft15_swm / dft20_swm (+ dft12_swm, default OFF)**: swapped-order
+   fused-map x-pencils, selected per size by -DSWAP<L> (ship: 10/15/20 = 1, 12 = 0).
+   Sweep pencils, split path, generic engine untouched. Slot tables re-derived from
+   the standard GT algebra with the swapped (P,Q) roles and cross-checked against
+   batchlane's published maps:
+     10 sw: n=(2a+5b)%10, k=(6c+5d)%10; 12 sw: n=(3a+4b)%12, k=(9c+4d)%12;
+     15 sw: n=(3a+5b)%15, k=(6c+10d)%15; 20 sw: n=(4a+5b)%20, k=(16c+5d)%20.
+2. **The swapped stage-2 in-place hazard analysis is new here** (batchlane's record
+   gives tables, not schedules; my memory-form 15/20 needed one). Swapped stage-2
+   groups read {Pc+Qb} and write {Ac+Bd}; the equal-set collisions are:
+   - 15: c0 self; then a 4-CYCLE c1->c2->c4->c3->c1 (each group writes exactly the
+     next one's read set). Schedule: keep ONE group pre-loaded ahead of every store
+     block (load c2; do c1; load c4; do c2; load c3; do c4; do c3) -- max two
+     groups' inputs live (12 v8) + one DFT3's temps, no spill.
+   - 20: c0 self; two MUTUAL PAIRS (c1,c4), (c2,c3) -- the unswapped-15 D5X2 hazard
+     shape: load the partner, store the first, store the partner (16 v8 peak).
+   - 10/12: register-explicit stage 2 (reads registers only) -- no hazard exists.
+   Forms follow the r4 live-register rule: 10/12 register (2L ld + 2L st), 15/20
+   memory (4L + 4L) -- same as batchlane's shipped forms.
+3. **MT10S=2**: on the swapped 10 the r5 map-BODY verdict FLIPS -- the legacy body
+   (my unswapped-10 ship since r4) LOSES +2.3% to the bl body on the swapped
+   codelet (0.926-0.927 vs 0.904-0.905, four interleaved SPR rounds), and bl+div is
+   the exact ladder batchlane's ICL -2.2% was measured on. Fourth measured flip of
+   a map-knob verdict under a codelet-structure change; the codelet-local rule is
+   now beyond argument.
+
+### Measured on WALLABY (SPR advisory; control = -DSWAP*=0 = r9 arithmetic,
+### bit-identical to the r9 ship, proven below)
+| case | ctl (r9) | swap ship | delta | batchlane's ICL delta |
+|---|---|---|---|---|
+| L=10 B=64 m=1000 | 0.920-0.921 | **0.905** | **-1.6%** (3/3 rounds) | -2.2% |
+| L=15 B=32 m=600  | 3.538-3.542 | **3.513-3.524** | **-0.6%** (3/3) | -1.0% |
+| L=20 B=32 m=256  | 8.645-8.661 | 8.770-8.804 | **+1.6% (SPR FLIPS IT)** | **-1.4..1.6% WIN** |
+
+L=20 ships SWAP20=1 anyway: the scored host is ICL, where batchlane measured the
+win 5/5 on a converged copy, and llvm-mca's ICL model calls it a wash (58860 vs
+58864 cycles/100 iter of the x-pass loop -- the same "model says wash, node says
+win" shape their r9 already recorded, so the model cannot veto the node). This is
+the r9 LIFT5_10 situation mirrored: -DSWAP20=0 is the one-flag SPR revert, and the
+SPR advisory race should build it.
+
+### Gates (final ship build, all run on wallaby AVX-512)
+Single call 2.9/2.9/3.5/3.1e-16 at 10/12/15/20 (tol 1e-12). Two-step m=2 batched:
+8.869e-16 / 9.195e-16 / 1.266e-15 / 1.262e-15 (tol 3e-14, >= 23x margin). Graded
+chains: 1.336e-13 / 4.869e-14 / 5.536e-14 / 3.618e-14 vs anchors 1.081e-13 /
+3.887e-14 / 4.784e-14 / 2.835e-14 (10's drift IMPROVED from r9's 1.504e-13,
+exactly as batchlane's swap improved theirs). B=1 m=50/20 chains PASS at all four;
+mixed B=12@10, B=12@12, B=9@15, B=9@20 (batched groups through the swapped pencil
++ remainders through the untouched split path) PASS; generic sanity 14 B=8 m=20,
+21 B=1 m=10 PASS; all chain outputs bit-repeatable across processes.
+
+Bit-identity matrix (cmp on .chain files):
+* -DSWAP10=0 -DSWAP15=0 -DSWAP20=0 vs the r9 ship: IDENTICAL at all four sizes,
+  batched graded chains -- the refactor is provably transparent, r9 is one flag away.
+* Ship vs r9: L=12 IDENTICAL (SWAP12=0); 10/15/20 differ as expected.
+* Poison tests (deliberately mis-slotted stores) confirm the swapped pencils are
+  the live code in the chain path and the unswapped ones under -DSWAP<L>=0.
+
+### HARNESS LESSON (read this before ever claiming chain bit-identity)
+The driver's --out file is ONE plain fft3d_execute output (the "checked output is
+ONE transform" comment, driver.c ~line 265); the end-of-chain state goes to
+--out's path + ".chain". A cmp of --out files between two builds compares the
+UNSWAPPED execute path and will read "identical" no matter what you did to the
+chain. I burned an hour on an impossible bit-identity (different codelets, "same"
+output) before finding this; every bit-identity claim in this record's earlier
+rounds that was run through tryout.sh's own cmp is fine (tryout cmps out.bin from
+the same binary twice -- repeatability), but anyone comparing ACROSS builds must
+cmp the .chain files.
+
+### What did NOT work / was declined, with the number or argument
+* Legacy map body on the swapped 10: +2.3% (above). MT10S=2 ships.
+* SWAP12: adopted batchlane's negative (+3.5..4.7% on ICL, biggest spill cut of
+  the four and the clearest loss -- rsp counts are not a time proxy). dft12_swm
+  is compiled and one -DSWAP12=1 away for the CLX race; not raced here.
+* rcp tails on swapped 15/20: not re-raced -- batchlane's r9 measured +2.6%/+1.6%
+  on the identical codelets same-core on the scored host.
+* llvm-mca as an arbiter of the swap: the ICL model scores swap-vs-unswapped 20 a
+  wash while the node reproduced the win 5/5 (their r9) -- the dependency-shape
+  effect is invisible to a throughput model. Use the model for port pressure,
+  never to veto a clean node race.
+
+### Borrowed, plainly
+* **gen_batchlane gen_r9**: the factor swap whole -- idea, slot tables, form
+  choices (register at 10, memory at 15/20), div tails, the 12 negative result,
+  and the sched-attr verdicts (10 keeps sched-pressure, 15/20 stock -- my engine
+  already matched). New and mine: the swapped stage-2 hazard SCHEDULES (the 15
+  4-cycle and 20 pair analysis above), the MT10S body flip, the SPR advisory
+  numbers incl. the SWAP20 host flip, and the .chain harness note.
+* **gen_batchlane gen_r4 / gen_pfa_large gen_r4**: held-core interleaved
+  adjacent-pair protocol (standing).
+
+### Operation count
+Pencil FP unchanged: 84 / 96 / 156 / 208 vector instrs per pencil per 8 volumes.
+x-pencil forms now: 10 register SWAPPED (2 stage-1 DFT5 -> regs, 5 register DFT2s
++ bl/div ladders at the stores), 12 register unswapped, 15 memory SWAPPED (3 in-
+place DFT5 + 5 map-fused DFT3, 4-cycle schedule), 20 memory SWAPPED (4 in-place
+DFT5 + map-fused DFT4 pairs). Sweeps, split path (r7 rotation chain), generic
+engine: untouched. Zero twiddles, zero shuffles in the batched transforms, still.
+
+### What I would do next (ranked)
+1. **Node confirmation** of the three swapped cells (expect the batchlane deltas;
+   the converged drifts make anything else surprising) and of SWAP20 specifically
+   -- if ICL unexpectedly agrees with SPR instead, -DSWAP20=0 is the revert.
+2. **Cross-arch races now have five per-size axes**: SWAP<L> x MT<L>S x LIFT5_<L>
+   x MT<L> x MEM15SW. The SPR flips measured so far: LIFT5_10 (r9), SWAP20 (this
+   round). CLX is unprobed on both.
+3. **The 12 cell**: three converged engines within 0.2% (1.913-1.917 board); the
+   only untried structural idea left is a swapped-12 with rcp under CLX's port
+   structure (batchlane's r9 note) -- cross-arch material, not ICL.
+4. Batched cells otherwise saturated; protect, don't chase. B=1/split and generic
+   paths remain my lead (r7/r8) and shipped untouched this round.

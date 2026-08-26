@@ -1443,3 +1443,169 @@ either way.
 4. If the campaign wants the SPR advisory expanded: the full-suite sweep
    above took ~4 minutes on a login core and is reproducible verbatim from
    this record.
+
+## Round gen_r10
+
+### The round's shape, up front
+
+The two ICX verdicts my r9 record queued (no node window existed that round)
+are now RUN and BANKED, plus the avenue-3 PMU dashboard for my cells. One
+code change ships: the m4t boundary is now a compile knob (`GL_M4T_MAX`)
+whose DEFAULT flips to 0 on the ICX measurement — the r9 SPR-advisory
+verdict was wrong for the scoring host, which is precisely why the r9
+record refused to close the question without an ICX window. Library
+(`gl_*` API): frozen again (no adopter r9 ask; r9 was node-starved).
+
+**Node/tooling facts every implementer needs this round:**
+- The reservation moved to **a81n2** (job 438854; the r9 board host).
+- **/tmp/perf was MISSING on a81n2** (it was staged on a80n0, /tmp is
+  node-local) — but perf_event_paranoid is already 2 on a81n2. I recovered
+  the binary from a80n0:/tmp (still alive there), preserved it on the
+  shared FS at `ext/tools/perf-install/perf-bin`, and staged it to
+  a81n2:/tmp/perf. **tools/pmu.sh works on a81n2 now**; after any reboot,
+  restage with `ssh a81n2 'cp /home/lqcd/wdetmold/fft/ext/tools/perf-install/perf-bin /tmp/perf'`.
+- tryout's chain-check leg still dies on the unexpanded '$W/c.bin' (bug
+  since r2); my r2 by-hand recipe still works verbatim.
+
+### What changed (impl/gen_layout.c, demo entry only)
+
+`GL_M4T_MAX` (default **0**): `p->m4t = (L <= GL_M4T_MAX)`. This is the
+per-host flip the r9 record promised gen_race — 0 disables the ymm kcnt=2
+exit tail, `-DGL_M4T_MAX=16` restores the r9 SPR-preferred gate, large
+values force it everywhere (that is how the L=50 arm below was measured).
+The two forms are bit-identical in output (gl_selftest asserts the
+gl_map4/gl_map8 equality; re-verified this round by cmp of full m=1000
+chain outputs), so the flip is a pure scheduling change with zero gate risk.
+
+### The banked ICX verdicts (a81n2, leased core via tryout.sh, graded chain, min µs/xform)
+
+**m4t A/B, L=10 B=64 m=1000** (tails = 1/2 of exit chunks — the one cell
+the r9 SPR battery favored the ymm form):
+
+| pair | m4t (ymm) arm | NOMAP4 (zmm) arm | MKL same windows |
+|---|---|---|---|
+| 1 | 5.158 (sd 0.03%) | 5.047 (sd 0.04%) | 4.663 / 4.668 |
+| 2 | 4.944 (sd 0.04%) | 4.906 (sd 0.03%) | 4.681 / 4.658 |
+
+The zmm packing wins BOTH pairs (−2.2%, −0.8%) on Ice Lake — the r9 SPR
+advisory (ymm −3..4% at L=10) does NOT transfer. **m4t is now default-off.**
+
+**m4t forced at L=50 B=4** (`-DGL_M4T_MAX=64`): 968.2 vs 961.4 default
+(+0.7%; MKL read 981.9 vs 951.4 in the same windows, so if anything the
+forced arm's window was slower) — same direction as the SPR advisory; the
+gate-off default was already correct there.
+
+**New-default confirmation, L=10**: B=64 **4.989** (MKL 4.666), B=1
+**5.099** (MKL 4.331). Within the ±1.5% layout-confound band of the NOMAP4
+arms, as expected (gated-off vs compiled-out differ only in code layout).
+
+Cross-host doctrine note for the record: this is the first clean case this
+campaign of an SPR-advisory A/B verdict INVERTING on ICX at the same cell
+(vector-width scheduling; SPR has a second 512-bit FMA pipe and different
+ymm/zmm port character). Wallaby A/Bs on port-mix questions are hypothesis
+generators only — the r9 record said exactly that, and shipping the gate
+narrow (L<=16) kept the exposure to one cell. The knob now lets gen_race or
+an xarch build flip it per host without touching code.
+
+### The avenue-3 PMU dashboard (a81n2, /tmp/perf, graded chains, whole-process counters)
+
+| L (B, m) | min µs/xf | p0/cyc | p1/cyc | p5/cyc | p23/cyc | p49/cyc | **p0+p5/cyc** | **all-port uops/cyc** | l1d.repl | IPC |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 25 (16, 256) | 94.8 | 0.475 | 0.180 | 0.509 | 0.690 | 0.216 | **0.98** | **2.07** | 1.24G | 2.17 |
+| 32 (8, 250) | 151.6 | 0.436 | 0.211 | 0.487 | 0.700 | 0.268 | **0.92** | **2.10** | 1.27G | 2.17 |
+| 50 (4, 128) | 967.9 | 0.387 | 0.130 | 0.423 | 0.618 | 0.146 | **0.81** | **1.71** | 1.87G | 1.73 |
+| 100 (1, 64) | 9365.5 | 0.355 | 0.099 | 0.376 | 0.509 | 0.112 | **0.73** | **1.44** | 2.21G | 1.45 |
+
+This closes the r9 promise ("attribute the demo's gap over its own
+kernel-FMA floor"), and the attribution is NOT what the champion-signature
+framing suggests:
+
+- **Every cell sits far below the 1.6 p0+p5 signature** — but at 25/32 the
+  binder is not any port: TOTAL dispatch runs at 2.07–2.10 uops/cycle,
+  exactly the node's documented ~2.1 vector-uops/cycle global cap
+  (TOOLS.md blind-spot list; gen_r8 observed it at L=100, this measures it
+  as the live ceiling at the L2-resident middle). Loads (p23, 0.69–0.70)
+  are the single largest port class — bigger than either FMA pipe. The
+  dense demo's speed limit at 25/32 is therefore UOP COUNT, not port
+  balance and not traffic: only changes that delete uops outright (any
+  port) can move these cells. That retroactively explains r7/r8 cleanly:
+  the quad kernel (deleted FMAs+loads) and the exit packings (deleted
+  ladder uops) paid; the r8 insert-load transpose paid only its NET uop
+  effect (24sh+8ld -> 16sh+16ld is uop-neutral; the measured −0.8% alone /
+  −6.4% composed came with the spill diet deleting real spill traffic).
+- **50/100 are traffic/latency-bound, not cap-bound**: dispatch sags to
+  1.71/1.44 while l1d.replacement grows 1.5–1.8x over the 25/32 level.
+  At L=100 the fills run ~9x the streaming minimum — the 26 KB Ct2/St2
+  tables plus the 12.8 KB u/v blocks re-walk L1 every group (1250
+  groups/axis), which no pitch or NT store fixes; it is the O(L) table
+  re-read inherent to the dense class at L1-exceeding table sizes. This is
+  the algorithmic wall the record has called since r5; the counters now
+  put a number on it.
+- **For adopters, the reusable finding**: on this node, once your working
+  set is L2-resident and your p0+p5 is under ~1.0 with all-port dispatch
+  near 2.1, stop rebalancing ports and start deleting uops (or accept the
+  cell). Measure with tools/pmu.sh exactly as above — it is one leased
+  core and ~4 s per cell.
+
+### Other cells re-read this round (same windows, for continuity)
+
+L=32 B=8: 153.4 (tryout) / 151.6 (PMU run; sd 0.00%) vs r9 board 149–151,
+MKL 177.5 same window. L=25: 94.8 vs board 93.1–95.3. L=100: 9365.5 vs
+board 9355. All flat — no regression from the r10 edits (the only behavior
+change is the L=10 tail path).
+
+### Gates
+
+Arms bit-identical (cmp, full m=1000 chain at L=10) — so every r8/r9 gate
+verdict transfers to this binary exactly. Re-verified anyway on wallaby
+(SPR, real AVX-512 paths): singles PASS at all 11 suite sizes and
+off-suite 2/7/9/14/17/18/22/33/44/63/96/127/128 (rel L2 0.85e-16–8.7e-16,
+tol 1e-12); L=10 full graded chain m=1000 rel L2 1.351e-13 (anchor
+1.081e-13, tol 1e-10); **two-step gate 8.81e-16** (tol 3e-14); node tryout
+check PASS at 10/32/50 (2.8–4.4e-16); scalar (-march=x86-64) build PASS
+singles + m=3 map-chains at 4/9/12/27; entry and LIB_ONLY modes compile
+`-Wall -Wextra`-clean (native SPR, icelake-server implied by the node
+build, and x86-64). Setup unchanged.
+
+### What did NOT work / was sized and skipped, with numbers
+
+- **3-quad kernel groups (widen the quad sweep to amortize block loads
+  over 3 k-quads)**: sized against the new dashboard before building. Per
+  column, 2 quads spend 8 load-class + 8 FMA (2.0 uops/FMA); 3 quads would
+  spend 10 + 12 (1.83) — an 8% uop cut on the sweep. But the sweep is only
+  ~15–25% of total dispatch at L=32 (104K sweep FMAs/volume against
+  ~930K total uops/transform from the counters), so the ceiling is ~1.5%
+  total — against 24 live accumulators (spill cliff at 29+ regs) and a
+  third tail variant. Skipped; recorded so the next uop-hunt starts from
+  this arithmetic instead of re-deriving it.
+- **The r8 exit-side VEXTRACT store idea**: still unbuilt — the fused exit
+  must materialize full lo/hi zmm for gl_map8 regardless, so extract
+  stores can only serve the non-fused execute() path; not worth a window.
+- **m4t at L=10 on the scoring host** (+0.8..2.2%): the round's headline
+  negative — see the banked verdict above. The r9 shipping decision
+  (narrow gate, bit-identical forms, knob for the race layer) is what made
+  this a 4-window fix instead of a regression hunt.
+
+### Borrowed this round, named
+
+- **gen_dense_prime r3's interleaved same-window A/B protocol** and
+  **gen_planner r8's same-layout control-arm doctrine**, as always — the
+  L=10 verdict is two interleaved pairs with MKL as the window control.
+- **The monitor's PMU_AUDIT avenue 3** (champion-signature dashboard):
+  run as prescribed; the 2.1-cap refinement above is what it returned on
+  this entry.
+
+### What I would do next (gen_r11, if there is one)
+
+1. **Adoption of the dashboard method**: any class owner whose cell is
+   L2-resident should spend one pmu.sh run before their next schedule
+   change — if they read ~2.1 all-port with p0+p5 < 1.0, port surgery is
+   dead on arrival (this round's L=32 finding, free to them).
+2. **Uop-deletion candidates for the demo, in ceiling order**: fold the
+   axis-1 DM_LDS prefetches behind a plan gate at L2-resident sizes
+   (p23 relief, ~1%, needs the r4 win at 25/31 re-checked against it);
+   3-quad sweep (~1.5% ceiling, spill risk). Neither clears the
+   noise floor comfortably — the demo is at its structure's dispatch
+   floor, as the dashboard now proves.
+3. **gl_tr8x8_ld promotion and the r2–r7 adoption offers all stand.**
+4. If a future round re-stages nodes: /tmp/perf restage command above.

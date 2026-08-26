@@ -1381,3 +1381,153 @@ xarch_spr_r5 advisory.
 4. **XARCH**: the noise gate is precisely what the CLX/SPR wisdom races
    needed — genuine >= 6% upsets (ipk1's regime) still bank per host;
    1-3% coin flips no longer can. Check the next advisory's picks.
+
+## Round gen_r10
+
+Standings into the round (r9 board, scored on a81n2 — a NEW node, same Gold
+6326 SKU): led 40 (160.17) and 100 (4521.7 vs gen_powp's ipk1 4699.4), but
+50 B=4 read **437.06 vs gen_powp's 417.4 (+4.7%)** — a regression from my
+own r8 board 416.64 despite r9 being a tune()-only, bit-identical round.
+The r9 scoring window banked my `l50-ip1` while gen_powp's rank rule banked
+`l50-ipp1` (their trial us 416.2), so the round opened on one question: is
+ipp1 now genuinely faster at 50, with my r9 noise gate's 6% upset floor
+structurally unable to discover it (a real 4.7% gap can never displace the
+rank-0 prior — by design the RANKS must carry sub-6% truths)? The node
+reservation was ALIVE all session (the r9 "queued-busy" NOTICE is stale),
+so this became the node-verification round my r9 record queued.
+
+### What was measured (a81n2, leased cores; zero code changes shipped —
+### the r10 header note is the only source edit, generated code
+### instruction-identical to r7/r8/r9)
+
+**1. The 50-cell anomaly is NOT a pick error; the ranks are right.**
+Held-lease alternation, one binary, forced picks, L=50 B=4 m=128, 5 pairs
+(ip1 first): 463.9/426.4, 417.5/421.6, 414.6/420.8, 410.0/434.4,
+412.5/416.0 — **ip1 wins 4/5 warm pairs, min-of-mins 410.0 vs ipp1's
+416.0 (-1.4%)**. Full family sweep against an interleaved ip1 control
+(ctrl range 409.4-420.4): ip0 +2%, ip2 tie (414.0-415.0), ipr1 tie,
+ipp1 428.2/429.3 (+3-4%), ipp0 421.5/423.3 (+2%), ipm1 476.6/492.6
+(+16%), ipk1 482.8/487.6 (+17%), ipe1 521.7/525.9 (+27%), **ipf1
+597.2/600.8 (+45%)**. So the banked `l50-ip1.ch` verdict is CORRECT, the
+scored 437 was a sustained-slow scoring-slot artifact (its 1.2% run spread
+means the slot was uniformly ~5% slow — per-process THP/page/frequency
+luck, not reproducible in any lease today; my floors sat at 410 while
+same-window MKL held board parity), and gen_powp's 417.4-with-ipp1 was a
+normal window on an engine whose ipp1 ties ip1 within noise. NO rank
+change; do not widen the noise gate to chase it. **Record correction: ipf1
+at 50 degraded from r2's -1% to +45%** — the r5 pair-packed ladder made
+the standalone map pass ~2x cheaper while ipf's in-stream stores still pay
+map_step_v per store AND gate the store buffer; nobody should trust the r2
+number for any host.
+
+**2. 100 B=1 sweep vs ipp1 control (ctrl 4501-4734): ipnt 7380/7396
+(+64%!), ip1 +5%, ipk1 4704/4713 (+4%, matching r7's 4/5-to-ipp1), ipp0
+tie.** This killed the round's one candidate build idea before it was
+built: an "ippnt" hybrid (ipp prepass + NT y-subpass stores) aimed at a
+naive 96->80 MB/step DRAM cut. Two independent kills: (a) NT y-stores
+lose 56% within their own family on this memory system (worse than r2's
++14% — do not revisit NT at 100 on ICL), and (b) the traffic
+re-accounting shows **ipp1 is ALREADY at the 80 MB/step floor**: phase 1
+is per-x-plane, so the y-subpass writes exactly the plane lines the
+prepass just read (160 KB, L2/L3-hot) — there is no DRAM RFO to delete.
+With traffic at floor and zsub/ysub at the ~2.1 uops/cyc dispatch cap
+(r8), 100 is saturated from both directions. 40 parity: ip0 floor 159.8
+vs board 160.2, ip1 +2%, ipp1 +3% — correct.
+
+**3. Determinism node-proof (r9 queue item 1, the brief's acceptance
+test, now on scoring silicon).** det5 on a81n2 under GEN_RACE_NO_WISDOM=1:
+**5/5 identical cold picks at all four cells** — 40 B=8 ip0, 50 B=4 ip1,
+100 B=1 ipp1, 75 B=1 ip1 (odd-L lean path) — matching the banked scoring-
+window verdicts exactly. The r9 wallaby proof now holds where it counts.
+
+**4. portcal3 on ICL (r9 queue item 2 — the avenue-4 arbiter, panel
+deliverable).** On a leased a81n2 core: zmm FMA P=8/12/16 -> 4.36/6.00/
+8.00 cyc/iter (2/cycle); ymm-only FMA the same (2/cycle, no third port);
+**8 zmm + K ymm FMA = (8+K)/2 exactly** (K=2: 5.05, K=4: 6.00, K=8: 8.00,
+K=12: 10.00); same for ymm MUL. **256-bit FP steals 512-bit FMA slots 1:1
+on the scoring node, identical to SPR: the PMU audit's "port 1 idles,
+side-work could co-issue nearly free" is dead on ICL too.** (One nuance:
+ymm SHUF at K=4 read 6.08 — the p1-share of shuffle dispatch may ride
+along, but FP arithmetic does not.) Nobody should spend a round on ymm
+side-work candidates. PMU cross-check on my cells (tools/pmu.sh, /tmp/perf
+is staged on a81n2, paranoid=2): port 1 dispatch 0.13/0.27/1.90G vs port
+0's 3.9/4.7/6.1G at 40/50/100; LLC misses at 50 negligible (5.1M) = L3-
+resident as the audit said; 100 shows 132M LLC misses = the DRAM-bound
+prepass+p2.
+
+### Operation count
+
+Unchanged everywhere (278/434/661/968 FMA-port vector ops per line at
+40/50/80/100; r6 coverage counts stand). Zero arithmetic changes; nm/objdump
+identity holds by construction (comment-only edit).
+
+### Measured on the node (a81n2, leased cores; windows swung +-8% and one
+### late lease ran +30% hot by the MKL yardstick — floors quoted)
+
+| case | best this session | same-window MKL | pick (banked) |
+|---|---|---|---|
+| L=40 B=8 m=128 | **159.8** | 425.7 (2.66x) | ip0.ch |
+| L=40 B=1 m=128 | **176.3** | — | ip0 |
+| L=50 B=4 m=128 | **410.0** | 965.8 (2.36x, that window's ctrl ~442) | ip1.ch |
+| L=50 B=1 m=128 | 465.0 (hot window; r7-class is ~434) | — | ip1 |
+| L=100 B=1 m=64 | **4501.2** | 7798.7 (1.73x) | ipp1.ch |
+
+Board parity confirmed at all three scored cells (r9 board: 160.17 /
+[437.06 anomaly, true floor ~410-417] / 4521.7). Gates, full manual pass
+(tryout's '$W/c.bin' map-check quoting bug is STILL there, eighth round):
+single 3.582/4.336/4.522e-16 (tol 1e-12); two-step m=2 1.857/2.361/
+2.721e-15 (tol 3e-14); full chains 3.804e-14 (40, anchor 2.612e-14) /
+5.028e-14 (50, 2.922e-14) / 4.181e-14 (100, 2.416e-14), tol 1e-10 — all
+EXACT r3-r9 values; chain outputs bit-identical across forced picks (cmp).
+Setup: warm wisdom 0.001 s on the node (banked verdicts). Wisdom protocol:
+the a81n2 chain7 verdicts written by the r9 SCORING window are left BANKED
+(adopting gen_powp r9's retirement of the round-end strip for scoring-
+window verdicts — banking is the design; r10's scoring warm-hits them
+deterministically). All dev runs this round were forced-pick or NO_WISDOM
+and stored nothing — verified by dumping the file post-session.
+
+### What did NOT work / what was killed without being built
+
+1. **ippnt (prepass + NT y-stores) at 100**: killed by measurement before
+   writing code — ipnt's +64% (and +56% within-family) plus the RFO
+   re-accounting above. The 80 MB floor is already reached by ipp1.
+2. **Re-ranking ipp first at 50** (the round's opening hypothesis from the
+   r9 board): refuted 4/5 pairs + sweep. The scored 437 was environmental.
+   If an r10 scored number at 50 again reads ~435+ while a shared-shell
+   rival reads ~417 in the same window, the anomaly reproduces ONLY under
+   scoring conditions — hand the monitor this record and ask for a
+   THP/free-page-state A/B of the scored process; it is not addressable
+   from engine code.
+3. Nothing else was attempted: no paper total-uop cut exists (map ladder
+   is 2+2 NR minimal for the 1.5e-14 contract with 14-bit seeds; staging
+   closed by arithmetic in r8; traffic at floor at 100; every pass-
+   structure variant freshly measured a loser at 40/50/100).
+
+### Borrowed, plainly
+
+- **gen_powp gen_r9**: the banked-verdict doctrine (retire the round-end
+  strip for scoring-window verdicts) — adopted; also their r9 standings
+  note that flagged the 50-cell pick divergence worth investigating.
+- **gen_batchlane gen_r4 (via everyone)**: held-lease same-core
+  alternation with interleaved controls — again the arbiter for every
+  verdict this round.
+- det5/portcal3 are my own r9 harnesses, now run where they were meant to
+  run; sweep10.sh (interleaved-control family sweep) is new this round and
+  left in build/tryout/gen_pfa_large/ for anyone.
+
+### What I would do next (ranked)
+
+1. **Nothing on this host's scored cells** — the saturation verdict now
+   rests on measurements from BOTH Ice Lake nodes (a80n0 r8, a81n2 r10):
+   ranks verified, traffic at floor, dispatch at cap, determinism 5/5.
+2. **Class coverage holes** (60/84/90/96/105/108/120/126 via three-factor
+   GT or DFT27/DFT32; 112's 0.91x vs MKL) — the only structural work left
+   in class if the campaign continues past r10.
+3. **XARCH**: ipk1 and the r8 rolled-variant corpse remain the CLX/SPR
+   insurance; the noise gate banks genuine >=6% per-host upsets, and
+   portcal3 should be re-run on CLX before anyone considers ymm side-work
+   there.
+4. **For the monitor**: /tmp/perf is staged and working on a81n2
+   (paranoid=2); tryout's map-check '$W/c.bin' quoting bug is eight rounds
+   old — one sed on the CH= line fixes both it and the repeatability leg
+   it blocks.

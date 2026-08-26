@@ -1528,3 +1528,186 @@ engine ships; the winner's op count is the class entry's own.
 4. **If any engine still shows pick instability on the node**, wire its
    internal tuner through gr_pick with the noise gate rather than
    entry-local machinery — powp and pfa_large both prove the pattern.
+
+## Round gen_r10
+
+### The round's shape, up front
+
+The node is BACK (a81n2, the new ICL Gold 6326 — the r9 board's host) and the
+r9 board has this entry at or within 1.4% of the class winner in all 12 cells:
+the r8 cross-class routing plus the r9 banked picks did their job, and the r9
+lost-cell mechanism (partial verdicts from heavyweight compiles) did not recur.
+This round was therefore maintenance-plus-coverage: track planner's r10 engine
+generation, widen two knob races the new engine exposed, and re-prove the
+verdicts on the node. One caveat colors every number below: the node spent the
+first half of the session as a construction site (load 11+, at one point 27
+concurrent race_eng gcc jobs from the whole panel's creates) — MKL read 2-4x
+its board numbers in those windows. Everything quotable was re-measured in the
+later quiet windows where same-window MKL sat at its board level.
+
+### What changed
+
+**1. Library: FROZEN, zero changes** (sixth round running). No `gr_*`
+signature or wisdom-format change; all adopters recompile identically.
+
+**2. Salt bump chain10/tile10/chaingate10/fm10/p410/eng10/enggate10** (the r3
+rule, sixth time): gen_planner's generation moved again — the pv fusemap
+became THREE-valued (0 separate pair-packed map pass, 1 the r6 z0-outer fused
+exit, 2 a NEW y0-outer fused exit that walks d and c sequentially, built for
+the L>80 DRAM regime), and c-line custody's default flipped to OFF everywhere
+after their node refutation. Five class-entry sources also churned (batchlane,
+pfa_small, pfa_large, pow2, dense_prime) — the eng arm names re-key
+themselves via source hashes, but the SELF arm's name cannot, so the eng salt
+moves with the self engine.
+
+**3. The pv fm race covers all THREE forms {0,1,2}.** The r6-r9 stage raced
+{def, !def} — a binary flip that could never reach planner's new fm2. Their
+own comment invites exactly this: after re-litigating L>80 on the node
+(y0-outer repairs most of the r6 walk-order loss but still loses to the
+separate pass by 0.2-2.2%, so their default reverted to fm0 there),
+"PVFUSE=2 keeps the yo exit reachable as a cross-arch race arm." My race is
+where that arm lives now, per (L, B-bucket, host). Group fm stays binary
+(the s8 engine is unchanged). Verified on wallaby: fm1 and fm2 chain outputs
+are BIT-IDENTICAL (their "visit order only" claim, cmp-proven at L=100), so
+a chaingate verdict transfers between the two fused forms.
+
+**4. NEW stage 3b "cf10": c-line custody raced by in-place flip.** Planner
+kept the eligibility mask (fusemap==0 shipped and 32*L^3 > 16 MB) precisely
+so a measured host verdict can bank @cf1 where evicting the read-once c
+stream pays. The knob is a runtime field consulted once per plane per step
+(flip-in-place, zero extra builds, same shape as fm/p4) and a cache op, not
+a data op — cf0/cf1 chain outputs cmp-identical (wallaby, L=100), so the
+gate verdict holds for either value. Primary = planner default (0, tie
+doctrine). On the graded suite it fires only at L=100 B=1; cost ~2 step
+timings.
+
+### Measured on the node (a81n2, leased cores via tryout.sh, graded chain, min us/xform; quiet-window numbers with same-window MKL, loaded-window cells flagged)
+
+| case | r9 board | r10 session | MKL same window | vs MKL | eng10 pick (margin) |
+|---|---|---|---|---|---|
+| L=12  B=64 | 1.913 | **1.918** | 7.869 | 4.10x | batchlane (tie w/ pfa_small) |
+| L=12  B=1  | —     | 5.625 (sd 20%) | 12.557 | 2.2x | pfa_small (+9.4%) |
+| L=15  B=32 | 4.326 | 4.932 | 16.863 (board 16.49) | 3.42x | batchlane (tie) |
+| L=20  B=32 | 12.549 | 13.459 | 59.540 | 4.42x | batchlane (tie, +0.2%) |
+| L=25  B=16 | 31.486 | 33.847 | 124.282 | 3.67x | powp (+45.4%) |
+| L=27  B=16 | 43.713 | 46.790 | 146.839 | 3.14x | powp (+54.6%) |
+| L=31  B=16 | 84.694 | 262.4 LOADED | 2666.9 (board 848.8!) | 10.2x | rader (+6.8%) |
+| L=32  B=8  | 53.999 | 210.0 LOADED | 752.1 (board 172.1) | 3.6x | pow2 (+96%) |
+| L=40  B=8  | 159.72 | **171.1** | 435.3 | 2.54x | pfa_large (+36.9%) |
+| L=50  B=4  | 419.65 | **445.8** | 1002.2 (board 951.9) | 2.25x | powp (+2.4%) |
+| L=100 B=1  | 4516.3 | **5043.8** | 7981.1 (board 7816.1) | 1.58x | powp (honest tie, +0.7%) |
+
+(L=10's only readings landed in the worst load windows — 3.127 with MKL at
+13.8 — not quotable; the banked pick is batchlane in a tie with pfa_small,
+identical to the r9 board's 1.121/1.142 order.) The quiet-window cells sit
+2-9% above their boards with MKL moved the same amount: window weather, and
+every routing verdict reproduces the r8/r9 winner exactly. The two cells the
+r8 board lost to compile timing (25, 40) banked powp/pfa_large
+deterministically again — the r9 fix holding on its second node outing.
+
+**New-stage receipts:**
+
+* **fm10 at L=100 (3-way)**: quiet window fm0 kept as a tie (-1.6%: the
+  fused exits reached parity after planner's yo fix; the loaded window read
+  the same verdict at a junk +625% margin, recorded so nobody quotes it).
+  On WALLABY (SPR) the same race picks fm1 through a confirmed noise-gate
+  upset over fm0 — a live cross-arch flip, banked per host, which is the
+  whole argument for covering all three forms.
+* **cf10 first outing**: cf0 (custody OFF) wins +6.3% quiet / +5.5% loaded
+  on ICL — independently reproducing planner's custody refutation through
+  my own race machinery — and +27.3% on wallaby SPR. The @cf1 arm now
+  exists for the CLX advisory (1 MB L2, the standing predicted flip).
+* **Determinism spot-proof** (3 cold creates, NO_WISDOM, fresh process,
+  held core, L=100): self stages 3/3 identical INCLUDING the two new races
+  (c5(gt(d4,d5))@t32@fm0, no @cf tag = default). The eng verdict flipped
+  powp/self/powp across the three cold races — the documented honest ~0.7%
+  tie at 100; in real runs wisdom pins the first verdict and the driver's
+  two-process cmp stays structural (re-proven at L=12 B=64 this session:
+  chain outputs bit-identical across processes).
+
+Gates, ship binary, run on the node (tryout's check.py leg still dies on the
+unexpanded '$W/c.bin', unchanged since r1 — map-checks run manually over
+ssh): single-call rel L2 2.9e-16..4.9e-16 at 10/12(B64,B1)/15/20/25/27/31/32/
+40/50/100 (tol 1e-12); map-chain at graded m PASS at 12/B64 (4.87e-14 vs
+anchor 3.89e-14), 12/B1 (2.46e-14 vs 5.80e-14), 100 (4.06e-14 vs 2.42e-14),
+tol 1e-10; two-step m=2 gate PASS at 12 (9.20e-16) and 100 (2.90e-15) vs tol
+3e-14. Surprise-size cold probe L=44 B=8: plans in 1.94 s, PASS 3.5e-16,
+1.47x MKL raw execute. Both build modes compile -Wall -Wextra clean (my TU;
+planner's documented warning set unchanged).
+
+**Round end: all gen_race/* wisdom stripped from results/wisdom_a81n2.json
+via gr_wisdom_drop_prefix** (54 entries; file valid JSON after, gen_pfa_large
+and gen_powp foreign keys intact — the layout-agnostic r9 parser doing its
+job on the shared file). The monitor cold-races fresh verdicts in its quiet
+window; absent entries are deliberate.
+
+### Operation count
+
+Library: unchanged, zero instructions in any hot path. Demo: unchanged from
+r8/r9 — one indirect call per execute/chain when a foreign engine ships; the
+winner's op count is the class entry's own. The two new race arms move WHERE
+existing arithmetic runs (fm2: transpose-exit visit order; cf: a clflushopt
+sweep that is cache management, not data) — zero arithmetic change, verified
+bit-identical.
+
+### What did NOT work / honest boundaries (with the numbers)
+
+* **Early-session node measurements are junk in absolute terms**: 12-27
+  concurrent gcc jobs (the whole panel's creates compiling five churned
+  class sources) had MKL reading 2666.9 at L=31 vs its 848.8 board. Rankings
+  survived (every pick matched its quiet-window re-race), which is the
+  interleaved racer + tie doctrine working as designed, but I re-measured
+  everything quotable in later windows. If you dev while the panel is
+  compiling, treat absolute numbers as garbage and margins as direction-only.
+* **Source churn outraces the .so cache within a session**: gen_powp's hash
+  changed between a create launching its compile (04:22) and my next hash
+  check (04:26) — a create that races 30 s after a churn misses the
+  heavyweight arm and banks a partial verdict (my first L=100 banked
+  self-only exactly this way). Prefetch-all + the persistent cache converge
+  after the churn stops; I stripped and re-raced. The monitor-side advice
+  from r8/r9 stands verbatim: one throwaway create() on the scoring host
+  before the suite removes the exposure.
+* **The loaded-window fm margin (+625%) is not a number**: same verdict as
+  the quiet window (fm0), absurd margin. Wisdom would have banked the
+  verdict, not the margin — but it is a reminder that margins from busy
+  windows must never be quoted as engine properties.
+* **cf10 fires only at L=100 on the graded suite** (the eligibility mask
+  needs fusemap==0 shipped AND 32*L^3 > 16 MB): on ICL and SPR it is pure
+  confirmation of planner's default. Like the r7 p47 stage, its value is
+  the off-ICX insurance; its cost is two step timings at one cell.
+
+### Borrowed, plainly
+
+* **gen_planner r10 (the substrate, as every round)**: the yo-exit fm2 form
+  (their comment explicitly leaves it "reachable as a cross-arch race arm" —
+  this layer is where that arm now lives), the custody eligibility mask that
+  makes cf10 a safe flip-in-place race, and their node refutation numbers
+  (custody +6..11% at 100) that set cf's primary. Same honest split as all
+  nine prior rounds: their kernels, my measured pick + persistence.
+* **gen_pfa_large r10**: their finding that the scored r9 L=50 read was a
+  sustained-slow scoring-slot artifact (not a pick error) — corroborates
+  treating my loaded-window absolutes as weather, and their discussion of
+  the 6% upset floor's blind spot (a real sub-6% gap cannot displace a
+  rank-0 prior) is noted as the floor's designed trade, not a bug: the
+  confirmation phase exists for exactly the true 2-6% upsets, and it passed
+  fm1-at-100 on SPR this round.
+* **gen_batchlane / gen_pfa_small r10** (context): their engines converged
+  again (the factor-swap adoption); the eng10 ties at 10/12/15/20 between
+  their arms are genuinely honest ties between near-identical codelets, and
+  the tie doctrine's lowest-index stability is what keeps the pick from
+  flapping between them.
+
+### What I would do next (gen_r11 / campaign close)
+
+1. **Capture the CLX advisory's cf10/fm10 verdicts when it runs** — cf1 on
+   CLX's 1 MB L2 and the fm boundary at 25-32 are the two predicted flips
+   this round armed; SPR already delivered one (fm1-at-100).
+2. **Prewarm protocol** (carried three rounds, still the only remaining
+   first-contact exposure): one throwaway create on the scoring host; or
+   monitor-side `gcc -shared` loop over impl/*.c at round close.
+3. **gr_pick_entry library promotion** (carried from r8): the grx_* harness
+   as one adoptable call, freeze-break only if an adopter asks.
+4. **If planner ships more engine knobs as runtime fields** (their custody
+   playoff pattern suggests more coming), the flip-in-place race shape now
+   has four instances (tile via env, fm, p4, cf) — the next one is a
+   20-line copy.

@@ -1251,3 +1251,166 @@ untouched. Zero twiddles, zero shuffle-port ops in every transform, still.
 4. **Cross-arch**: BL_SWAP10/12/15/20 and MAPTAIL_SW* join the knob axes;
    CLX's weaker FMA and smaller L1 could flip any of them (the 12 verdict
    especially -- its loss is an ILP-vs-pressure tradeoff).
+
+## Round gen_r10 -- the factor swap goes wide: -1.7..-4.7% across the whole wide-module family (21/22/28/33/35/44/55)
+
+Standings into the round (r9 board): led 10 outright (1.121; gen_race 1.122
+riding this engine), tied 12 within noise (1.917 vs race 1.913 / pfa_small
+1.915), 2nd to the trunk's own pick at 15 (4.339 vs race 4.326) and 20
+(12.671 vs race 12.549) -- both gaps inside the windows' spread, both
+running this engine's code. Nothing structural left in the scored cells;
+this round spent itself on my r9 next-step #2: extend the r9 factor swap to
+the wide-module memory-form family, where the mechanism's lever arm is
+largest.
+
+### Round conditions
+
+- **PMU still blocked** (r9 next-step #1): /tmp/perf does not exist on
+  a81n2 and ext/tools/perf-install/bin is still missing its perf binary
+  (only lib64/ and libexec/ survive; same finding as my r9 record).
+  perf_event_paranoid is already 2, so ONE scp of a perf 5.15 binary to
+  a81n2:/tmp/perf re-arms everything. MONITOR: the r9 request stands
+  verbatim; the champion-signature dashboard is still measurement-blocked.
+- Node reachable and quiet this session (a81n2, held slot lease 3 / core 5,
+  the r4 interleaved protocol for every number below).
+- Avenues checked against peers' r9 records before working: avenue 1 (bank
+  picks) remains N/A here -- no internal tuner, create() is branch-free,
+  determinism was proven in r9. Avenue 4 (port-1 co-issue) is now DOUBLE-dead:
+  my r9 microarchitectural argument plus gen_pfa_large r9's portcal3
+  measurement (256-bit FP steals 512-bit FMA slots exactly 1:1 on SPR, the
+  fused-pipe design ICL documents too). gen_pow2 r9's shuffle-to-store-path
+  trick was examined and does not apply: my only shuffles are the pack/unpack
+  networks, amortized once per m=256..1000 chain steps.
+
+### The round's one idea: the r9 swap where the map codelet is WIDEST
+
+The r9 swap moved the fused map from the wide factor's stage-2 codelet to a
+small factor stage-2. At 15/20 that shrank DFT5(X2)+5..10 ladders to
+DFT3/DFT4+3..4 ladders and won 1-1.6%. The wide-module family is the same
+play with a much bigger delta: the shipped map pencils at 21/28/35 ride 7
+map ladders on a 66-FP DFT7CORE per group (x3/x4/x5 groups), and at
+22/33/44/55 ELEVEN ladders on a 150-FP DFT11CORE. Swapped, stage 1 becomes
+the map-free wide DFT and the fused-map stage-2 collapses to
+DFT2/3/4/5 + 2..5 ladders.
+
+Derivation nicety worth recording: with the swapped input map n=(Pa+Qb)%L
+(P small, Q wide), the group DFT exponents come out UNSCRAMBLED -- the plain
+module output j IS the true output index for both stages (the shipped
+unswapped map n=(Qa+Pb) is what forces the permuted output orders), and the
+swapped stage-1 tables come out IDENTICAL to the shipped unswapped stage-2
+tables (the r9 "mirror symmetry" at 15, now confirmed at every size). Safe
+placement sigma(c) = (P^-1 mod Q)c as always. All eight tables generated
+and verified in Python (exact load-all-store-all group semantics, in-place
++ disjointness assertions, reference-DFT check at 3 seeds, err ~2e-15;
+script kept at build/tryout/gen_batchlane/gen_swap_tables.py). My first
+generator draft scrambled the outputs by (P^-1)^2 -- the sim caught it
+instantly (err ~1.4), which is exactly why the simulate-before-C rule
+exists.
+
+### What shipped
+
+1. **M2STM** (memory-form DFT2 + fused map, the one missing small module).
+2. **Swapped map x-pencils at all eight wide-module sizes** behind knobs
+   BL_SWAP14/21/28/35/22/33/44/55; sweeps and plain pencils untouched.
+   Defaults per the races below: swap ON at 21/22/28/33/35/44/55, OFF at 14.
+3. Scored sizes 10/12/15/20 UNTOUCHED: chain outputs bit-identical to the
+   r9 ship (cmp at all four, plus all eight wide sizes with knobs off --
+   the refactor is provably transparent; wallaby cmp at 12 sizes AND node
+   cmp at 10/14).
+
+### The same-core races (a81n2 core 5, held lease, interleaved --samples 4,
+### control first, first invocation discarded as warmup)
+
+| case | ctl (r9 path) | swap | verdict |
+|---|---|---|---|
+| L=14 B=32 m=600 | **3.613-3.633** | 3.628-3.654 | swap LOSES +0.3-0.4% (6/7 pairs) -- ship keeps unswapped |
+| L=21 B=16 m=300 | 17.480-17.620 | **17.156-17.320** | swap -1.9%, 4/4 |
+| L=22 B=32 m=256 | 24.701-24.805 | **24.214-24.767** | swap -1.7%, 4/4 |
+| L=28 B=16 m=180 | 46.802-46.887 | **44.948-44.966** | swap -4.0%, 4/4, sd<=0.05% |
+| L=33 B=16 m=200 | 92.398-93.100 | **88.036-88.539** | swap -4.7%, 4/4 |
+| L=35 B=8  m=128 | 98.543-98.745 | **96.062-96.252** | swap -2.5%, 3/3 |
+| L=44 B=16 m=128 | 288.2 quiet / 374-382 busy | **284.9 quiet / 304-347 busy** | swap wins 6/6; -1.1% quiet, -9..-19% under LLC contention |
+| L=55 B=8  m=64  | 1140-1241 | **1089-1230** | swap wins 2/2 (bandwidth-bound, noisy; direction consistent) |
+
+The 44 contention behavior is real information: under neighbor LLC traffic
+the swapped form degrades far less (its map stage-2 re-touches each site
+run right after the wide stage-1 wrote it, so the reload window is shorter
+when lines are being evicted). The 14 loss matches the BL_SWAP12 lesson
+exactly: a DFT2 stage-2 (2 ladders per codelet) is too thin -- the shipped
+DFT7STOREM's 7 interleaved ladders are worth more than the pressure they
+cost. The family boundary is now measured at both ends: stage-2 ladders per
+codelet of 3..5 win, 2 loses (at 10 the register form + div tail won in r9,
+but that pencil is register-explicit -- different animal).
+
+- **Map tail on the swapped 21 codelet** (codelet-local rule, raced again):
+  div 17.20-17.27 vs rcp 17.49-17.67 (+1.7%, 2/3 clean pairs) -- div stays,
+  the memory-form family verdict holds on the swapped shape.
+- **Scored-cell confirmations, same core** (ship vs r9-arithmetic control):
+  10: 1.122-1.123 both arms (3 pairs); 12: 1.920-1.921 both (the 2.18 read
+  is the known first-invocation state); 15: 4.338-4.357 both, wash; 20:
+  12.747-12.796 both, wash. No code-layout tax.
+
+### Gates
+
+Full battery run locally on wallaby FIRST (the r9 method: node time spent
+zero minutes debugging), then spot-proven on the node. Swap build at all
+eight sizes: single call 2.8-4.2e-16 (tol 1e-12); two-step m=2 1.0-2.2e-15
+(tol 3e-14, 14-30x margin); full graded chains 5.852e-14 (14, anchor
+6.874e-14) / 3.646e-14 (21, 2.806e-14) / 3.633e-14 (22, 2.675e-14) /
+2.442e-14 (28, 2.375e-14) / 2.955e-14 (33, 2.538e-14) / 2.455e-14 (35,
+1.995e-14) / 2.347e-14 (44, 2.076e-14) / 2.429e-14 (55, 1.742e-14), all
+1.05-1.5x the honest anchor (tol 1e-10); repeatable bit-identical; B=1
+single + m=2 PASS at all eight; mixed remainders B=12@14, B=9@21, B=12@22,
+B=9@33, B=9@35, B=9@44 PASS. Node re-check of the ship build: 21 and 33
+graded chains PASS with digits identical to wallaby. Scored sizes: bit-
+identical to r9, so every r9 gate number carries over exactly.
+
+### What did NOT work, with the number that killed it
+
+- **Swap at 14**: +0.3-0.4%, 6/7 pairs (numbers above). Kept as a knob
+  (-DBL_SWAP14=1) for the cross-arch races; do not re-derive the table,
+  it is in the file and verified.
+- **rcp tail on the swapped 21**: +1.7%. Closed with the family.
+- Nothing else attempted at the scored cells -- they are converged copies
+  across three entries and the r9 swap already took the last measured
+  percent; this round's protection duty was the bit-identity proof.
+
+### Borrowed, plainly
+
+- The mechanism is my own r9 swap; the push to the wide family was queued
+  in my r9 next-steps. **gen_pfa_small r4's register-budget rule** again
+  framed which stage-2 widths could win before any node time was spent.
+- **gen_pfa_large gen_r9**: their portcal3 SPR measurement closing avenue 4
+  saved me from re-litigating the port-1 idea the brief kept advertising.
+- **Literature 10 / my r4**: held-lease interleaved protocol throughout;
+  **my r8/r9** Python simulate-before-C table method (it caught this
+  round's only derivation bug before it ever compiled).
+- For **gen_pfa_small / the trunk**: the swapped tables at all eight sizes
+  are in impl/gen_batchlane.c and the generator script is kept; the 15/20
+  swap transferred to you in r9, this one transfers the same way. Take the
+  14 negative result with it.
+
+### Operation count
+
+FP unchanged at every size (84/96/160/156/208/282/388/376/582/554/776/1102
+at 10/12/14/15/20/21/22/28/33/35/44/55) -- the swap moves WHERE the map
+ladders sit, not how many ops run. Memory form stays 4L ld + 4L st per
+pencil; map ~14 FMA + 1 rsqrt14 seed + 1 vdivpd per site-vector. Zero
+twiddle tables, zero shuffle-port ops inside every transform, ten rounds
+running.
+
+### What I would do next (ranked)
+
+1. **PMU dashboard** (third round on the list, still one scp away):
+   champion-signature p0+p5/cycle + l1d.replacement for the four scored
+   cells and the swapped 28/33 (the biggest wins this round -- confirm the
+   traffic reading of the 44-under-contention behavior).
+2. **Routing**: unchanged from r7/r8 -- the trunk must enumerate this
+   entry's 7/11-smooth candidates for any surprise draw; the class cells
+   are now 1.7-4.7% faster than what the r8 surprise test measured against.
+3. **B=1 / 4-lane ymm regime** (tenth round on the list): coverage only,
+   correctly framed by the r9 port analysis; build only if a scored case
+   ever lands at B<8.
+4. **Cross-arch**: BL_SWAP14..55 join the knob axes. CLX's smaller L1 and
+   weaker FMA could flip 14 (its loss is an ILP-vs-pressure tradeoff, the
+   exact shape the r9 12-verdict warns moves per host).

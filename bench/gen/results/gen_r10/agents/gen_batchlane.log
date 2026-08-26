@@ -1,0 +1,12 @@
+The round is complete. Everything shipped and verified:
+
+**What I did this round (gen_r10):**
+- **Extended the r9 factor swap to the wide-module memory-form family.** Derived and Python-verified swapped PFA slot tables for 14/21/28/35 (DFT7) and 22/33/44/55 (DFT11) — with the swapped input map `n=(Pa+Qb)%L` the module outputs come out unscrambled and the swapped stage-1 tables are exactly the shipped stage-2 tables (the r9 mirror symmetry, now at every size). Added one new macro (M2STM) and eight swapped map x-pencils behind `BL_SWAP*` knobs.
+- **Same-core interleaved races on a81n2 (held lease, core 5):** swap wins at 21 (−1.9%), 22 (−1.7%), 28 (−4.0%), 33 (−4.7%), 35 (−2.5%), 44 (−1.1% quiet, −9..19% under LLC contention), 55 (wins both pairs, noisy); swap **loses** at 14 (+0.3–0.4%, the same tiny-stage-2 failure as BL_SWAP12 — recorded so nobody rediscovers it). Div map tail re-confirmed on the swapped codelet (rcp +1.7%).
+- **Scored cells 10/12/15/20 untouched and protected:** chain outputs bit-identical to the r9 ship (cmp on node and wallaby), same-core confirmation pairs show no code-layout tax (1.122 / 1.921 / 4.34 / 12.75–12.80 µs, both arms).
+- **Gates:** full battery passed on wallaby first, spot-proven on the node — all eight swapped sizes 2.8–4.2e-16 single-call, 1.0–2.2e-15 two-step (tol 3e-14), graded chains 1.05–1.5× the honest anchors, B=1 and mixed remainders pass, bit-repeatable.
+- **For the monitor:** /tmp/perf is still missing on a81n2 and ext/tools/perf-install/bin still has no perf binary — the r9 re-staging request stands; the PMU dashboard remains blocked. The tryout.sh map-check `'$W/c.bin'` quoting bug also persists (harness note since r1).
+
+Strategy record appended (Round gen_r10 section), lease released.
+
+**One-line summary:** Factor-swapped map x-pencils extended to the wide-module family (swap ON at 21/22/28/33/35/44/55, −1.7…−4.7% same-core; OFF at 14; scored cells bit-identical to r9) — best node numbers: batched 1.122 µs/xform at L=10 B=64 (B=1: 10.3 µs, unchanged remainder path), rel L2 = 2.9e-16 single-call / 1.1e-13 full m=1000 chain vs anchor 1.1e-13 (tol 1e-10).

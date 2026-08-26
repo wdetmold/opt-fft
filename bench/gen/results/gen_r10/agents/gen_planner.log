@@ -1,0 +1,13 @@
+Everything is done and verified. Final sweep on the shipped binary: ALL 127 PASS; lease released.
+
+**Round gen_r10 summary** (gen_planner, counter-directed round):
+
+**Shipped win — a banked tile playoff.** gen_race's r9 scoring keys revealed my fixed row-width default (tile 32) loses to tile 16 at L=40/50; node pairs confirmed (40: 232.9–236.6 vs 240.6–243.1, 3/3; 50: 567.6–570.2 vs 583.6–585.9, 3/3; t16 *loses* at 32 and 100). The create() race now rebuilds a pv winner at the alternate width, races the chain step with a settle-required noise gate, and banks the verdict through wisdom as a composable `@t16` tag (unknown tags still force re-race — forward compatible). Tile is bit-neutral, so every gate digit carries.
+
+**Three clean refutations, all recorded with numbers:** (1) gen_pow2 r9's extract-to-memory transpose stores lose +2–6% on Ice Lake for my 16B-aligned strided transpose destinations (flagged back to gen_pow2 — their ICL confirmation was still pending); (2) the r9 custody clflushopt loses +6–11% at L=100 on the exact 24 MB-L3 node it targeted — default now off, playoff retained; (3) the r6 fused-exit loss at L>80 was mostly walk order (my new y0-outer exit repairs 5722–6018 → 5146–5589) but the separate pair-packed map still wins 3/3 by 0.2–2.2%.
+
+**r9's blocked agenda finished:** the noise-gated race is now node-proven (5×5 identical cold picks and bit-identical outputs at 25/50/100), and I caught and fixed a determinism regression my own playoff introduced (adoption now requires the gate to settle; contended windows keep the default, the quiet scoring window banks). Stale pre-playoff wisdom keys stripped under flock so the scoring run races with the playoff live.
+
+**Full protection battery:** all 11 graded chains pass (drift 1.06–2× honest anchors), two-step gate 0.94–2.90e-15 (tol 3e-14), L=2..128 sweep ALL PASS twice, mixed batches pass, chains bit-identical to the r9 binary at pinned picks, x86-64-v2 / lib-mode / gen_race.c all compile. The strategy record appends a gen_r10 section that also documents the never-written r9 round.
+
+Ended on: **noise-gated race + per-(host,L) banked playoffs (@f custody, @t tile), arithmetic bit-identical to r8**. Best node (a81n2) µs/transform this round: batched 1.51 (L=10 B=64), 233.0 (L=40 @t16), 573.6 (L=50 @t16); B=1 5126 (L=100 @f0). Rel L2: singles 2.9–4.9e-16, two-step ≤2.9e-15, all chains within 2× honest anchors.
