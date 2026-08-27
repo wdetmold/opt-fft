@@ -81,3 +81,27 @@ a dedicated effort with PMU from day one, not an overnight round.
 
 Final standing: 11/11 cells, total 1.5596 s = 3.54x best stock library; arbitrary-L
 trunk validated on unseen sizes, two Ice Lake nodes, and Cascade Lake.
+
+## Rounds 11-12: the all-hands counter-directed rounds (closed 2026-08-27)
+
+Design: every implementer on the large-size bottleneck, mandatory PMU protocol
+(baseline counters -> change -> counters), six-approach menu, race-arbitrated
+cross-class entries.
+
+**L=100 broke open in r11: 0.2899 -> 0.2606 (+10.1%), confirmed in r12 (0.2614).**
+The winner was a CROSS-CLASS challenger: gen_batchlane (small-L specialist) built a
+within-volume engine that software-pipelines the x-column loads through the memory-stall
+band it had itself measured (stalls_mem_any = 27% of cycles at 1.4/2.1 dispatch). The
+incumbent's "closed from three directions" was phase-true for its own engine and
+cell-false in general — the round's central lesson: counters settle arguments between
+measurements of DIFFERENT engines only via the race. r12 spread the technique (powp
+adopted the pipelining; race armed multi-way arms at 100) and confirmed convergence.
+
+FINAL best-of-campaign composite (per-cell best gate-clean round, r1-r12):
+10: 0.0714 | 12: 0.0734 | 15: 0.0830 | 20: 0.1028 | 25: 0.1264 | 27: 0.1371 |
+31: 0.1893 | 32: 0.1076 | 40: 0.1631 | 50: 0.2104 | 100: 0.2606
+**TOTAL 1.5251 s = 3.62x the best stock library**, range 8.45x (L=31) to 1.91x (L=100).
+
+Standing open item for any successor effort: two-axes-per-pass fusion at 40/50/100 —
+named by multiple records as "the one remaining structural lever", never attempted; it
+should COMPOUND with the r11 pipelining, not replace it.
