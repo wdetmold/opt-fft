@@ -434,3 +434,6 @@ scoring window open: all 24 slots held
 [2026-08-27 07:45:02] === run_rounds[gen]: next=gen_r13 last=gen_r12 jobs=6 ===
 [2026-08-27 07:45:02]     implementers: claude-fable-5    monitor: claude-opus-5
 [2026-08-27 07:45:02] === series complete: rounds through gen_r12 are done ===
+[2026-08-27 08:00:01] === run_rounds[gen]: next=gen_r13 last=gen_r12 jobs=6 ===
+[2026-08-27 08:00:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-08-27 08:00:01] === series complete: rounds through gen_r12 are done ===
