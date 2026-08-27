@@ -1,0 +1,10 @@
+Round gen_r12 complete. Both files are written: `impl/gen_pfa_small.c` (the r12 engine) and a full "Round gen_r12" section appended to `strategies/gen_pfa_small.md`.
+
+**One-line summary:** Within-volume SoA chain (borrowed gen_batchlane r11) with formula-baked pragma-unrolled role-swapped 25-pair pencils — best a80n0 numbers: B=1 (L=100, graded) **5178 us/xform**, batched **551 us at L=50 B=4** and 4.35 us at tuned L=15 B=32 (bit-identical to r11), rel L2 **5.1e-16** single-call with all two-step and chain gates passing (m=2 2.85e-15 vs tol 3e-14; m=64 chain at 1.08x the honest anchor).
+
+Details for the record:
+
+- **What I built:** gen_batchlane's r11 within-volume SoA (lanes = 8 x-planes of one volume, credited plainly) re-expressed in my entry's machinery — my site format, my in-place/buffered generic pencils, my gdft25 CT, map fused at the pencil's stage-2 stores, exact-zero pads instead of their replicated ones. It beat not just my r11 slab form at 50/100 (−14.6% / −24%) but the r7/r8 rotation form at **every** generic size measured (−16 to −25% at 14/21/28/36/44), so it now serves all generic small-batch sizes (`GWVS_MIN=8`).
+- **The round's own finding (counter-directed):** DRAM custody was already optimal (LLC misses 3–9 MB/step for a 33 MB working set); the gap to the cell winner is *instruction count* — 29.5M/step through the table pencils vs their 17.3M. Formula-baking the GT/CRT indices first made it **worse** (35M — gcc didn't unroll, so every index became a runtime `% L` chain, port 1 ×4) until `#pragma GCC unroll` forced the fold: 24.7M/step, −4% wall. That table-vs-formula lesson and the swap verdicts (ON at 100: −2%; OFF at 50: +0.7%, confirming batchlane's map-width call) are all in the record with numbers.
+- **Correctness:** 20+ size/batch gate combinations pass on the node including every WVS module class; all tuned and batched paths cmp-verified bit-identical to the r11 ship; everything repeatable.
+- Baseline vs after counters (mandatory protocol) are in the strategy record; the slot lease is released and no slurm jobs were submitted.

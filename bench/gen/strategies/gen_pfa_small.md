@@ -1547,3 +1547,203 @@ Twiddles: 16 W25 constants, the entry's first and only twiddled stage.
    the no-prefetch rule's scope the way this round did.
 4. Cross-arch: race G25CT / GSLABSW / GWARMC / GSLAB_MIN per host; SPR's bigger L2
    (2 MB) will move the slab-fusion crossover and may flip GWARMC.
+
+## Round gen_r12
+
+### Headline
+The cumulative round again did what it is for: gen_batchlane's gen_r11
+WITHIN-VOLUME SoA engine -- the design that took the L=100 cell at 4059 us
+against my r11 slab form's 6009 -- is adopted wholesale into this entry's
+split path (gstep_wvs), which is simultaneously my own r11 next-list #1 (the
+site-interleaved slab layout that halves the split path's line touches).  It
+then turned out to beat not just my r11 slab form at 50/100 but the r7/r8
+ROTATION form at EVERY generic size, so it now serves ALL generic sizes at
+small batch.  Node numbers (a80n0, held slot lease on core 6, interleaved
+adjacent runs, min-of-mins; quiet-window values):
+
+| case | r11 ship (board) | gen_r12 ship | MKL same window | leaders same board |
+|---|---|---|---|---|
+| L=100 B=1 m=64 | 6066 | **5178-5186** (-14.6%) | 7787-7803 (1.50x) | batchlane 4072, pfa_large 4555 |
+| L=50 B=4 m=128 | 726.6 | **551-563** (-24%) | 950-1026 (1.7x) | race/powp/pfa_large 411-418, batchlane 476 |
+| L=14 B=1 m=100 | 11.10 (r8 rotation) | **9.7** (-24%) | 12.65 r8 board | |
+| L=21 B=1 m=50  | 40.93 | **33.1** (-21%) | | |
+| L=28 B=1 m=20  | 87.4 same-window | **73.7** (-16%) | | |
+| L=36 B=1 m=20  | 258 same-window | **198** (-23%) | | |
+| L=44 B=1 m=20  | 440 same-window (r11 slab) | **410** (-7%) | | |
+
+I still do not take the 50/100 cells (batchlane's within-volume original and
+the incumbents lead), but this entry moved from 1.49x-of-best to ~1.27x at
+100, from 1.77x to ~1.35x at 50, and every 14..126 small-batch cell it owns
+outright got 16-25% faster.  ALL batched paths and tuned sizes ship
+BIT-IDENTICAL to r11 (cmp on out+chain at 15 B=32, 10 B=8, 12 B=1, 36 B=8,
+and -- before the threshold drop -- 44 B=1, 21 B=1).
+
+### What changed
+
+1. **gstep_wvs: the within-volume SoA chain step** (BORROWED: gen_batchlane
+   gen_r11, the brief's approach #4, taken as a design and re-expressed in
+   this entry's machinery).  State = NS = ceil(L/8) slabs of the batched
+   engine's interleaved site format (site = re[8]|im[8]), LANES = 8 x-planes
+   of one volume.  Per step: pass A per slab = z-pencils (stride 1 site)
+   then y-pencils (stride ZP sites) -- the batched engine's shuffle-free
+   elementwise pencil code on an L2-resident slab (two-axes-per-pass fusion
+   for free); pass B = x pass per (y, 8z)-column: tr8-gather from the NS
+   slabs into a <=16 KB site-format scratch, ONE generic pencil call with
+   the graded map fused into its stage-2 stores (c prepacked once per chain
+   into consumption order), tr8-scatter back in place.  Everything in
+   place, natural layout, no rotation/parity bookkeeping.  One 128 B site
+   stream replaces the split path's two re/im 64 B streams.
+   Layout rules: z rows padded to ZP8 = 8*ceil(L/8) sites so pass-B blocks
+   are NON-OVERLAPPING (an in-place pass cannot recompute an overlap tail
+   -- the gather would read post-map values), +1 site so the y-stride is an
+   odd site count (32 distinct 4K residues); slab stride == 2 mod 32 sites.
+   PADS ARE EXACT ZEROS AND STAY ZERO: pass A only loops real y/z, pad-x
+   scratch slots sit above the pencil's slots, FFT is linear, and the map
+   fixes 0 at c == 0 (c pads packed zero) -- no unmapped growth, no NaN,
+   nothing leaks into real lanes.  (gen_batchlane replicated pad lanes; the
+   zero form makes the safety argument one line.)
+2. **c prepack without their lanex discipline**: c is packed per slab row
+   with the SAME pack8_plane as the state (site z, lanes x), then each
+   8-site block is tr8-ed once into (site x, lanes z) consumption order --
+   so pass B's fused map reads c at cpb + x*16 exactly like the batched
+   engine's C field.  Once per chain, row-local, vectorized; their
+   half-session lanex bug class is structurally avoided because both packs
+   go through the one existing (long-verified) packer.
+3. **gpencilf: FORMULA-baked pencils for the 25-pairs** (the round's own
+   contribution; see "the instruction story" below).  Same body as
+   gpencil_body but slot indices are the GT/CRT formulas (Q*j1+P*j2)%L and
+   (A*k1+B*j2)%L with compile-time P, Q, A, B, under #pragma GCC unroll:
+   after full unrolling every index is a literal offset and every inmap/
+   outmap int16 load is gone.  Instantiated for (4,25), (25,4), (2,25),
+   (25,2); chain outputs cmp-IDENTICAL to the table pencils (same
+   arithmetic, different addressing).
+4. **Role-SWAP at 100** (gen_batchlane r9/r10's factor-swap verdict, which
+   my r10 adopted for tuned sizes and never gave the generic engine): the
+   y-sweep and x-pass run gpencilf_25_4 -- gdft25 wide stage 1 map-free,
+   25 x DFT4 stage 2 where the map fuses -- built from a second gtabs
+   (roles reversed) and a gmodP stage-1 dispatch that routes module 25 to
+   the gdft25 CT.  The swapped pair is not IPOK, so the pencil is the
+   BUFFERED single-touch form: the y-sweep's slab-spanning slots are
+   touched once (tr/ti on the L1 stack) instead of the IPOK form's two RMW
+   touches per slot.  The z-sweep keeps the unswapped IPOK form (its slots
+   are 12.8 KB contiguous: the second touch is an L1 hit and it carries no
+   buffer traffic).  Raced at 100: swap 5186/5239 vs no-swap 5283/5292
+   (-2%, clean rounds).  At 50 the swap LOSES +0.7% (551 vs 555, 3/3) --
+   gen_batchlane's r10 "DFT2-width map stage-2 loses" verdict confirmed on
+   my codelet; 50 ships unswapped (map on the DFT25 side), -DGWVSSW50=1
+   races it back.
+5. **GWVS_MIN raced from 50 down to 8**: WVS beats the r8 rotation form at
+   every size tried (table above), including L=14 where the second slab is
+   43% pad lanes.  The rotation form's minimal-block-count advantage never
+   overcomes the within-volume form's zero-shuffle sweeps + single site
+   stream + unrotated stores.  -DGWVS=0 restores the r11 slab/rotation
+   behavior wholesale.
+
+### The counter protocol (mandatory), before/after, differential method
+(samples=4 minus samples=2 = 128 graded steps; L=100 B=1, per chain step)
+
+| metric/step | r11 ship (my r11 record) | r12 ship | gen_batchlane r11 (their record, whole-run) |
+|---|---|---|---|
+| time (quiet min) | 6.01 ms | **5.18 ms** | 4.06 ms |
+| instructions | ~29M (IPC 0.45-1.3 by window) | **24.7M, IPC 1.29** | 13.4M cy x 1.29 = ~17.3M |
+| LLC misses | 0.44M lines (28 MB) | **0.05-0.14M (3-9 MB)** | 0.03M (2-10 MB) |
+| l2_lines_in | 0.80M (51 MB) | 0.91M (58 MB) | -- |
+| l1d.replacement | 2.75M (176 MB) | **1.86M (119 MB)** | 1.5M (97 MB) |
+| loads (p2_3) | 7.00M | **5.7M** | 4.05M |
+| stores (p4_9) | 4.49M | **4.7M** | 2.42M |
+| p0+p5 dispatch | 12.8M | 13.5M (incl. ~1.6M tr8 shuffles) | 12.1M |
+| stalls_mem_any | -- | 6.2M cy (~31%) | 27% |
+
+The traffic verdict of r11 stands and is now nearly saturated: DRAM custody
+is L3-clean (3-9 MB/step for a 33 MB working set), FP dispatch is at parity
+with the cell winner, and the REMAINING gap to batchlane's 4059 is
+INSTRUCTION COUNT: 24.7M vs ~17.3M/step -- my staging (gather/scatter
+2x1.08M v8 ld/st per step through the scratch, the buffered pencil's tr/ti
+and xr/xi array traffic) vs their register-disciplined generated codelet.
+That is next round's target, not a knob.
+
+### The instruction story (measure, don't assume -- twice this round)
+* Table pencils: 29.5M insn/step.  First formula-pencil build: **35.0M**
+  (WORSE) -- gcc refused to unroll the big-body loops, so every slot index
+  became a runtime `% L` mul-shift chain: port 1 dispatch jumped 1.9M ->
+  4.2M/step.  A formula only beats a table if it FOLDS; `-funroll-loops`
+  is a hint, `#pragma GCC unroll` is a demand.  With the pragmas: 24.7M
+  insn/step, p1 back to 1.0M, and the pencil wins 3/3 interleaved rounds
+  (-4%).  Chain outputs bit-identical in all three builds.
+* GWVSPF (pass-B gather prefetch of the next z-block chunk, aimed at the
+  42%-of-cycles stalls_mem band): LOSES ~1% (5587 vs 5540 min-of-mins, 4
+  rounds).  The r11 GWARMC exception does NOT extend to this gather -- it
+  is issue-heavy enough that the standing no-prefetch rule wins.  Knob
+  kept, default 0.
+
+### Gates (all run on the node by hand, held lease; tryout's map-check leg
+### still gets the literal '$W/c.bin' -- unchanged harness bug)
+* L=100 B=1: single 5.087e-16; two-step m=2 2.854e-15 (tol 3e-14, 10x);
+  graded m=64 chain 2.608e-14 vs anchor 2.416e-14 (1.08x, tol 300x) --
+  tighter than my r11's 2.92e-14.  Repeatable bit-identical.
+* L=50 B=4: single 4.980e-16; m=2 2.532e-15; m=128 chain 4.133e-14 vs
+  anchor 2.922e-14.  Repeatable.
+* WVS module-class battery, all PASS with repeatability: 42 B=1 (nested-PFA
+  module 21), 34 B=3 (prime fold 17), 66 B=1 (nested 33), 22 B=3, 18 B=1
+  (IPOK), 24 B=2 (buffered), 54 B=1 (module-27 fold), 104 B=1, 126 B=1,
+  30 B=2, 112 B=1 (gdft16), 63 B=3, 75 B=1 (3x25 CT), 14/21/28/36/44/45/
+  46/48 B in {1,2,3}.
+* Bit-identity to r11: tuned 15 B=32 / 10 B=8 / 12 B=1 out+chain, 36 B=8
+  batched-generic, 75 B=8 single-call PASS (gdft25 pragma is value-
+  transparent).  All B%8==0 paths untouched.
+
+### What did NOT work / verdicts, with the number
+* Rolled formula pencils: +5.5M insn/step, p1 x4 (above).  Do not ship a
+  "formula instead of table" without checking the unroll actually happened.
+* GWVSPF gather prefetch: +1% (above).
+* Swap at 50: +0.7% (551 vs 555, 3/3) -- shipped OFF, matching
+  gen_batchlane's r10 map-width verdict from the codelet side.
+* Swap at 100 in the noisy early window read as a wash through the table
+  pencils (5579 vs 5582); on the unrolled formula pencils it is a clean
+  -2%.  Verdicts taken in a bad window are not verdicts (standing lesson,
+  re-confirmed).
+* The IPOK pencil in the y-sweep (two RMW touches of slab-spanning slots)
+  is what the buffered swap fixes; z-sweep keeps IPOK (L1-resident slots).
+
+### Borrowed, plainly
+* **gen_batchlane gen_r11**: the whole within-volume design -- lanes =
+  x-planes, slab padding discipline, per-slab zy fusion, x-pass through a
+  transposed scratch column, c packed once in consumption order, B>1 loops
+  volumes.  Also their PMU framing (stall-bound, not uop-bound) which this
+  round's counters reproduce on my engine.  Their r10 dft50 map-width
+  verdict adopted for my 50 default without re-litigating direction.
+* **gen_batchlane gen_r9/r10**: the factor swap, now in my generic pencil.
+* **My own r11**: gdft25 CT, gspencil IPOK groundwork, GWARMC scope rule
+  (tested against, correctly did not transfer), differential-PMU method.
+* New and mine: the exact-zero pad invariant (simpler safety argument than
+  replicated pads), the formula-baked/pragma-unrolled pencil form and its
+  measured table-vs-formula instruction story, the z-IPOK/y-buffered split
+  verdict, and the GWVS_MIN=8 sweep showing within-volume SoA dominates
+  rotation at EVERY size -- none of which their record claims.
+
+### Operation count (WVS path, per volume per step)
+Pass A: per slab, L z-pencils (stride 1 site) + L y-pencils (stride ZP);
+pass B: L*ceil(ZP8/8) columns x [2*NS tr8 in + 1 pencil + 2*NS tr8 out].
+Pencil (25,4) swapped: 4 x gdft25 (~404) + 25 x DFT4 (16) + 100 map
+ladders ~= 2016 FP + map per 8 lanes; (2,25): 908 FP.  tr8/step at L=100:
+67.6k (1.62M shuffles, 12% of p5+p0 dispatch).  Map: hs-form ladder + one
+vdivpd, in-register at the pencil's stage-2 stores.  Arena: NS*SLST sites
+state + L*NBZ*L sites c (34 MB at 100), exact-zero pads.
+
+### What I would do next (ranked)
+1. **Close the 24.7M -> 17M insn/step gap at 100**: a fused x-column
+   codelet (tr8 gather feeding gdft25 inputs directly, stage-2 STM outputs
+   feeding tr8 scatter, no scratch round trip) plus register-explicit
+   sweeps.  ~0.5M v8 ld/st per step from the scratch alone; the rest is
+   the buffered pencil's array traffic.  This is the same register-
+   discipline step gen_batchlane took between generic and generated.
+2. **Re-race GSPLIT_RMAX**: WVS per-volume is 16-25% faster than the split
+   form the r8 crossover was measured on, so r=5..6 likely now favor
+   per-volume over the lane-replicated group (r8: replicated won r>=5 by
+   +18%).  Round-6 insurance.
+3. **Route generic execute() remainders through gstep_wvs(cp=NULL)** --
+   execute still lane-replicates (8x waste at B=1); unscored but it is the
+   single-call gate's path budget at surprise sizes.
+4. Cross-arch: GWVSSW/GWVSSW50/GWVSPF/GWVS_MIN per host; SPR's 2 MB L2
+   fits the 1.35 MB slab with room -- the z-IPOK/y-buffered verdict and
+   the swap may both flip there.

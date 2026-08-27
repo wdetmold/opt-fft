@@ -1594,3 +1594,155 @@ latency+instruction count.
    race; at 64 race GP64_FUSE only on hosts with LLC < ~12 MB.
 3. Nothing at L=32 — unchanged, still closed ([port || L2], r8 attribution;
    bit-identical for the fifth round).
+
+## Round gen_r12 — the fusion round pays twice more: z-rows fused into
+## stage-2 (-8% at 128, and it FLIPS the L=64 fused-sweep verdict to a -12%
+## win), the y-side fusion measured out with the demand-vs-covered
+## discriminator, and the peers' THP finding adopted at 128
+
+Standings into the round: led L=32 at 53.809 us (3.17x mkl_dfti 170.663,
+r11 board).  The r11-r12 brief keeps every implementer on the large-size
+problem; my class's large sizes are the L3 regime (64) and the DRAM regime
+(128, the closest 2^k analog to the all-hands L=100 cell).  This round
+spends my own r11 next-step #1 (cut the fused sweep's tile revisits) and
+adopts one peer finding.  Session: reservation 438881 on a80n0, and
+**reserve.sh --status WORKS again this round** (the wallaby_shims heartbeat
+fix) so tryout.sh ran unaided for the graded case; its remote map-check leg
+still gets the literal '$W/c.bin', so all map gates below were run by hand
+with check.py on the node (standing procedure since r1).  Slot lease 3 /
+core 5 held for the by-hand session and released after.  Counters per the
+mandatory protocol: pmu.sh baseline BEFORE, after, both below.  Windows
+were mobile (bimodal fast/slow states, plus a first-run-cold effect on
+freshly built binaries — discard position-1 runs, the r5 rule); every
+verdict is from rotated-order same-core adjacent pairs.
+
+### What shipped (three defaults changed; all outputs bit-identical)
+
+1. **GP128_ZF=1 — the next step's z-rows fused INTO x-stage-2's loop**
+   (xs2z_128).  Stage-2's slot (y,g) stores write row y of ALL 16 tile
+   planes, so after row y's 16 slots the row is complete and L1-hot;
+   zrow128 eats it immediately, and the zy pass shrinks to a y-only pass.
+   Pure reordering of independent row ops => bit-identical (cmp every
+   build).  Raced 6/6 rotated rounds: 11.33-11.71 vs r11 arm 12.38-13.67
+   ms/step-vol; final quiet-window pairs 10.87 vs 11.79-12.77 (-8..-15%).
+   Same-window MKL 2022: 20.91 ms => **ratio ~0.52 (1.92x), was 1.75x in
+   r11 and 1.60x in r8**.
+2. **GP64_FUSE=1 (flipped from 0) + GP64_ZF=1 — the same fusion at G=8
+   makes the one-sweep step WIN at L=64**: 611-623 us vs the two-sweep
+   693-699 (4/4 rotated B=2 rounds; B=1 621 vs 704-707, 2/2).  The r11
+   verdict ("fused loses ~2% at 64") did not reproduce this session even
+   at ZF=0 (fused-r11 arm read 636-656, also a win) — recorded honestly;
+   both arms stay compilable as the per-host wisdom-race axes.
+3. **GP128_HP=1 — MADV_HUGEPAGE + touch for the 68-MB L=128 S+C block**
+   (ADOPTED from gen_layout/gen_powp gen_r11: this host is THP=madvise, so
+   posix_memalign gets zero huge pages and the DRAM-regime chain streams
+   ~17K 4-KB pages per step).  -0.8..-0.9% in every clean-window
+   (sd<=0.06%) pair, 6/7 pairs overall; setup +13 ms (touch), trivially in
+   budget.  My own r4 GP64_HP loss (page-color flattening) does NOT
+   transfer to the DRAM regime — TLB reach wins there.
+4. L=32 / L=16 paths untouched: chain outputs cmp-IDENTICAL to the r11
+   ship binary's, layout-tax race a wash (rotated pairs 54.23-54.81 vs
+   54.42-55.03, mixed signs).
+
+### The counters (mandatory protocol; 2-sample m=8 runs at L=128, core 5)
+
+| counter | r11 arm | ZF (ships) | ZF+YF (raced out) |
+|---|---|---|---|
+| instructions | 2.81G | **2.55G (-9.3%)** | 2.54G |
+| l1d.replacement | 266M | **236M (-11%)** | 235M |
+| l2_lines_in.all | 197M | 196M (flat) | 162M (-18%) |
+| LLC-loads / LLC-load-misses | 29.5M / 18.1M | 30.4M / 18.0M (flat) | **35.8M / 24.1M (+33%)** |
+
+**The r11 next-step's theory of ZF was WRONG in mechanism and right in
+value**: the tile trip count is unchanged at three (the y pass still
+re-reads the tile) — the -8% is the zy pass's z-side loop overhead and L1
+reloads deleted (instructions -9.3%, L1 fills -11%), not an L3-trip cut.
+At L=64 the counters are starker: LLC-loads 51.4M -> 7.4M (-86%),
+l2_lines_in -29% against +9% instructions — with ZF the demand-traffic
+elimination now dominates the fused sweep's addressing tax, which is what
+flips the r11 verdict.
+
+### What did NOT work, with the number that killed it
+
+* **GP128_YF=1 (y fused with x-stage-1 per 128-KB column slab)**: alone
+  -4% vs r11 (11.87-12.28), but a +2% LOSS on top of ZF (ship-both
+  11.30-12.03 vs ZF-only 11.32-11.66, ZF wins/washes 6/6).  The counters
+  above are the post-mortem: the slab fusion DOES cut L3->L2 traffic
+  (l2_lines_in -18%) but its walk is 128-B touches at 2112-B stride — no
+  streamer covers it, and demand LLC misses rise +33%.  **The r11 L=64
+  lesson, one level down the hierarchy: covered traffic is nearly free;
+  only DEMAND misses are worth restructuring against.  Run the
+  LLC-loads/LLC-load-misses discriminator BEFORE building any fusion.**
+  Kept compilable (all four ZF/YF combos build; (0,0) is the exact r11
+  codegen).
+
+### Measured on the node (a80n0 core 5, rotated same-core adjacent pairs)
+
+| case | r11 arm (same window) | gen_r12 ship | verdict |
+|---|---|---|---|
+| L=128 B=1 m=8 chain | 11.79-12.77 ms | **10.74-10.88 ms** (best 10.744, sd 0.04%) | -8..-15%, 6/6 + 4/4 pairs; MKL 20.91 => **1.92x** |
+| L=128 B=2 m=8 chain | — | 12.36 (one window) | gates pass |
+| L=64 B=2 m=64 chain | two-sweep 692-699 us | **611-623** (best 609.1) | -12%, 4/4 |
+| L=64 B=1 m=64 chain | two-sweep 704-707 | **621** (final ship 608.4) | -12%, 2/2 |
+| L=32 B=8 m=250 (graded) | bit-identical path | **54.14-54.93** this session (sd 0.01-0.03%) | no layout tax |
+| L=16 B=8 m=300 chain | bit-identical path | 6.58 (fast state) | untouched |
+
+SPR dev signal (wallaby core 97, r9 protocol): L=64 fused+ZF 478.6 vs
+two-sweep 555.4 (**-14%**, 2/2); L=128 ZF 7.02 vs r11 7.43-7.48 ms
+(**-5.5%**, 2/2).  Both new defaults transfer; no wisdom-race hedge needed
+on the hosts we can see.
+
+### Gates (ship build = flagless default, node, check.py by hand)
+
+All chain outputs bit-identical to the r11 ship binary's at every size
+(cmp), so every digit reproduces: L=32 single 2.902e-16 (B=8) / 2.915e-16
+(B=1), m=2 fused **1.338e-15 / 1.393e-15** (tol 3e-14), chain m=250
+3.328e-14 / 2.948e-14; L=64 single 3.214e-16, m=2 **1.723e-15**, chain
+m=64 2.342e-14 (now via the FUSED path — verified identical to the
+two-sweep output); L=128 single 4.092e-16, m=2 **2.469e-15**, chain m=8
+5.564e-15, B=2 chain 5.938e-15; L=16 chain m=300 2.351e-14.  2^k
+regression 2/4/8 singles 0 / 0 / 1.4e-16.  Repeatable (cmp-identical
+across independent runs) at 128 and 64.  -Wall -Wextra: only the
+pre-existing 5 notes (mode-0 -Wrestrict quartet + r10 'nxt').
+
+### Borrowed / attribution (gen_r12)
+
+* **gen_layout gen_r11 + gen_powp gen_r11**: the THP-on-madvise finding
+  and its adoption recipe — GP128_HP is their mechanism applied to this
+  entry's one DRAM-regime block, raced honestly against my own r4/r7
+  anti-hugepage results (which stand in their own regimes).
+* **My own r11**: the one-sweep fused sweep and the demand-vs-covered LLC
+  discriminator; this round extends the discriminator from "should you
+  fuse" to "which SIDE of a fusion pays" (ZF yes, YF no) and corrects the
+  r11 trip-count theory with the instruction/L1 attribution.
+* The z-into-stage-2 row fusion (xs2z_128/xs2z_64) and the column-slab
+  y+stage-1 fusion (raced out): this entry, new this round.
+
+### Transfer note for the L=100 owners
+
+The winning shape generalizes: **fuse the next step's FIRST post-map pass
+into the current step's LAST pass at the granularity where its input
+becomes complete in L1** (here: z-rows into stage-2's row completion) —
+it cost -9% instructions at 128 and flipped the L3-regime verdict at 64.
+The losing shape is its dual: do NOT fuse a pass whose fused-order walk
+is streamer-hostile (my column slabs at 2112-B stride) — check
+LLC-load-misses before building; l2_lines_in going DOWN while wall goes
+UP is the signature.  At L=100, gen_powp/gen_pfa_large's prepass would be
+the fusion target, and their THP re-home already ships.
+
+### What I would do next
+
+1. **L=128 residual**: 10.74 ms vs the ~7.4 ms DRAM floor.  The remaining
+   structure is the y-pass + stage-1 tile revisits; the YF loss says the
+   fix is NOT slab fusion.  The one untested shape is reordering stage-1
+   to consume y-line outputs at y-line granularity (stage-1 column q needs
+   only column q of all 8 group planes — the y pass could emit columns
+   round-robin across planes instead of plane-major, keeping walks
+   sequential per plane).  Needs a paper walk-order audit first.
+2. **L=64 at B=1/B=2 is now fused**: if the trunk ever routes a 2^k in
+   the L3 regime, GP64_FUSE/GP64_ZF are live defaults; re-race on CLX
+   (smaller LLC moves the boundary toward the r11 verdict).
+3. Nothing at L=32 — bit-identical for the sixth round ([port || L2], r8
+   attribution unchanged).
+4. Knob inventory for the wisdom race grows by {GP128_ZF, GP128_YF,
+   GP64_ZF, GP128_HP} on top of the r10 list.

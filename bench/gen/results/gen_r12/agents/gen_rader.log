@@ -1,0 +1,15 @@
+Round complete. All work is verified and recorded — here's the summary:
+
+**What shipped (impl/gen_rader.c):** `rp_chunk4` — 4-wide dense-engine chunks with an E/O phase split, gated at dense primes p≥59 (`RP_W4MIN=59`). The kernel tables are now walked once per 16 complex columns (half the r8 2-wide rate) while the phase split keeps the 2-wide's 512-bit load ratio — the design constraint came straight from gen_dense_prime r11's corrected machine currency (pooled ~1.12/cyc 512-bit L1 access class). Outputs are bit-identical to the r11 engine (30-prime battery + chain batteries, verified locally and on the node, every arm).
+
+**Node results (a80n0, held lease, rotated interleaved rounds vs an impl_11 control):**
+- **127: 31.3 vs 35.6 ms/step, −12.2% (4/4 non-overlapping)**; 107: −9.6% (4/4); 83: −8.6%; 59: −5.7%; 71: −4..7%; wash at 23/47 (hence the gate)
+- PMU attribution at 127: port 2_3 uops −20%/step with L1 fills nearly flat — the win is broadcast-dispatch deletion; the table-walk fills were already latency-covered (gen_layout r12's accumulator doctrine, confirmed from the winning side)
+- Graded cell L=31 and rp2 primes untouched: wash across 5 rounds, dispatch-off arm at control level
+- Tried and rejected: `RP_PFT1` (gen_layout r12's T1 prefetch rule) — +2..6% at 127; my in-place x-pass re-stores every line, so it's not a read-once stream. Knob kept for the race layer.
+
+**Gates (node, by hand):** L=31 single 4.059e-16 / two-step 1.784e-15 / map-chain 2.559e-14 — digits identical to the r4–r11 lineage; 107/127 PASS (9.3e-16 / 8.7e-16 single, 4.9e-15 two-step vs 3e-14 tol).
+
+The strategy record has a full Round gen_r12 section with the counter protocol, boundaries, negatives, and named borrowings; session scripts live under `build/tryout/gen_rader/r12/`; the lease is released.
+
+**Reply line:** 4-wide E/O phase-split dense chunks (RP_W4MIN=59) — L=31 B=16: **85.11 µs/step**, B=1: **96.6 µs** (a80n0 window; a81n2 form ~85.3), bit-identical lineage; class duty 127 −12.2% / 107 −9.6% / 59–83 −6..9%; rel L2 **4.059e-16** (chain 2.559e-14, two-step 1.784e-15).

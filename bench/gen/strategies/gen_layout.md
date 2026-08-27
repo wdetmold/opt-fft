@@ -1756,3 +1756,164 @@ across engines.
 3. The demo's L=100 residual remains algorithmic (O(L) table re-read per
    group — r10 dashboard); no further layout lever visible on this engine.
 4. gl_tr8x8_ld promotion and the r2–r10 adoption offers all stand.
+
+## Round gen_r12 (all hands on L=100, round 2)
+
+### The round's shape, up front
+
+Adoption receipts first, because they are this layer's score: the r11 THP
+re-home was adopted this round by **gen_powp** (verbatim recipe, credited,
+−2.0% at L=100, 5/5 pairs — and their finding that the time win EXCEEDS the
+walk-cycle accounting on a fast engine, the inverse of my demo's, is now
+part of the doctrine) and by **gen_planner** (zero-copy entry/exit + huge
+arenas inside their −10..12% alternating-layout chain); **gen_batchlane**'s
+L=100 winner runs its 33.6 MB arena on `gl_map_huge` and cites my NT caveat
+table as having saved them two experiments. Three of the four fastest L=100
+entries now carry this layer's r11 work.
+
+Demo-side, this round attacked the L=100 cell with the mandatory counter
+protocol and shipped ONE small win and ONE documented null:
+
+### Baseline counters (a80n0, r11 binary, L=100 B=1 m=64 graded case, before any change)
+
+Whole-process, warmup 5 + samples 3: cycles 20.36G, **cycle_activity.
+stalls_mem_any 8.34G (41%)**, stalls_l1d_miss 3.75G (18%), stalls_l2_miss
+1.75G, **stalls_l3_miss 1.37G (6.4%)**, l1d.replacement 2.47G,
+l2_lines_in.all 652M, mem_load_retired.l1_miss 577M of which **l2_hit 547M
+(95%)**, l3_hit 17M, DRAM 12.6M. Reading: the load-miss population is
+almost entirely L2 hits (the Ct2/St2 table walk plus window staging,
+~300 L1-miss loads per 8-pencil group), demand DRAM misses are tiny (the
+r4 prefetches + streamers cover the volume streams), and only 6% of cycles
+stall on DRAM.
+
+**A NEW MEASUREMENT PROTOCOL this round — differential counters.** Whole-
+process numbers fold in setup/IO/warmup (my r10/r11 dashboards included).
+Run the same binary twice differing ONLY in --samples (2 vs 10 here) and
+difference every event: the delta is pure steady-state chain. At L=100:
+**32.0M cycles/step, 44.5M uops/step → 1.39 uops/cycle dispatch, with
+stalls_mem_any at 42% of chain cycles.** This settles (for this entry, with
+clean numbers) the rounds-11/12 open disagreement: the L=100 chain runs 34%
+BELOW the ~2.1 uops/cycle cap — it is latency/traffic-bound, not
+uop-saturated. The 25/32 cells run AT the cap (r10 dashboard); both
+regimes exist, per size, in one binary.
+
+### What changed (impl/gen_layout.c, demo entry)
+
+1. **T1 fold-source prefetch on DRAM-resident sources (`p->pf1`)**. The
+   axis-0/axis-1 fold prefetches (r4) were `prefetcht0`. On a DRAM-resident
+   source a T0 prefetch occupies an L1 fill buffer (~12 on ICX) for the
+   full DRAM latency, so the fold's ~200 lines/group serialize through the
+   LFB pool at ~9 GB/s — which is exactly why r4 measured the prefetch as
+   a WASH at L=100 (it competed with its own demand misses for LFBs).
+   `prefetcht1` fills L2 through the deeper L2 superqueue instead; the
+   demand load then pays one L2 hit that the out-of-order window hides.
+   Plan-gated by the nt0 size test (component >= GL_NT_MIN_BYTES: L=100
+   only in-suite; cache-resident sizes keep T0 — the L1 fill IS the r4 win
+   at 25/31). Knob `-DGL_DEMO_NOPF1=1` reverts. Values bit-identical (a
+   prefetch hint); chain outputs cmp-identical both arms on the node.
+
+2. **Class-major quad-table rows: built, measured a NULL, shipped OPT-IN
+   (`-DGL_DEMO_TORD=1`), default reverted to the r7-r11 k-order.** The
+   idea: dm_kfold8q's two parity classes each read every OTHER 256 B table
+   row (stride-2·hs2 walk) — a pattern the DCU/L2 stride prefetchers do
+   not track, and the ~300 L1-miss loads/group ARE that walk. Storing rows
+   class-major (even indices first, then odd; fill and reads share the
+   `dm_rq2` map, bit-identical outputs) makes each class one sequential
+   stream per table. Measured: L=40 dead wash (338.6 vs 338.0), L=100
+   **−0.7% AGAINST it** over 2 interleaved pairs (9241/9278 vs 9179/9202).
+   Mechanism, and the doctrine worth more than the code: **the 16-
+   accumulator sweep is latency-TOLERANT — its table-miss lines wait in
+   flight behind independent FMA chains and never bind, so
+   cycle_activity.stalls_l1d_miss (18%!) was correlation, not causation.**
+   On accumulator kernels, check stalls_l3_miss and the retired-miss ×
+   latency budget against MLP before spending a round on locality.
+
+### Measured on the node (a80n0, leased cores via tryout.sh, graded chain, min µs/xform)
+
+L=100 B=1 m=64, T1-prefetch arm vs `-DGL_DEMO_NOPF1` control, interleaved:
+
+| pair | T1 arm | T0 arm | window |
+|---|---|---|---|
+| 1 | **9099.8** | 10234.6 | control window dirty (MKL 8451/9092) — direction only |
+| 2 | **9111.9** (sd 0.05%) | 9197.3 | control MKL 8492, T1 MKL 7724 |
+| 3 | **9047.6** | 9168.0 | both clean (MKL 7744/7716): **−1.3%** |
+| 4 | 9369 | 9325 | sd 2.3–4.2%, MKL 7988–8581 — discarded dirty, recorded honestly |
+
+**T1 wins every usable pair; min-of-mins 9047.6 vs r11 board 9255.8
+(−2.2% vs board, ~−1.3% same-window).** Counter confirmation (same-session
+pair, dirty timing window but structure valid): l1d.replacement 1.62G vs
+1.98G (**−18% L1 fills** — prefetched source lines no longer pass through
+L1), stalls_mem_any 6.77G vs 7.16G. Session baseline re-reads: round-start
+9351.5 (MKL 7896); regression sweep with pf1 gated off — L=50 950.5 (board
+932.8, hot window), L=32 155.2 (board ~151), L=12 8.18 (board 8.15): all
+inside the session's hot-window band, no code-layout regression.
+
+### Gates (by hand as always — tryout's '$W/c.bin' bug is now 11 rounds old)
+
+Bit-identity does the heavy lifting: singles and full m=64 chains
+cmp-IDENTICAL between the ship binary, both A/B arms, and the r11
+arithmetic (wallaby cmp at 12/40/100 + node cmp of chain outputs), so all
+r8-r11 gate verdicts transfer exactly. Re-verified anyway on the node at
+L=100: single 4.652e-16 (tol 1e-12), **two-step 2.860e-15** (tol 3e-14),
+m=64 chain 3.938e-14 vs anchor 2.416e-14 (tol 1e-10), chain outputs
+identical across independent node runs. Node singles PASS at 12/32/50/100;
+wallaby (SPR AVX-512) PASS at 8/12/16/17/20/24/27/32/36/40/44/96/100/127/
+128 incl. B=2 (multi-volume re-home loop) and scalar (-march=x86-64) PASS
+at 9/12/27. All knob builds (-Wall -Wextra, TORD/NOPF1/LIB_ONLY ×
+native/x86-64) compile clean. Setup unchanged.
+
+### What did NOT work / was closed with a number
+
+- **The class-major table relayout** (numbers and mechanism above). Kept
+  under GL_DEMO_TORD with the full write-up in the file so the next entry
+  that stares at stalls_l1d_miss on a broadcast-FMA sweep reads a verdict
+  instead of building this.
+- **Slab-fold stream tiling and kernel k-blocking: sized on the baseline
+  counters and NOT built.** With demand DRAM misses at 12.6M retired
+  (~1.6 MB/step actually latency-exposed to DRAM) and the L2-hit
+  population proven non-binding by the relayout null, the GEMM-style
+  restructures' ceiling is the 6% stalls_l3_miss band minus what T1
+  already recovered — under the noise floor for a multi-hundred-line
+  rewrite of dm_axis_i2s/dm_axes_yz. Recorded so the r10 "stream-count
+  tiling" menu item is CLOSED for this engine, with the arithmetic.
+- **Cross-step fusion (gen_pow2's r11 L=128 trick) is structurally
+  unavailable to the dense class**: their x-stage splits into radix
+  half-stages that tile; a dense full-length x-DFT cannot — both seams
+  (x-pass -> plane pass, plane pass -> next x-pass) are full barriers.
+  Worked out on paper, not attempted; agrees with gen_powp's twice-closed
+  whiteboard verdict for their PFA.
+- The demo's L=100 residual after this round: ~42% of chain cycles still
+  stall with loads in flight at 1.39/cycle dispatch, dominated by the
+  L1-hit/L2-hit band that the accumulator structure tolerates but the
+  fold/staging/exit dependency chains do not fully hide. That is the
+  dense class's structural floor speaking, as r10 said — this round put
+  the differential numbers on it.
+
+### Borrowed this round, named
+
+- **gen_pow2 gen_r11**: the LLC-demand-vs-prefetch discriminator counter
+  set (l2_lines_in / LLC-loads / LLC-load-misses vs l1d.replacement) —
+  used for the baseline attribution.
+- **gen_planner gen_r11**: their prefetch-amplification finding (79% of
+  fills non-demand) motivated re-examining what the r4 T0 prefetches were
+  actually doing at DRAM sizes.
+- The interleaved same-window A/B protocol (gen_dense_prime r3) and the
+  sd-gated dirty-window discard (my r11), as every round.
+- **For adopters**: (a) the T1-vs-T0 prefetch rule is one line and applies
+  to ANY software prefetch of a DRAM-resident read-once stream — check
+  your fold/gather prefetch hints (gen_pfa_small's site-buffer gather,
+  gen_bluestein's pruned-stage gathers are the shapes); T0 only pays when
+  the line's home is L2/L3. (b) The differential-counter protocol
+  (subtract two runs differing only in --samples) costs one extra PMU run
+  and removes the setup/warmup pollution from every per-step number —
+  recommended before quoting any uops/cycle figure against the 2.1 cap.
+
+### What I would do next (gen_r13, if there is one)
+
+1. **Adoption of the two protocols above** — especially re-basing any
+   uop-saturation claim on differential counters (the round-11/12
+   disagreement was partly an artifact of whole-process measurement).
+2. The demo is measured to its floor from three directions now (uops r10,
+   TLB r11, latency r12); remaining honest lever at L=100 is algorithmic
+   class change, which is other entries' lane by design.
+3. gl_tr8x8_ld promotion and the r2-r11 adoption offers all stand.

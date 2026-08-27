@@ -1791,3 +1791,156 @@ block only; .text byte-identical, all r10 gate values inherited exactly).
    tryout's map-check quoting bug is now nine rounds old; the r11dev kit
    (ubcap.c + built bins + in/c pairs for 100/50/40/31/15) is current on
    the shared FS.
+
+## Round gen_r12
+
+### Where this round started
+
+r11 leaderboard (a80n0, job 438881): **111.117** at the graded cell (L=31
+B=16 m=140; gen_rader 84.776, gen_race 84.549 — the settled crossover);
+roster 5.025 / 7.659 / 15.220 / 38.123 at 10/12/15/20.  The r12 brief
+continues ALL HANDS ON L=100; my r11 already dispositioned the dense
+cross-class entry (dead on arithmetic — 37.5M zmm FMA/volume, 6.5 ms floor
+vs the 4.5 ms incumbent; struck, do not re-cost) and settled the round's
+counter question, and gen_batchlane's within-volume SoA then took the 100
+cell (4072 us).  So this class's r12 was spent on the ONE structural idea
+my own r11 currency measurements opened at my crossover cell: both machine
+pools at 31 run half-idle (p0+p5 1.44/2.0, 512b accesses 0.72/1.12) while
+the y-pass SERIALIZES an access-bound phase against an FMA-bound phase.
+This round built that lever, measured it properly, and REJECTED it — the
+round's product is the negative with its counter mechanism, which is a new
+boundary datum for the whole panel's fusion plans.  Shipped default:
+bit-identical AND behavior-identical to r10/r11 (parity race below).
+
+Node: a80n0 (heartbeat healthy all round), ONE held lease (slot 1, core 3),
+interleaved same-core min-sets (the r4-r11 protocol); NFS md5 checked both
+hosts before every build.  This round's quiet windows read the r11 control
+at 109.5-111.2 — a80n0 now matches the a81n2 board level (the r11
+node-identity gap is gone; do not mix rounds' absolute numbers).
+
+### What was built and raced: cross-plane software-pipelined y-pass (fold31_ypipe)
+
+The y-pass runs 31 independent planes; per plane, a fold phase (15 j x 8
+zmm mirrored row-pair loads + U/V stores = ~480 512-bit L1 accesses, FMA
+ports idle; the pool ceiling is 1.12/cyc) feeds C/S GEMMs (~1860 FMA at
+2/cyc, access pool ~30% used).  Each phase is ~2x a ROB window, so the
+machine alternates idle-FMA and idle-access stretches.  The lever: fold
+plane x+1 into a SECOND U/V set (U2/V2, appended to the arena at the +320
+stagger; U2-U page phase 1472, not a multiple of the 512 B row stride, so
+no 4K store->load pairs between the sets) in three 5-j chunks interleaved
+between plane x's C kernels (c6/c6/c4), placed clear of the S-combine's
+volume stores (the pitch-992 (k-j) = 1 mod 8 collision class, r3 alias
+arithmetic).  Per-plane op sequence identical to fold31_core => outputs
+BIT-IDENTICAL by construction — verified by cmp at all 14 dev cells
+(single + chain m=4, wallaby) and on the node at 31 B=16/B=1 m=140 and
+15 B=32 m=600; objdump innermost-loop scan: zero spills, the only
+rsp-traffic loops are the pre-existing legit x0buf uses in fold31zx
+(identical in the control).
+
+**Node race (a80n0 core 3, interleaved, min us/step, L=31 B=16 m=140):**
+
+| arm | mins across 4 rounds | verdict |
+|---|---|---|
+| ctl (impl_11 rebuild) | 109.52 / 109.64 / 109.98 / 111.16 | — |
+| r12 ypipe | 117.47 / 117.49 / 117.63 / 117.65 | **+7%, 4/4 pairwise** |
+| knob (same source, pipe off) | 109.75 / 109.86 / 109.99 / 110.56 | == ctl (not layout luck) |
+
+**The counters (tools/pmu.sh, same core, samples=3 — the mandatory r11-12
+protocol; whole-process, so ratios not absolutes):**
+
+| arm | cycles | p0 | p5 | p2_3 | p4_9 | l1d.replacement |
+|---|---|---|---|---|---|---|
+| ctl | 8.26G | 5.905G | 5.895G | 4.815G | 1.227G | **1.217G** |
+| r12 ypipe | 8.82G (+6.7%) | 5.913G | 5.913G | 4.832G | 1.228G | **1.621G (+33%)** |
+| r12s variant | 8.71G | 5.915G | 5.915G | 4.823G | — | **1.546G (+27%)** |
+
+Port uops IDENTICAL to four digits — same work, no replay inflation.  The
+whole loss is l1d.replacement: **the y-pass hot set (U 7.7K + V 7.7K + CB
+8K + tables 3.8K + plane x's dst rows ~15.5K + plane x+1's src rows ~15.5K)
+sits AT the 48 KB L1D boundary, and cross-plane concurrency necessarily
+adds a second fold set + a second live row stream and thrashes it.**  The
+ROB-junction fill is real but ~3x smaller than the refill cost.
+
+A footprint-minimized variant (-DGDP_YPIPE_S: U reused IN PLACE — it is
+dead after c4 — so only V ping-pongs, fold chunks moved under the S
+kernels) recovered a third of the loss: 115.53/115.60/116.04 vs ctl
+109.56/110.05/110.16 (+5%, 3/3), fills 1.546G.  Loss monotone in added
+footprint across all three arms — mechanism confirmed, and the alias
+exposure of the S placement is second-order next to the capacity term.
+
+### What shipped
+
+Default = the serial y-pass, bit-identical and behavior-identical to
+r10/r11: same-window parity race 31 B=16 (ctl 109.58-110.15 vs ship
+109.80-110.18, overlapping 4/4), B=1 (110.29-111.11 vs 110.39-111.05),
+15 B=32 (14.76-15.19 vs 15.04-15.49, window noise).  Gates fresh on the
+shipped binary, node: single rel_l2 3.917e-16 (B=16) / 3.920e-16 (B=1) /
+3.306e-16 (15), tol 1e-12; two-step 1.726e-15 (tol 3e-14, 17x); map-chain
+m=140 2.551e-14 (anchor 2.312e-14) / 1.710e-14 (anchor 1.178e-14), 15
+m=600 4.958e-14 (anchor 4.784e-14), tol 1e-10 — the exact inherited
+digits, as bit-identity requires.  Scalar (non-AVX512) build verified
+end-to-end at L=7/31 with chain gates.  MKL same case/core/window: 848.3
+(sd 0.00%) => **7.7x**.  The pipe ships compiled-out behind -DGDP_YPIPE /
+-DGDP_YPIPE_S with U2/V2 kept in the arena (+17 KB appended; every prior
+offset unchanged) so the knobs race on other hosts without a layout change.
+
+### What did NOT work, with the number that killed it
+
+- **Cross-plane pipelined y-pass: +7%, 4/4** (117.5 vs 109.7); fills +33%,
+  ports identical.  Mechanism above.
+- **Footprint-minimized S-side variant: +5%, 3/3** (115.5); fills +27%.
+- Implication recorded so nobody builds it: the SAME interleave across
+  fold31zx's x-blocks (z-GEMMs of block n+1 under x-GEMMs of block n) hits
+  the same wall with a BIGGER hot set (U/V + CB + 4 z/x tables + two
+  blocks' plane-strided rows) — struck without a window.
+- The r6/r7 "OoO already covers it" doctrine gains its missing half: those
+  restructures failed because the ROB already reached across; THIS one
+  failed because the L1 cannot hold two planes.  Phase interleaving pays
+  only when the combined hot set still fits the cache level whose idle
+  bandwidth you are trying to use — at 31 the y-pass has no such slack.
+  Transfer to the L=100 crews: fusion/interleave candidates should be
+  costed in CONCURRENT L1-resident bytes first (their per-chunk sets are
+  already >L1; adding a concurrent stream moves the thrash point, exactly
+  what gen_rader's r11 differential fills showed at 113/127).
+
+### Borrowed this round, named
+
+- **My own gen_r11** (the pool-occupancy numbers that motivated the lever,
+  and the corrected currency the verdict is written in).
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol.
+- **gen_pfa_large gen_r8** (via my r11): the same-source knob arm as the
+  layout-luck control (the knob arm is what makes the +7% attributable).
+- **The r8 tool discipline**: objdump spill scan before any lease time;
+  bit-identity by construction as the whole correctness story (r5/r8/r9).
+
+### Operation count (shipped)
+
+Identical to r10/r11 at every size (bit-identical binary behavior; the
+ypipe variants relocate, never add, fold work — their cost is cache
+refills, not uops, which is the round's finding).
+
+### What I would do next
+
+1. **The 31 cell is closed in C intrinsics on ICX, now with the y-pass
+   structural direction measured too.**  Remaining unplayed: the asm
+   32-acc pipelined-drain GEMM (r7 ceiling estimate, now bounded tighter
+   by the r10 signature: 1.44 -> 1.60 p0+p5 is ~10%, minus the ~19% of p0
+   the fused map's divider legitimately occupies — the honest ceiling is
+   single-digit).  A full-round asm bet for single digits on a cell
+   gen_rader owns by 1.31x: not worth it unless the crossover is
+   re-contested.
+2. **Cross-arch**: -DGDP_YPIPE / -DGDP_YPIPE_S are raceable knobs but the
+   mechanism predicts they lose HARDER on CLX (1 MB L2, same-or-smaller
+   L1) and likely on SPR (same 48 KB L1D); race only if a window is free.
+3. **For gen_race/gen_planner**: candidate generators that emit fused/
+   interleaved phase variants should gate them on a concurrent-L1-bytes
+   estimate (sum of live buffers + streams) < ~40 KB before spending race
+   time; this round provides the calibration point (55-60 KB concurrent
+   => +27..33% fills, +5..7% time at an L2-resident cell).
+4. Harness notes: a80n0's heartbeat healthy all round; tryout.sh works
+   again end-to-end (built and checked via the manual recipe anyway, held
+   lease slot 1 core 3); this round's kit (r12_ab.sh + nbin_{ctl,r12,
+   r12s,knob,ship,shipyp} + 31/15 in/c pairs) lives in
+   build/tryout/gen_dense_prime/r12dev/; a80n0 now times the 31 chain at
+   the a81n2 board level (109.5-111), so r11's 113.9-vs-109.9 node gap no
+   longer applies.

@@ -1707,3 +1707,187 @@ map-check quoting bug, run check.py by hand.
 4. **Protocol note for everyone**: normalized-objdump must mask BARE hex
    jump targets (any >=4-digit hex token), not just <sym+off> — the r7
    recipe cries wolf on any function whose .text moved.
+
+## Round gen_r12
+
+Standings into the round (r11 board): 40 led (160.03-class), 50 B=4 a wash
+with gen_powp, and 100 LOST — gen_batchlane's within-volume SoA took the
+cell at 4072.3 (trunk-routed) vs this entry's 4554.7, with gen_powp (4465.2,
+THP re-home) also ahead. The r11 cross-entry record changed the ground truth
+under this entry's feet three ways: (1) gen_dense_prime's ubcap microbench
+showed the "~2.1 uops/cycle cap" does not exist (the node sustains 3.0; the
+real wall is a ~1.12/cyc POOLED 512-bit L1 access ceiling) — my r8
+saturation closure "was computed in the wrong currency" (their words, aimed
+at this entry); (2) gen_pfa_small measured MY engine's demand LLC misses at
+~19-28 MB/step and called the cell cache-latency-bound, contradicting my
+r11 "88% DRAM-BW-bound" corollary; (3) gen_pow2 shipped a one-sweep fused
+chain step at L=128 (-14%, -61% demand DRAM reads) with a transfer note
+naming this cell: "the 100 = 4x25 axis split gives tiles of 4 or 25 planes
+and the same label algebra applies." This round spent itself on exactly
+those two adoptions — one shipped, one refuted with counters.
+
+### What changed
+
+**1. THP RE-HOME (ADOPTED from gen_layout gen_r11's zero-copy recipe via
+gen_powp gen_r11, who measured -2.0% 5/5 pairs on the sibling shell).** At
+vbytes >= 8 MiB per volume (100 graded; lean 80/88/91/99/104/112/117; 40/50
+OFF — gen_powp's measured threshold, STLB covers 2 MB volumes) create()
+allocates a prefaulted gl_map_huge arena (gen_layout lib, now #included)
+holding a state volume S and a staged-c volume CV. The deferred-map (dm==1)
+chain runs steps 1..m-1 with state in S — step 1 reads x0 directly, the
+trailing map writes the caller's out directly, so the re-home costs ZERO
+extra copies; c is memcpy'd once per volume-chain into CV (~0.35%/call,
+gen_powp's cv-wins-3/3 verdict re-confirmed by riding it). The scoring host
+runs THP=madvise on kernel 5.15 (gen_layout r11's smaps finding): driver
+posix_memalign buffers are 4K-backed at any size, only MADV_HUGEPAGE-at-
+fault arenas are huge. Race fidelity (gen_powp's move): at re-home sizes
+the race arena's tout/tcf ARE S/CV, so trials, playoff and confirmation run
+in the graded cache+TLB regime and trial 4K phases are gl_arena_take-
+deterministic. Wisdom tag chain7 -> chain8 (race regime changed at every
+re-home size). GENPFL_NOREHOME is the A/B control.
+Node evidence: differential PMU (samples-10 minus samples-2, 512 steps)
+dtlb_load_misses.walk_completed 6910 -> 99 per step (-98.6%; ports and
+l1d.replacement flat — bit-identical work); held-lease alternating pairs
+8/11 across two sessions, quiet-window session: 5/6 pairs, min-of-mins
+4416.7 vs 4490.5 (-1.6%). Matches gen_powp's -2.0% and gen_layout's
+"small, real, ~free, composes with everything."
+
+**2. ONE-SWEEP FAMILY ipw1 (pf 21, dm 2) — BUILT, MEASURED, REFUTED on both
+hosts; kept raced at rank last.** The adoption gen_pow2's transfer note
+asked for: split the x transform's two GT stages across the chain-step
+seam. State between steps holds x-stage-1 (DFT4) custody t-planes, slot
+25*k2 + n1 = t[n1][k2] (class-major); one body sweep = head DFT25 per
+CONTIGUOUS 25-plane class (4 MB, 25 read streams vs p2's 100) into a class
+buffer CB carved from the mid volume M, then map(+c) prepass + z + y per
+output plane written IN PLACE into the class block the head just consumed
+(slot 25*k2 + (19k)%25; 19 = 4^-1 mod 25 — the CRT makes the quartet's four
+slots exactly {n1, 25+n1, 50+n1, 75+n1}), with the next step's DFT4 fused
+into class 3's plane loop as each quartet completes. In-place custody,
+zero ping-pong (gen_pow2's digit-map rule); prologue = z+y+DFT4 of x0
+quartet-fused; epilogue = head + map straight to the caller's out. Paper
+DRAM: 48-72 MB/step vs the two-sweep 80. Same FMA count, same per-element
+vector-access count, and every per-element expression is PFA100C/p1body/
+map_vec verbatim — outputs BIT-IDENTICAL to ip*/ipp/ipa (cmp-verified),
+every historical gate value reproduced exactly.
+
+### What did NOT work, with the numbers that killed it
+
+1. **ipw1 at 100 on the node: +16-25%.** Held-lease pairs (ipw first):
+   6925.9/4468.2, 5932.3/4734.0, 5871.9/6127.8, 6893.6/5362.6,
+   6879.5/5457.8 — 4/5 to ipa1; three cold interleaved races 6879/6678/5155
+   vs ipa1 5460/5491/4410 (the quiet race: ipw 5155.3 at sd 0.2% — uniformly
+   slow, not noise). Wallaby/SPR agrees: 3570 vs ipa1 3033 (+18%).
+2. **The mechanism, from the differential counters (and this is the round's
+   real finding):** under ipa1 the graded step's demand LLC-load-misses are
+   **5.9K lines/step = ~0.4 MB** — the 80 MB/step DRAM stream is ~fully
+   hardware-prefetch-covered UNDER the passes. There is no demand-DRAM cost
+   for a fusion to delete: L=100 on this engine is gen_pow2's L=64 regime
+   (their own +2% fusion loss, "traffic nobody was paying for"), NOT their
+   L=128 regime (42M demand misses/step). Meanwhile the sweep ADDS one
+   volume-level pass (the tail DFT4 re-read/re-write that p2's in-register
+   T_ staging never paid) plus the CB L3 round trip: l1d.replacement 2.04M
+   -> 2.51M lines/step (+23%), LLC-loads 7.1K -> 55.0K. **My r11 "L=100 is
+   ~88% DRAM-BW-bound" corollary is hereby refuted by my own engine's
+   counters**; the r11 cross-entry disagreement settles on gen_pfa_small's
+   side — the cell is prefetch-fed and latency/overlap-bound. The
+   effective-bandwidth ledger still closes (80 MB / 4.43 ms = 18 GB/s,
+   gen_batchlane's 4059 = 19.7 GB/s on the same compulsory traffic): the
+   winner runs the SAME traffic closer to the ceiling; nobody at this size
+   wins by moving less of it.
+   Boundary for everyone, stated once: **check LLC-load-misses (demand)
+   before building any traffic-structure candidate — l1d.replacement and
+   paper MB/step both lie about what the machine is actually waiting for**
+   (gen_pow2 said this in r11; this entry now has the cleanest
+   demonstration: 0.4 MB/step demand under an 80 MB/step stream).
+3. ipw1 kept raced at rank LAST (the ipm/ipf precedent: measured losers
+   stay as xarch insurance — CLX's inclusive 24.75 MB L3 probably makes it
+   worse, but the race, not a guess, should say so). It cannot displace
+   ipa1: sub-rank + the r9 noise gate. Anyone tempted to "fix" it by fusing
+   the map into the head's stores: that deletes 2 of the ~4 added
+   volume-level accesses, not the tail pass — the sign does not flip.
+4. Re-home cycles DIFFERENTIAL read +0.7M/step in one churning window while
+   the pairs said -1.6% — gen_rader's r11 caveat re-confirmed: cycles
+   differentials need timing runs; only port/l1d/TLB counters difference
+   cleanly.
+
+### Operation count
+
+FFT/map arithmetic unchanged everywhere (278/434/661/968 FMA-port vector
+ops per line at 40/50/80/100; r6 coverage counts stand). ipw1 has the same
+FMA and vector-access counts per element as ipp1 with the T_ register
+staging exchanged for the CB round trip (the measured +0.47M line
+fills/step above). Re-home moves no arithmetic; +one 16 MB memcpy per
+volume-chain (CV). Codegen identity: xc_ipa1_100, xc_ipp1_100, xc_ip0_40,
+xc_ip1_50, x_pf1_100 nm -S SAME size as the r11 object; collateral confined
+to unscored lean constprop clones (p2_56/p2_65 split, the accepted r11
+pattern).
+
+### Measured on the node (a80n0, leased cores; all-hands windows early,
+### one quiet window late — floors quoted with same-window MKL)
+
+| case | ship (quiet window) | same-window MKL | pick |
+|---|---|---|---|
+| L=40 B=8 m=128 | **159.7** (sd 0.05%) | 404.3 (2.53x) | ip0.ch |
+| L=50 B=4 m=128 | **410.9** (sd 0.08%) | 944.6 (2.30x) | ip1.ch |
+| L=100 B=1 m=64 | **4428.8** min (median hit a churn burst) | 8463.5 (**1.91x — this cell's best ratio yet for this entry**) | ipa1.ch + re-home |
+
+Gates, ship build, all EXACT historical values (bit-identical algebra
+through both changes): single 3.582/4.336/4.522e-16 at 40/50/100 (tol
+1e-12); two-step m=2 at 100: 2.721e-15 (tol 3e-14); full chains 3.804e-14
+(40 B=8 m=128) / 5.028e-14 (50 B=4) / 4.181e-14 (100 m=64) / 2.377e-14 (75
+m=8) / 5.938e-15 (117 m=6) / 4.413e-15 (80 B=8 m=4) / 3.539e-15 (112 m=4);
+100 B=2 m=4 off-case 5.223e-15. Chain outputs bit-identical across forced
+picks (ipw vs ipa1 vs ipp1) and across rehome/norehome. Determinism with
+the new pool: 5/5 cold creates at 100 B=1 install l100-ipa1 (bitwise-
+identical outputs) with every noisy upset correctly reverted at 10-32%
+spreads and nothing stored. Setup: cold 1.4-5.1 s (60 s budget), warm
+wisdom ~1 ms. Round end: all gen_pfa_large keys stripped from
+results/wisdom_a80n0.json under flock (1 dev-window chain8 + 3 stale
+chain7; 105 foreign entries untouched) — dev keys never bank, the
+monitor's scoring window writes its own chain8 verdicts.
+
+### Borrowed, plainly
+
+- **gen_layout gen_r11**: the whole zero-copy THP re-home recipe +
+  gl_map_huge/gl_arena/gl_thp_bytes (their library, now #included —
+  GEN_LAYOUT_LIB_ONLY), and the madvise/kernel-5.15 finding.
+- **gen_powp gen_r11**: the 8 MiB gate, the cv verdict, arena-before-
+  wisdom, and trial-regime fidelity (race arena = plan arena), taken
+  nearly verbatim.
+- **gen_pow2 gen_r11**: the one-sweep design (digit-map custody, "a fused
+  operand's layout must match the fused consumer's walk order") AND the
+  L=64-vs-L=128 regime boundary + the LLC-loads/LLC-load-misses
+  discriminator that explained my negative result. Both directions of
+  their transfer note were load-bearing.
+- **gen_pfa_small gen_r11**: the differential-PMU method (panel standard)
+  and the cache-latency-bound reading of this cell, which my counters now
+  confirm; **gen_dense_prime gen_r11**: the corrected currency (512-bit
+  access ceiling) that reopened the r8 closure enough to make this round's
+  experiment worth running; **gen_rader gen_r11**: the cycles-differential
+  caveat, re-confirmed; **gen_batchlane gen_r4 (via everyone)**: held-lease
+  alternation, the arbiter for every verdict again.
+
+### What I would do next (ranked)
+
+1. **The cell now belongs to overlap quality, not traffic quantity**: my
+   engine runs 80 MB/step at ~18 GB/s effective, gen_batchlane's winner at
+   ~19.7. The residue vs them (~8%) is the compute-phase DRAM idle my ipa1
+   only nibbled (~1%) and the r11 kill list bounds ("one incoming stream
+   is the L2's limit"). Honest options left on this engine: convert
+   compute-phase staging round trips to the untouched 256-bit access class
+   (gen_dense_prime's ask — a scheduling experiment on zsub/ysub worth one
+   mca+node window), or concede the cell to the within-volume-SoA shape
+   and make sure the trunk routes it (it does since gen_race r11).
+2. **XARCH**: re-home is size-gated, not host-gated — CLX/SPR verify via
+   the per-host race as usual; ipw1's rank-last slot exists exactly so the
+   CLX race can print its number once.
+3. **Class coverage holes** (60/84/90/96/105/108/120/126 three-factor GT;
+   112's 0.91x) — unchanged from r10/r11, still the only structural class
+   work left.
+4. **For whoever builds at large L next**: the two boundaries this round
+   nailed down — (a) demand LLC misses, not paper MB or l1d.replacement,
+   decide whether a traffic restructure can pay; (b) a pass "deleted" by
+   splitting another pass in two is a net ADD; only fusions that keep
+   pass count flat (gen_pow2's, where stage-2 and stage-1 share one tile
+   visit) can win, and on this engine the tile that closes under both GT
+   stages is the whole volume.

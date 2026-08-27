@@ -1703,3 +1703,178 @@ rel_l2 4.059e-16 (B=16) / 4.073e-16 (B=1), two-step 1.784e-15, map-chain
    by hand, as every round); --chain 1 is a silent no-op; gen_input.py
    needs env.sh; a80n0 reads this engine's 31 cell at 85.45 vs a81n2's
    84.8-85.2 -- same-node contrasts only.
+
+## Round gen_r12
+
+### Where this round started
+
+r11 leaderboard (a80n0): **84.776 us/step** at the graded cell (L=31 B=16 m=140;
+gen_race 84.549 rides this engine), leading the crossover (gen_dense_prime
+111.1, gen_bluestein 274.3, MKL/FFTW 849-883).  The r11 verdict said the class
+was converged: 31 port-model-saturated since r4, the large primes on a
+"chunk-local L1 thrash" residue with "nothing cheap presenting itself".  The
+r12 brief keeps all hands on the large-size regime; my r11 already struck the
+Rader-at-L=100 cross entry (recorded, stands).  This round's move came
+entirely from the cumulative read of the other entries' r11/r12 records, which
+changed what "nothing cheap" meant.  Node: a80n0 (job 438881), ONE held lease
+(slot 4, core 6), rotated interleaved arms; control = a binary built from
+impl_11 source (the r9 symlink rule).
+
+### Read first, and what it changed
+
+- **gen_dense_prime r11's corrected machine currency** (512-bit L1 accesses
+  pool at ~1.12/cyc loads+stores; 8-byte broadcasts are a SEPARATE 2/cyc
+  class; no total-uop cap).  This is what killed the naive 4-wide design and
+  forced the phase split (below): 4-wide with C+S together needs k-steps of 2,
+  which DOUBLES per-column 512-bit stack loads on the pooled class.
+- **gen_dense_prime r12's fusion gate** (cost candidates in CONCURRENT
+  L1-resident bytes, adopt only under ~40 KB): my per-phase hot set is
+  U-or-V (16 KB) + CS (16 KB) + a 2 KB table row-group = ~34 KB.  Designed to
+  the gate before building.
+- **gen_layout r12's two rules**: T1-not-T0 for DRAM-resident stream
+  prefetch (raced here, see below), and "accumulator kernels are
+  latency-tolerant -- stalls_l1d_miss is correlation, not causation" (the PMU
+  attribution below confirms it from the winning side: my fills barely moved,
+  the uops did).
+- **gen_batchlane r12's protocol warning** (+-14% windows with sd<0.2% inside
+  arms; only rotated interleaved minima over >=4 rounds discriminate <5%) --
+  every verdict below follows it -- and their "code shape is a measured
+  variable" lesson, covered here with a -DRP_NOW4 dispatch-off arm that
+  catches layout confounds.
+
+### What shipped: 4-WIDE dense chunks with an E/O PHASE SPLIT (rp_chunk4), RP_W4MIN=59
+
+The r11 differential counters at 127 put the largest share of the 890 MB/step
+L1 fill in the kernel-table walk (2h^2 doubles = 63.5 KB per column PAIR) and
+the r8 pairing history says shared broadcasts are this kernel's lever.  The
+4-wide form processes FOUR zmm columns (16 complex) per chunk, so the tables
+are walked once per 16 columns -- half the 2-wide rate -- and per-column
+broadcast uops halve again.  The design constraint from the corrected
+currency: keeping C and S accumulators together at 4-wide forces k-steps of 2
+(16 accumulators) and doubles per-column 512-bit stack loads.  Instead the
+chunk splits into an E phase (cos correlation on U, k-quads of 4 x 4 columns
+= 16 accumulators, C_k staged to a CS stack array) and an O phase (sin on V,
+reload CS, combine, store rows k and p-k).  Per-column 512-bit load ratio
+identical to the 2-wide; staging adds 2 x 4h L1-resident zmm accesses per
+chunk (~2% of conv loads).  Every accumulator chain receives the same fmadds
+in the same j order as rp_chunk2/rp_chunk, and the CS store/reload is
+bit-preserving => outputs bit-identical.  In-place safe (all source loads in
+the fold, before any store).  Dense engine only -- rp2/rp3 stacks already
+exceed L1D at large m (r10 residue) and rp3 pairing is closed on both graded
+architectures.  z-quads stay 2-wide (4-wide z staging would be 64 KB, the r9
+lesson).  Dispatch: a 4-wide main loop in rp_pass ahead of the 2-wide loop;
+tails fall through unchanged, so masked-tail coverage is identical.
+
+### Measured on the node (a80n0 core 6, held lease, rotated interleaved arms, min us/step, chain B=1)
+
+| p | ctl (impl_11) | gen_r12 | delta | rounds |
+|---|---|---|---|---|
+| 127 (m=4) | 35643-36416 | **31281-31990** | **-12.2%** | 4/4 non-overlapping |
+| 107 (m=4) | 18183-18633 | **16478-16686** | **-9.6%** | 4/4 non-overlapping |
+| 83 (m=8) | 6667-6861 | **6128-6474** | **-8.6%** | 3/3 |
+| 71 (m=8) | 3803-3836 | **3542-3836** | -4..7% | 2/3 + one wash |
+| 59 (m=8) | 1769-1782 | **1670-1676** | **-5.7%** | 3/3 |
+| 47 (B=2 m=8) | 785-879 | 783-877 | WASH | overlapping |
+| 23 (B=2 m=8) | 68.9-69.8 | 69.1-70.9 | WASH | overlapping |
+| 113 (rp2, untouched) | 18902-19616 | 19219-19389 | wash | sanity |
+| 31 B=16 (untouched) | 84.70-85.47 | 85.01-86.28 | wash | 5 rounds, overlapping; -DRP_NOW4 arm reads at ctl level |
+
+Boundary set at RP_W4MIN=59 (wins at 59+, wash below; 19 stays 2-wide).
+Graded cell via tryout: **85.11 us/step B=16** (MKL 868.5 same window), B=1
+96.6-97.5 on a80n0 this window (both fresh-lease AND held-lease -- the same
+a80n0 B=1 signature r11 recorded at 96.1-96.7; a81n2 reads this binary family
+at 85.2-85.3; outputs bit-identical, so this is the node/window, not the code).
+
+### PMU attribution (mandatory protocol; differential = samples 4 minus samples 2 = 8 steps, L=127)
+
+| | ctl | gen_r12 |
+|---|---|---|
+| port_2_3 uops/step | 88.8M | **71.4M (-20%)** |
+| l1d.replacement/step | 14.05M lines | 13.6M (-3%) |
+| LLC-loads/step | ~1.28M lines (~82 MB, 97% miss L3) | unchanged |
+| min us/step (counting mode) | 35675 | 31301 |
+
+Reading: the win is BROADCAST-DISPATCH DELETION, not fill reduction -- the
+table-walk fills were already latency-covered behind the 16 independent
+accumulator chains, exactly gen_layout r12's accumulator doctrine, confirmed
+here from the winning side.  The lesson pair: on these kernels locality
+restructuring for its own sake would have lost (their measurement), but the
+SAME structural change judged as uop deletion wins (mine).  Cost the uops,
+not the fills.  The DRAM-level sweeps (~82 MB/step demand) are untouched, as
+designed -- the custody chain stays on its 5-sweep floor (r7 closed form).
+
+### What did NOT work, with the number that killed it
+
+- **RP_PFT1 (T1 x-pass prefetch, gen_layout r12's DRAM-stream rule): LOSES at
+  127 (+2..6%: 31961-33418 vs 31281-31990, 4/4) and wins hair-thin at 107
+  (16359-16482 vs 16478-16686, 3/4, ~1%)**.  Mechanism for the non-transfer:
+  their rule is for READ-ONCE streams; my in-place x-pass RE-STORES every
+  line it loads, so the line must reach L1 anyway and T0's L1 placement is
+  the store's RFO done early.  T0 stays default; knob kept -- the split
+  verdict at 107 makes it a legitimate gen_race axis on CLX/SPR.
+- 23/47: 4-wide is a wash (numbers above) -- broadcast dispatch is not
+  binding where the whole table + working set is comfortably L1/L2-resident.
+  Gate set to 59, not lower, per the "enable where it wins" doctrine.
+- Nothing else was built and rejected this round; the r11 negatives (memcpy
+  deletion, zero-copy re-home) were not re-litigated.
+
+### Borrowed this round, named
+
+- **gen_dense_prime gen_r11**: the corrected 512-bit access currency -- the
+  phase split exists because of it; and gen_r12's concurrent-L1-bytes fusion
+  gate, used at design time.
+- **gen_layout gen_r12**: the T1-prefetch rule (raced; lost at 127, boundary
+  contributed back: in-place RMW streams are not read-once streams) and the
+  accumulator-latency-tolerance doctrine (confirmed; reframed as "cost the
+  uops, not the fills").
+- **gen_pfa_small gen_r11 / gen_layout gen_r12**: the differential counter
+  method, again.
+- **gen_batchlane gen_r12**: the rotated >=4-round protocol and the
+  dispatch-off-arm defense against code-layout confounds.
+- **gen_powp gen_r11**: the script-file-over-ssh session pattern (r12_ab.sh
+  and helpers under build/tryout/gen_rader/r12/).
+- **My own r8 pairing lineage**: rp_chunk4 is rp_chunk2's shape one level up,
+  with the phase split as the new idea.
+
+### Operation count (shipped)
+
+FMA/adds identical to r6-r11 at every size (this round moved zero
+arithmetic; 30-prime execute battery + chain batteries at 59/71/83/107/127
+bit-identical to the impl_11 control, locally AND on the node, all arms).
+Dense p >= 59: per 4-column chunk per k-quad per j, E phase 4 stack loads +
+4 broadcasts + 16 FMA, O phase the same on V, plus 8h staging accesses per
+chunk; tables walked once per 16 complex columns.  rp_chunk4 static size
+5217 B (node build), broadcast-rotated rolled bodies, no spill pathology
+(objdump audit both hosts).
+
+### What I would do next
+
+1. **The dense engine at 107/127 now runs ~31.3/16.5 ms with port_2_3 at
+   ~71M/step and fills flat** -- the next uop class to delete is the stack
+   U/V reload stream (h^2/2 loads per column-quad); an 8-wide phase-split is
+   the mechanical next step but U+V+CS = 96 KB stack kills it at h=63.  A
+   k-tile-of-8 E phase (32 accumulators is too many; 8 k x 2 col?) does not
+   obviously close -- model against the 1.12/cyc pooled class first.
+2. RP_PFT1 at 107 (+RP_W4MIN, RP_NOW4) belong to gen_race's CLX/SPR knob
+   set; SPR note: wallaby raced none of this round's timing (known
+   anti-pairing bias) -- the r9 calibration discipline applies before any
+   SPR verdict on the 4-wide.
+3. The **89 bimodality** (r8 item) remains the one open measurement,
+   still luck-gated.
+4. Harness: r12_ab.sh / r12_small.sh / r12_l31.sh / r12_b1.sh under
+   build/tryout/gen_rader/r12/ hold the whole session (build/cmp/pmu/
+   race127/race107/race59/sanity/gates phases); in/c pairs there now cover
+   23b2/47b2/59b1/71b1/83b1/107b1/113b1/127b1/31b16/31b1.  tryout's remote
+   map-check still gets the literal '$W/c.bin' (gates run by hand, as every
+   round).  a80n0 B=1 at 31 reads ~97 this window on ANY core (fresh or
+   held) -- same-node contrasts only.
+
+### Measured summary (the reply line)
+
+L=31 B=16 m=140: **85.11 us/step** (tryout, MKL 868.5 same window; bit-identical
+lineage since r4), B=1 96.6 on a80n0 this window (a81n2 form: ~85.3).  Single
+rel_l2 4.059e-16, two-step 1.784e-15, map-chain m=140 2.559e-14 -- identical
+digits to r4-r11.  Class duty, node same-window rotated races: **127: -12.2%
+(31.3 ms), 107: -9.6% (16.5 ms), 83: -8.6%, 59: -5.7%, 71: -4..7%** via the
+4-wide E/O phase-split dense chunks; gates at 107/127 PASS (9.3e-16/4.9e-15,
+8.7e-16/4.9e-15).

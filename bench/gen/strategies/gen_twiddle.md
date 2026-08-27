@@ -1819,3 +1819,172 @@ GEN_TWIDDLE_LIB_ONLY adoption compiles clean. setup ≤ 0.09 s at L=100.
    depth-minimizing factorizer is host-independent; only the custody gates
    are knobs).
 4. refnd pitch #13 if still double-cexp.
+
+## Round gen_r12
+
+### Adoption status (the score)
+
+- **gen_bluestein's adoption stands** (tw_chirp + colmajor filler/audit); the
+  LIBRARY half of the file is UNCHANGED for the seventh round running (the
+  frozen-layer doctrine) — `gcc -c` of their entry against the shipped file
+  verified clean after every change this round.
+- **gen_pow2's tw_cis_ds adoption stands** (their GP2_FTW constant generator).
+- **refnd double-cexp gate reference, pitch #13**: gen_powp and gen_pfa_large
+  still build the create()-gate reference W with double `cexp` (250 ulp on a
+  1e-13 yardstick at L=100). `tw_fill_dft_cplx` remains the one-line fix.
+
+### What SHIPPED (two changes, both from my own r11 next-steps list)
+
+**1. Axis-0 next-group L2 prefetch, plan-gated to far-memory sizes (−1.5..−2%
+quiet-floor at L=100, bit-identical outputs everywhere).** The r11 counters
+said the L=100 remainder lives in the axis-0 strided pass: each 8-pencil
+group touches one 128 B chunk of L rows strided L²·16 B apart — 100
+concurrent streams where the hardware trackers follow ~16 — and
+l1d.replacement did not move when 37% of load dispatch was deleted. New
+`twd_gather_i0` issues `prefetcht1` (INTO L2, locality 2) for group c+8's
+two lines of the same row while gathering group c: one full group-sweep
+(~thousands of cycles) ahead of use, 12.8 KB in flight, no L1 pollution, no
+fill-buffer pressure at demand time. This is NOT the r4 reject (-DTWD_PF
+prefetched +256 B at T0 = two groups ahead into a thrashing L1 and lost
+1.5-2% at 100): distance, cache level and mechanism all differ. Whole pass
+in its own noinline `twd_ax0_pf` (see the layout saga below); gate
+`32·L³ ≥ TWD_PF0_MIN_BYTES` (default 10 MB — between 50's 4 MB, a measured
+wash, and 100's 32 MB). Knobs: -DTWD_NOPF0 (remove entirely),
+-DTWD_PF0_MIN_BYTES (move the gate), -DTWD_PF1 (opt the gf-arm axis-1
+gather into the same prefetch — measured no-gain here, see negatives; CLX's
+1 MB L2 may flip either).
+
+**2. Radix-20 leaf codelet — DFT20 as PFA 4×5 (Good-Thomas, zero twiddles):
+−19..−24% at L=20, 4/4 + 2/2 node pairs; L=60 drops 3 → 2 levels.** The r11
+radix-10 pattern applied once more: 5 of twd_leaf4's DFT4 bodies over n1 on
+the CRT-gathered rows x[(5n1+4n2) mod 20], then 4 of twd_leaf5's DFT5 bodies
+over n2, outputs at Y[(5k1+16k2) mod 20]; both stage bodies VERBATIM (same
+temporaries, same FMA contraction), constants are the existing c15/s15/c25/
+s25. Index maps verified against numpy BEFORE any C was written (the r11
+discipline — and again the first compiled version passed every gate). LEAF
+ONLY: twd_factor never emits r = 20 with m > 1, so twd_butterfly needs no
+new case in any race arm. Factorizer: the 20-leaf and the [n/20, leaf20]
+head radix are evaluated LAST, so only a strict depth win flips a chain —
+audited exhaustively (old vs new replicas, n = 2..128): exactly 20
+([4,5] → [20], one leaf, no combine level at all) and 60 ([4,3,5] → [3,20],
+3 → 2 levels) change; 40/80/100/120 tie and keep their r11 chains.
+
+### Measured on the node (a80n0, ONE held lease slot 1 core 3, vs the r11
+### control built from impl_11 — separate inode verified. THE ROUND'S
+### MEASUREMENT PROBLEM: three rival implementers held leases all session,
+### everyone hammering L=100; the r11 control itself swung 6512→8180 µs
+### between adjacent runs. Rotated pairs alone could not decide ±2% at the
+### memory-bound cells; the estimator that worked is LONG ALTERNATING
+### BATTERIES + quiet-floor minima + pairwise sign counts — contention only
+### ever inflates, so per-arm session minima are comparable.)
+
+| L | B | r11 ctl | gen_r12 ship | verdict | mechanism |
+|---|---|---|---|---|---|
+| 100 | 1 | floor 6505 (22-iter battery) | **floor 6380** | **−1.9%, 19/22 pairwise** (axis-0-prefetch arm); final gated ship 7/8 pairwise, floor 6532 vs 6649 same session | prefetch |
+| 20 | 32 | 32.5–35.1 | **26.3–26.6** | **−19..−24% (6/6)** | leaf20, [4,5]→[20] |
+| 50 | 4 | 627–637 | 633–635 | wash, 3/4 lean loss → GATED OFF | prefetch does not pay at 4 MB |
+| 40 | 8 | 288–300 | 289–295 | wash (mixed signs) → gated off | |
+| 12 | 64 | 7.69–8.29 | 7.79–8.24 | wash after the layout fix (mixed signs, 6 pairs) | tax check |
+
+Official-style reads, final ship binary, same core, quiet window (sd ≤
+0.14%): **L=100 B=1: 6333.8 µs** (MKL same window 7699.4 — the demo is now
+17.7% ahead of MKL at the campaign's weakest cell; r11 quiet read was
+6306.9 on a noisier protocol — the honest claim is the paired −1.5..−2%,
+not a cross-window delta); **L=20 B=32: 26.99 µs** (MKL 59.2; r11 board
+32.9). Wallaby (SPR) pre-reads: −11.5% at 20 (3/3); L=100 prefetch read a
+WASH on SPR (3 pairs) — its prefetchers/caches already cover the pattern,
+which is exactly why the knob exists for the xarch race.
+
+### The mandatory counter protocol (before/after, tools/pmu.sh, L=100 chain,
+### samples-4 minus samples-2 = exactly 128 steps)
+
+| per chain step | r11 baseline | r12 ship | delta |
+|---|---|---|---|
+| l1d.replacement | 3.54M lines | 3.58M | **unchanged** — prefetch hides latency, does not cut traffic |
+| p2_3 (loads) | 5.80M | 6.33M | +0.53M = exactly the two hints/row |
+| p0 / p5 | 8.02M / 9.86M | 6.90M / 9.08M* | *different-window frequency/throttle mix; wall time is the arbiter |
+| cycles | 23.46M (contended window) | 14.5M (quiet window) | cross-window cycle counts NOT comparable (512-bit license throttle scales cycles with freq); use the paired wall-clock verdicts above |
+
+### What did NOT work, with the number that killed it
+
+1. **gf-arm axis-1 prefetch (same twd_gather_i0 in twd_ax1_gf)**: adding it
+   to the axis-0 arm gained nothing at L=100 — 8/22 pairwise vs the
+   axis-0-only arm, same floor (6402 vs 6379). The plane's short-stride
+   (L·16 B) first sweep is already covered by the hardware streamers.
+   Shipped OFF; -DTWD_PF1 keeps it raceable.
+2. **Ungated prefetch at resident sizes**: +2..+5% at L=12 (4/4) — two dead
+   load-port uops per row where the volume never leaves L2. The plan gate
+   (TWD_PF0_MIN_BYTES) is the fix; 50 measured wash (3/4 lean loss) put the
+   default threshold above it.
+3. **The r8 layout lesson, relearned with numbers**: the first gate was an
+   `if (p->pf0)` branch at the INLINE axis-0 call sites — gcc versioned the
+   loops, twd_exec_vol grew +430 B / twd_chain_step +341 B (nm -S), and
+   L=12 read +1.3..+6% (4/4) on bit-identical output EVEN WITH THE GATE
+   OFF. Fix: the prefetch arm is its own noinline `twd_ax0_pf` and the
+   gate-off loop text is r11-verbatim; growth fell to +243/+188 B and L=12
+   read mixed signs (wash) over 6 pairs. If you gate a hot loop, gate it
+   OUTSIDE the loop and put the gated arm in its own function.
+4. **Measurement under contention**: the first PMU window read the prefetch
+   +7.6% at L=100 with both arms at sd ≤ 0.05% — later shown to be
+   minute-scale drift from rival leases (the same binaries read −2% in
+   quiet-floor batteries). A tight per-run sd does NOT make two runs
+   comparable; only interleaved batteries with per-arm minima and pairwise
+   sign counts survived this round's node load. (r10's neighbor-job
+   precedent, but the r4 discard-the-pair protocol was not enough here —
+   there were no clean pairs to keep for an hour at a stretch.)
+
+### Borrowed this round, named
+
+- **My own gen_r11 counter analysis**: both shipped changes are its
+  next-steps items 1 (axis-0 stream excess) and 2 (radix-20 PFA leaf).
+- **gen_pfa_small / gen_pfa_large (the PFA lineage) via my r11 leaf10**: the
+  4×5 Good-Thomas structure and the verify-the-maps-in-numpy-first habit.
+- **My own gen_r8 gf-arm layout arrangement**: the noinline-pass-function
+  gate shape that fixed negative 3.
+- **gen_batchlane r4 / gen_pow2 r5 / gen_race r9**: rotated interleaved
+  pairs with warmups — extended this round to long alternating batteries
+  with quiet-floor minima (contribution back: that estimator is what
+  decides ±2% questions on a contended node).
+- **gen_planner r7**: nm -S as the layout-drift detector — found the loop
+  versioning before a second wrong hypothesis was formed.
+- **gen_rader r9 (via my r10/r11)**: control built from impl_11, inode
+  verified, never the live impl symlink.
+
+### Operation count (demo, delta vs gen_r11)
+
+Sizes other than 20/60: IDENTICAL instructions on the gate-off path
+(bit-identical outputs verified by cmp at 17 sizes locally + 12/50/100
+node-codegen chains); gated sizes (32·L³ ≥ 10 MB) add exactly 2 prefetcht1
+per gathered row on axis 0 (+0.53M p2_3/step at 100, zero arithmetic).
+L=20 per pencil-group: level passes 2 → 1 (the whole combine's lane-buffer
+round trip deleted), twiddle multiplies 15 → 0, twd_rec invocations 5 → 1.
+L=60: 3 → 2 level passes, [4,3,5] → [3,20]. Plan tables: r = 20 levels
+carry no fold/dense/twiddle tables (m = 1, exact constants only). Setup
+unchanged (≤ 0.09 s at L=100). Accuracy at 20 improved: single rel L2
+3.184e-16 vs r11's ~3.3e-16 (fewer twiddled roundings — the layer's own
+claim visible again); all gates PASS on node codegen: singles 3.2–4.6e-16
+at 20/60/100, two-step m=2 1.27e-15 (20) / 1.93e-15 (60) / 2.68e-15 (100)
+vs tol 3e-14, graded chains 4.82e-14 (20 m=256, anchor 2.84e-14) /
+4.138e-14 (100 m=64, anchor 2.416e-14 — bit-identical to r11's value), all
+chains bit-repeatable (cmp). Local: numpy PASS at 20/40/60/80/100/120
+native + 20/60 scalar -march=x86-64 + 20/60 under DS and DENSEBF race
+arms; all knob combinations (NOPF0 / PF1 / NOPF0+PF1 / PF0_MIN_BYTES=1 /
+DS / DENSEBF / DS+DENSEBF / NOGF / GF_MIN_BYTES=1 / MAPPAIR / PF / XSTG)
+compile -Wall -Wextra clean; GEN_TWIDDLE_LIB_ONLY adoption compiles clean.
+
+### What I would do next (gen_r13 / endgame)
+
+1. **The L=100 remainder is now genuinely traffic-floor-bound for this
+   engine**: with latency hidden (prefetch) and l1d.replacement pinned at
+   ~3.55M lines/step, the next factor needs fewer volume streams, which
+   this engine's r7 negative says not to buy with split custody. If anyone
+   re-opens it, start from the map: axis-0 R+W + block R+W + c R is 5
+   streams and the demo runs ~1.8× that floor through L1 — the excess is
+   lane-buffer staging churn (G/S/Y = 38 KB vs 48 KB L1), not DRAM.
+2. **xarch**: race TWD_PF0_MIN_BYTES / TWD_PF1 / TWD_NOPF0 on CLX (1 MB L2,
+   downclock — the prefetch boundary WILL move) and SPR (measured wash at
+   100 already; the gate may want to be higher there).
+3. **leaf40 (PFA 8×5) is the same derivation one octave up** if the 40 cell
+   ever matters: [8,5] → [40] would delete 40's last combine level; 40 rows
+   live will spill hard — model with mca first.
+4. refnd pitch #14 if still double-cexp.

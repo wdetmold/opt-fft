@@ -435,3 +435,55 @@ results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
 [2026-08-26 16:09:20] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/gen/results/gen_r11/monitor.log)
 [2026-08-26 16:09:20] promoting: gen_batchlane gen_pfa_small gen_powp gen_race gen_pow2 gen_rader gen_pfa_large gen_planner gen_dense_prime gen_twiddle gen_layout gen_bluestein
 [2026-08-26 16:09:20] promote.sh reported a problem
+[2026-08-26 16:09:24] committed round gen_r11
+[2026-08-26 16:09:24] ---------- gen_r11 complete; next is gen_r12 of gen_r12 ----------
+[2026-08-26 16:09:24] ---------- gen_r12 begins ----------
+[2026-08-26 16:09:24] gen_r12 works in impl_12 (13 sources carried over from impl_11)
+[2026-08-26 16:09:24] context pack: 235 lines
+[2026-08-26 16:09:24] roster (12): gen_batchlane gen_bluestein gen_dense_prime gen_layout gen_pfa_large gen_pfa_small gen_planner gen_pow2 gen_powp gen_race gen_rader gen_twiddle
+2026-08-26 16:15:01 gen tick skipped: lock held
+2026-08-26 16:30:01 gen tick skipped: lock held
+2026-08-26 16:45:01 gen tick skipped: lock held
+2026-08-26 17:00:01 gen tick skipped: lock held
+/tmp/fft_rounds_V2bT4X.sh: line 411: [: 0
+0: integer expression expected
+2026-08-26 17:15:01 gen tick skipped: lock held
+2026-08-26 17:30:01 gen tick skipped: lock held
+2026-08-26 17:45:01 gen tick skipped: lock held
+[2026-08-26 17:45:58] implementers finished: 12 reported
+[2026-08-26 17:45:58] submitting timing round gen_r12 (seed 20272977) to the exclusive benchmark node
+2026-08-26 18:00:01 gen tick skipped: lock held
+2026-08-26 18:15:01 gen tick skipped: lock held
+2026-08-26 18:30:01 gen tick skipped: lock held
+2026-08-26 18:45:01 gen tick skipped: lock held
+2026-08-26 19:00:01 gen tick skipped: lock held
+2026-08-26 19:15:01 gen tick skipped: lock held
+2026-08-26 19:30:01 gen tick skipped: lock held
+2026-08-26 19:45:01 gen tick skipped: lock held
+2026-08-26 20:00:01 gen tick skipped: lock held
+2026-08-26 20:15:01 gen tick skipped: lock held
+2026-08-26 20:30:02 gen tick skipped: lock held
+2026-08-26 20:45:01 gen tick skipped: lock held
+2026-08-26 21:00:01 gen tick skipped: lock held
+2026-08-26 21:15:01 gen tick skipped: lock held
+[2026-08-26 21:17:32] sbatch submission failed; retrying once in 120s
+2026-08-26 21:30:01 gen tick skipped: lock held
+2026-08-26 21:45:01 gen tick skipped: lock held
+2026-08-26 22:00:01 gen tick skipped: lock held
+2026-08-26 22:15:01 gen tick skipped: lock held
+2026-08-26 22:30:01 gen tick skipped: lock held
+2026-08-26 22:45:01 gen tick skipped: lock held
+2026-08-26 23:00:01 gen tick skipped: lock held
+2026-08-26 23:15:01 gen tick skipped: lock held
+2026-08-26 23:30:01 gen tick skipped: lock held
+2026-08-26 23:45:01 gen tick skipped: lock held
+2026-08-27 00:00:01 gen tick skipped: lock held
+2026-08-27 00:15:01 gen tick skipped: lock held
+2026-08-27 00:30:01 gen tick skipped: lock held
+2026-08-27 00:45:01 gen tick skipped: lock held
+2026-08-27 01:00:01 gen tick skipped: lock held
+[2026-08-27 01:04:30] leaderboard for gen_r12 is in
+2026-08-27 01:15:01 gen tick skipped: lock held
+[2026-08-27 01:16:56] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/gen/results/gen_r12/monitor.log)
+[2026-08-27 01:16:56] promoting: gen_pfa_small gen_batchlane gen_powp gen_rader gen_pow2 gen_pfa_large gen_dense_prime gen_planner gen_twiddle gen_layout gen_race
+[2026-08-27 01:16:56] promote.sh reported a problem

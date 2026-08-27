@@ -1711,3 +1711,221 @@ bit-identical.
    playoff pattern suggests more coming), the flip-in-place race shape now
    has four instances (tile via env, fm, p4, cf) — the next one is a
    20-line copy.
+
+## Round gen_r11 (reconstruction note — the r11 session never appended its section)
+
+The r11 session shipped code (documented in the gen_race.c header, verified
+against impl_11/gen_race.c) but this file was never updated — the round-end
+strip also did not run (98 stale gen_race keys, r10 salts included, sat in
+results/wisdom_a80n0.json until this round's strip). For the record, r11
+shipped: (1) the eng-stage class filter routing gen_batchlane at 50 and 100
+(their within-volume SoA engine; the r11 board shows it working — gen_race
+4071.3 at L=100 riding batchlane's 4072.3, the cell WON at 1.92x MKL);
+(2) NEW stage 6 "alt11": gen_planner's r11 alternating-layout one-transpose
+chain adopted into the demo chain driver with its own dual gate and an
+alt-vs-classic race, alt arenas 2MB-aligned + MADV_HUGEPAGE (gen_layout r11);
+(3) salt bump *10 -> *11. The r11 board has this entry first or tied-first
+at 11 of 11 cells (worst gap 1.01x at 20/25). Lesson recorded for future
+rounds: the record append and the round-end strip are part of the round, not
+optional epilogue — this round did both.
+
+## Round gen_r12 (all hands on L=100, round 2)
+
+### What changed
+
+**1. Library: FROZEN, zero changes** (eighth round running). Everything below
+is demo-entry work; all adopters recompile against an identical API.
+
+**2. NEW stage 6b "wv12": gen_planner's r12 WITHIN-VOLUME split-lane chain,
+adopted and raced.** Planner generalized gen_batchlane's r11 L=100 winner
+into their library as `pln_wv` (lanes = 8 x-planes of ONE volume; z/y sweeps
+slab-fused through spill-free staged leaf passes, x through an L1 scratch
+with the graded map fused into the transpose-out stores; NO per-step plane
+transpose and NO transposed c copy — the two costs the alt chain still
+carries). My stage: build lazily (a wisdom hit on the incumbent builds
+nothing), gate with an OWN dual gate (m=1 and m=2 exits vs execute + exact
+scalar map — wv is bit-identical to no other form, so no verdict transfers;
+cached per pv identity), then race vs the INCUMBENT chain in its real
+shipped shape (alt pair or classic steps; the incumbent's candidate NAME
+carries which — "inc_alt"/"inc_cls" — so gr_sig re-keys if the incumbent
+form changes). Incumbent = candidate 0: wv must clear the r9 noise gate
+(max(jitter, 6%)), which also conservatively prices the once-per-chain
+pack/unpack a step race cannot see (planner budgets it ~2% at graded m). A
+wv win REPLACES the alt chain (planner's rule — same regime), and free(A)
+moved past the stage because pln_wv_build reads the enumerated trees.
+
+**3. NEW in the eng stage: VARIANT ARMS (per-arm extra -D flags), first
+instance gen_batchlane's BL_FUSE100 at L=100.** Their r12 record's explicit
+ask ("gen_race: the knob is a legitimate per-host race axis"): their shipped
+form (BL_FUSE100=1, the one-sweep fused chain step adopted from gen_pow2
+r11) beat their r11 within-volume form by only ~1% in their clean sessions,
+with the margin predicted to grow on smaller-LLC hosts. The eng arm list now
+appends "gen_batchlane_f0.<srchash>" at L=100, compiled with -DBL_FUSE100=0
+into its own cached .so (grx_eng grew a `defs` field; the compile phase
+launches variant .so's the prefetch table does not cover); NE_MAX 4 -> 5 so
+the variant fits beside the four class arms at 100. The arm list stays a
+function of (L, sources) only — repeatability-safe by construction.
+
+**4. Salt bump *11 -> *12** (chain/tile/chaingate/fm/cf/p4/alt/altgate/eng/
+enggate + new wv12/wvgate12): the r3 rule, eighth time — planner's engine
+generation moved again (pln_wv landed in the library section my LIB include
+consumes), and batchlane/pfa_small/pow2/dense_prime/pfa_large/layout sources
+all churned within the round (eng arm hashes re-key themselves; the SELF
+arm's name cannot). Also fixed a pre-existing scalar-build -Wall wart
+(demo_alloc_huge unused: now PLN_SIMD-guarded like both its users).
+
+### Measured on the node (a80n0, tryout leased core 4, graded chain, min us/xform; quiet-window numbers with same-window MKL)
+
+| case | r11 board | r12 session | MKL same window | vs MKL | pick (receipt) |
+|---|---|---|---|---|---|
+| L=12  B=64 m=600 | 1.915 | 2.019 (warm, calm window) | 7.734 (board 7.740) | 3.83x | gt(d3,d4)@s1@fm0 -> eng: batchlane (tie w/ pfa_small) |
+| L=50  B=4  m=128 | 410.975 | **414.150** (sd 0.08%) | 945.1 (board 946.3) | 2.28x | c5(gt(d2,d5)) -> eng: pfa_large (+14.8%) |
+| L=100 B=1  m=64  | 4071.3 | **4137.5** (sd 0.20%) | 7764.2 (board 7812) | 1.88x | c5(gt(d4,d5))@t32@fm0@alt1 -> eng: **gen_batchlane_f0 (+2.7%)** |
+
+Stage receipts at L=100 (quiet window, all banked):
+* **fm0 ships (tie, +0.5%)** — the separate-map regime holds on ICL, so the
+  alt/wv stages fire; **alt1 beats classic by +13.3%**; cf0 +6.5% (planner's
+  custody refutation reproduced through my race a third round).
+* **wv LOSES to the alt incumbent at L=100 on ICL: +3.5% quiet, +4.9% in the
+  first session — non-tie both times, banked.** Planner's r12 engine does
+  NOT take the scored cell on this host; the verdict is the round's most
+  useful negative (see boundaries).
+* **The variant arm won its first outing**: eng12 picked gen_batchlane_f0
+  (their r11 within-volume form) at **+2.7% over their fused ship form** in
+  the quiet window. Their own record shows the two forms trading places by
+  window (fused wins their clean-session floors by ~1%, ties min-of-mins);
+  on this host the race banks whichever measures faster and wisdom pins it —
+  which is precisely the per-host insurance their record asked for.
+
+**Unseen-size receipt — the wv arm earns its place at L=96 B=2** (cold
+create 1.9 s, single 4.3e-16 PASS): chain12 picks c8(gt(d3,d4))@t32@fm0,
+alt1 beats classic +6.3%, then **wv1 beats the alt incumbent by +6.0%
+(clears the noise-gate floor), gate PASS, banked**. So the wv boundary is
+genuinely per-L: loses at 100, wins at 96 — exactly the class of verdict
+this layer exists to measure instead of trust. (At 96 eng keeps SELF: no
+class arm took it, as in r8.)
+
+### Counter protocol (mandatory this round)
+
+Baseline: gen_batchlane's r12 record measured their r11-ship engine at 100
+(whole process, --samples 2): cycles 8.03G, p0 3.17G / p1 0.04G / p5 4.22G /
+p2_3 2.49G / p4_9 1.49G, l1d.replacement 967M. After my routing: the SHIPPED
+gen_race binary at 100 under tools/pmu.sh, same shape: insn 10.54G, **p0
+3.20G / p1 0.037G / p5 4.24G / p2_3 2.46G / p4_9 1.47G, l1d.replacement
+965M** — the port and traffic signature of batchlane's within-volume engine
+to within 1-2% (the routing receipt, counter-verified; cycles read 10.24G in
+my mixed window vs their 8.03G quiet — neighbor-inflated stalls, not extra
+work; the work-proportional counters match). My r12 added zero hot-path
+instructions of its own, as every round.
+
+### Gates (ship binary, node, manual legs where tryout's '$W/c.bin' bug still skips them — unchanged since r1)
+
+single-call rel L2: 2.9e-16 (12/B64), 4.3e-16 (50), 4.3e-16 (96/B2),
+5.2e-16 (100) vs tol 1e-12. Map-chain at graded m: 12/B64 m=600 4.87e-14
+(anchor 3.89e-14), 100 m=64 4.42e-14 (anchor 2.42e-14) — tol 1e-10. Two-step
+m=2 gate at 100: 3.09e-15 vs tol 3e-14 (through the shipped f0-routed
+chain). Repeatability: chain outputs bit-identical across independent node
+processes at 12/B64 AND 100/B1 (wisdom pins process 2 to process 1's winner
+— with a variant arm in the race this is more load-bearing than ever).
+Warm create at 100: 0.015 s vs the 50 ms budget (wisdom reads + batchlane_f0
+dlopen + their create + cached gates). Both build modes compile
+-Wall -Wextra clean, scalar build included.
+
+### Determinism spot-proof (3 cold creates, NO_WISDOM, fresh process, core 4 — run under heavy panel load deliberately)
+
+Self stages 3/3 identical (chain/tile/fm/cf/alt picks); cycle 2's wv race
+saw a spurious 46% "upset" and the r9 noise gate REVERTED it unstored —
+the machinery working exactly as designed under load. The eng verdict
+flipped batchlane/batchlane/batchlane_f0 across the three cycles: the two
+batchlane FORMS are an honest ~1-3% tie class on this host, the documented
+r10 situation at 100 (powp/self/powp) — in real runs wisdom pins the first
+quiet verdict (banked: f0) and the two-process cmp stays structural
+(re-proven above). Margins from the loaded window (e.g. alt1 "+167%") are
+junk and not quoted — r10's rule.
+
+### Operation count
+
+Library: unchanged, zero instructions in any hot path. Demo: one indirect
+call per execute/chain when a foreign engine ships (at 100 the winner's op
+count is gen_batchlane's r11 within-volume engine — see their r11 record);
+the wv stage, where it ships (96-class sizes), runs planner's pln_wv step
+(their op accounting; z/y slab-fused single L1 round trip per point per
+axis, x via 24-shuffle tr8 brackets + L1 scratch pencils, map fused into
+the transpose-out stores) with pack/unpack once per volume per chain.
+
+### What did NOT work / honest boundaries (with the numbers)
+
+* **planner's wv chain does not take L=100 on ICL**: +3.5%/+4.9% behind the
+  alt incumbent (non-tie, reproduced across two quiet sessions, banked).
+  The engine's design win (no plane transposes, no c copy) is real — it
+  wins at 96 by 6.0% — but at 100 the alt chain's one-transpose form plus
+  THP arenas is simply faster on this host. If planner's entry adopts wv at
+  100 by its own 4% playoff, the eng stage will measure THEIR whole engine
+  against batchlane's anyway; nothing to fix on my side.
+* **The first cold create of the round banked a partial eng verdict again**
+  (setup 32 s, all seven fresh-hash .so's compiling; raced self-only,
+  5538 us) — the r8/r10 mechanism, converged the same way: prefetch-all
+  landed everything within ~4 min, I stripped and re-raced (4137). The
+  monitor-side advice stands verbatim: one throwaway create on the scoring
+  host before the suite (the .so cache is prewarmed with today's hashes;
+  any post-session churn re-exposes only the churned arm).
+* **gen_powp's arm produced no enggate verdict at 100** (their fresh .so
+  compiled fine; setup returned NULL — create refused or dlopen/sup issue,
+  not investigated since powp was 4465 vs batchlane's 4072 on the r11
+  board). If their r12 session lands a large-L win, the source-hash re-key
+  races them fresh automatically.
+* **The batchlane ship-vs-f0 verdict is window-sensitive** (+2.7% f0 quiet
+  here; their record: fused wins their clean floors by ~1%). Both forms
+  gate ok and differ by low single digits; the pick is per-host insurance,
+  not a claim that either form is universally faster. CLX is where the f0
+  arm should genuinely matter (batchlane's own GP64_FUSE analogy).
+* The earlier strip-tool footgun, re-documented: gr_wisdom_path resolves
+  results/wisdom_<THIS host>.json — a wallaby-side "strip the node's file"
+  run must set GEN_RACE_WISDOM explicitly (my first strip invocation
+  harmlessly rewrote wallaby's file; foreign keys preserved by the r9
+  layout-agnostic parser, verified).
+
+### Borrowed, plainly
+
+* **gen_planner r12 (the round's engine)**: pln_wv build/pack/step/unpack —
+  their generalization of gen_batchlane's r11 within-volume design — plus
+  their eligibility mask (chain_ok, fusemap 0, custody off, L > 80) and the
+  wv-replaces-alt rule. Same honest split as eleven prior rounds: their
+  kernels, my measured pick + persistence.
+* **gen_batchlane r11/r12**: their engine IS the shipped L=100 cell (both
+  forms), and the BL_FUSE100 variant arm is their record's explicit ask.
+  Their "LLC-discriminator before traffic cuts" finding is why I did not
+  chase my own l1d dashboard this round.
+* **gen_pow2 r11** (via batchlane): the fused-step lineage the f0/f1 race
+  arbitrates. **gen_layout r11**: huge arenas under the wv slabs (via my
+  r11 demo_alloc_huge). **gen_pfa_large r9/r10**: the noise-gate design that
+  correctly killed a spurious wv upset under load this round.
+
+### Adoption status (the score)
+
+* **gen_planner** (full GEN_RACE_LIB_ONLY include), **gen_pfa_large**
+  (string wisdom, salted keys), **gen_powp** (keyf/sig/lookup/store): all
+  unchanged on the frozen API — zero churn charged, eighth round.
+* This round the adoption also runs the OTHER way twice over: the demo now
+  ships planner's pln_wv as a raced arm, and batchlane's compile knob as a
+  raced variant — both by their records' invitation.
+* Round end: **all 40 gen_race/* keys stripped from results/wisdom_a80n0.json
+  via gr_wisdom_drop_prefix** (including the 58+40 stale r10/r11-salt
+  leftovers found at round start — see the r11 reconstruction note); foreign
+  gen_powp keys intact, file valid JSON, wallaby's file verified intact.
+  The monitor cold-races fresh verdicts; absent entries are deliberate.
+
+### What I would do next (gen_r13 / campaign close)
+
+1. **Capture the CLX/SPR verdicts for the two new race axes** when the
+   advisories run: wv12 at 96/100 (SPR wallaby already read wv-vs-alt as a
+   1.9% tie at 100 — a third behavior) and the batchlane f0/f1 arm (their
+   record predicts the r11 form wins big on small-LLC hosts).
+2. **Prewarm protocol** (carried five rounds): one throwaway create on the
+   scoring host; today's .so cache is warm unless sources churn again.
+3. **Probe wv at the other >80 sizes** (108, 121, 125...) if a round-6-style
+   surprise test returns: the 96-vs-100 flip suggests the wv/alt boundary
+   needs a per-L verdict, which is exactly what the stage now banks.
+4. **If planner ships more wv knobs as runtime fields** (their PB pencil
+   width is env-only today), the flip-in-place race shape has five
+   instances to copy from (tile/fm/p4/cf/alt).

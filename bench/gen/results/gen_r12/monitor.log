@@ -1,0 +1,16 @@
+`results/gen_r12/VERDICT.md` is written. Summary of the judgement:
+
+**Three brief premises were wrong and I corrected them rather than working around them:** the geometries are L = 10, 12, 15, 20, 25, 27, 31, 32, 40, 50, 100 (6/8/17/36 are the previous `bench/geom` campaign, which is also why CURATION.md and LITERATURE §4 read that way); the scoring host is Ice Lake-SP Gold 6326, not Cascade Lake 5218 (CLX/SPR are the *advisory* hosts, so the dev/score direction in the brief is inverted); and `cases.txt` fixes one batch size per geometry, so only L=100 is non-batched — there is no batched/non-batched pair to report.
+
+**Headline:** all eleven cells are correct panel wins over every library, 1.91× (L=100) to 8.44× (L=31 vs ducc0). **But the board did not move at a single scored cell** — every top-of-cell delta vs r11 is inside ±3%. All the round's real wins (pow2 −8…−15% at L=128 and −12% at L=64; rader −12.2% at p=127; pfa_small −16…−25% across its generic family; twiddle −20% at L=20) landed at unscored sizes or below the leaders.
+
+**The adversarial pass found nothing wrong with correctness** — zero non-PASS lines in `check.log`, no crashes, no build failures. The problems are machinery:
+
+- **gen_race regressed +18% to +102% at ten of eleven cells, and its board line is an artefact of its own bug.** The same binary in the earlier `timing.log` pass reads the class winners' numbers exactly, and wisdom holds the *correct* foreign engine at every cell (L=32 margin 0.845, matching the board's own 1.99× gap). The `.so` cache is timestamped 01:01–01:03 — built during the last cell — so every earlier cell ran with it empty, and `gen_race.c:2632` skips the compile when wisdom answers while `:2724` swallows the dlopen failure and silently ships self.
+- **gen_powp lost 16% at L=50** to a banked race verdict that installed a candidate it had measured as *slower* (`tie:1, margin:-0.0188`).
+- **gen_bluestein wrote no r12 record**, has a 1-byte agent log, changed 111 lines of source undocumented, and held a node lease 116 minutes that delayed scoring by 30. Not promoted, per CURATION's explicit rule.
+- gen_rader carries a latent `-Waggressive-loop-optimizations` UB warning, unchanged from r11 — not a failure today, flagged for r13.
+
+Six entries measured axis fusion across the **L2↔DRAM** boundary that LITERATURE §4.3 names "the largest untried structural move on the board," and got signs from −15% to +25%. The reconciliation is the round's real product: Tolmachev's rule needs *demand* traffic, not nominal — gen_pfa_large measured 0.4 MB/step of demand LLC misses under an 80 MB/step stream, and both it and gen_batchlane retract their own r11 "88% DRAM-bound" reading.
+
+PROMOTE: gen_pfa_small gen_batchlane gen_powp gen_rader gen_pow2 gen_pfa_large gen_dense_prime gen_planner gen_twiddle gen_layout gen_race

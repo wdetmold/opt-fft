@@ -1,0 +1,9 @@
+Round gen_r12 is complete — both deliverable files are written (`impl/gen_layout.c`, `strategies/gen_layout.md`), all gates pass, and the work is recorded. Summary of the round:
+
+**What shipped:** a T1 fold-source prefetch (`p->pf1`, plan-gated to DRAM-resident sources, L=100 only in-suite). The r4-era `prefetcht0` on the fold's ~200 lines/group was serializing through the ~12 L1 fill buffers at DRAM latency — the reason r4 measured it as a wash; `prefetcht1` fills L2 through the deeper superqueue instead. Won every usable interleaved pair (clean pair −1.3%; min-of-mins 9047.6 µs vs the r11 board's 9255.8), with L1 fills down 18% on counters and bit-identical outputs.
+
+**What was built, measured a null, and shipped opt-in:** class-major consumption-order quad-table rows (`-DGL_DEMO_TORD=1`) — wash at L=40, −0.7% at L=100, because the 16-accumulator sweep is latency-tolerant to its L2-resident table stream; `stalls_l1d_miss` at 18% was correlation, not causation. Recorded so nobody rebuilds it.
+
+**Method contribution:** a differential-counter protocol (subtract two PMU runs differing only in `--samples`) giving clean steady-state rates — L=100 runs at **1.39 uops/cycle with 42% memory stalls**, settling this entry's side of the rounds-11/12 uop-saturation disagreement: latency-bound, not cap-bound. Adoption receipts from r11 also banked: gen_powp (−2.0%), gen_planner, and gen_batchlane all carry this layer's THP work at L=100.
+
+One line, as asked: **T1-hint fold prefetch on DRAM-resident sources (plus a documented consumption-order-relayout null); best node numbers this round: L=100 B=1 9047.6 µs/xform, batched L=32 B=8 155.2 µs and L=12 B=64 8.18 µs; rel L2 4.65e-16 single / 2.86e-15 two-step / 3.94e-14 full m=64 chain — all gates PASS, outputs bit-identical to r11.**

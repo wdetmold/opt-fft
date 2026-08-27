@@ -1891,3 +1891,190 @@ bit-identical to r7–r10 at every size.
    any flip as code.
 4. If gen_race standardizes a quality field or a THP-regime marker in
    wisdom entries, migrate the ~q suffix and note the regime there.
+
+## Round gen_r12 (all hands on L=100, round 2)
+
+Standings into the round (r11 board, a80n0): led 25 (30.857), 27 (43.484),
+50 (413.898 vs gen_pfa_large 417.960; gen_race 410.975 ahead by routing);
+**L=100: 4465.201, and gen_batchlane's brand-new WITHIN-VOLUME SoA engine
+took the cell at 4072.3 (via gen_race routing; their own quiet number
+4059)** -- ~9% past me, past gen_pfa_large (4554.7), past everything.  Their
+r11 record is explicit about the mechanism, and it is MY OWN r8 census they
+cite as pricing the prize: the interleaved shell pays 569 shuffles + ~458
+spill slots per z-line plus a separate map pass, and their lanes-are-
+x-planes layout deletes all of it while keeping the same 80 MB/step DRAM
+floor.  My r10 record had left 100 open "only if someone produces a paper
+schedule with fewer L1 round trips, not just fewer passes" -- they produced
+it and measured it.  This round I take it: the cumulative round working
+exactly as the brief intends.
+
+### What was built: the "l100-wv" candidate (ADOPTED from gen_batchlane
+### gen_r11, close to verbatim)
+
+Their within-volume engine, ported into this entry as a 14th raced L=100
+chain candidate:
+
+1. **Layout**: 8 zmm lanes = 8 x-planes of ONE volume; 13 slabs (slab 12 =
+   4 replicated pad lanes, never unpacked), row stride ZP100 = 101 sv, slab
+   stride SLST100 = 10114 sv (256-mod-4096 house rule), site =
+   re[8]|im[8].  z-pencils (stride 1 sv) and y-pencils (stride 101 sv) are
+   elementwise; both sweeps run per slab (~1.3 MB, two-axes-per-pass); the
+   x-pass gathers each (y, 8z) column through 26+26 trans8 into a 104-sv
+   stack scratch, runs the map-fused pencil, scatters back.  c packs once
+   per chain into x-consumption order (their lanex discipline -- I took
+   their measured convention and their store-at-slot-lanex[j] fix verbatim
+   rather than re-earning their half-session debugging loss).
+2. **Pencil**: PFA(4 x 25), their numpy-verified slot tables verbatim;
+   DFT25 = 5x5 CT through a 25-sv L1 scratch with 9 compiled-in w25
+   broadcast constant pairs (lit 11 Tier 1), lifted DFT5 v-pair (their
+   engine default; this codelet shape is theirs, so their lift verdict
+   travels with it -- NOT my in-place slot pencils where lift lost in r7),
+   stage-2 DFT4s naturally in place via safe placement.  2016 vector FP
+   per pencil per 8 lanes, zero shuffles in the sweeps.  Their map8 ladder
+   (rsqrt14 + 2 Newtons, one exact vdivpd tail).
+3. **Race integration (the part that is mine)**: wv is gated at create()
+   by an m=2 whole-chain COMPOSITION gate (pack, two full steps, unpack vs
+   a refnd-gated execute + the driver's exact scalar map -- exercises
+   pack_vol, both sweep strides, the trans8 bracket, the lanex c pack, the
+   fused map, unpack); trialed on its OWN gl_map_huge arena (graded regime
+   by construction -- the r11 trial-fidelity rule); and decided by a NEW
+   wv-vs-best-interleaved long-horizon playoff that runs AFTER the r10
+   challenger playoff settles the interleaved slot (24 steps/arm/round,
+   6 warm for the >L3 interleaved arm, adaptive r9 noise gate, min() feeds
+   back only on the interleaved side).  Ranked LAST: like soa, the
+   non-bit-identical engine must clear the 3% simplest-first hysteresis.
+   Wisdom sig covers the pool change at 100 (stale chain9 verdicts miss);
+   all other sizes' pools, protocol, and code paths are untouched.
+4. NOT ported: their L=50 within-volume form -- their own r11 measured it
+   14% BEHIND my ipp at the L3-resident cell ("do not spend r12 trying to
+   close it with knobs", their record); and their in-flight r12 one-sweep
+   fused step (BL_FUSE100, gen_pow2 r11's step-boundary x-split) -- theirs
+   to land, unproven at round start, and racing two engines' worth of new
+   code in one round is how gates get missed.
+
+### Measured on the node (a80n0, reservation 438881; quiet + busy windows)
+
+- **Graded L=100 B=1 m=64: 4074.2 us/xform (sd 0.08%, MKL 7773.9 same
+  window) and 4070.0 (sd 0.13%) in a second quiet window** -- vs the r11
+  board's 4465.2 (-8.8%) and gen_batchlane's quiet 4059 (parity within
+  window noise).  Cold setup 5.25-5.29 s (60 s budget); warm wisdom hit
+  0.015-0.046 s.
+- Verbose cold race, calm window: challenger playoff ipp0 4282.3 vs
+  rank-0 ipk1 4628.6 (decided); **wv playoff l100-wv 4001.4 vs l100-ipp0
+  4422.4 us/vol (-9.5%, 3 rounds)**; race table wv 4001.4, ipp0 4282.3,
+  ip0 4366.7, ipp1 4367.6, ip1 4427.8, ipm/ipq/iqn 5163-5364, f* 6740+.
+  Banked verdict (before the dev-key strip): l100-wv, TIGHT, margin +6.9%.
+- Held-lease alternating pairs, BUSY window (load 9-11): wv
+  4951.2/4765.5/4891.3 vs forced ipp1 5098.7/5092.6/5425.9 -- **wv wins
+  3/3 (-2.9..-9.9%)**; contention COMPRESSES wv's margin (the DRAM-bound
+  engine loses more to bandwidth contention than ipp1's smaller-footprint
+  form; same shape as the r6/r10 window-boundary notes -- recorded so a
+  busy scoring window's narrower margin surprises nobody).
+- **Counter protocol (mandatory), forced-family 512-step deltas
+  (samples 10 - samples 2), same busy window**:
+  | counter/512 steps | ipp1 (r11 pick) | wv (r12) | delta |
+  |---|---|---|---|
+  | cycles            | 10.20G | 8.45G  | -17% (window-elevated both) |
+  | l1d.replacement   | 1.031G (2.01M lines/step) | 0.844G (1.65M/step) | **-18%** |
+  | p0 / p5           | 3.24G / 3.82G | 2.80G / 3.74G | p5 ~flat: trans8 ~= TRNC+swaps |
+  | p2_3 / p4_9       | 2.86G / 1.04G | 2.16G / 1.28G | loads -24% (spill diet), stores +23% (scratch) |
+  | instructions      | 10.29G | 9.24G  | -10% |
+  | stalls_mem_any    | 24% of cyc | 39% of cyc | wv is MORE purely memory-shaped |
+  | dtlb walk_active  | 3.7M | 5.6M | ~0.07% both (huge pages both: ch_ar re-home / wv arena) |
+  The l1d.replacement drop is the round's brief metric moving the right
+  way; total vector dispatch 1.18/cyc (wv) vs 1.08 (ipp1) against the
+  ~2.1 cap -- both still traffic-bound, consistent with r11's verdict.
+- **Gates, all hand-run on the node** (tryout's map-check leg still ships
+  the '$W/c.bin' quoting bug, tenth round): single call 4.522e-16 (tol
+  1e-12, interleaved execute unchanged); **two-step m=2 3.090e-15** (tol
+  3e-14, ~10x margin -- exactly gen_batchlane's number, same arithmetic);
+  **graded m=64 chain 4.422e-14 vs honest anchor 2.416e-14** (1.83x, tol
+  1e-10 -- also their number); single AND chain outputs bit-repeatable
+  across independent processes (wisdom-pinned, the soa rationale); **B=2
+  off-case PASS** (multi-volume wv loop; chain 2.970e-14 vs anchor
+  4.268e-14).
+- Parity, untouched sizes (busy dev windows, gate evidence): 25 B=16
+  31.78 (soa warm-hit, single 3.604e-16), 27 B=16 44.54 (3.725e-16),
+  50 B=4 418.76 (4.336e-16), 81 B=2 execute 2807.7 (5.038e-16) -- the
+  exact historical single-call digits at every size.
+- -Wall -Wextra: exactly the 16 pre-existing unused-candidate warnings
+  (the new candpl field got explicit initializers everywhere).
+- Round end: all gen_powp/chain9 L100 keys (including my banked l100-wv),
+  the L50 key my busy-window smoke may have overwritten, and my L81 smoke
+  key STRIPPED from wisdom_a80n0.json under flock (r9-r11 dev-key
+  protocol; the 25/27 warm-hits stored nothing).  The scoring window
+  cold-races the new 14-candidate pool and banks its own verdict --
+  the wv playoff is what makes that race faithful.
+
+### What did NOT work / boundaries, with the numbers
+
+* **A busy-window graded reading of 10584 us** during the gate battery
+  (load ~11, 12 implementers active) looked like a 2.6x regression; the
+  MKL control read 8701 in the same window (vs 7773 quiet) and the paired
+  A/B held -- window, not code.  At a DRAM-bound cell under all-hands
+  contention, NEVER read an unpaired number (r4's lesson, bandwidth
+  edition).
+* The first battery ALSO showed B=2 cold setup at 25.8 s under that load
+  (quiet: ~5 s): the 60 s budget still holds but the margin thins when 12
+  implementers race concurrently -- same observation as r10, now with one
+  more candidate in the pool.  The also-ran trim (f0/fr/frw have never won
+  a 100 race in eleven rounds) remains the lever if this ever binds.
+* Two banked-verdict subtleties handled, worth stating: (1) my dev tryout
+  banked l100-wv TIGHT from a genuinely quiet window -- stripped anyway;
+  the protocol is strip-all-dev-keys, not strip-when-unsure.  (2) The wv
+  arena is allocated before the wisdom lookup, so a warm-hit l100-wv plan
+  re-homes exactly like the cold-raced plan (the r11 allocation-order rule
+  applied to the new engine).
+
+### Borrowed, plainly
+
+- **gen_batchlane (gen_r11)**: essentially everything in the wv engine --
+  the within-volume layout, trans8/lanex discipline (their measured
+  semantics and slot-store fix taken verbatim, saving their half-session
+  loss), the PFA(4x25) module with safe placement, the DFT25-through-L1-
+  scratch shape, the compiled-in w25 constants, the lifted DFT5, their
+  map8 ladder, the fused-map-in-x-pass verdict (their BL_EPI100 race), and
+  the c consumption-order pack.  Their record's transfer notes (50 loses,
+  clflushopt declined on LLC-miss data, NT stores inapplicable) were
+  honored as written -- zero re-derivation spent.
+- **My own machinery kept**: the r6/r9/r10 playoff + noise-gate + banking
+  stack (extended with the wv playoff stage), the r11 THP re-home (still
+  protects every interleaved candidate on hosts where they win), LDU/STU/
+  VSH primitives instead of their LD/ST/SH.
+- The r12 lesson in one line, for the record: **when a rival's engine wins
+  your cell and their record names your own census as the mechanism,
+  porting it faithfully beats improving it speculatively** -- every
+  deviation I allowed myself was one their record explicitly licensed.
+
+### Operation count
+
+wv at 100: 3900 pencils/volume-step (2600 zy + 1300 x) x 2016 vector FP
+per pencil per 8 lanes, zero shuffles in the sweeps; x-pass 1248 shuffles
+per 100-site column (26+26 trans8) + 100 map8 ladders per x-pencil (~15
+ops + 1 vdivpd each); pack/unpack/c-pack once per 64-step chain
+(amortized ~1.5%).  Interleaved families, soa 25/27, and all lite sizes:
+unchanged (192/218/434/968 scored, 534/850/1850/1552 lite per line; soa
+388/408 per pencil) -- their chain outputs reproduce the r7-r11 gate
+digits bit-exactly.
+
+### What I would do next (ranked)
+
+1. **Verify on the r12 board** that L=100 lands ~4.07 ms class and
+   wisdom_a80n0.json holds a plain-name chain9 l100-wv from the scoring
+   window (a provisional ~q or an interleaved pick means the window was
+   noisy or contended -- either is the machinery working; check the margin
+   in the entry before assuming a bug).
+2. **Watch gen_batchlane's r12 one-sweep fused step (BL_FUSE100)**: their
+   CT-10x10 step-boundary x-split targets ~50 MB/step DRAM vs this
+   engine's ~84 -- if their record lands with numbers, the same
+   fuse-across-steps question opens for my wv port (the PFA pencil
+   provably cannot tile across steps; theirs is the equal-radix answer).
+   That is the one remaining structural lever at 100.
+3. **Their next-list item 1** (software-pipeline the x-column loads;
+   z-interleave the y-sweep to shorten slab reuse distance) applies
+   verbatim to my port now -- worth one lease if r13 exists; also their
+   CLX note (1.29 MB slab vs 1 MB L2) predicts the xarch advisory flags
+   wv there, and the race + 3% hurdle already arbitrate that per host.
+4. **50 stays interleaved** on their own measurement; 25/27 stay soa
+   (within-volume is for B < 8 by construction -- their r11 next-list
+   item 3, same conclusion).

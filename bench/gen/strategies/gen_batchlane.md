@@ -1629,3 +1629,220 @@ Existing sizes unchanged (84/96/160/156/208/282/388/376/582/554/776/1102).
 - tryout.sh's check.py map-check leg still receives the literal '$W/c.bin'
   (r1 note, 10 rounds old); the TIMED chain run is unaffected (CH expands
   locally). Run map gates by hand.
+
+## Round gen_r12 -- the one-sweep fused chain step at L=100: CT 10x10 across the step boundary (gen_pow2's r11 fusion, transferred); the cell holds the lead, and the "88% DRAM-bound" reading does NOT hold on this engine
+
+Standings into the round (r11 board): WON L=100 outright with the r11
+within-volume engine (4072.3, gen_race 4071.3 riding it -- the routing gap my
+r7-r11 records kept flagging is closed at 100; MKL 7812, 1.92x; gen_powp
+4465, gen_pfa_large 4555, gen_planner 4570), led 20 (12.597), converged-tied
+10/12/15.  The r11/r12 brief keeps all hands on the large cells.  This round
+transferred the one idea in the r11 corpus with measured double-digit teeth
+at a DRAM-regime size: gen_pow2's ONE-SWEEP FUSED chain step (their L=128:
+-61% demand DRAM reads, -14% wall), whose transfer note names L=100 and this
+cell explicitly.
+
+### Counter protocol first (mandatory): baseline on the r11 ship, a80n0 core 4
+
+Quiet window (4092 us/xform, sd 0.14%), whole process at --samples 2
+(~576 steps incl. warmup): cycles 8.03G, insn 10.59G (IPC 1.32), p0 3.17G /
+p1 0.04G / p5 4.22G / p2_3 2.49G / p4_9 1.49G, l1d.replacement 967M,
+LLC-loads 103.4M, LLC-load-misses 18.8M (18%), stalls_mem_any 2.24G (28% of
+cycles).  Also l2_lines_in.all 515M (busier window).  Per step that is:
+l1d ~107 MB, L2 fills ~57-61 MB, demand L3 loads ~11.5 MB, demand DRAM
+reads only ~2.1 MB.
+
+**The regime finding that reframed the round**: gen_pfa_large's r11 record
+concludes L=100 is ~88% DRAM-BW-bound (80 MB/step at ~20 GB/s) -- and my own
+r11 arithmetic (84 MB/step / 4.06 ms = 20.7 GB/s) seemed to agree.  The
+LLC counters say that arithmetic is a COINCIDENCE on this engine (exactly
+gen_pow2's r11 debunk of their own "L3-BW wall" at L=64): demand DRAM
+traffic is ~2 MB/step, L2 fill traffic ~60 MB/step -- the 16.8 MB state
+largely LIVES in the 24 MB LLC between passes and the streams are
+prefetch-fed.  Their 88% number is true of THEIR engine (bigger footprint,
+prepass), not of this one.  Consequence, measured below: a 30-40% cut in
+DRAM/LLC traffic buys ~1%, not ~14%, here.  Peers: run gen_pow2's
+LLC-loads/LLC-load-misses discriminator BEFORE building traffic cuts; the
+l1d/l2_lines dashboards do not predict this.
+
+### The round's build: ONE-SWEEP FUSED chain step (BL_FUSE100=1, shipped)
+
+ADOPTED from gen_pow2 gen_r11, rederived for a non-2^k size.  The x-FFT
+splits into two CT stages ACROSS the chain-step boundary; each step becomes
+one volume sweep over 10-plane tiles:
+
+    x-stage-2(s) + map(s) + z(s+1) + y(s+1) + x-stage-1(s+1)
+
+DRAM crossings drop from 2 r+w per step (zy sweep + xpass) to 1 (+ the
+compulsory c read).  Two structural facts worth the record:
+
+1. **PFA cannot do this; equal-radix CT can.**  gen_pow2's label algebra
+   needs each tile's stage-2 OUTPUT set to be a stage-1 input GROUP of the
+   next step.  Under the r11 PFA(4x25) the digit sets are CRT-orthogonal
+   (a tile's outputs are one mod-4 class; every DFT25 group needs all four
+   classes): no tile below the whole volume closes.  100 = 10x10 is the
+   exact analogue of their involutive 8x8 at L=64: physical plane
+   p = 10*k0 + b holds CT label (b, k0); parity-0 sweeps take consecutive
+   10-plane tiles, parity-1 sweeps stride-10 tiles, and the digit map is an
+   involution so a PARITY FLAG is the whole bookkeeping (their 8x16 case
+   needed an explicit permutation; 10x10 does not).  After a parity-1 head
+   the volume sits in natural order: even-m chains unpack natural, odd-m
+   transposed (p = 10*(n%10) + n/10).  x-DFT100 = 10xDFT10 (PFA 2x5, the
+   file's L=10 slot algebra reused verbatim) x w100^(b*k0) x 10xDFT10:
+   2166 vector FP per pencil vs the PFA's 2016 (+7% on one axis, irrelevant
+   here).  The 36 w100 products are compiled-in broadcast constants (lit 11
+   Tier 1 routing; 60-digit Decimal Machin+Taylor, libm-cross-checked;
+   w100^25 = -i exact).
+2. **The fused engine wants a different lane discipline.**  The r11 layout
+   (lanes = 8 x-planes) makes the vertical x-stages cross-lane; the fused
+   chain therefore uses z-IN-LANES planes (site-vector = 8 consecutive z of
+   one row, plain-deinterleave pack -- cheaper than the r11 trans8 pack):
+   y-pencils are the verified r11 dft100 module at row stride (shuffle-free),
+   z-pencils run it through a trans8-bracketed 104-sv scratch (the LX8 fold
+   goes on the gather's ROW index and the scratch SLOT index; lanex is
+   self-inverse, so slots AND lanes come out natural -- no scrambling ever
+   reaches the module), and the x-stages are VERTICAL 10-stream in-place
+   DFT10s, elementwise on site-vectors, zero shuffles, 4 map ladders...
+   10 ladders across two 5-wide codelets at the head, twiddles folded into
+   the tail's stores.  c packs once per chain into HEAD-consumption order
+   CT[t][site][k1] (k1 fastest: one sequential stream per tile at BOTH
+   parities -- gen_pow2's tile-order-c rule, adopted).
+   execute() keeps the r11 engine unchanged (bit-identical single call);
+   the r11 chain stays compiled behind BL_FUSE100=0.  The existing arena is
+   reused (fused state 131400 sv and c 130000 sv both fit inside the r11
+   allocations; create() untouched, still branch-free/deterministic).
+
+Everything was SIMULATED against numpy BEFORE any C (m=1..4, both final
+parities, rel L2 < 3e-15; build/tryout/gen_batchlane/gen100f.py) -- the
+r8-r11 method, sixth application.  The C then passed every gate on wallaby
+on the first build.
+
+### Measured on the node (a80n0 core 4, held lease, interleaved --samples 4,
+### rotated arm order per gen_pow2's r11 protocol; first invocation discarded)
+
+Clean-window sessions (sd <= 0.2%):
+
+| arm | quiet floor (us/xform, m=64) | verdict |
+|---|---|---|
+| r11 ship (ctl) | 4061-4092 | baseline |
+| **fused (ship)** | **4025-4079** | **-0.3..-1.2%, wins clean sessions 3/3 + 2 of 4 mixed** |
+| MKL 2022 same window | 8607-8734 | ~2.1x |
+
+Under the all-hands node load the windows swung +-14%; across one 6-round
+rotated race the min-of-mins TIED (4093.6 fused vs 4096.4 ctl) while the
+fused arm's MEDIAN won by 2.7% (4655 vs 4785) -- consistent with its lower
+LLC footprint degrading less under neighbor traffic (the r10 L=44-under-
+contention pattern again).  Counters, ship vs baseline in MATCHED quiet
+windows (4063 vs 4092 us runs): LLC-loads 103.4M -> 71.9M (**-30%**),
+LLC-load-misses 18.8M -> 13.6M (-28%), l1d.replacement 967M -> 929M (-4%),
+instructions +4.7% (the verticals' memory-form round trips), stalls_mem_any
+flat (2.24G -> 2.25G), p5 flat (the transposes moved from the x-pass to the
+z-pass, same 1.6M shuffles/step).  The traffic goal landed; the regime
+finding above is why the wall-clock payout is ~1%, not gen_pow2's 14%.
+
+Shipped: BL_FUSE100=1 on structure + robustness + accuracy grounds (chain
+drift also improved, below).  gen_race: the knob is a legitimate per-host
+race axis -- on a smaller-LLC host (CLX 1 MB L2 / smaller L3) the fused
+form's DRAM cut should be worth far more, exactly like GP64_FUSE.
+
+### Gates (ship build; wallaby first, node re-proven)
+
+L=100: single 5.197e-16 (execute unchanged -- digits identical to r11);
+two-step m=2 3.022e-15 (tol 3e-14, ~10x margin; r11: 3.090e-15); graded
+m=64 chain **2.850e-14** vs anchor 2.416e-14 (1.18x -- IMPROVED from r11's
+4.422e-14/1.8x; the CT 10x10's shallower per-axis depth); m=3 (odd-m
+transposed unpack) 3.736e-15; B=2 m=4 4.647e-15; bit-repeatable on node and
+wallaby; all knob arms (FUSE/TILE/RV) bit-transparent (cmp on the m=64
+chain).  Scored-size protection: 10/12/15/20/50 chains bit-identical to the
+r11 arithmetic (cmp, wallaby); same-core layout-tax check on node: L=10
+1.123-1.125, L=15 4.354-4.368 -- board-level, no tax.  NOTE the m=1
+--chain path segfaults in the DRIVER for L=100 on the r11 binary too
+(pre-existing, never scored; execute() covers single transforms).
+
+### What did NOT work, with the numbers that killed it
+
+- **BL_F100TILE (verticals interleaved INTO the in-plane passes)** -- the
+  head per 8-row group before its z-pencils, y-pencils zb-outer before each
+  column's tails; built to cut the tile's 4 L3 round trips to 2 (the
+  residual gen_pow2's record flags as their own next step): **+8..13%,
+  3/3** vs the phased form.  The "hot" reuse windows are 130 KB -- L2-sized,
+  not L1 -- so nothing was saved, while the burst-interleaved verticals
+  break the head's linear plane streams.  Knob kept, default 0.
+- **BL_F100RV (register-form verticals, 2L+2L instead of the memory form's
+  4L+4L)** -- the shape that ships at the batched L=10 cell: **worst arm in
+  6/6 rotated rounds (+5..14%)**.  Ten VERTICAL streams x 20 live site
+  registers + DFT5CORE + map temps spill harder than the store-forwarded
+  round trip costs.  The r9 "spill counts are not a time proxy" lesson,
+  fourth sighting.  Knob kept, default 0.
+- **Runtime-constant knob dispatch in the hot functions cost +4%
+  bit-identically** (4215-4253 vs 4057-4086, 4/4 clean rotated pairs):
+  routing the tail through a per-column function with the switch inside,
+  and the head through `if (BL_F100RV)`, changed gcc-11's codegen enough to
+  lose 4% with identical outputs.  Fixed by preprocessor-only selection and
+  restoring the whole-tile tail loop.  gen_planner r11's map-span lesson,
+  this entry's sighting: at these loop sizes, CODE SHAPE IS A MEASURED
+  VARIABLE -- re-race after any refactor, even a "transparent" one.
+- **L=50 fusion: DECLINED on gen_pow2's measurement**, not built: my L=50
+  chain is L3-resident (4.6 MB/volume), their L=64 measured the same
+  fusion at +2% in exactly that regime (traffic cut lands, latency/
+  instruction-bound residual pays for it).  Also declined again: NT stores,
+  prefetch mirrors, c custody (three closed records).
+
+### Borrowed, plainly
+
+- **gen_pow2 gen_r11**: the entire structural idea (step-boundary x-split,
+  one-sweep tiles), the tile-order-c rule, the LLC-demand-vs-prefetch
+  discriminator, and the rotated-order race protocol.  Their transfer note
+  priced the transfer; their L=64 negative priced the L=50 decline.  This
+  is the round's headline adoption -- with the two non-transfers named:
+  the equal-radix requirement (their 8x8 property, which kills PFA here and
+  forced CT 10x10 + new twiddles), and the payout regime (their -14% was
+  DRAM-bound; this engine was not, so the same traffic cut bought ~1%).
+- **gen_pfa_large gen_r11 / gen_powp gen_r11**: the ~20 GB/s ceiling and
+  whole-step counter method that motivated (and then correctly bounded) the
+  round; my LLC numbers settle that their 88%-DRAM-bound reading is
+  per-engine, agreeing with the audit's headroom reading for this one.
+- **gen_planner gen_r11**: the codegen-sensitivity lesson (map-span),
+  re-measured here at +4%.
+- **lit 11 Tier 1** (constant-per-site twiddle routing): 36 more compiled-in
+  exact constants; **my own r6/r8-r11 machinery**: safe placement, the L=10
+  slot algebra, trans8 lane discipline, simulate-before-C.
+
+### Operation count
+
+L=100 fused chain, per step: z + y unchanged (2600 dft100 pencils x 2016
+vector FP through the r11 module; 1.6M trans8 shuffles now paid in the
+z-pass instead of the x-pass); x = 13000 vertical DFT10 pairs -- head
+84 FP + 10 map ladders, tail 84 FP + 9 twiddle cmults (54 FP) per
+site-column, memory form (40 sv ld + 40 sv st per site-column per stage).
+DRAM crossings 2 -> 1 state r+w per step + c; LLC demand loads -30%
+measured.  Instructions +4.7%/step.  execute() and every other size:
+unchanged (op counts as r11).
+
+### What I would do next (ranked)
+
+1. **The verticals' memory form is now the largest removable L1 traffic**
+   (~2M sv ops/step): a HYBRID register form (even-parity DFT5 group's
+   stage-1 outputs in 10 registers, odd group through memory -- half the
+   pressure of BL_F100RV) is the untested middle point; worth one session.
+2. **Software-pipeline the head across sites** (load site i+1's 10 sv
+   while site i computes): with DRAM crossings halved, the head is now
+   latency-exposed on 10 strided streams; the r11 next-step idea applies
+   to a pass that finally has slack under it.
+3. **Cross-arch**: BL_FUSE100/BL_F100TILE/BL_F100RV are exactly the knobs
+   the CLX/SPR races exist for -- CLX's small LLC should flip the fusion's
+   payout toward gen_pow2's +14%, and may flip TILE/RV too.
+4. **gen_race**: race BL_FUSE100 0/1 per host at 100 (both arms live in
+   this one TU; the r11 path is the 0 arm).
+
+### Harness notes
+
+- a80n0 reservation 438881 alive throughout; held slot lease 2 / core 4 for
+  every number above.  Windows during this all-hands round swing +-14% with
+  sd < 0.2% INSIDE each arm: only rotated-order interleaved minima/medians
+  over >= 4 rounds discriminate anything below 5%.
+- Self-inflicted and worth recording: an ssh-heredoc single-quote around a
+  remote-expanded path made cmp compare NONEXISTENT files and print "NOT
+  REPEATABLE" -- the same quoting-artifact class as tryout.sh's 11-round-old
+  '$W/c.bin' bug.  If a repeatability check fails, verify the files exist
+  before believing it.

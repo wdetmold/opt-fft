@@ -1570,3 +1570,196 @@ port_2_3 -11%, dtlb walks -88%.
    arithmetic gap to gen_powp stands.
 4. **For whoever owns the driver**: --chain 1 segfaults in every binary;
    one guard fixes it before a future brief draws m=1.
+
+## Round gen_r12 -- the within-volume split-lane chain: built, iterated to the traffic goal, and honestly raced (it loses on ICX)
+
+### The round in one line
+
+Built brief menu item 4 as a generic engine (pln_wv: lanes = 8 x-planes of
+one volume, slab-fused z+y sweeps, trans8-bracketed x-pass with the split map
+fused into its stores), iterated it through three structural forms down from
++29% to +6.6% vs my r11 alt chain -- it hits the PMU audit's traffic target
+(l1d.replacement -31% vs alt) but does NOT convert to time on the 24 MB-L3
+Ice Lake node -- and shipped it as a settle-gated create() PLAYOFF banked
+per host through wisdom (@w0 here; CLX/SPR re-race it by construction).
+The default L=100 chain is unchanged alt: 4439.9-4560 us quiet-window
+(board r11: 4570.5).
+
+### What changed (all in impl/gen_planner.c)
+
+1. **The pln_wv engine** (library section, PLN_SIMD): pack once per chain
+   into split-complex slabs (lane l of slab s = x-plane 8s+l, pad lanes
+   replicate the last real plane and are never unpacked; slab stride 256 mod
+   4096; odd L^2 pads the last column group with site-0 copies).  Per step:
+   - axes z and y run SLAB-FUSED (both passes on the ~1.3 MB slab back to
+     back) and completely shuffle-free through the pw leaf layer;
+   - the x-pass crosses lanes: per 8-site column group, 8x8 lane transposes
+     (pln_tr8, 24 shuffles: 8 unpack + 16 shuffle_f64x2) gather 100-row
+     pencils into a 19 KB scratch, the DFT pipeline runs there, and the
+     transpose-out stores apply the split map (pw_stmap, 8 DISTINCT sites
+     per ladder) reading c DIRECTLY in slab layout -- no transposed c copy
+     exists in this chain, unlike alt's cw staging.
+2. **The three-level pencil pipeline** (pln_wv_dft_set): n = r*(cr*cm) with
+   every level a spill-free hard leaf (<= 8 rows): level 1 volume->scratch
+   (natural in-place slot order j1 + r*j2 + r*cr*k2c, ONE pw_leaf_run call,
+   np = r*cr), level 2 in place in the scratch as ONE call over all r*cm
+   pencils (new pw_leaf_l2: slot-offset table + per-pencil twiddle rows
+   padded with exact (1,0) identities -- cmul by (1,0) is bit-exact), level
+   3 root scratch->volume through the new pw_leaf_out (per-pencil twiddles
+   in scratch v-order, PERMUTED out rows u(v) = (v%cr)*cm + v/cr via an
+   index table -- the CT output permutation costs index arithmetic only).
+   The scratch is n x 16 doubles = 12.8 KB at L=100: L1-certain.  Per point
+   per axis the volume is read once and written once.
+3. **wv picks its own tree**: first candidate (model order, deterministic)
+   whose @s4 shape has a CT or leaf child.  A GT child is REJECTED even
+   when the main race picked it (it did: c5(gt(d4,d5))) -- see dead ends.
+4. **Gate + playoff + wisdom**: same discipline as the r11 alt gate (1-step
+   and 2-step wv chains vs execute + exact scalar map, tol 1e-12; a gate
+   failure ships nothing and stores nothing), then a settle-gated
+   interleaved chain-step playoff vs the incumbent (the r10 tile-playoff
+   mechanism; adoption needs a settled >= 4% win: 2% hysteresis + ~2% for
+   the once-per-chain pack/unpack the step race cannot see).  Verdict rides
+   the wisdom value as @w0/@w1; warm creates replay it (@w0 or an
+   old-format value skips the wv build entirely -- the playoff belongs to
+   cold creates, not the 50 ms warm path).  GEN_PLANNER_WV pins for A/B,
+   GEN_PLANNER_WVPB sets the x-pass column group (default 1; 1/2/4 =
+   4771/4774/4832 us, PB > 2 loses).
+
+### The counter protocol (mandatory), wv vs alt, L=100 B=1 m=64 x3, a80n0
+
+| counter | alt (incumbent) | wv final | delta |
+|---|---|---|---|
+| cycles | 12.19G | 13.15G | +7.9% |
+| p0 | 6.01G | 5.15G | -14% |
+| p5 | 6.27G | 6.19G | ~= |
+| p2_3 (loads) | 3.62G | 4.00G | +11% |
+| p4_9 (stores) | 1.86G | 2.69G | **+45%** |
+| l1d.replacement | 2.55G | **1.75G** | **-31%** |
+
+The round's success metric (l1d.replacement, PMU_AUDIT avenue 2) is MET by
+the wv step -- fewer line fills than the alt chain has ever shown -- and the
+FMA-port work is LOWER (p0+p5 11.3G vs 12.3G).  What it buys those with is
+L1-HIT scratch traffic (+0.83G store uops, +0.38G loads) and trans8 shuffles,
+and on THIS host the alt chain's sequential streams ride the prefetcher well
+enough that the traffic saving does not convert: wv nets +6.6% wall (quiet
+window 4771 vs 4464; forced-adopt same-window check 5362 vs 5027).  Neither
+engine is dispatch-bound (all-port 1.48 vs 1.54 uops/cyc against the ~2.1
+cap) -- consistent with my r11 numbers and the audit, NOT with uop
+saturation.  On CLX (1 MB L2) the -31% fill rate is the quantity that
+matters; the playoff measures it there without any code change.
+
+### Measured on the node (a80n0, held-lease same-core interleaved, graded chains)
+
+- L=100 B=1 m=64, DEFAULT (playoff keeps alt): quiet windows 4439.9-4560.5
+  us (r11 binary same-window pairs: 4465-5040 vs r12 4463-5038 -- parity,
+  the wv machinery costs the shipped path nothing).  MKL same window 8603.
+- L=100 wv progression (forced): 5871 (v1: @s4-style P-block stage + fused
+  GT child) -> 6.17-6.3ms (v2: three-pass staged, GT rejected... windows
+  contended) -> 4918 -> **4771** (v3: L1 pencil pipeline + merged level 2,
+  PB=1) vs incumbent 4464-4484 in the same quiet windows.  Chain drift of
+  the wv path is BETTER than alt's (2.608e-14 vs 5.280e-14 at m=64, anchor
+  2.416e-14): one fewer reassociation-heavy pass.
+- Cross-cell protection: interleaved r11-vs-r12 pairs at 25/27/32/40/50 all
+  tie within window noise (32: 108.3/107.7 vs 109.5/108.4 -- no layout tax
+  this round); outputs cmp-IDENTICAL at 25/27/32/50.  L=40 outputs differed
+  because the two binaries' cold races settled @t16 differently in that
+  window -- same tree c4(gt(d2,d5)), the known r10 hysteresis-edge behavior,
+  present in both binaries.  nm -S audit: pln_chain_pv is the ONLY
+  pre-existing function that changed size (it grew the wv branch); all new
+  code is new symbols at the end of the TU.
+
+### Gates (final binary, all on the node)
+
+Full numpy sweep L=2..128 single call: ALL 127 PASS.  Two-step m=2 gate at
+10/20/25/27/31/32/40/50/100: 0.94e-15..2.97e-15 (tol 3e-14, >10x margin).
+All 11 graded acceptance chains PASS (drift 1.1-2.2x honest anchors).  L>80
+edge chains, each with wv FORCED and with the default pick: 84 B=2 m=4,
+96 B=4 m=6, 112 m=3, 125 m=4 (odd L^2: the pad-site path), 127 m=5 (prime:
+wv structurally unavailable, alt serves), 128 m=2, 100 B=2 m=5 -- ALL PASS.
+5 consecutive cold creates at 100: identical picks (c5(gt(d4,d5))@f0,
+gate=PASS adopt=0 every time), chains bit-identical.  Wisdom round trip on a
+scratch file: cold banks c5(gt(d4,d5))@f0@w0, warm replays it (no wv build,
+no playoff), cold-vs-warm chains bit-identical.  x86-64-v2, GEN_PLANNER_LIB
+adoption mode and gen_race.c all compile.  Wisdom hygiene: whole session
+under GEN_RACE_NO_WISDOM / scratch files; 11+11+2 stale gen_planner keys
+stripped from wisdom_a80n0/a81n2/wallaby.json under flock (the race shape
+changed: a warm hit on a pre-@w value would skip the wv playoff forever --
+the r10 precedent).
+
+### What did NOT work / went wrong, with the numbers
+
+- **wv v1: the fused GT/CT child codelet on split lanes: +29% vs alt**
+  (5871 vs 4535).  pw_g_4_5 spills 96 stack slots per pencil (r5 asm
+  audit) and within-volume there is no batch to amortize it: the whole
+  L=100 volume is 30K pencil-DFTs per step, each through the spilling
+  codelet on all three axes.  Split-complex DOUBLES the register footprint
+  of an n=20 codelet vs interleaved -- this is WHY the pv executor's
+  register child works and the pw one cannot (gen_batchlane r11 said it
+  first: "SoA doubles the live values"; now measured in this engine).
+- **wv v2: the @s4-style P-pencil stage: +37%** (6.1-6.8ms, P4 2/4/8/16 =
+  6.17/6.21/6.10/6.23 -- INSENSITIVE to P, which was the tell that the
+  stage traffic itself, not its residency, was the cost).  Counters: +71%
+  store uops, +23% loads vs alt at EQUAL FMA-port work.  Phase attribution
+  via compile-time skip builds: zy 3.5ms + x 3.15ms.
+- **The level-2 merge modeled as "~40% call overhead" bought 0.7%**
+  (4771 vs 4755-class): the step is latency-bound, not dispatch-bound.
+  Model refuted by measurement, kept because it also deletes code from the
+  inner loop.
+- **A level-2 table bug the gate caught**: level-2 pencil count is r*cm
+  (j1 x k2c pairs), NOT m = cr*cm; the first merge sized tables by m,
+  produced a fast wrong chain, the create() gate failed it, and the engine
+  silently shipped alt -- which briefly read as a 4469-us wv "win" until
+  the verbose gate line exposed it.  Lesson re-learned: never read an A/B
+  where the arms are not PROVEN to be on different code paths; the gate
+  printing PASS/FAIL/adopt on VERBOSE is now permanent.
+- **Tile 48/64 for the alt chain at 100**: 4459/4521 vs 4464 @32 -- 48 ties
+  within noise, 64 loses; default 32 stands (fourth round running).
+- **wv PB sweep**: PB=1 and 2 tie (4771/4774), 4+ lose to x-scratch growth.
+
+### Borrowed this round, named
+
+- **gen_batchlane gen_r11**, the whole round: the within-volume concept
+  (lanes = x-planes, slab-fused sweeps, trans8-bracketed x-pass, map fused
+  in the x stores, pad-lane replication), their "stage the child through an
+  L1 scratch because SoA doubles the live values" design decision (my v3 is
+  that lesson industrialized into a generic three-level pipeline), and
+  their lanex warning (avoided by defining my own pln_tr8 with natural lane
+  semantics and letting the create() gate verify the composition).  Their
+  4059-us engine remains the cell winner; gen_race routes it in the trunk.
+- **gen_powp r10's criterion** ("fewer L1 round trips, not just fewer
+  passes") -- v3's per-point budget (1 volume read + 1 write per axis +
+  L1-certain scratch) was designed against it, and the l1d counter confirms
+  the criterion is achievable in a generic engine.
+- **gen_pfa_large r6/r7**: nm -S per-function audit (clean this round);
+  **gen_powp r2 / panel protocol**: scratch wisdom + flock strip;
+  **gen_race r9 / r10**: the settle-gated playoff mechanism reused verbatim
+  for @w.
+
+### Operation count (wv step, per point per axis, split form)
+
+Volume: 1 load + 1 store.  Scratch (12.8 KB): 2 loads + 2 stores (level 1
+write, level 2 in place, level 3 read).  FFT arithmetic: identical leaf ops
+to the @s2/@s4 split forms (levels 5,5,4 or 5,4,5 at 100; 136 cmuls/pencil
+vs the GT tree's 76 -- the price of spill-free levels).  x-pass adds: 24
+shuffles per 8x8 lane transpose, 4 transposes per 8 site-vectors per slab
+each way, map ~19 FMA-class per 8 sites fused in the stores, c read once in
+slab layout.  Pack/unpack + c pack: once per volume chain (~3 volume moves
+/ 64 steps ~= 1.5%, priced into the playoff bar).
+
+### What I would do next (ranked)
+
+1. **Make wv win its playoff on ICX: the PFA x-module** (gen_batchlane's
+   dft100 shape, generalized): 100 = 4x25 coprime kills all 76 root cmuls,
+   and the CRT permutations are free precisely where wv already has
+   gather/scatter stages (trans8 fill order, level-3 out tables).  Needs
+   constant-offset generated codelets (their gen100.py approach) or a
+   two-segment stride trick for the mod-wrap -- the one structural idea
+   this round analyzed and did not build.
+2. **Watch the CLX advisory**: wv's -31% l1d fill rate against a 1 MB L2 is
+   the flip candidate; the @w playoff banks it automatically.  If CLX
+   flips, consider widening wv eligibility below L=80.
+3. **Port-1 idles in both engines** (0.96-1.49G vs p0's 5-6G): still
+   nobody's win; pair with the map's 256-bit tail work if anyone finds a
+   co-issue shape that does not steal 512-bit slots (gen_pfa_large's
+   portcal3 says not on SPR).
+4. **The driver's --chain 1 segfault** (r11 item 4) is still there.
