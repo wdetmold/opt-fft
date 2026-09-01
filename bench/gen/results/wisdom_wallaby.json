@@ -1,4 +1,13 @@
 {"host":"wallaby","format":1,"entries":{
+"gen_race/eng12/L32/B8#6198d547":{"winner":"gen_pow2.2ff9737a","widx":1,"tie":0,"us":7449.28,"margin":3.678},
+"gen_race/enggate12/L32/B8/gen_pow2.2ff9737a":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
+"gen_race/chaingate12/L32/c4(d8)@t32":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
+"gen_race/tile12/L32/B8#ad7fbfd5":{"winner":"t32","widx":0,"tie":1,"us":439.733,"margin":-0.004855},
+"gen_race/chain12/L32/B8#aba49e91":{"winner":"c4(d8)","widx":1,"tie":0,"us":426.656,"margin":0.1013},
+"gen_race/eng12/L27/B1#d55c99fa":{"winner":"self","widx":0,"tie":0,"us":17501.1,"margin":0},
+"gen_race/chaingate12/L27/c3(c3(d3))@t32":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
+"gen_race/tile12/L27/B1#ad7fbfd5":{"winner":"t32","widx":0,"tie":0,"us":279.446,"margin":0.0363},
+"gen_race/chain12/L27/B1#98b23b35":{"winner":"c3(c3(d3))","widx":0,"tie":0,"us":280.121,"margin":0.4078},
 "gen_powp/chain7/L27/B16#2e449ac0":{"winner":"l27-soa","widx":6,"tie":0,"us":33.1214,"margin":0.2012},
 "gen_powp/chain7/L50/B4#640ac588":{"winner":"l50-ipp0","widx":0,"tie":1,"us":301.536,"margin":-0.008908},
 "gen_powp/chain7/L25/B16#6bb92654":{"winner":"l25-soa","widx":6,"tie":0,"us":24.3916,"margin":0.2763},

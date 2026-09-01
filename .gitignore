@@ -138,3 +138,6 @@ bench/ice/tools/refchains.npz
 ext/tools/
 bench/*/build/
 *.bin.tmp
+ext/benchfft/
+bench/*/leases/
+bench/*/RESERVATION*
