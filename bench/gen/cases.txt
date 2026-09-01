@@ -15,3 +15,7 @@
 40:8:128
 50:4:128
 100:1:64
+# ROUND 13 additions: the benchFFT-exposed B=1 small-L cells (never scored before —
+# the batched suite hid this weakness). Work-equalized chains (~0.1 s of MKL each).
+10:1:16384
+12:1:12288

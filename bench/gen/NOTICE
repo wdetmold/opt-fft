@@ -1,2 +1,2 @@
-ROUNDS 11-12: every implementer works the L=100/large-size bottleneck — read the
-brief section "ALL HANDS ON L=100". Counters mandatory before/after (tools/pmu.sh).
+ROUND 13 (quick): close the B=1 small-L gap — two NEW scored cells (10:1, 12:1).
+Read the brief section "ROUND 13". benchFFT numbers to beat: 23.8k/29.7k mflops.

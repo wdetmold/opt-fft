@@ -243,3 +243,27 @@ NEVER install anything into ~/bin, ~/.local/bin, dotfiles, or any user-global pa
 shadows commands for the human operator too. Host-specific workarounds (like the wallaby
 squeue heartbeat shim, which now lives in bench/gen/wallaby_shims/ and is on YOUR PATH
 automatically) belong inside the harness tree, documented in your strategy record.
+
+## ROUND 13: close the B=1 small-L gap (quick fix round)
+
+benchFFT (Frigo & Johnson's community harness, now wired at benchfft_ours/) exposed the
+one place FFTW still beats this library: SINGLE-VOLUME transforms at tiny L.
+Measured on the node (their 5N log2 N mflops convention, B=1):
+    L=10: ours 13,440 vs fftw3 23,842  (they win 1.77x)
+    L=12: ours 17,112 vs fftw3 29,724  (they win 1.74x)
+Cause: our small-L engines are batch-lane designs; the B=1 fallback paths are weak.
+TWO NEW SCORED CELLS this round: 10:1:16384 and 12:1:12288 (in cases.txt) — the sweep
+now sees what benchFFT sees. Targets: beat fftw3_measure at both (its equivalent chain
+pace: ~all entries can compute it from the board's fftw3 rows).
+
+Known-good material:
+1. **Within-volume pencil lanes** — the r11 L=100 winner's trick at small scale: 8
+   z-pencils of ONE volume per zmm lane-slot (L=10: 100 pencils = 12 lane-groups + tail;
+   L=12: 144 = 18 exactly). Same zero-shuffle steady state as batch-lanes, no batch needed.
+2. **genfft small codelets** — sota/codelets/n1_10.c and n1_12.c (3 KB straight-line
+   DAGs, FFTW's own generator) are in-tree and license-compatible; mine or adopt.
+3. FFTW's own small-codelet scheduling is the benchmark: study what 24-30k mflops
+   requires — it is NOT memory-bound at 16-27 KB working sets; it is pure schedule.
+Everyone else: protect your cells (the full suite still scores). Verify with
+benchfft_ours/doit --verify AND the standard gates. Racing: gen_race must route the new
+cells' B=1 correctly (batch%8 fallbacks must not silently pick the slow path).
