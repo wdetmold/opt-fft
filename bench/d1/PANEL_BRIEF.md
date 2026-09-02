@@ -67,3 +67,22 @@ pow2 (65537, 1021), Bluestein (chirp-z, pad to a convenient pow2) where N-1 is a
 (10007, 100003) -- and MEASURE the crossover, do not assume it. Compare against FFTW/MKL,
 which make this choice internally and often badly. Batched large primes go memory-bound
 (100003 x B=8 = 12.8 MB); the r11 traffic lessons apply.
+
+## LITERATURE (docs/literature_1d/00-SURVEY.md) — read before r2
+A 5-vein survey of 1D FFT optimization (CPU/batched/GPU/prime/accuracy). Actionable now,
+by class:
+- ALL: across-batch split-complex vectorization (lane j = transform j, ZERO shuffles, >=8
+  transforms) is the top under-used lever for the batched regime; twiddle/chirp tables from
+  correctly-rounded/dd sincos in the plan stage, never in-loop recurrences.
+- d1_rader/d1_bluestein (the headline): libraries DEFAULT TO BLUESTEIN even where Rader wins.
+  65537 -> UNPADDED Rader (conv = 65536 = 2^16, reuse pow2 butterflies) crushes Bluestein-only
+  libs. 1021 -> Rader + twiddle-free Good-Thomas (1020=4*3*5*17). 10007/100003 -> Bluestein
+  baseline BUT A/B a one-level nested Rader (both inner primes have smooth p-1) — that's
+  exactly where FFTW's planner bails to Bluestein. Chirp: k^2 mod 2N in integers first.
+  Number to beat: ~8-10x prime-vs-pow2 slowdown (FFTW, Harvey-vdHoeven).
+- d1_pow2: Stockham (no bit-reversal) + conjugate-pair split-radix (half the twiddle traffic,
+  better than 34/9); 16384 -> four-step 128x128 (L1-resident sub-FFTs).
+- d1_composite: Good-Thomas PFA (coprime, twiddle-free).
+- accuracy: our map is a contraction (bounded chain); gate tiers = dd reference / NTT-exact /
+  Arb acb_dft provable checkpoint.
+Study FFTS (Blake 2013) for the fixed-geometry specialize-then-run model closest to ours.
