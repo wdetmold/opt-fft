@@ -93,6 +93,32 @@ slab decomposition, single process, L=64/96/128/192/256, cufftXt distributed bas
 
 ---
 
+## D. Real-data FFTs (r2c / c2r) -- a transverse extension, applies to every d
+
+Real input has conjugate-symmetric spectrum (X[N-k] = conj(X[k])), so an N-point real FFT
+needs ~HALF the flops and half the memory of a complex one -- the standard "modest but real"
+win. Methods: pack two real signals into one complex FFT; pack one length-N real into a
+length-N/2 complex FFT + O(N) split/recombine; specialized real split-radix (Sorensen 1987).
+NOT a new dimension -- it is a transverse variant that multiplies onto d=1/2/4: an r2c 3D
+FFT is one real axis pass then complex passes on the rest.
+
+Why it belongs here and why it is NOT free:
+- The theoretical ~2x is eaten by (a) the split/recombine post-processing (O(N), serial-ish,
+  shuffle-heavy), (b) conjugate-symmetric HALF-COMPLEX output storage (CCS/Perm formats)
+  which complicates SIMD lane packing and batching -- exactly the layouts our batch-lane
+  engines depend on. So the realized win is typically 1.3-1.7x, not 2x, and can vanish at
+  small N where the recombine dominates.
+- Relevance to our chains: our graded workload is complex (FFT+|z| map), so real FFT does
+  NOT apply to the current chain metric; it is for a DIFFERENT (real-field) workload.
+- LQCD relevance: many lattice fields are real in position space, so an r2c 3D/4D FFT is a
+  real consumer in the physics target -- pairs naturally with the d=4 capstone.
+
+Status: SURVEY IN PROGRESS (2026-09-02); this entry to be enriched with the survey's
+per-method verdicts and the realized-speedup estimate. Provisional scoping: worth doing for
+large real transforms and the 3D/4D physics fields; likely a modest (1.3-1.7x) win over our
+own complex kernels, and the honest question is whether we beat FFTW/MKL's already-tuned r2c
+paths, not whether we beat our own c2c.
+
 ## Dependency summary
 - d=2: standalone, cleanest next win.
 - Multicore-NUMA: standalone, extends the mt campaign.
