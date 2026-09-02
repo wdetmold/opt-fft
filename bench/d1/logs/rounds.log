@@ -41,3 +41,9 @@
 [2026-09-02 07:55:38]   [dry-run] would commit d1_r1
 [2026-09-02 07:55:38] [dry-run] stopping after one simulated round
 [2026-09-02 07:55:38] === halted before d1_r2 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/d1/STOP' then resume ===
+[2026-09-02 08:00:01] === run_rounds[d1]: next=d1_r1 last=d1_r4 jobs=6 ===
+[2026-09-02 08:00:01]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-09-02 08:00:01] ---------- d1_r1 begins ----------
+[2026-09-02 08:00:01] d1_r1 works in impl_1 (10 sources carried over from impl_0)
+[2026-09-02 08:00:01] context pack: 13 lines
+[2026-09-02 08:00:01] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle

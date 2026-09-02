@@ -32,3 +32,17 @@
 128:512:1
 128:1:30000
 128:512:250
+# --- LARGE application sizes (audio/spectroscopy/correlation); pure pow2 = FFTW/MKL home turf ---
+# batched B shrinks with L to hold the batched working set in the 8-32MB (L3) band, not pure DRAM.
+1024:1:1
+1024:512:1
+1024:1:4000
+1024:512:2000
+4096:1:1
+4096:256:1
+4096:1:1000
+4096:256:400
+16384:1:1
+16384:64:1
+16384:1:250
+16384:64:150

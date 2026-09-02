@@ -42,3 +42,13 @@ Develop on wallaby / leased node cores; never submit slurm jobs. Static analyzer
 (llvm-mca icelake-server) + PMU (/tmp/perf, tools/pmu.sh) live -- 1D is compute-bound so
 port_0/port_5 dispatch and instruction density are your dashboards, not memory counters.
 Maintain your strategies/<name>.md each round.
+
+## SIZE RANGE EXTENDED (added mid-r1): large application 1D sizes
+Real 1D FFT applications live at 1K-64K (audio frames, spectroscopy, correlations), pure
+powers of two -- FFTW's and MKL's most-tuned home turf. Added: 1024, 4096, 16384 (all four
+regimes each). REGIME SHIFT to know: at these L the BATCHED cells go memory-bound (L=16384
+x B=64 = 16 MB, beyond L2), so the r11 3D-campaign traffic lessons apply -- l1d.replacement
+and L2/L3 traffic become the dashboard, not just port dispatch. Expect TIGHTER margins here
+than at small L: pow2 at 4K/16K is exactly where FFTW's decades of tuning are strongest.
+Winning even by 1.05-1.2x at 4096/16384 non-batched is a real result; the batched and
+chained columns are where our lane-fill and fused-map edges should still open daylight.

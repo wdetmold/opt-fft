@@ -1,0 +1,2 @@
+SIZE RANGE EXTENDED: 1024/4096/16384 added (all 4 regimes). Large pow2 = FFTW home
+turf, tighter margins; batched large goes MEMORY-BOUND (r11 traffic lessons apply).
