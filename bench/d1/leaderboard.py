@@ -5,8 +5,25 @@ sample: the least-disturbed measurement of the same fixed work.  The spread acro
 processes is reported alongside, so a suspiciously lucky run is visible rather than
 hidden.  A backend that failed correctness is shown but never ranked.
 """
-import argparse, glob, json, math, os
+import argparse, glob, json, math, os, re
 from collections import defaultdict
+
+# A CELL is (L, batch, m).  The chain length is part of the identity, not an attribute:
+# cases.txt pairs every (L, B) with both a m=1 and a chained variant, so keying cells on
+# (L, B) alone pools two measurements that differ by five orders of magnitude.  That is
+# not a cosmetic bug -- it took per-call from the m=1 file and divided it by the chained
+# file's m, printing "0.000 us", "9658067129 GF/s" and a 5.15e7% run spread, which is
+# exactly (13.1ms - 25.8ns)/25.8ns.
+CELLRE = re.compile(r"^(?P<name>.+)_L(?P<L>\d+)_B(?P<B>\d+)(?:_m(?P<m>\d+))?$")
+
+
+def cell_of(basename):
+    """'<name>_L<L>_B<B>[_m<M>]' -> (L, B, m, name), or None.  Files predating the _m
+    naming fix carry no chain tag and are read as m=1."""
+    mo = CELLRE.match(basename)
+    if not mo:
+        return None
+    return (int(mo["L"]), int(mo["B"]), int(mo["m"] or 1), mo["name"])
 
 p = argparse.ArgumentParser()
 p.add_argument("--round", required=True)
@@ -15,9 +32,8 @@ a = p.parse_args()
 
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", a.round)
 
-timings = defaultdict(list)   # (L, batch, name) -> [per_execute_min per run]
+timings = defaultdict(list)   # (L, batch, m, name) -> [per_execute_min per run]
 medians = defaultdict(list)
-chains = {}                   # (L, batch) -> chain length m (1 when not a chained case)
 setups, descriptions = {}, {}
 for path in glob.glob(os.path.join(root, "t_*.json")):
     with open(path) as f:
@@ -27,8 +43,14 @@ for path in glob.glob(os.path.join(root, "t_*.json")):
             continue
     if not d.get("supported", False):
         continue
-    key = (d["L"], d["batch"], d["name"])
-    chains[(d["L"], d["batch"])] = int(d.get("chain", 1) or 1)
+    # The chain length comes from inside the JSON, which is authoritative; the filename
+    # tag only has to agree.  If it does not, the file was mis-named and pooling it would
+    # corrupt a cell, so say so loudly rather than guessing.
+    m = int(d.get("chain", 1) or 1)
+    fromname = cell_of(os.path.basename(path)[2:-5].rsplit("_r", 1)[0])
+    if fromname and fromname[2] != m:
+        print(f"   WARNING: {os.path.basename(path)} says chain={m} but is named _m{fromname[2]}")
+    key = (d["L"], d["batch"], m, d["name"])
     timings[key].append(d["per_execute_seconds"]["min"])
     medians[key].append(d["per_execute_seconds"]["median"])
     setups[key] = d.get("setup_seconds", float("nan"))
@@ -36,26 +58,24 @@ for path in glob.glob(os.path.join(root, "t_*.json")):
 
 checks = {}
 for path in glob.glob(os.path.join(root, "c_*.json")):
-    base = os.path.basename(path)[2:-5]           # <name>_L<L>_B<B>[_m<M>]
-    if "_m" in base:
-        base, _, _m = base.rpartition("_m")
-    name, _, rest = base.rpartition("_L")
-    L, _, B = rest.partition("_B")
+    cell = cell_of(os.path.basename(path)[2:-5])
+    if cell is None:
+        continue
     with open(path) as f:
         try:
-            checks[(int(L), int(B), name)] = json.load(f)
-        except (json.JSONDecodeError, ValueError):
+            checks[cell] = json.load(f)
+        except json.JSONDecodeError:
             pass
 
 onestep = {}
 for path in glob.glob(os.path.join(root, "o_*.json")):
-    base = os.path.basename(path)[2:-5]
-    name, _, rest = base.rpartition("_L")
-    L, _, B = rest.partition("_B")
+    cell = cell_of(os.path.basename(path)[2:-5])
+    if cell is None:
+        continue
     with open(path) as f:
         try:
-            onestep[(int(L), int(B), name)] = json.load(f)
-        except (json.JSONDecodeError, ValueError):
+            onestep[cell] = json.load(f)
+        except json.JSONDecodeError:
             pass
 
 # Final chain gate, per (L, B): the chain is chaotic, so the tolerance is anchored to the
@@ -66,26 +86,29 @@ for path in glob.glob(os.path.join(root, "o_*.json")):
 # 1e-14 gate (o_*.json, when the sweep produced it) carries the precision contract.
 LIB_BACKENDS = ("mkl_dfti", "mkl2026_dfti", "fftw3_estimate", "fftw3_measure", "fftw3_guru",
                 "fftw3_patient", "ducc0_c2c")
-def chain_gate(L, B):
+def chain_gate(L, B, m):
+    # Anchored within the cell: a gate must be calibrated on the SAME chain length, since
+    # divergence grows with m.  Pooling m=1 and m=200000 anchors would set the short chain's
+    # tolerance from the long chain's drift and wave through anything.
     anchors = [checks[k].get("anchor_rel_l2", 0.0) or 0.0
-               for k in checks if k[0] == L and k[1] == B]
-    lib = [checks[(L, B, n)].get("chain_rel_l2") for n in LIB_BACKENDS
-           if (L, B, n) in checks and checks[(L, B, n)].get("chain_rel_l2") is not None]
+               for k in checks if k[0] == L and k[1] == B and k[2] == m]
+    lib = [checks[(L, B, m, n)].get("chain_rel_l2") for n in LIB_BACKENDS
+           if (L, B, m, n) in checks and checks[(L, B, m, n)].get("chain_rel_l2") is not None]
     raw = max([300.0 * a for a in anchors] + [300.0 * r for r in lib] + [1e-10])
     exp = math.floor(math.log10(raw))
     mant = raw / 10 ** exp
     return (1.0 if mant <= 1.0 else (3.0 if mant <= 3.0 else 10.0)) * 10 ** exp
 
-def verdict_ok(L, B, name):
-    chk = checks.get((L, B, name))
+def verdict_ok(L, B, m, name):
+    chk = checks.get((L, B, m, name))
     if not chk:
         return None
     ok = bool(chk.get("ok"))
     if "chain_rel_l2" in chk:
         rel = chk["chain_rel_l2"]
         ok = bool(chk.get("rel_l2", 1.0) < chk.get("tol", 1e-12)) and \
-             bool(rel == rel and rel < chain_gate(L, B))
-        one = onestep.get((L, B, name))
+             bool(rel == rel and rel < chain_gate(L, B, m))
+        one = onestep.get((L, B, m, name))
         if one is not None:
             ok = ok and bool(one.get("one_ok"))
     return ok
@@ -105,44 +128,47 @@ if env:
     emit(env)
 emit()
 
-cases = sorted({(L, B) for (L, B, _) in timings})
-for (L, B) in cases:
-    volume = L ** 3
-    m = chains.get((L, B), 1)
+cases = sorted({(L, B, m) for (L, B, m, _) in timings})
+for (L, B, m) in cases:
+    # THIS IS A 1D HARNESS: one transform is L points, not L^3.  The 3D formula was carried
+    # over when bench/d1 was cloned from the 3D tree and made every derived figure wrong --
+    # L=13 was reported as volume 2197 at 5540 GF/s, where the truth is volume 13 at ~11 GF/s.
+    # Ranking was by time and so survived, but no GF/s or working-set number printed before
+    # this fix should be quoted.
+    volume = L
     # One timed unit is a CHAIN of m transforms of B volumes; per-transform figures and
     # the flop yardstick must divide by both, or a chained case reads m times too slow.
     nominal = 5.0 * volume * math.log2(volume) * B * m
     label = "non-batched" if B == 1 else f"batched B={B}"
-    if m > 1:
-        label += f", chain m={m}"
+    label += ", single call" if m == 1 else f", chain m={m}"
     working_set = 2 * 16 * volume * B / 1024**2   # in + out, MiB
-    emit(f"-- L={L} ({label}), volume {volume}, working set {working_set:.2f} MiB --")
+    emit(f"-- L={L} ({label}), working set {working_set:.3f} MiB --")
     emit(f"   {'backend':<24} {'per-transform':>14} {'per-call':>12} {'GF/s':>8} "
          f"{'run spread':>11} {'setup':>9}  correctness")
     rows = []
-    for (l, b, name), runs in timings.items():
-        if (l, b) != (L, B):
+    for (l, b, mm, name), runs in timings.items():
+        if (l, b, mm) != (L, B, m):
             continue
         best = min(runs)
         spread = (max(runs) - best) / best if best > 0 else float("nan")
-        chk = checks.get((L, B, name))
-        ok = verdict_ok(L, B, name)
+        chk = checks.get((L, B, m, name))
+        ok = verdict_ok(L, B, m, name)
         rows.append((best, name, spread, ok, chk))
     rows.sort()
     fastest_ok = next((r[0] for r in rows if r[3]), None)
     for best, name, spread, ok, chk in rows:
         if chk and "chain_rel_l2" in chk:
-            one = onestep.get((L, B, name))
+            one = onestep.get((L, B, m, name))
             ostr = (" 1s=%.0e" % one["one_rel_l2"]) if one and "one_rel_l2" in one else ""
             verdict = ("%s ch=%.1e/%.0e%s" % ("ok" if ok else "FAILED",
-                       chk["chain_rel_l2"], chain_gate(L, B), ostr))
+                       chk["chain_rel_l2"], chain_gate(L, B, m), ostr))
         else:
             verdict = ("ok %.1e" % chk["rel_l2"]) if ok else (
                 "FAILED %.1e" % chk["rel_l2"] if chk else "unchecked")
         rel = f"{best / fastest_ok:.2f}x" if (fastest_ok and ok) else "--"
-        emit(f"   {name:<24} {best/(B*m)*1e6:11.3f} us {best*1e6:9.3f} us "
+        emit(f"   {name:<24} {best/(B*m)*1e6:11.4f} us {best*1e6:9.3f} us "
              f"{nominal/best/1e9:8.2f} {spread*100:9.1f}% "
-             f"{setups[(L,B,name)]:8.3f}s  {verdict:<16} {rel}")
+             f"{setups[(L,B,m,name)]:8.3f}s  {verdict:<16} {rel}")
     emit()
 
 if descriptions:
