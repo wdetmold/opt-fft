@@ -30,7 +30,7 @@ OBJ   := $(BUILD)/driver.o
 IMPL_SRC  := $(wildcard impl/*.c)
 IMPL_BIN  := $(patsubst impl/%.c,$(BIN)/%,$(IMPL_SRC))
 SOTA_BIN  := $(BIN)/fftw1d_estimate $(BIN)/fftw1d_measure $(BIN)/fftw1d_patient \
-             $(BIN)/mkl1d_dfti
+             $(BIN)/fftw1d_custom $(BIN)/fftw1d_custom_soa $(BIN)/mkl1d_dfti
 
 .PHONY: all impls sota clean list
 all: impls sota
@@ -114,3 +114,9 @@ $(BIN)/fftw1d_patient: sota/fftw1d.c $(OBJ) | $(BIN)
 	$(CC) $(CFLAGS) -I. $(FFTW_FLAGS) -DPLAN_FLAG=FFTW_PATIENT -DPLAN_NAME='"fftw1d_patient"' -o $@ $< $(OBJ) $(FFTW_LIBS) $(LDLIBS)
 $(BIN)/mkl1d_dfti: sota/mkl1d.c $(OBJ) | $(BIN)
 	$(CC) $(CFLAGS) -I. -I$(MKLROOT)/include -o $@ $< $(OBJ) -L$(MKLROOT)/lib/intel64 -Wl,-rpath,$(MKLROOT)/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core $(LDLIBS)
+
+$(BIN)/fftw1d_custom: sota/fftw1d_custom.c sota/genfft_shim.h $(OBJ) | $(BIN)
+	$(CC) $(CFLAGS) -I. -o $@ $< $(OBJ) $(LDLIBS)
+
+$(BIN)/fftw1d_custom_soa: sota/fftw1d_custom.c sota/genfft_shim.h $(OBJ) | $(BIN)
+	$(CC) $(CFLAGS) -DCUSTOM_SOA -I. -o $@ $< $(OBJ) $(LDLIBS)
