@@ -8,13 +8,14 @@ set -u
 cd "$(dirname "$0")"
 source /home/lqcd/wdetmold/fft/env.sh >/dev/null 2>&1
 
-TAG=""; ISA=avx512; NRUNS=5; GRIDS="256 512"
+TAG=""; ISA=avx512; NRUNS=5; GRIDS="256 512"; PML=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tag) TAG=$2; shift 2 ;;
     --isa) ISA=$2; shift 2 ;;
     --nruns) NRUNS=$2; shift 2 ;;
     --grids) GRIDS=$2; shift 2 ;;
+    --pml) PML=$2; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -76,6 +77,15 @@ echo "configs (ranks:perNode): $CONFIGS   grids: $GRIDS   algos: $ALGOS_NOTE" \
   | tee -a "$OUT/environment.txt"
 ALGOS="a2av p2p_pl"
 
+# Transport selection.  On this cluster a 2-rank inter-node ping-pong picks a healthy path
+# (1.8 us, 8.3 GB/s) but a 32-rank 2-node heFFTe transpose ran 107x slower than the same work
+# on one node -- and forced TCP measures 5012 us of latency, which is exactly that magnitude.
+# So the transport must be PINNED for multi-rank inter-node runs rather than left to OpenMPI,
+# and whatever was pinned is recorded with the results.
+MCA=""
+[ -n "$PML" ] && MCA="--mca pml $PML"
+echo "transport: ${PML:-openmpi-default}" | tee -a "$OUT/environment.txt"
+
 # Characterize the fabric BEFORE the FFT sweep, so no result from here can be misread as an
 # FFT property when it is really a transport property.  This is not decoration: on the
 # devel/prod nodes the same 32-rank 128^3 transpose cost 0.006 s within one node and 0.645 s
@@ -83,10 +93,10 @@ ALGOS="a2av p2p_pl"
 # "communication dominates" conclusion we are trying to test.
 if [ "$NODES" -ge 2 ]; then
   if mpicc -O2 -o "$OUT/fabric_probe" fabric_probe.c 2>"$OUT/probe_build.log"; then
-    mpirun -np 2 --map-by ppr:1:node -x LD_LIBRARY_PATH "$OUT/fabric_probe" \
+    mpirun -np 2 --map-by ppr:1:node $MCA -x LD_LIBRARY_PATH "$OUT/fabric_probe" \
       > "$OUT/fabric_probe.txt" 2>&1 || true
-    mpirun -np $((CPN * NODES)) --map-by "ppr:$CPN:node" --bind-to core -x LD_LIBRARY_PATH \
-      "$OUT/fabric_probe" >> "$OUT/fabric_probe.txt" 2>&1 || true
+    mpirun -np $((CPN * NODES)) --map-by "ppr:$CPN:node" --bind-to core $MCA \
+      -x LD_LIBRARY_PATH "$OUT/fabric_probe" >> "$OUT/fabric_probe.txt" 2>&1 || true
     grep -E "probe-summary|probe: pingpong|probe: alltoall|probe: [0-9]" "$OUT/fabric_probe.txt" \
       | tee -a "$OUT/environment.txt"
   else
@@ -103,7 +113,7 @@ run_one() {
   mkdir -p "$d"
   # ppr:<n>:node pins how many ranks land on each node, which is the whole point of the
   # ladder: 32:32 keeps the transpose inside one node, 32:16 puts it on the fabric.
-  ( cd "$d" && mpirun -np "$ranks" --map-by "ppr:$ppn:node" --bind-to core -x LD_LIBRARY_PATH \
+  ( cd "$d" && mpirun -np "$ranks" --map-by "ppr:$ppn:node" --bind-to core $MCA -x LD_LIBRARY_PATH \
       "$BIN" fftw double "$grid" "$grid" "$grid" "-$algo" "-nruns$NRUNS" -no-error \
       > stdout.txt 2>&1 )
   local rc=$?

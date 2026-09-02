@@ -130,12 +130,30 @@ Four things this settles:
 
 **The two-node rows from that run are unusable and are deliberately not quoted.** The same 32
 ranks and same grid took 0.0060 s inside one node and 0.645 s split across two — 107×, with MPI
-at 98–99% of the trace. That is a transport fault on the `devel`/`prod` nodes, not a fabric
-latency penalty, and it is exactly the trap the survey warns about: read off the FFT alone it
-looks like a textbook confirmation of "communication dominates beyond one node". It was caught
-only because the ladder holds rank count fixed while varying node count. `bench/dist` now runs
-a ping-pong and all-to-all fabric probe before every multi-node sweep so this can never be
-reported as an FFT property. **The Ice Lake two-node number remains open.**
+at 98–99% of the trace. Read off the FFT alone that is a textbook confirmation of
+"communication dominates beyond one node" — the survey's own headline, and therefore the easy
+thing to believe. It is not. It was caught only because the ladder holds rank count fixed while
+varying node count, and the cause was then isolated with `fabric_probe.c`, a 40-line MPI
+program with no heFFTe in it at all:
+
+| probe (same job, UCX pinned) | ping-pong rank0↔rank_last | all-to-all, 256 KB/peer |
+|---|---|---|
+| 2 ranks (1 per node) | 1.78 µs, 8.2 GB/s | 0.121 ms → **2.16 GB/s/rank** |
+| 64 ranks (32 per node) | 4.68 µs, 10.4 GB/s | 403.5 ms → **0.041 GB/s/rank** |
+
+**The link is healthy; the collective is not.** Point-to-point between the two end ranks is
+fine even with all 64 ranks live, while per-rank all-to-all goodput collapses ~50× as soon as
+32 ranks share a node. Forcing `--mca pml ucx` changed nothing, so the first guess — a silent
+TCP fallback, which the 5012 µs forced-TCP latency made tempting — was wrong. This is an
+MPI-collective/congestion problem on the `devel`/`prod`-class nodes at high rank counts, and
+it makes *any* two-node distributed-FFT number from that hardware meaningless regardless of
+transport.
+
+Two consequences. **The Ice Lake two-node number remains open** and must be measured on
+`axxxl`. And it must be measured *with the probe*: if `axxxl` shows the same collective
+collapse, then the two-node story on this cluster is a question about the MPI installation
+rather than about FFT structure, and no amount of kernel or algorithm work would show through
+it.
 
 Three ways the value survives, in descending order of confidence:
 

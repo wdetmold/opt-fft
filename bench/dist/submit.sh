@@ -15,7 +15,7 @@
 #             since prod and long draw on the same physical machines.
 set -eu
 cd "$(dirname "$0")"
-TAG=""; NODES=1; PART=devel; TIME=55; ISA=""; NRUNS=5; GRIDS="256 512"; NODELIST=""
+TAG=""; NODES=1; PART=devel; TIME=55; ISA=""; NRUNS=5; GRIDS="256 512"; NODELIST=""; PML=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tag) TAG=$2; shift 2 ;;
@@ -26,6 +26,7 @@ while [ $# -gt 0 ]; do
     --nruns) NRUNS=$2; shift 2 ;;
     --grids) GRIDS=$2; shift 2 ;;
     --nodelist) NODELIST=$2; shift 2 ;;
+    --pml) PML=$2; shift 2 ;;
     *) echo "submit.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -52,4 +53,4 @@ set -x
 "$SBATCH" --job-name="commfrac" --partition="$PART" --nodes="$NODES" --exclusive \
   --time="$TIME" ${NODELIST:+--nodelist="$NODELIST"} \
   --output="$(pwd)/results/$TAG/slurm-%j.out" \
-  --wrap="$JOBSCRIPT --tag $TAG --isa $ISA --nruns $NRUNS --grids '$GRIDS'"
+  --wrap="$JOBSCRIPT --tag $TAG --isa $ISA --nruns $NRUNS --grids '$GRIDS' ${PML:+--pml $PML}"

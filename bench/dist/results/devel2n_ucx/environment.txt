@@ -1,0 +1,26 @@
+# commfrac devel2n_ucx
+date: 2026-09-02T14:18:56-04:00   slurm_job: 440340   nodes: 2
+nodelist: p51n1,p55n3
+cpu: Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
+cores/node: 32   isa build: avx2
+heffte: /home/lqcd/wdetmold/fft/ext/src/heffte/build-trace-avx2/benchmarks/speed3d_c2c
+mpi: mpirun (Open MPI) 4.1.5rc4
+modules: Currently Loaded Modulefiles: 1) slurm/19.05.8.1-cuda-11.8(default) 5) tbb/latest <aL> 2) cmake/3.26.3 6) compiler-rt/latest <aL> 3) cuda/12.2.1 7) mkl/latest 4) openmpi/4.1.5-cuda-11.8 8) python/3.12.11 Key: (symbolic-version) <module-tag> <aL>=auto-loaded 
+configs (ranks:perNode): 1:1 8:8 32:32 32:16 64:32   grids: 128 256   algos: a2av p2p_pl
+transport: ucx
+probe: 2 ranks; rank0=p51n1 rank1=p55n3
+probe: pingpong         8 B  one-way      1.784 us     0.004 GB/s
+probe: pingpong      1024 B  one-way      2.857 us     0.358 GB/s
+probe: pingpong     65536 B  one-way     54.514 us     1.202 GB/s
+probe: pingpong   1048576 B  one-way    127.111 us     8.249 GB/s
+probe: pingpong   8388608 B  one-way   1036.384 us     8.094 GB/s
+probe: alltoall 262144 B/peer x 2 ranks       0.121 ms     2.158 GB/s/rank
+probe-summary: latency_us=1.784 peak_bw_GBs=8.249 alltoall_ms=0.121
+probe: 64 ranks; rank0=p51n1 rank63=p55n3
+probe: pingpong         8 B  one-way      4.680 us     0.002 GB/s
+probe: pingpong      1024 B  one-way      4.737 us     0.216 GB/s
+probe: pingpong     65536 B  one-way     14.810 us     4.425 GB/s
+probe: pingpong   1048576 B  one-way    128.071 us     8.187 GB/s
+probe: pingpong   8388608 B  one-way    810.179 us    10.354 GB/s
+probe: alltoall 262144 B/peer x 64 ranks     403.500 ms     0.041 GB/s/rank
+probe-summary: latency_us=4.680 peak_bw_GBs=10.354 alltoall_ms=403.500
