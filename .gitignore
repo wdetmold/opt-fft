@@ -48,6 +48,13 @@ bench/geom/results/*.json
 # build logs: output of ext/build_*.sh, not inputs
 ext/*.log
 
+# distributed comm-fraction harness: keep the verdicts (FRACTIONS, environment, failures,
+# the slurm log), drop the raw per-rank heFFTe trace logs and benchee stdout -- one .log per
+# rank per configuration is thousands of small files, and FRACTIONS.txt is computed from them
+# by parse_traces.py, which is tracked.
+bench/dist/results/**/*.log
+bench/dist/results/**/stdout.txt
+
 # third-party papers pulled down during literature surveys, plus the page renders used to
 # recover figures whose digits the publisher's font encoding destroyed.  The surveys quote
 # and cite what they found; the PDFs themselves are ~15 MB of other people's copyright and
