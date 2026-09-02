@@ -109,15 +109,17 @@ Why it belongs here and why it is NOT free:
   engines depend on. So the realized win is typically 1.3-1.7x, not 2x, and can vanish at
   small N where the recombine dominates.
 - Relevance to our chains: our graded workload is complex (FFT+|z| map), so real FFT does
-  NOT apply to the current chain metric; it is for a DIFFERENT (real-field) workload.
-- LQCD relevance: many lattice fields are real in position space, so an r2c 3D/4D FFT is a
-  real consumer in the physics target -- pairs naturally with the d=4 capstone.
+  NOT apply to the current chain metric; it is for a DIFFERENT (real-input) workload.
+- NOT motivated by the LQCD capstone. QCD lattice fields are COMPLEX in position space
+  (gauge links Uμ(x) are SU(3) matrices; quark fields/propagators are complex spinor-color
+  objects), so the transform that matters for the physics target is c2c, not r2c. Real FFT
+  is justified only by genuinely real-input domains (audio, images, real signals), not by
+  pairing with the d=4 lattice work. [corrected 2026-09-02]
 
 Status: SURVEY IN PROGRESS (2026-09-02); this entry to be enriched with the survey's
-per-method verdicts and the realized-speedup estimate. Provisional scoping: worth doing for
-large real transforms and the 3D/4D physics fields; likely a modest (1.3-1.7x) win over our
-own complex kernels, and the honest question is whether we beat FFTW/MKL's already-tuned r2c
-paths, not whether we beat our own c2c.
+per-method verdicts and the realized-speedup estimate. Provisional scoping: a general
+real-input extension (modest 1.3-1.7x over our own c2c, and the honest question is whether
+we beat FFTW/MKL's already-tuned r2c paths) -- decoupled from the QCD target, which is c2c.
 
 ## Dependency summary
 - d=2: standalone, cleanest next win.
