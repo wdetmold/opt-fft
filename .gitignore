@@ -48,6 +48,13 @@ bench/geom/results/*.json
 # build logs: output of ext/build_*.sh, not inputs
 ext/*.log
 
+# third-party papers pulled down during literature surveys, plus the page renders used to
+# recover figures whose digits the publisher's font encoding destroyed.  The surveys quote
+# and cite what they found; the PDFs themselves are ~15 MB of other people's copyright and
+# are re-fetchable from the URLs in the reports.
+docs/literature/staging/pdfs/
+docs/literature/staging_dist/pdfs/
+
 # unattended round loop: stop-flag, logs, per-round agent scratch
 bench/geom/STOP
 bench/geom/logs/
