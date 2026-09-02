@@ -322,7 +322,7 @@ run_implementers() {
   # The roster is whatever is on disk: rounds after the first revise existing entries.
   local roster
   roster=$(cd "$GEOM/impl" && ls *."$SRC_EXT" 2>/dev/null | sed "s/\.$SRC_EXT\$//" \
-             | grep -vE '^(baseline_matrix|baseline_gpu)$')
+             | grep -vE '^(baseline_matrix|baseline_gpu|baseline_dft)$')
   [ -n "$roster" ] || { log "no implementations found in impl/ -- aborting round"; return 1; }
   log "roster ($(echo "$roster" | wc -w)): $(echo $roster)"
 

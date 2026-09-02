@@ -1,0 +1,43 @@
+[2026-09-02 07:55:23] === run_rounds[d1]: next=d1_r1 last=d1_r6 jobs=6 ===
+[2026-09-02 07:55:23]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-09-02 07:55:23] ---------- d1_r1 begins ----------
+[2026-09-02 07:55:23]   [dry-run] would wait for d1_r0 to finish
+[2026-09-02 07:55:23] context pack: 13 lines
+[2026-09-02 07:55:23] roster (10): baseline_dft d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+[2026-09-02 07:55:24]   [dry-run] would launch implementer baseline_dft (L=)
+[2026-09-02 07:55:24]   [dry-run] would launch implementer d1_batchlane (L=)
+[2026-09-02 07:55:24]   [dry-run] would launch implementer d1_bluestein (L=)
+[2026-09-02 07:55:24]   [dry-run] would launch implementer d1_composite (L=)
+[2026-09-02 07:55:24]   [dry-run] would launch implementer d1_planner (L=)
+[2026-09-02 07:55:24]   [dry-run] would launch implementer d1_pow2 (L=)
+[2026-09-02 07:55:24]   [dry-run] would launch implementer d1_prime (L=)
+[2026-09-02 07:55:24]   [dry-run] would launch implementer d1_race (L=)
+[2026-09-02 07:55:24]   [dry-run] would launch implementer d1_rader (L=)
+[2026-09-02 07:55:24]   [dry-run] would launch implementer d1_twiddle (L=)
+[2026-09-02 07:55:24] implementers finished: 0 reported
+[2026-09-02 07:55:24]   [dry-run] would submit timing round d1_r1 (seed 20261834)
+[2026-09-02 07:55:24] d1_r1: no leaderboard, skipping the monitor verdict
+[2026-09-02 07:55:24]   [dry-run] would commit d1_r1
+[2026-09-02 07:55:24] [dry-run] stopping after one simulated round
+[2026-09-02 07:55:24] === halted before d1_r2 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/d1/STOP' then resume ===
+[2026-09-02 07:55:38] === run_rounds[d1]: next=d1_r1 last=d1_r6 jobs=6 ===
+[2026-09-02 07:55:38]     implementers: claude-fable-5    monitor: claude-opus-5
+[2026-09-02 07:55:38] ---------- d1_r1 begins ----------
+[2026-09-02 07:55:38]   [dry-run] would wait for d1_r0 to finish
+[2026-09-02 07:55:38] context pack: 13 lines
+[2026-09-02 07:55:38] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+[2026-09-02 07:55:38]   [dry-run] would launch implementer d1_batchlane (L=)
+[2026-09-02 07:55:38]   [dry-run] would launch implementer d1_bluestein (L=)
+[2026-09-02 07:55:38]   [dry-run] would launch implementer d1_composite (L=)
+[2026-09-02 07:55:38]   [dry-run] would launch implementer d1_planner (L=)
+[2026-09-02 07:55:38]   [dry-run] would launch implementer d1_pow2 (L=)
+[2026-09-02 07:55:38]   [dry-run] would launch implementer d1_prime (L=)
+[2026-09-02 07:55:38]   [dry-run] would launch implementer d1_race (L=)
+[2026-09-02 07:55:38]   [dry-run] would launch implementer d1_rader (L=)
+[2026-09-02 07:55:38]   [dry-run] would launch implementer d1_twiddle (L=)
+[2026-09-02 07:55:38] implementers finished: 0 reported
+[2026-09-02 07:55:38]   [dry-run] would submit timing round d1_r1 (seed 20261834)
+[2026-09-02 07:55:38] d1_r1: no leaderboard, skipping the monitor verdict
+[2026-09-02 07:55:38]   [dry-run] would commit d1_r1
+[2026-09-02 07:55:38] [dry-run] stopping after one simulated round
+[2026-09-02 07:55:38] === halted before d1_r2 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/d1/STOP' then resume ===

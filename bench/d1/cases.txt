@@ -1,0 +1,34 @@
+# 1D FFT competition — FOUR REGIMES per size (the metric), L:B:m
+# regime is (batch?) x (chain?):  m=1 non-chained, m>1 chained; B=1 non-batched, B=512 batched
+# sizes span classes: 13/31 primes, 32/64/128 pow2 (FFTW's home turf), 24/60 composites.
+# Chain m tuned to ~0.1s of MKL; batched B=512 keeps L<=128 in L2.
+# --- L=13 (prime) ---
+13:1:1
+13:512:1
+13:1:200000
+13:512:2000
+# --- L=31 (prime) ---
+31:1:1
+31:512:1
+31:1:100000
+31:512:1200
+# --- L=32 (pow2) ---
+32:1:1
+32:512:1
+32:1:100000
+32:512:1000
+# --- L=60 (composite 2^2*3*5) ---
+60:1:1
+60:512:1
+60:1:60000
+60:512:600
+# --- L=64 (pow2) ---
+64:1:1
+64:512:1
+64:1:60000
+64:512:500
+# --- L=128 (pow2, FFTW home) ---
+128:1:1
+128:512:1
+128:1:30000
+128:512:250
