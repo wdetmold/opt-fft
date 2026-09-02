@@ -17,6 +17,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$ROUND" ] || { echo "submit.sh: --round required" >&2; exit 2; }
+# Env knobs the sweep reads, forwarded EXPLICITLY rather than relying on srun/ssh to
+# propagate them: BACKENDS restricts which built binaries are measured, ALLOW_NO_PANEL
+# permits a library-only run (the SOTA baseline table).  Both are empty for normal rounds.
+ENVPFX=""
+[ -n "${BACKENDS:-}" ] && ENVPFX="$ENVPFX BACKENDS='$BACKENDS'"
+[ -n "${ALLOW_NO_PANEL:-}" ] && ENVPFX="$ENVPFX ALLOW_NO_PANEL='$ALLOW_NO_PANEL'"
 mkdir -p "results/$ROUND"
 JOBSCRIPT=$(pwd)/.sweep_snapshot_$ROUND.sh
 cp sweep.sh "$JOBSCRIPT"; chmod +x "$JOBSCRIPT"
@@ -36,14 +42,14 @@ if [ -f RESERVATION ] && ./reserve.sh --status >/dev/null 2>&1; then
   rc=1
   if [ -x "$SRUN" ] && [ -n "${RES_JOB:-}" ]; then
     "$SRUN" --jobid="$RES_JOB" bash -lc \
-      "cd '$(pwd)' && '$JOBSCRIPT' --round $ROUND --seed $SEED $EXTRA" \
+      "cd '$(pwd)' && env $ENVPFX '$JOBSCRIPT' --round $ROUND --seed $SEED $EXTRA" \
       > "results/$ROUND/sweep.out" 2>&1
     rc=$?
     [ $rc -ne 0 ] && echo "srun path failed (rc=$rc); falling back to ssh" >> "results/$ROUND/sweep.out"
   fi
   if [ $rc -ne 0 ]; then
     ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$RES_NODE" \
-      "cd '$(pwd)' && '$JOBSCRIPT' --round $ROUND --seed $SEED $EXTRA" \
+      "cd '$(pwd)' && env $ENVPFX '$JOBSCRIPT' --round $ROUND --seed $SEED $EXTRA" \
       >> "results/$ROUND/sweep.out" 2>&1
     rc=$?
   fi
@@ -56,4 +62,4 @@ echo "no live reservation -- trying to claim one"
 echo "claim failed -- queueing a whole-node axxxl job"
 sbatch --job-name="ice-$ROUND" --partition=axxxl --nodes=1 --exclusive --time=100 \
   --output="results/$ROUND/slurm-%j.out" \
-  --wrap="$JOBSCRIPT --round $ROUND --seed $SEED $EXTRA"
+  --wrap="env $ENVPFX $JOBSCRIPT --round $ROUND --seed $SEED $EXTRA"

@@ -59,11 +59,14 @@ else
 fi
 
 BINDIR=build/$(hostname -s)/bin
-BACKENDS=$(cd "$BINDIR" && ls)
+BACKENDS=${BACKENDS:-$(cd "$BINDIR" && ls)}
 # Refuse to produce a "leaderboard" that contains only libraries: if no panel binary was
 # built, the round measured nothing of ours and a board would read as a legitimate loss.
+# ALLOW_NO_PANEL=1 opts out, for the one legitimate library-only run: measuring the SOTA
+# baseline table itself, which by definition has no panel entries.  Do not set it for a
+# scoring round -- that is precisely the silent-zero the guard exists to catch.
 npanel=$(cd "$BINDIR" && ls | grep -vcE "^(mkl|fftw|ducc|baseline)" || true)
-if [ "${npanel:-0}" -eq 0 ]; then
+if [ "${npanel:-0}" -eq 0 ] && [ "${ALLOW_NO_PANEL:-0}" != 1 ]; then
   echo "ABORT: no PANEL BINARIES in $BINDIR -- impl/ is empty or the build failed" | tee -a "$OUT/build_errors.txt"
   exit 4
 fi
