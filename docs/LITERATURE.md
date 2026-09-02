@@ -936,3 +936,6 @@ on the machine rather than from a document.
   under §06 §8.5's protocol.
 
 | 11 | post-2020 algorithmic ideas untested in performant software | literature/11-post2020-untested-ideas.md | 6-vein agent sweep 2026-08-24; tiered actionability; staging/ has full reports |
+
+See docs/EXTENSIONS.md for the post-campaign roadmap (other dimensions d=1/2/4, more
+multicore/NUMA, multi-GPU; 4D lattice-QCD is the capstone that needs all three).
