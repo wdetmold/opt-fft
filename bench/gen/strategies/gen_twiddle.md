@@ -2160,3 +2160,176 @@ there. Setup ≤ 0.004 s at 12/15; ≤ 0.09 s at L=100 unchanged.
    advisory lands (link-order displacement is host-sensitive).
 4. refnd pitch #15 (gen_powp.c:2627, gen_pfa_large.c:1576) if still
    double-cexp.
+
+## Round gen_r14
+
+### The round's mission, answered first: this engine has NO execute()/chain() seam
+
+The r14 brief's systemic finding (execute() stuck on an old slow path while
+chain() got the fast engine) does not apply here and never did: fft3d_execute
+has routed through the SAME engine as the chain since gen_r3/r4 --
+twd_exec_vol and twd_chain_step share every pass (axis-0 strided, k-plane
+custody, gf handoff, packed axis-1, all leaf/combine codelets); the chain step
+differs only by fusing c + the map into the axis-2 scatter. Verified by
+reading both functions side by side before touching anything. So this round's
+lever for the B=1 execute() curve was the curve itself, at the benchFFT
+acceptance sizes my factorizer still ran a level too deep.
+
+### Adoption status (the score)
+
+- **gen_bluestein's adoption stands** (tw_chirp + colmajor filler/audit);
+  LIBRARY half of the file UNCHANGED for the ninth round running -- `gcc -c
+  impl/gen_bluestein.c` verified clean against the shipped file (adoption TU
+  built as part of this round's check battery).
+- **gen_pow2's tw_cis_ds adoption stands** (their GP2_FTW constant generator).
+- **refnd double-cexp gate reference, pitch #16**: gen_powp.c:2753 and
+  gen_pfa_large.c:1619 still build the create()-gate reference W with double
+  `cexp` (250 ulp on a 1e-13 yardstick at L=100). `tw_fill_dft_cplx` remains
+  the one-line fix.
+
+### What SHIPPED: radix-16 leaf codelet -- the whole combine level deleted at
+### the benchFFT B=1 sizes 16 and 128 (and 112): -38% at 16, -16.5% at 112,
+### -13% at 128, all 4/4 node pairs; everything else bit-identical
+
+The r10..r13 codelet pattern applied to the one hole the r14 acceptance list
+exposed: 16 factored [8,2] and 128 [8,8,2] -- each paying a whole combine
+level (lane-buffer round trip + CT twiddle loads + rec dispatches) that a
+16-point leaf deletes. DFT16 is NOT PFA (no coprime split); it is radix-2 DIT
+over two of twd_leaf8's DFT8 bodies VERBATIM (E on rows 0,2,..,14; O on rows
+1,3,..,15 -- same temporaries, same order, same FMA contraction) plus a W16
+combine X_k = E_k + W16^k O_k, X_{k+8} = E_k - W16^k O_k. Only new constants:
+c16/s16 = cos/sin(pi/8) from tw_cis(1,16) (<= 0.51 ulp like every constant
+here); k = 2,6 reuse twd_leaf8's W8^{1,3} c8 patterns, k = 0,4 are free.
+LEAF ONLY (m == 1 always), so twd_butterfly needs no case in any race arm;
+r = 16 levels carry no tables at all (m = 1, exact constants -- the r12
+leaf20 precedent). Definition at FILE END (the r10..r13 placement
+discipline); ~32 v8 rows live, gcc spills some, the leaf20 (40 rows)
+precedent said that is fine and it was.
+
+**Factorizer: the two-function strict-win-only discipline, third
+application.** `twd_depth14` = twd_depth13 + the 16 leaf (direct, or behind
+one head radix q = n/16 with twd_radix_ok(q) -- q = 6 at n = 96 is correctly
+NOT a radix); twd_depth13 kept VERBATIM as the tie-break reference; twd_factor
+uses the r14 selection ONLY where twd_depth14(n) < twd_depth13(n), 16
+evaluated LAST inside the win. Audited three ways before any node window:
+combine formulas vs numpy including all 16 delta functions (worst 3.1e-16,
+BEFORE any C was written -- the maps-first discipline, and again the first
+compiled version passed every gate); a Python replica of old-vs-new
+factorizers over n = 2..128; then the real binaries diffed (chains.c from the
+r13 workspace). All three agree: exactly **16 [8,2]->[16] (2->1 levels),
+112 [8,2,7]->[7,16] (3->2), 128 [8,8,2]->[8,16] (3->2)** change; the ties
+32 [8,4] / 48 [4,12] / 64 [8,8] / 80 [8,10] / 96 [8,12] keep their chains
+(bit-identical outputs, verified below).
+
+### Measured on the node (a80n0 -- via `srun --jobid`, see incidents: sshd was
+### wedged all session; ONE leased core (slot 0, core 2) via slot_lease.sh,
+### same-core interleaved ROTATED pairs vs the r13 control built from
+### impl_13/gen_twiddle.c (separate inode verified), 2 warmups, min us/xform,
+### --samples 5; window contended, load 13-24 -- ratios are the verdict)
+
+| L | B | r13 ctl (same window) | gen_r14 | verdict |
+|---|---|---|---|---|
+| 16 | 1 (single) | 15.74-16.42 | **9.72-9.85** | **-38% (4/4)** |
+| 112 | 1 (single) | 18731-19052 | **15595-15865** | **-16.5% (4/4)** |
+| 128 | 1 (single) | 26397-26495 | **22816-23080** | **-13% (4/4)** |
+| 10 | 1 (m=16384) | 4.27-4.33 | 4.27-4.37 | wash (mixed signs) |
+| 12 | 1 (m=12288) | 5.36-5.47 | 5.37-5.51 | wash (mixed signs) |
+| 25 | 16 (m=256) | 73.6-74.7 | 73.1-75.2 | wash (mixed signs) |
+| 100 | 1 (m=64) | 7063-7287 | 6858-7113 | wash-to-lean-win (3/4) |
+
+Wallaby (SPR) pre-reads agreed on every verdict before any node window was
+spent (-31% at 16, -9% at 112, -12% at 128; all regression cells wash).
+Same-window library context at the changed sizes (B=1 singles, same core):
+L=16 ship 11.16 vs fftw3_measure 12.45 (**the demo beats fftw3_measure at
+16**) vs mkl 6.55 -- 2^k is gen_pow2's cell and the trunk routes there;
+L=112: ship 15733 vs fftw3m 13998, mkl 8015; L=128: ship 22958 vs fftw3m
+17526, mkl 14719. Honest reading: leaf16 closed 13-38% of the demo's gap but
+the demo still trails the libraries at 112/128 -- 112 = 16*7 needs a real
+7-point module (gen_dense_prime/gen_rader territory, the r7-addendum lesson),
+and 128 is gen_pow2's; the codelet pattern itself is the transferable part.
+
+### Gates (all run this round; tryout's map-check leg untested here since
+### tryout itself could not ssh -- everything below by hand, r2 recipe)
+
+Changed sizes, numpy: singles 2.881e-16 (16) / 4.171e-16 (112) / 4.241e-16
+(128) at B=1 and B=2, tol 1e-12; two-step m=2 map gate 1.098e-15 (16) /
+2.829e-15 (112) / 2.684e-15 (128) vs tol 3e-14, B=1 AND B=3; m=6 map chains
+PASS inside the anchor band at all three, B=1 and B=3. Unchanged sizes:
+outputs BIT-IDENTICAL to the r13 binary at 26 sizes (10/12/15/20/24/25/27/
+31/32/40/45/48/50/60/64/72/77/80/90/96/100/101/108/120/121/127), singles AND
+m=3 map chains, B=2; positive control: 16/112/128 DIFFER as they must.
+Race arms: DS and DENSEBF PASS vs numpy at 16/112/128; scalar -march=x86-64
+build PASS at 16/112/128 (the 7 non-Wpsabi note lines are the pre-existing
+tw_loadu8/tw_storeu8 ABI notes, byte-identical in the r13 build); all 11 knob
+combinations compile -Wall -Wextra clean; GEN_TWIDDLE_LIB_ONLY adoption
+(gen_bluestein TU) compiles clean. create()+execute smoke at EVERY L = 2..128
+B=1: all plan and run. nm -S layout check (the r7 detector): twd_leaf16
++1712 B at file end; twd_exec_vol/twd_chain_step each SHRANK ~3.3-3.6 KB and
+twd_rec.constprop.0 halved -- the 7th leaf case appears to have flipped gcc's
+leaf switch to denser codegen; whatever the mechanism, outputs are
+bit-identical and the four regression cells measured wash, so no tax to
+document this round.
+
+### What did NOT work / incidents, with the number
+
+- **The node's sshd was unresponsive the whole session** (ssh: timeouts, then
+  "Connection closed", one "Access denied by pam_slurm_adopt: you have no
+  active jobs on this node" WHILE squeue showed job 439820 RUNNING with 4:43
+  left -- likely sshd/pam thrashing under 12 implementers). Workaround that
+  saved the round: **`/opt/software/slurm-19.05.8.1/bin/srun --jobid=439820
+  -N1 <script>` runs a step inside the existing allocation with no ssh at
+  all** (slurm 19 has no --overlap; plain srun works because the placeholder
+  job's batch step leaves the step slots free). Build + battery + baselines
+  all ran through one srun script each; slot_lease.sh still arbitrates cores
+  across implementers. If ssh is dead but the heartbeat is alive, use this.
+- **My own smoke check was broken before the code was** (the CLAUDE.md
+  check-that-cannot-pass shape, caught immediately): `--in /dev/null` makes
+  the driver exit rc=2 at EVERY size, which read as 127 failures. Redone with
+  real inputs: all pass. Generate inputs before trusting any driver verdict
+  (the r10 phantom-cmp lesson, same family).
+- **check.py --map-check wiring**: pass the base --out file as --output;
+  check.py appends .chain itself. Passing the .chain file directly reads as
+  FAIL rel_l2=1.0 (it compares chain-end against the single-FFT reference).
+  Cost one confused minute; recorded so it costs nobody else more.
+- No algorithmic negative: maps-first + the two-function factorizer
+  discipline again produced a first-compile pass at every gate.
+
+### Borrowed this round, named
+
+- **My own gen_r10 leaf8 body and the r10..r13 codelet/factorizer pattern**:
+  the entire shipped change is the fourth application; twd_leaf8's DFT8
+  expressions are reused verbatim twice.
+- **gen_batchlane r4 / gen_pow2 r5 / gen_race r9**: held-lease same-core
+  interleaved rotated pairs with 2 warmups -- every keep/kill above.
+- **gen_rader r9 (via my r10..r13)**: control built from impl_13, inode
+  verified against the live impl_14 target.
+- **gen_planner r7**: nm -S as the layout-drift detector, run before any node
+  window.
+
+### Operation count (demo, delta vs gen_r13)
+
+Sizes other than 16/112/128: IDENTICAL instructions on their paths
+(bit-identical outputs; only .text layout and one appended codelet differ).
+L=16 per pencil-group: level passes 2 -> 1 (the whole combine's lane-buffer
+round trip deleted), CT twiddle table entries 14 -> 0, twd_rec invocations
+9 -> 1. L=112: 3 -> 2 level passes ([8,2,7] -> [7,16]); L=128: 3 -> 2
+([8,8,2] -> [8,16]). DFT16 = 2x DFT8 + 8 combine butterflies costing 4 free,
+2 c8-pattern (2 mul + 2 add each) and 4 full W16 multiplies (4 mul-class ops
+per component pair) -- far less than the deleted level. Plan tables: r = 16
+leaves carry no tables (exact constants c16/s16 only, filled at create from
+tw_cis(1,16)). Setup unchanged (<= 0.01 s at 16, <= 0.1 s at 128).
+
+### What I would do next (gen_r15 / endgame)
+
+1. **The demo's remaining B=1 gaps at 112/128 are class-owner territory**:
+   128 wants gen_pow2's schedule (their cell); 112 = 16*7 wants a real
+   7-point leaf module folded into a class engine -- my twd_comb_fold r=7 +
+   leaf16 chain is the existence proof, not the contender. If gen_pow2 wants
+   the leaf16 derivation for a [*,16] tail at 32/64/128, the combine-formula
+   table in this section is copy-ready.
+2. **leaf24 (PFA 8x3)** remains the marginal spare-window item (24 [8,3]->
+   [24], 72 3->2); nothing scored touches it.
+3. xarch: leaf16 is host-independent arithmetic; only the custody gates are
+   knobs, unchanged this round.
+4. refnd pitch #17 (gen_powp.c:2753, gen_pfa_large.c:1619) if still
+   double-cexp.

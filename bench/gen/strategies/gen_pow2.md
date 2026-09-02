@@ -1879,3 +1879,166 @@ L=32 B=1 single fused 60.5-62.9 vs unfused 76.5-86.6, 3/3, same story.
    (no THP'd custody block? smaller STLB) GP128_XF may flip either way;
    the SPR signal agrees with ICL on the 16/32/64 wins.
 4. Nothing at L=32 chain — bit-identical for the seventh round.
+
+## Round gen_r14 — the tiled one-sweep EXECUTE ships at 64/128 (-28% at the
+## weakest B=1 cell), NT emit for aligned callers, and the round's most
+## important find: every r13 fused execute path SEGFAULTED on benchFFT's
+## 16-byte-aligned buffers — fixed, and every peer should check for the same
+
+Standings into the round: the r14 brief names the B=1 execute() curve as the
+systemic seam; my class's numbers in it (32: 1.32x, 64: 1.16x, 128: 1.03x
+over fftw3) are the PRE-r13 trunk's — results/benchfft/ was measured against
+impl_12, before my r13 GP2_XFE conversion fusion (my r13 record's "benchFFT-
+convention equivalents" already put 16/32/64 at 1.6-1.7x and 128 at ~1.16x).
+So this round's real work at my sizes was (a) the L=128 residual — my r13
+next-step #1, the r11/r12 fused-sweep structure applied to execute() — and
+(b) whatever the benchFFT harness itself would expose.  (b) turned out to be
+a latent crash that would have zeroed the class in this round's scoring.
+Session: reservation 439820 on a80n0, slot lease 2 / core 5-2=4 held for the
+session; rotated-order same-core adjacent pairs; first-position runs
+discarded (the r12 cold rule); all gates by hand with check.py on the node.
+Node sshd dropped connections late in the session; the last hygiene checks
+(scalar build, misaligned sanity sweep, final-source bit-identity) ran on
+wallaby as dev signal.  Monitor note: after ~23:00 BOTH Ice Lake nodes
+reject ssh with "pam_slurm_adopt: you have no active jobs on this node"
+while ./reserve.sh --status still reads ALIVE — the wallaby_shims squeue
+answers 'R' whenever RESERVATION.heartbeat is <300 s fresh, and something
+is still refreshing that file, so the shim now produces a false POSITIVE
+(the mirror image of the r10 false negative).  Lease released cleanly.
+
+### (1) THE CRASH: caller-buffer alignment (fix shipped, peers take note)
+
+benchFFT's bench_malloc returns malloc+16 — buffers 16-B aligned, never 64.
+Every natural-side access in my r13 execute fusion (and the chain-end
+conversions) was a `*(v8d *)` deref, which LICENSES gcc to assume 64-B
+alignment; our own driver 64-aligns everything so five rounds of testing
+never noticed, but a deliberate alignment-offset harness (scratch TU
+build/tryout/gen_pow2/al16bench.c, offsets 8/16/32 at every size) got an
+immediate SIGSEGV at L=128 off=16.  The entry would have CRASHED in the
+round's own scoring metric.  Fix: `v8du` (vector_size(64), aligned(8)) with
+LDU/STU wrappers on every caller-buffer access — nat loads in zpair_n/
+zrow64_n/zquad16_n/zrow128_n, nat stores in vfft{16,32,64,128}e and the
+xs2e emits, and all nat_to_cust*/cust_to_nat*/cust_map_to_nat* variants.
+Custody S/C accesses stay `*(v8d *)` (we allocate them, 64-B by
+construction).  Outputs at every size/offset byte-identical (fnv cmp), no
+measurable cost on aligned buffers (all races below are post-fix).
+**Peer warning: any entry that vector-loads the driver's/benchFFT's in, out,
+x0 or c pointers with an aligned deref has the same latent fault — the gen
+driver hides it, benchFFT does not.  Audit for it; the misaligned harness is
+in my tryout dir and takes a minute per size.**  Measured line-split cost of
+honest unaligned access (al16, off=16 vs off=0, regular stores): FREE at 128
+(12.07 vs 12.05 ms — DRAM latency hides splits), ~+11% at 64, ~+26% at 32,
+~+44% at 16 (compute-bound sizes feel the doubled L1 accesses).  fftw3's
+benchFFT numbers were measured under the same 16-B handicap, so the
+comparison stays fair; a permute-realign load path for small-L misaligned
+callers is a real open lever, declined this round (all cells win anyway).
+
+### (2) GP128_XT / GP64_XT: the tiled one-sweep execute (ships, both =1)
+
+The r11/r12 chain structure at m=1: sweep 1 = z (NATURAL loads) + y skewed
++ x-stage-1 per stride-G plane group (the fft_prologue shape with zrow*_n);
+sweep 2 = x-stage-2 per tile of G consecutive planes (identity placement —
+no perm composition at m=1), with the stage-2 outputs EMITTED straight to
+natural out (ILV, output plane n = t + 8*mm).  The tile is read-only in
+sweep 2, so both the in-place x-pass custody write AND the cust_to_nat read
+are deleted: at 128 that is ~69 MB of the call's ~205 MB DRAM set.  Why
+this dodges the r13 GP128_XF=2 TLB inversion: the unsplit x-pass touched
+all 128 natural planes per COLUMN (a page walk per store line); the tiled
+stage-2 touches 16 planes per TILE, each as sequential 2-KB row chunks —
+16 forward streams, DTLB- and streamer-clean.  Arithmetic is vfft64i/
+vfft128i's own two passes on the same values in the same order (the r11
+stage split), so output is BIT-IDENTICAL to the r13 execute (cmp, every
+size, every build).
+
+### (3) GP128_NTE: non-temporal zmm emit for 64-B-aligned callers (ships)
+
+The natural write at 128 is a 33.5-MB pure stream; regular stores pay an
+RFO read per line.  vmovntpd deletes those reads (gen_layout gen_r4's
+NT-on-DRAM-resident precedent): raced -9%, 3/3 (10.44-10.53 vs 11.50-11.62
+ms same-window).  Runtime-gated on 64-B alignment of nout; sfence after the
+sweep.  For benchFFT's 16-B callers the gate falls back to regular
+unaligned stores — see what did NOT work.
+
+### Measured on the node (a80n0 core 4, rotated same-core adjacent pairs,
+### ship = final build, ctl = the r13-shape two-sweep fused execute)
+
+| case (B=1 single call) | ctl (r13 path) | gen_r14 ship | verdict |
+|---|---|---|---|
+| L=128 | 14.83-16.57 ms | **10.41-11.04 ms** (best 10.409) | **-28..-30%, 6/6** (tiled -20..-23%, NT -9% on top) |
+| L=64 | 806-812 us (736-750 fast state) | **787-789 (732-738)** | -1..-4%, 4/4 mins, medians -3..-4% |
+| L=32 | 60.6-72.0 us | 60.8-66.3 | untouched path, wash |
+| L=16 | 6.04-6.86 us | 6.13-6.20 | untouched path, wash |
+
+benchFFT-convention equivalents (5N log2N / t; driver GF/s x1000 = the same
+number): L=128 aligned 10.41 ms -> **21.2k mflops**; at benchFFT's 16-B
+alignment (al16 harness, regular-store fallback) ~12.06 ms -> **~18.3k vs
+fftw3's 12,604 = ~1.45x** (was 1.03x pre-r13, ~1.16x post-r13).  L=64:
+732 us -> 32.2k aligned, ~27k at 16-B vs fftw3 18,487.  L=32: ~40k aligned,
+~32k at 16-B vs 24,163.  L=16: ~40k aligned, ~28k at 16-B vs 23,510.  Every
+2^k B=1 cell beats fftw3_measure under benchFFT's own alignment handicap.
+
+### Protection (all on the node, final ship build)
+
+Chain paths untouched: graded L=32 B=8 m=250 chain output BIT-IDENTICAL to
+the r13 arithmetic (cmp vs ctl build, which is the r13 codegen); m=2 chains
+at 64/128 cmp-identical across arms.  Code-layout tax raced properly after
+one scare: the first ship-vs-ctl graded pair read +11% — that was the
+FIRST-RUN-COLD artifact (r12 rule: discard position-1 runs); 11 subsequent
+clean rotated pairs gave deltas {+0.77,+0.64,+1.1,+0.16,-0.25}% then
+{-0.08,-0.5,+0.7,+0.5,-0.6}% — a wash, mixed signs.  The tiled-exec bodies
+were additionally moved to their own .text section (gen_twiddle r5 hazard
+hygiene; the wash held before and after, so it ships as insurance, not as a
+measured win).  Gates, ship build, standing digits exactly: singles
+2.357e-16 / 2.915e-16 / 3.209e-16 / 4.092e-16 (16/32/64/128, B=1, tol
+1e-12); B=8 exec 2.903e-16; m=2 fused **8.650e-16 / 1.393e-15 / 2.005e-15 /
+2.469e-15** (tol 3e-14); graded chain m=250 2.902e-16 single-equiv, chain
+end 3.328e-14 (tol 1e-10), repeatable (cmp x2).  -Wall -Wextra: only the
+pre-existing 'nxt' note; scalar (-mno-avx512f) build clean, 0 warnings.
+
+### What did NOT work, with the number that killed it
+
+* **Interleaved xmm NT stores for 16-B-aligned callers** (first attempt at
+  keeping NT under benchFFT alignment): **16.7 ms vs 12.1 regular — a
+  disaster.**  16 concurrent output streams each leaving partial WC lines
+  (128-B visits at 16-mod-64 alignment) thrash the ~dozen WC buffers into
+  partial-line NT flushes.  Recorded so nobody retries the naive form.
+* **Staged shifted-NT rows (GP128_NTS, kept compilable, default 0)**: stage
+  row y of all 16 planes in L1 (32 KB), then per plane one vpermt2pd per
+  vector + aligned zmm NT to the interior, scalar edges.  Fixes the WC
+  thrash but the staging round trip + permutes eat the RFO saving: 12.06 vs
+  regular 11.4-12.1 ms, 3 rotated rounds — wash-to-loss.  Simplest-wins:
+  misaligned callers take plain unaligned stores.  A CLX/SPR host may
+  re-race the knob (SPR's WC/store path differs).
+* **The first graded-case pair scare** (+11%): first-run-cold, not layout —
+  see Protection.  Lesson re-learned: never act on a position-1 run.
+
+### Borrowed / attribution (gen_r14)
+
+* **gen_layout gen_r4**: the NT-full-line-stores-on-DRAM-resident-volumes
+  precedent behind GP128_NTE.
+* **My own r11/r12** one-sweep fused structure and r13 conversion fusion —
+  this round is their composition at m=1; the identity-placement
+  simplification (no perm needed at m=1) is what makes it cheap.
+* The alignment audit and the al16bench harness: this entry, new; prompted
+  by reading benchFFT's libbench/util.c allocator while checking whether
+  the NT gate would ever fire in the scoring harness.
+* Session protocol unchanged (rotated same-core pairs, first-run discard,
+  bit-identity cmp gating, one-lease-one-core, held-lease ssh).
+
+### What I would do next
+
+1. **L=128 residual**: 10.4 ms vs a ~9.7 ms paper floor for the 136-MB set
+   at ~14 GB/s — the structure is now within ~7% of its own traffic bound;
+   further gains need the set cut (a z+y+xs1 sweep that reads natural AND
+   emits stage-2 in one pass does not exist — stage-2 needs all groups'
+   stage-1 done).  Probably closed.
+2. **Misaligned small-L execute** (the +26%/+44% split penalties at 32/16):
+   permute-realign loads (two aligned loads + vpermt2pd feeding DEIN) would
+   trade L1 accesses for p5 uops; only worth it if a scored cell ever runs
+   misaligned-compute-bound.  benchFFT does exactly this — if the r14 board
+   shows 16/32 thinner than the aligned numbers predict, this is why.
+3. **Peers**: run the alignment audit (see (1)).  gen_race/trunk: when
+   forwarding execute() to class .so's, the caller's buffers pass through
+   verbatim — the trunk inherits every class's alignment assumptions.
+4. Knob inventory grows by {GP128_XT, GP64_XT, GP128_NTE, GP128_NTS}; the
+   NT gate is runtime (per-call alignment), the rest compile-time race axes.

@@ -1966,3 +1966,154 @@ pw_stmap, zero spills at L=10, no A-matrix traffic.
 4. **The 12:1 alt-vs-wv near-tie** is a healthy playoff case: check which
    the quiet scoring window banks, and whether CLX flips it (wv's fill-rate
    advantage story from r12 applies at 1 MB L2).
+
+## Round gen_r14 -- transposed-store fused codelets: execute() and the small-L chain share one transpose-free plane pass
+
+### The round in one line
+
+A fused CT/GT root already holds all N output rows of a 4-column chunk in
+registers, so a TRANSPOSED-STORE variant of the fused codelets makes the
+whole plane pass transpose-free (axis 1 exits (z,y) straight into P, axis 2
+exits canonical straight back -- the classic sandwich's two separate
+transpose sweeps are deleted, values bit-identical); fft3d_execute() takes
+this path at every fused-root L and the L <= 12 chain takes it too,
+replacing the r13 alt step.  benchFFT (the round's metric, node, same-core
+pairs): 10^3 24.6k -> **36.6k mflops** (fftw3 same window 26.2k -- the one
+size this entry LOST at round start), 12^3 34.9k -> **45.3k** (fftw3
+30.3k); scored chain cells 10:1 **-13.5%** (4/4 pairs), 12:1 **-2.4%**
+(4/4).
+
+### Where the round's numbers came from (measure first)
+
+benchFFT B=1 execute() curve, my entry vs fftw3, same core, same window
+(mflops, their 5N log2 N convention), BEFORE any change:
+10: 24833 vs 26191 (**0.95x -- LOSING**), 12: 35431 vs 30306 (1.17x),
+15: 25092 vs 22959 (1.09x), 16: 28806 vs 22443, 20: 34592 vs 27703,
+25: 25990 vs 15338, 27: 21078 vs 8198, 31: 13629 vs 2829,
+32: 26264 vs 24223 (**1.08x thin**), 40: 23806 vs 14353,
+50: 19943 vs 12786, 64: 20128 vs 18593 (**1.08x thin**),
+100: 17596 vs 12974, 128: 12728 vs 12525 (**1.05x thin**).
+So the execute() reroute mattered exactly where the brief said: the
+fused-root smalls.  (Note: this fftw3 measured ~10% faster at 10 than the
+brief's posted 23842 -- always take the same-window number as the target.)
+
+### What shipped (impl/gen_planner.c)
+
+1. **pln_fusedv_t / pln_gtv_t + wrappers/dispatchers** (pln_fused_run_t,
+   pln_gt_run_t): compute stages byte-for-byte the r7 codelets; the DFT_R
+   results are written back into the y[] slots just consumed (CT: slot ==
+   row, trivially in place; GT: write v[j1] to y[j1*M+q2] -- a bijection on
+   the read set -- and the CRT locates row k at slot (k%R)*M + (k%M), all
+   compile-time), then a pln_tstore4 epilogue emits 4x4 complex block
+   transposes: 8 shuffles + 4 (masked) stores per block, row tails via the
+   store mask, column tails by skipping absent destination rows.  Register
+   pressure is the plain codelet + 8 transpose temps -- no second y array
+   anywhere.
+2. **pln_p3d_plane_ft** (p3->ft = root->fus, GEN_PLANNER_FT pins): axis 1 =
+   codelet_t(plane rows stride L -> P rows stride pitch), axis 2 =
+   codelet_t(P rows -> plane rows).  TWO plane sweeps instead of the
+   classic four (axis1 in place, transpose-in, axis2 in P, transpose-out).
+   Wired into pln_p3d_exec for every batch and every fused-root L.
+3. **pln_p3d_step_ft + p->ftc** (L <= 12, fused root, GEN_PLANNER_FTC
+   pins): axis 0, ft planes, the r13 whole-volume exactly-paired map span.
+   Canonical layout EVERY step: the alt step's in-place plane transpose,
+   its (z,y) c copy (cw staging) and the layout parity bookkeeping all
+   leave the chain; zero-copy entry/exit kept.  Own create() 2-step gate
+   vs execute + the exact scalar map (tol 1e-12), same discipline as alt;
+   ships alt on any failure.  The wv playoff's incumbent arm now times
+   step_ft when ftc ships (and a wv adoption clears ftc -- step_ft needs
+   stv).
+
+### Measured on the node (a80n0, held-lease same-core interleaved pairs vs the impl_13 control, min of --samples 4)
+
+benchFFT execute(), r13 -> r14 (adjacent pairs, two reads each):
+| L | r13 | r14 | fftw3 same window | now |
+|---|---|---|---|---|
+| 10 | 24647/24462 | **36553/36351** | 26191 | **1.40x** (was 0.95x) |
+| 12 | 34940/34300 | **45159/45597** | 30306 | **1.50x** |
+| 15 | 25006/24962 | **28344/28254** | 22959 | 1.23x |
+| 16 | 28672/27511 | **30823/31108** | 22443 | 1.38x |
+| 20 | 37605/37707 | **42462/42890** | 27703 | 1.54x |
+| 25 | 25842/26028 | **30267/30175** | 15338 | 1.97x |
+| 27/32/64/128 | -- | parity (untouched paths) | -- | 2.6x/1.08x/1.08x/1.05x |
+
+Scored chain cells (impl_13 control, 4/4 pairs each):
+10:1:16384: ctl 2.545-2.617 vs **2.211-2.238 us** (-13.5%);
+12:1:12288: ctl 3.528-3.578 vs **3.429-3.479 us** (-2.4%).
+Protection pairs: 10:64 parity (s8 path, chains bit-identical), 25:16
+parity (mixed signs), 32:8 parity, 100:1 +0.2-0.5% 3/3 -- consistent but
+inside that cell's usual window band; nm -S says step_alt/xexec/step/s8/wv
+are byte-stable (only fft3d_create, pln_chain_pv, pln_p3d_build,
+pln_p3d_exec changed size, plus the new _t symbols), so any residue is
+code placement, the known r11 class.  benchFFT --verify: PASS at all 14
+curve sizes.  Full numpy sweep L=2..128 B=1: ALL 127 PASS.  ft exec
+outputs bit-identical to classic (cmp, node and wallaby); map chains at
+10/12 m=40 PASS, mixed batches (group + ftc remainder) 10:B=12 and
+12:B=12 m=40 PASS (1.1e-14 / 5.8e-15 vs tol 1e-10).  5 consecutive cold creates at 10:1: same pick
+gt(d2,d5), ftc gate PASS 5/5, chains bit-identical 5/5.  x86-64-v2 build
+runs and passes the m=12 map chain (ft/ftc structurally off there).
+Wisdom hygiene: 23 gen_planner keys my benchFFT/dev runs had stored were
+stripped from results/wisdom_a80n0.json under the flock (298 foreign
+entries preserved, file revalidated).
+
+### Operation count (ft plane pass, per plane, vs the classic sandwich)
+
+Classic: axis1 (L^2 ld + L^2 st) + transpose-in (L^2 ld + st + 8 shuf/16)
++ axis2 (L^2 ld + st) + transpose-out (L^2 ld + st + 8 shuf/16) = 4 plane
+round trips.  ft: axis1_t (L^2 ld + st + 8 shuf/16) + axis2_t (same) = 2
+round trips, SAME shuffle total, same FFT arithmetic, ~ceil(N/4)*4 masked
+stores per chunk instead of N.  Chain step at L <= 12 additionally
+deletes alt's in-place transpose sweep (L^2 ld + st + shuffles per plane
+per step) and the once-per-chain cw transpose staging.
+
+### What did NOT work / went wrong, with the numbers
+
+- **The impl-symlink control trap, hit AGAIN in my own A/B** (gen_rader r9
+  documented it; my r10 record cites it; I still did it): impl -> impl_14
+  this round, so building the "control" from impl_14/gen_planner.c timed
+  my own new binary against itself -- 4 dead-tie pairs at 12:1 and
+  "identical chain outputs" that a real alt-vs-ft pair cannot produce.
+  The two-sided check (ft chains MUST differ from alt chains in rounding)
+  exposed it; the true control is the COMMITTED impl_13/gen_planner.c.
+  Anyone A/B-ing this round: impl_14 IS the live tree, not a snapshot.
+- **out.bin is the single-call output; the chain lands in out.bin.chain.**
+  A cmp of out.bin between chain-path variants proves nothing (execute is
+  bit-identical by design) -- first read of "identical outputs" was this,
+  not engagement failure.
+- The 12:1 chain win is only -2.4%: at L=12 (L%4==0, no masked transpose
+  edges, 2 fewer planes' worth of loop overhead than the transposes cost
+  at 10) the alt step's single in-place transpose was already cheap.  The
+  execute() win at 12 is the round's real gain there (+30%).
+- L=100 protection reads +0.2-0.5% 3/3 with byte-stable hot functions --
+  recorded as placement noise; do not chase (r11 lesson, sub-3% at
+  address-sensitive cells).
+
+### Borrowed this round, named
+
+- The round mission itself (route execute() through the chain-fast engine)
+  is the brief's, which credits **gen_pfa_small's r13 record** for naming
+  the plumbing seam.
+- **gen_rader gen_r9**: the impl-symlink control trap -- relearned the
+  hard way, above.
+- The 4x4 block-transpose shuffle pattern is my own r3 pln_tr4x4 /
+  r11 pair-swap machinery, moved into the codelet store stage; the CRT
+  slot identity is the r7 fused-GT map read backwards.
+
+### What I would do next (ranked)
+
+1. **Root-leaf transposed stores for two-level trees** -- the remaining
+   thin benchFFT cells are 32 (1.08x), 64 (1.08x), 128 (1.05x), all
+   c4/c8-root two-level.  The root leaf writes rows k2 + m*k1: buffering 4
+   consecutive k2 root-leaf calls gives 4 consecutive output rows per k1
+   group = 4x4 blocks; r=4 needs 16 live vecs (feasible), r=8 needs 2-row
+   half-blocks or 32 vecs (spill-managed).  Would delete the same 2 plane
+   sweeps at every L, not just fused roots.  (gen_pow2 owns those cells in
+   the trunk; coordinate before spending a round.)
+2. **ft chain for 12 < L <= 25 odd-batch remainders** (scored cells are
+   batched there, so this is round-6-insurance, not points): the plane
+   pass exists; only the per-plane map placement needs deciding.
+3. **xarch**: ft/ftc are pure AVX-512F+DQ behind PLN_SIMD with env pins
+   (GEN_PLANNER_FT / GEN_PLANNER_FTC); the CLX advisory should A/B them --
+   more stores per chunk vs two deleted sweeps could flip on the 1 MB-L2
+   host, and the pins make that a one-line race arm.
+4. The driver's --chain 1 segfault (r11 item 4) is STILL there.

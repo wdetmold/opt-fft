@@ -2129,3 +2129,130 @@ l1d.replacement at 10:1: 51M -> 10M per chain.
    test dies, and it silently times m=1) — FOR THE MONITOR; the r13dev kit
    (r13_ab.sh: build/gen/time/gates phases + per-cell in/c bins + the
    pass-knockout prof copies) lives in build/tryout/gen_dense_prime/r13dev/.
+
+## Round gen_r14
+
+### Where this round started
+
+r13 leaderboard (a80n0): 111.668 at the crossover cell (31:16:140; gen_rader
+86.176 — settled); new B=1 cells won vs every library (10:1 2.982, 12:1
+4.742; gen_pfa_small leads the panel at 1.943/2.999 — PFA arithmetic).  The
+r14 brief: benchFFT (single-shot fft3d_execute) is the B=1 metric; r13
+fixed the CHAIN path but execute() stayed on the old plumbing — route
+execute() through the fast within-volume engine the chain uses, across the
+whole L range.  For THIS entry the seam was exact and known: the r13 fx/fy
+specializations at 10/15 are bound to the PADDED chain row widths, and
+fft3d_volume only used them when p->pl == 0 || p->pl == L — so execute() at
+10/15 fell through to the generic runtime-bounds masked fold_pass while the
+chain ran the fast engine.  12/20 (flat-width fx/fy) already shared the
+fast path; 31 and the generic primes ran the flat engines.
+
+### What was built and raced (a80n0, ONE held lease slot 1 core 3,
+### interleaved same-core min-sets, the r4-r13 protocol)
+
+Three execute() routes, raced per size:
+
+1. **Padded reroute** (strided copy in -> padded chain engine -> copy out,
+   pads ZEROED on copy-in so back-to-back executes cannot compound pad
+   junk; no map in execute to bound it, unlike the chain):
+   - at 31 (fold31zx_p + fold31_p): **REJECTED, +17%** (128.4-131.5 vs
+     110.4-110.8, 3/3) — ~1 MB of strided copies per volume costs far more
+     than the flat path's row line splits, which the fused z+x engine
+     mostly hides.  Opt-in knob -DGDP_EXP31 (cross-arch).
+   - at the generic primes (padded fold_pass, no fx/fy): **REJECTED**
+     (13: +20% 3/3 (12.1-13.6 vs 10.1-11.6); 17: +2..+11%; 23: +2.5% in
+     quiet windows; 29: wash) — in the execute geometry the flat masked
+     GEMMs are fine and the copies are pure tax.  The r4 padded-CHAIN wins
+     at these sizes came from the map/c-stream interaction, which execute
+     does not have.  Route now requires p->fx.
+   - at 10/15 (fx/fy exist): small win at 15 (-5..-9%), wash at 10 — the
+     copies ate most of the specialization win.  Superseded by (2).
+2. **FLAT compile-time x/y engines at 10/15** (folds_x10f/x15f + fy, the
+   GDPS_FX/FY macros at INNER = L^2, BC = PL = L): literal bounds and
+   immediate masks, ZERO copies.  **The winner, 4/4 pairwise both sizes:
+   10:1 execute 3.22-3.67 -> 2.36-2.45 us (-27%); 15:1 13.34-15.01 ->
+   11.55-11.80 (-13%).**  Also batched execute: 10:64 3.81 -> 2.88 (-24%),
+   15:32 13.76 -> 11.88 (-14%).  Bound as p->fxe/fye at create();
+   -DGDP_NOFXE falls back to the padded reroute (cross-arch knob).
+3. z-pass: no change needed — the r13 quad kernel already dispatched at
+   any row stride, so execute's z was already fast at 10/12/15.
+
+Chain paths untouched at every size: graded-cell chains raced at parity
+(10:64 3.05/3.08, 12:64 4.82/4.89, 15:32 10.96/11.00, 20:32 35.3/35.4,
+31:16 112.7/112.8, 10:1 3.39/3.40, 12:1 4.79/4.82 — r14/r13 same windows)
+with outputs cmp-IDENTICAL.  Execute at 12/20/31 is parity by code
+inspection AND interleaved race (31 B=1: 109.2-111.5 vs 109.7-110.1
+overlapping; B=16 wash; the one +2.3% read was a busy window).
+
+### Where execute() B=1 now stands vs the libraries (node, min us/xform)
+
+10: 2.36 | 12: 3.48 | 15: 11.6 | 20: 30.7 | 31: 109.2.  In benchFFT's
+5N log2 N terms at 10/12: 21.1k/26.7k mflops vs fftw3's 23.8k/29.7k — the
+dense arm's execute is now AT its chain-engine pace and the residual vs
+fftw3 at 10/12 is the settled dense-vs-(2x5 / 3x4 CT) arithmetic gap, not
+plumbing (the r13 record's crossover story; gen_pfa_small covers those
+cells for the trunk at well under the bar).  At 15/20/31 execute beats
+every library by 1.7-8x (fftw3_measure chain-pace refs: 19.6/45.0/875).
+
+### Correctness (all on the node unless noted)
+
+Outputs BIT-IDENTICAL to the r13 binary at all 14 dev cells (2..31,
+singles B=2 wallaby + graded batched/B=1 cells node, single AND chain full
+m) — the flat-spec cores keep the generic path's per-surviving-lane op
+sequence (the r5/r8/r13 argument), and every rejected route is knob-gated
+out.  Fresh numpy gates on the ship binary: singles 2.8e-16..3.9e-16
+(tol 1e-12) at 10/12/15/20/31; **two-step 8.6e-16..1.6e-15 at all nine
+graded+prime cells** (tol 3e-14); graded map-chains PASS including the
+long B=1 chains (10:1 m=16384 1.095e-07 vs anchor 9.771e-07; 12:1 m=12288
+7.947e-09 vs 7.995e-09; 31:16 2.551e-14 vs 2.312e-14 — inherited digits,
+as bit-identity requires); execute repeatable (cmp across runs); scalar
+non-AVX512 build verified end-to-end at L=7 singles + L=10/31 chain gates
+(wallaby).
+
+### What did NOT work, with the number that killed it
+
+- Padded execute reroute at 31: +17%, 3/3 (above) — knob -DGDP_EXP31.
+- Padded execute reroute at the bare primes: 13 +20% 3/3, 17/23 lean loss,
+  29 wash — struck; the route now requires the compile-time fx/fy.
+- Wallaby advisory this round was UNUSABLE (load 12-52, 51 users; both
+  arms' readings bimodal by 2x — r13's own 15:32 read 9.1 and 17.5 in
+  adjacent windows).  Best-mins favored r14 everywhere (10:1 1.46 vs 2.08,
+  15:32 7.70 vs 9.08), so no SPR-inversion signal, but the fxe-vs-NOFXE
+  choice at 10/15 deserves a real SPR re-race in a quiet window (the zg6
+  precedent: lean-kernel restructures DO invert between hosts).
+
+### Borrowed this round, named
+
+- **The r14 brief / gen_pfa_small gen_r13**: the diagnosis that the
+  execute/chain seam is plumbing, and (pfa_small r13, via the brief) that
+  the B=1 gap is schedule, not memory — which is why the zero-copy flat
+  specialization beat the alignment-perfect padded reroute at both sizes.
+- **My own r13**: the GDPS_FX/FY literal-shape machinery (reused verbatim
+  at flat widths) and the bit-identity-by-construction verification story.
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol.
+- **gen_pfa_large gen_r8** (via my r10): the same-source knob arm
+  (-DGDP_NOFXE) separating the fxe win from binary layout luck.
+
+### Operation count (shipped)
+
+FMA counts identical to r5-r13 at every size (bit-identical outputs).
+Execute at 10/15: the x/y passes drop the generic path's runtime-bounds
+loop overhead and per-plane fold_pass prologues (the r13 chain treatment,
+now on the execute path); masks are compile-time immediates; no new
+memory traffic (zero copies).  Execute at all other sizes: unchanged.
+
+### What I would do next
+
+1. **The 10/12 execute residual is arithmetic** (2.36/3.48 vs fftw3's
+   2.09/3.13 equivalent): dense 46/67 cMACs per pencil vs 2x5 / 3x4 CT.
+   Closable only by becoming a CT/PFA engine, which is the other owners'
+   class — the dense execute floor is now honest and documented.
+2. **SPR re-race of -DGDP_NOFXE vs default at 10/15** when a quiet
+   advisory window exists (wallaby was too loaded this round to decide).
+3. **A flat fxe at 13** (GDPS_FX(13f, 13, 6, 6, 169, 13)) would give the
+   13-execute the same -20..-27% the composites got, for r6-style surprise
+   insurance; struck this round for scope (13 is not benchFFT-scored).
+4. Harness: the r14dev kit (nbin_r13/r14f/r14p + per-cell in/c bins,
+   ts_/co_/bo_ gate outputs) lives in build/tryout/gen_dense_prime/r14dev/;
+   tryout.sh's duplicate-L m-lookup bug (r13 note) is still open — B=1
+   execute timing needs the driver run by hand with no --chain.

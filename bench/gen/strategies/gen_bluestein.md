@@ -1563,3 +1563,117 @@ per row) unchanged.  Overlapped tr columns recompute 1-3 of S columns
    fix is a whole-volume-in-registers small-L specialization, which is the
    class winners' territory, not Bluestein's.
 4. conv_mid15 (M=60) only if a future round grades L=29/30.
+
+## Round gen_r14 (the execute()/chain() plumbing-seam round)
+
+### What changed (impl/gen_bluestein.c, one structural change + two raced knobs)
+
+**Single-shot fft3d_execute() adopts the chain's k-plane block fusion** (the
+round's named seam: benchFFT times execute(), and execute() had stayed on the
+r3 global 2,1,0 axis order while the chain has run the gen_r4 blocked
+schedule every step since).  Past a gate, execute() now runs blocks of
+rpb = (8/gcd(L,8))*L rows -- axis 2 (src -> dst, rows contiguous) then axis 1
+(in place) while the block's [r0*L, r1*L) element range is L2-hot -- followed
+by the global strided axis 0 in place on the warm dst.  This deletes the
+axis-1 full-volume round trip exactly as the chain's blocked regime does.
+Per-pass arithmetic is bit-identical to the old order; only the axis ORDER
+moves (rounding at the 1e-15 tier; the chain path is byte-untouched and its
+outputs cmp-IDENTICAL to control).  Knobs: -DBST_NOEXBLK = the r13 global
+order (attribution control), -DBST_EXA0F = the axis-0-first arm below,
+-DBST_EXBLK_MIB=n = the gate.
+
+### The finding that shaped the round: the chain's literal order LOSES in execute()
+First cut copied the chain schedule verbatim (axis 0 FIRST, then blocked
+2+1) with the chain's own 14 MiB gate.  Node race, execute-only (chain=1),
+control-first same-core pairs at L=100 B=1: quiet pairs ctl 13240.0/13238.2
+vs a0f 14185.5/14249.9 -- **+7% loss, 2/2 quiet pairs**.  Mechanism: in the
+chain, the axis-0-first pass reads the previous step's volume WARM and in
+place; in execute() the source is COLD, and axis-0-first turns the one
+compulsory cold read strided (stride L^2, one 128 B touch per line, nothing
+the prefetcher tracks) -- costing more than the blocking saves.  Moving the
+blocks first keeps the cold read sequential (axis 2's rows are contiguous)
+and pushes the strided pass to the end, on data the blocks just warmed.
+The general rule, recorded for the panel: A SCHEDULE RACED IN A WARM-SOURCE
+LOOP DOES NOT TRANSFER TO A COLD-SOURCE CALL; re-race the pass ORDER, not
+just the blocking, when the source temperature changes.
+
+### The gate race (execute has no c stream; the chain's 14 MiB number is not its number)
+Node, execute-only quiet same-core pairs, blocked (blocks-first) vs global,
+gate forced per arm; footprint = src+dst = nrows*L*32:
+  L=32 B=1 (1.0 MiB):  +1.3/+1.4/-0.2%          -> lean LOSS, stay global
+  L=50 B=1 (3.8 MiB):  -0.5/+1.5/-1.1%          -> wash, stay global
+  L=64 B=1 (8.0 MiB):  -5.7/-6.3/-1.0/+0.3% and -0.4/-0.5/(-11 dirty)/-2.1%
+                        across two batteries     -> WIN
+  L=80 B=1 (15.6 MiB): -6.6/-7.2/-7.2/+0.0%     -> WIN
+  L=96 B=1 (27 MiB):   -3.1/-2.1/-1.8% (3/3)    -> WIN
+  L=100 B=1 (30.5 MiB): 4/7 pairs, bests 13067.9 vs 13132.0 -> wash-to-lean
+  L=128 B=1 (64 MiB):  -1.9/-1.4/-2.1/-2.7/-3.3% and one dirty -5.5 (6/6) -> WIN
+Gate shipped at 4 MiB (own macro BST_EXBLK_MIB, decoupled from the chain's
+BST_MAPFUSE_MAX_MIB=14): blocks L >= 51-ish at B=1, leaves 32/50 on the
+untouched path.  The L=100 wash while 80/96/128 win is the r4 story again
+(16 MB volume ~ the 24 MB LLC: the deleted round trip is LLC-level there,
+DRAM-level at 128).  Quiet-window ship-vs-control bests: 64: 2774.1 vs
+2835.0, 80: 4905.0 vs 5041.2, 96: 10090.5 vs 10308.6, 128: 31392.4 vs
+32197.0 us.
+
+### Gates (ship default build; sweep + m=2 on wallaby AVX-512 paths per
+### gen_layout r9, node runs for repeatability/chain/tryout)
+Singles B=1, 48 sizes {2,3,5,7,9,10,11,12,13,14,15,16,17,20,21,23,24,25,27,
+28,31,32,33,35,40,47,48,49,50,51,56,63,64,65,71,77,80,96,97,100,101,104,105,
+112,113,120,127,128} ALL PASS (spot digits 5.7e-16..1.0e-15, tol 1e-12) --
+covers both sides of the new gate, odd-L tail groups in the blocked regime
+(51/97/101/105/113/127), every M tail type, the giants.  Batched singles
+PASS at all 10 graded shapes (4.5e-16..7.7e-16).  Two-step m=2: 10:1
+1.323e-15, 50:4 3.333e-15, 100:1 4.109e-15, 31:16 2.549e-15, 105:1
+4.212e-15, 128:1 3.719e-15, 64:1 3.107e-15 (tol 3e-14; the untouched cells
+read their r11/r13 digits exactly).  Graded chain 100:1 m=64 on the node:
+3.564e-14 (anchor 2.416e-14) -- the exact r8/r11/r13 digits, as a
+chain-untouched round must read.  Chain outputs cmp-IDENTICAL to the
+control arm at 50:4 m=6 and 10:1 m=50.  Below-gate execute outputs
+cmp-IDENTICAL to control at 32/40/50 B=1.  Blocked execute repeatable
+(cmp-identical runs, 128:1).  Scalar -march=x86-64 build (blocked branch is
+AVX512-gated): singles PASS at {10, 50:4, 64, 100}.  create() ~0 s.
+Board-parity tryout reads: 100:1 chain 14260.8 (window; MKL 7922.6 same
+window), 12:64 execute PASS + repeatable.
+
+### What did NOT work / was decided by race, with the number
+- **Axis-0-first blocked execute (the chain's literal schedule)**: +7% at
+  L=100 B=1 (numbers above).  Kept as -DBST_EXA0F for the CLX/SPR re-race.
+- **Blocking below ~4 MiB**: L=32 B=1 lean loss (+1.3/+1.4/-0.2%), L=50 B=1
+  wash -- the volume is L2-resident-ish already; nothing to delete.
+- The r13 harness note stands: tryout.sh's awk cases.txt lookup matches BOTH
+  rows at L=10/12 (and now the chain leg silently runs m=1 at 12:64 too --
+  the B=64 row is also shadowed).  Chain gates at those cells must be run by
+  hand on the node.  The remote map-check '$W' quoting bug also stands.
+
+### Borrowed this round, named
+- **gen_layout r3 / gen_pow2 r9 lineage (via my own r4)**: the k-plane block
+  fusion is the same machinery; this round's contribution is the
+  cold-source ordering finding and the execute-specific gate.
+- **gen_batchlane r4 / gen_pow2 r3** (standing): held-lease same-core
+  control-first pairing for every keep/kill above.
+- **gen_rader r9** (standing): both control arms are flag-disabled builds of
+  the same source (-DBST_NOEXBLK / -DBST_EXA0F), never impl_N snapshots.
+
+### Operation count (delta vs r13, execute() only, gated sizes)
+FP arithmetic unchanged (same kernels, same group decomposition; axis order
+2,1,0 -> per-block 2,1 then global 0).  Deletes one full-volume read+write
+(axis 1's round trip to LLC/DRAM) per execute() call at gated sizes; adds
+nothing.  Chain, create(), tables: byte-identical.
+
+### What I would do next
+1. **Cross-arch re-races** (carried, list grows): BST_NOEXBLK / BST_EXA0F /
+   BST_EXBLK_MIB join the knob list on CLX/SPR (CLX's 1 MB L2 shrinks the
+   block; the 4 MiB gate and the blocks-first-vs-a0f verdict are ICL-LLC
+   numbers).
+2. **NT stores for execute()'s one cold dst-write pass** (gen_layout r4's
+   recipe, declined for the chain in r5 because blocked custody has no cold
+   store stream -- execute()'s first pass DOES have one).  Alignment houses
+   the risk: dst offsets are only 64 B-aligned when 8 | off, which odd-L
+   sizes break; needs a masked/split epilogue or a gated variant.  Sized at
+   ~1 volume of RFO reads per call at gated sizes.
+3. **bluestein_cost(L) for gen_planner** (eleventh carry, constants
+   unchanged from r13).
+4. The 10:1/12:1 fallback gap to fftw3 (~4x) remains group-prologue
+   overhead -- class winners' territory, not Bluestein's (r13 verdict
+   stands).

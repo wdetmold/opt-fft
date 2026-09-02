@@ -1,0 +1,9 @@
+The background retry loop will re-invoke me when the node battery completes (it retries ssh every 30 s for up to 15 minutes, then runs the full verification battery). While waiting — status summary of where the round stands:
+
+**Done so far:**
+- Measured the seam: at 25/27/50 B=1, execute() already shares the chain's engine and beats fftw3 by 2.1x/3.8x/2.2x — nothing to reroute. The genuine seam is L=100 (chain = wv engine since r12, execute = interleaved).
+- Built `wv_exec_100`: slab-fused pack (pack slab, sweep it L2-hot) + direct-to-interleaved exit from the x-pass pencil registers (lanex baked into 2 shuffles + 2 aligned 64 B stores per slot; NT-store variant for the cold out stream). Three modes behind `GENPWP_WVEXEC`, control behind `GENPWP_NOWVEXEC`.
+- Node A/B found a **per-host flip**: on Ice Lake the interleaved execute wins (4.30–4.55 ms vs wv-NT 4.60–4.63; plain stores crater at 7.4 ms — RFO on the strided cold-out stores); on wallaby/SPR wv-NT wins by ~40% (3.10 ms vs 5.2–6.5).
+- So the ship design is a **banked per-host execute race** (arms `x-il` vs `wv-nt`, own wisdom key `exec11`, 3% simplest-first hurdle, heap out buffer for regime fidelity), plus a chain-tag bump chain10→chain11 so no pre-r14 wv verdict can enable the ungated exec path. Verified end-to-end on wallaby: cold race picks wv-nt, warm create 17 ms, cold/warm outputs bit-identical, all gates PASS.
+
+Awaiting the node battery for the final verdict, gates, and parity numbers at 25/27/50/81.

@@ -1,0 +1,15 @@
+Round gen_r14 complete. The requested one-liner:
+
+**Tiled one-sweep execute (z-nat+y+x-stage-1 groups, x-stage-2 NT-emit to natural) + alignment-safe caller-buffer access; wallaby best 7,613 us/xform at L=128 B=1 (46.2 us at L=32 B=1), 46.7 us/step-vol batched (L=32 B=8 m=250 graded chain); rel L2 = 4.092e-16 (L=128) / 2.915e-16 (L=32) vs numpy, all m=2 fused gates ≤2.5e-15 vs the 3e-14 contract.**
+
+Summary of what shipped in `impl/gen_pow2.c` (record appended to `strategies/gen_pow2.md`):
+
+1. **The round's most important find: every r13 fused-execute path segfaulted on benchFFT's buffers.** benchFFT's `bench_malloc` returns malloc+16 (16-B aligned); the natural-buffer `*(v8d *)` derefs licensed gcc to assume 64-B alignment, and a deliberate offset harness got an immediate SIGSEGV — the entry would have crashed in this round's own scoring metric. Fixed with an explicitly unaligned vector type (`LDU`/`STU`) on every caller-buffer access, byte-identical output at every offset, no cost on aligned buffers. I put a warning in my record: **every peer entry that vector-loads driver/benchFFT pointers has the same latent fault.**
+
+2. **GP128_XT/GP64_XT (ship): the r11/r12 fused-sweep structure applied to execute()** — my r13 record's named next lever. Sweep 1: natural-load z + y + x-stage-1 per plane group; sweep 2: x-stage-2 emits straight to natural per tile (only 16 planes touched per tile as sequential 2-KB rows — dodges the r13 TLB inversion), deleting the in-place x-pass write and the cust_to_nat read (~69 MB of the L=128 call's ~205 MB). Node result at L=128: **10.41–11.04 ms vs 14.83–16.57 ctl, −28..−30%, 6/6 rotated pairs**, bit-identical. L=64: −1..−4%, 4/4.
+
+3. **GP128_NTE (ship): zmm non-temporal emit for 64-B-aligned callers** (−9%, 3/3; kills the RFO on the 33.5-MB output stream). The staged shifted-NT variant for 16-B callers was raced out (wash-to-loss; the naive interleaved xmm-NT form was a 16.7-ms disaster, recorded) — misaligned callers take plain unaligned stores, which measured split-penalty-free at 128.
+
+4. **Protection**: all chain paths bit-identical to the r13 arithmetic; graded L=32 cell raced across 11 clean rotated pairs — a wash (the one +11% scare was the known first-run-cold artifact); all gates pass on the node with standing digits; scalar build clean. Projected benchFFT curve at their alignment: 128 goes 1.03x(pre-r13)/1.16x → **~1.45x** over fftw3, with 16/32/64 at ~1.2–1.5x — every 2^k B=1 cell beats fftw3.
+
+One thing the monitor should know: late in the session both Ice Lake nodes began rejecting ssh (`pam_slurm_adopt: no active jobs`) while `reserve.sh --status` still reads ALIVE — the wallaby squeue shim now produces a false *positive* (mirror of the r10 false negative). My lease was released cleanly.

@@ -1,0 +1,11 @@
+Done. Round gen_r14 complete for gen_planner — both deliverable files updated, everything measured on the reserved node via held leases, wisdom stripped, all gates green.
+
+**Technique: transposed-store fused CT/GT codelets (4×4 register block-transposes in the store stage) making the execute() plane pass transpose-free, shared with the L≤12 chain; best node (a80n0) B=1: 2.211 µs/xform at 10:1 (execute 1.35 µs = 36.6k mflops vs fftw3 26.2k), batched 1.345 µs/xform at 10:64; rel L2 = 3.1e-16.**
+
+Supporting detail:
+
+- **The gap that mattered**: at round start my entry *lost* benchFFT at L=10 (24.8k vs fftw3's 26.2k same window) and led only 1.08x at 32/64. The fused-root sizes were paying two full plane-transpose sweeps per plane in `pln_p3d_exec`.
+- **The fix**: the fused codelets already hold all N output rows in registers per 4-column chunk, so storing them through 4×4 block transposes deletes both separate transpose passes (axis 1 exits (z,y) into P, axis 2 exits canonical back). The GT output slot is free by CRT — `slot(k) = (k%R)·M + (k%M)` — so no extra register pressure. Values are bit-identical (store addresses only).
+- **Results (same-core node pairs vs the committed impl_13 control)**: benchFFT 10³ 24.6k→36.6k (+48%, now 1.40x over fftw3), 12³ 34.9k→45.3k (1.50x), plus +8–16% at 15/16/20/25; all 14 curve sizes beat fftw3 and `--verify` passes everywhere. The scored chain cells took the same path: 10:1 −13.5% (4/4 pairs), 12:1 −2.4% (4/4). Batched and L=100 cells at parity; full numpy sweep L=2..128 all pass; 5/5 deterministic cold creates.
+- **A trap worth flagging**: `impl → impl_14` is the *live* tree this round, not a snapshot — my first chain A/B built the "control" from it and timed my own binary against itself (caught because ft-vs-alt chains must differ in rounding and didn't). The real control is `impl_13/`. This is written up in my strategy record for the rest of the panel.
+- **Left on the table** (recorded as next steps): root-leaf transposed stores for the two-level trees would attack the still-thin 32/64/128 cells (gen_pow2's class); `GEN_PLANNER_FT`/`GEN_PLANNER_FTC` env pins are in place for the CLX cross-arch A/B.

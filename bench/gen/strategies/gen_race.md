@@ -1929,3 +1929,240 @@ the transpose-out stores) with pack/unpack once per volume per chain.
 4. **If planner ships more wv knobs as runtime fields** (their PB pencil
    width is env-only today), the flip-in-place race shape has five
    instances to copy from (tile/fm/p4/cf/alt).
+
+## Round gen_r13 (reconstruction note — the r13 session shipped code but never appended its section)
+
+Same failure shape as r11, recorded again so the pattern stays visible: the
+r13 session updated impl (verified against impl_13/gen_race.c and its header
+changelog) and the r13 board carries the results, but this file was not
+updated and the round-end strip did not run (279 stale r12/r13-salted
+gen_race keys sat in results/wisdom_a80n0.json until this round's strip).
+What r13 shipped: (1) the eng race's chain length cap 64 -> 4096 (es.m stays
+a pure function of (L, batch)) so the two NEW scored B=1 cells (10:1:16384,
+12:1:12288), which grade at m in the thousands, race at honest amortization
+-- the old cap charged once-per-chain costs (e.g. gen_batchlane's r13 scalar
+c-pack) ~200-256x more heavily than the score does; (2) salt bump *12 ->
+*13.  The r13 board receipts: 10:1 banked 1.943 us/xform and 12:1 2.999
+us/xform, both riding gen_pfa_small's new B=1 chain engine through the eng
+routing, both cells tied with the class winner at 1.00x -- the routing
+worked.  The lesson from r11 stands doubled: THE RECORD APPEND AND THE
+ROUND-END STRIP ARE PART OF THE ROUND.
+
+## Round gen_r14 (the execute()/chain() plumbing-seam round)
+
+### The round's shape, up front
+
+benchFFT -- the round's B=1 acceptance metric -- calls fft3d_create(L, 1)
+and then times single-shot fft3d_execute().  And benchfft_ours/doit links
+gen_race.o: the "ours" curve the brief quotes IS this entry.  Yet NO race
+stage ever measured the execute workload: the eng verdict (a whole-chain
+race) shipped its winner's execute() blindly, and the self path's execute
+stayed the r6 per-volume pln_p3d_exec sandwich.  My own records called the
+inversion risk twice (r5: "MKL beats my execute at L=14 while the graded
+chain is the win"; r8 next-list #3: "race the execute() workload separately
+... the two can invert") and left it unspent because no case weighted raw
+execute.  benchFFT weights nothing else.
+
+### What changed (all demo-entry; library FROZEN, ninth round running)
+
+**1. NEW stage "exe14": the EXECUTE-workload race.**  Runs inside the eng
+block on the SAME arm list (candidate names stay a pure function of
+(L, sources): both repeatability processes compute both keys identically).
+Self is candidate 0 -- the pv pln_p3d_exec loop, which this round carries
+gen_planner's r14 transposed-store fused exec codelets + transpose-free
+plane pass (p->ft) -- so a foreign execute must beat the trunk's own by
+more than noise to forward (tie doctrine).  Foreign arms run their real
+whole-batch fft3d_execute: equal work per thunk, each in its true
+single-shot pattern.  Winner ships on a SEPARATE vtable (p->fxe, aliasing
+p->fx when one arm wins both races); the chain verdict keeps p->fx.  The
+plan struct invariant that makes the seam disappear: when the exe verdict
+is self under a foreign chain winner, p3 STAYS ALIVE for exactly the
+execute path (r13 freed it with the rest of the self engines).
+GEN_RACE_NO_EXE=1 skips the stage (A/B pin).
+
+**2. NEW absolute gate "exegate14".**  The arm's execute vs the self pv
+reference on the deterministic race input, rel L2 < 1e-12, cached per
+(L, exact B, source-hash) -- and consulted on EVERY ship path including
+warm aliases.  enggate alone is a self-consistency check (two fused chain
+steps vs the arm's own execute + exact map): an engine whose chain and
+execute share one wrong scale would pass it.  The exe race's whole point
+is shipping the execute alone, so it gets an absolute reference.
+
+**3. The warm-wisdom probe now requires BOTH eng14 and exe14 keys** to
+answer before the compile/poll phase is skipped -- a cold exe race must
+see its arms even when the chain verdict is already banked.
+
+**4. Salt bump *13 -> *14** (ninth time; the r3 rule): gen_planner's
+generation moved again -- the ft transpose-free plane pass + transposed-
+store fused codelets change pln_p3d_exec under every banked self verdict --
+and batchlane/pfa_small/pow2/dense_prime/bluestein/layout sources all
+churned within the round (arm hashes re-key themselves; the SELF arm's
+name cannot).
+
+### Measured on the node (a80n0, slot lease core 3 -- WITH A LOUD CAVEAT)
+
+The node spent this entire session as a construction site: the whole
+panel's r14 sessions were live (load 12+, up to 15 concurrent race_eng gcc
+jobs, sshd refusing new connections at one point).  Per the r10 rule,
+absolute numbers from these windows are weather, not engine properties;
+same-window library references are attached to everything quotable.
+Correctness and plumbing receipts are load-immune; timing margins below
+are direction-only.
+
+**Plumbing receipts (the round's actual deliverable):**
+
+* **The inversion the stage exists for showed up at first contact**: at
+  L=10 B=1 with arms present, eng14 -> gen_batchlane (chain), exe14 ->
+  SELF at +22.5% (their execute lost to the r14 self exec).  r13 shipped
+  batchlane's execute here blindly.  At L=12 B=1: exe14 -> self at +30.9%.
+* **Self execute at 10/12 B=1 is transformed** (gen_planner's r14 exec
+  codelets, routed by the race): race-thunk reads 1.32-1.38 us (L=10) and
+  2.02 us (L=12) in the quieter moments; the r13-era self sandwich was
+  ~4.25 us (gen_pfa_small's measurement) and the r13 benchFFT "ours"
+  numbers were 3.71/5.43 us (13,440/17,112 mflops).  In my least-bad
+  window: driver raw execute 4.06 us at 10 vs fftw3_measure 6.28 us and
+  MKL 3.66 us SAME CORE SAME MINUTE (quiet-window equivalents ~2.09/1.47
+  -- everything ~3x inflated, ratios: ours/fftw3 = 0.65, i.e. a ~1.5x win
+  at the benchFFT convention).  benchFFT doit (built in my scratch against
+  impl_14): 4.44 us at 10, 6.62 us at 12 in the same storm.
+* **Gates all PASS, shipped binary, on the node**: single-call rel L2
+  3.111e-16 (10:1) / 2.974e-16 (12:1) through the exe path (tol 1e-12);
+  map-chain at graded m PASS at 10:1 m=16384 (1.895e-06 vs anchor
+  9.771e-07, tol 3e-04) and 12:1 m=12288 (3.232e-09 vs anchor 7.995e-09);
+  chain AND single outputs bit-identical across independent node runs
+  (wisdom pins run 2 to run 1's winners -- now for BOTH vtables).
+* **The r9 noise gate earned its keep under the storm**: a 77.6% chain
+  "upset" at 12:1 was reverted as unconfirmed and NOT stored -- exactly
+  the designed behavior on junk windows.
+* Warm create with both verdicts banked: 13-45 ms observed in the storm
+  (dev wisdom on the shared FS; the 50 ms budget holds even in this
+  weather).  Cold creates in the storm: 0.2-64 s, worst at L=100 with all
+  heavyweight compiles relaunching on churned hashes -- inside the 60 s
+  budget everywhere except nothing (64.18 s setup at L=100 was measured
+  by benchFFT's own setup clock INCLUDING its input prep; the create-only
+  poll is bounded at 30 s + race time).
+
+**The full-L benchFFT sweep (10,12,15,16,20,25,27,31,32,40,50,64,100,128)
+ran but the windows were unusable** (fftw3 reading 2.4-3.4x its board
+values, sd 45-183%, medians 5-10x the mins).  Where pairs were least-bad
+(10, 12, 20, 25, 31: ours-vs-fftw3 same window) ours led at every size;
+at 32/64/100 the storm made even direction unreadable.  The monitor's
+quiet-window benchFFT run is the number that counts; the routing it will
+exercise is what the receipts above prove.  The sweep's exe14 verdicts
+show the seam being arbitrated per-L: chain->batchlane + exe->SELF at
+10/15/20 (the inversion, three sizes), both->pow2 at 16, both->
+dense_prime at 31, both->pfa_large at 40/50, both->batchlane at 100
+(exe an honest tie), self elsewhere (some of those are storm-partial;
+the monitor's cold race redoes them).
+
+**SPR (wallaby) validation, quiet core 100 -- every real code path, per
+the r9 doctrine (mid-round the a80n0 reservation ended: ssh began refusing
+with `pam_slurm_adopt: you have no active jobs on this node` even though
+the heartbeat shim still read fresh, so the ICL leg stopped where the
+storm receipts above leave it; the monitor re-measures on the exclusive
+node regardless):**
+
+* **Batched non-regression at 12:64 (graded shape), cold + warm**: chain
+  races to gen_batchlane (tie with pfa_small, the r10-documented honest
+  tie class), exe14 -> batchlane at +5.8% (their batched execute beats
+  self -- so fxe ALIASES fx, the one-plan path), chain 1.824 us/xform
+  (sd 3.25%), single PASS 2.898e-16 through the exe path, map-chain m=600
+  PASS 4.869e-14 vs anchor 3.887e-14, chain outputs bit-identical across
+  independent runs, warm setup 0.20-0.26 s (driver chain-buffer prep
+  included; the create is wisdom reads + dlopen + create).
+* **Determinism spot-proof (3 cold creates, NO_WISDOM, fresh process,
+  same core, L=10 B=1)**: eng14 -> pfa_small 3/3 (margins 24.0/24.1/24.3%),
+  exe14 -> SELF 3/3 (margins 32.3-36.8%) -- and the self execute reads
+  **0.966-0.991 us** on this host (fftw3's ICL benchFFT equivalent at 10
+  is 2.09 us; ICL will differ, but the order says the must-win cell is
+  covered with room).
+* All three vtable topologies exercised end-to-end: (fx=batchlane,
+  fxe=self/keep-p3) at 10:1 ICL, (fxe aliases fx) at 12:64 SPR,
+  (both self) at 12:1 ICL; destroy clean in each.
+
+### Operation count
+
+Library: unchanged, zero instructions in any hot path.  Demo execute():
+ONE pointer test + indirect call when a foreign engine ships (as chain has
+had since r8); the self path is gen_planner's r14 pln_p3d_exec (their op
+accounting -- fused-root trees now run transpose-free planes with
+transposed-store exits).  The exe race adds plan-time samples only:
+~6 calls x (ne+1) arms x whole-batch executes, wisdom-warm cost two file
+reads + (foreign winner only) one dlopen + create.
+
+### What did NOT work / honest boundaries (with the numbers)
+
+* **This session could not produce a quotable timing table** -- the load
+  windows (12+ load, panel-wide gcc storms, sshd connection refusals) made
+  even min-of-samples unreliable at the larger L (L=31 fftw3 read 2374 us
+  vs its ~875 board; L=100 MKL median 26 ms vs 7.8 board).  Everything
+  quotable above carries its same-window reference; everything else is
+  left to the scoring window.  If the r14 board disagrees with a verdict,
+  strip + re-race in quiet before blaming the plumbing.
+* **Storm-window verdicts banked into my DEV wisdom are junk and were
+  treated as such** (dev file under build/tryout/gen_race/, GEN_RACE_WISDOM
+  pin; the real results/wisdom_a80n0.json was never touched by my runs).
+  The monitor cold-races fresh -- and the exe14 stage re-races with it.
+* **The L=12 first-contact eng verdict banked self-only** (pfa_small's arm
+  was mid-churn/compiling): the documented r8/r10 partial-verdict
+  mechanism, converged the same way (REFRESH after the .so landed banked
+  the real race).  Monitor-side advice stands verbatim: one throwaway
+  create before the suite.
+* **Deliberately NOT done: racing the tree choice on the execute workload.**
+  The chain-winning tree's p3 serves execute; the best EXECUTE tree could
+  differ (planner's ft flag is root-form-dependent).  That is a
+  planner-layer enumeration question and the class arms cover the sizes
+  that matter; noted for a future round if benchFFT exposes a self-serving
+  size where the gap is real.
+* tryout.sh's M extraction now breaks on the r13 duplicate-L cases.txt
+  lines (awk returns two values) in addition to the r1-era '$W/c.bin' bug
+  -- all driver runs this session were manual over ssh on the slot lease
+  (protocol unchanged since r3; gen_layout's r14 record hit the same).
+
+### Borrowed, plainly
+
+* **gen_planner r14 (the engine of the self verdict)**: the transposed-
+  store fused exec codelets + transpose-free plane pass (p->ft) are why
+  "self" wins the exe race at 10/12 over the class arms' executes in my
+  windows.  Same honest split as thirteen rounds: their kernels, my
+  measured pick + persistence.
+* **gen_pfa_small r13 next-list #1** ("plain execute() at B=1 is still the
+  r6 sandwich... route it through the form-3 passes") and **gen_batchlane
+  r13 next-list #1** (fuse pack/unpack into first/last passes): the asks
+  that define this round; the exe14 stage is the routing half that makes
+  whichever landing wins ship through the trunk that benchFFT compiles.
+* **gen_layout r14**: the register-form pack/unpack kit (gl_ldi8x8/
+  gl_sti8x8) their round shipped for the engine owners -- not consumed
+  directly by this layer, but its microbench itemizes the ~1 us/volume
+  sandwich the exe race now prices per host instead of trusting.
+* **gen_pfa_large r9/r10** (again): the noise gate that binned this
+  session's storm upsets.
+
+### Adoption status (the score)
+
+* **gen_planner** (full GEN_RACE_LIB_ONLY include), **gen_pfa_large**
+  (string wisdom, salted keys), **gen_powp** (keyf/sig/lookup/store): all
+  unchanged on the frozen API -- zero churn charged, ninth round.
+* The demo now ships class engines through TWO raced vtables (chain since
+  r8, execute since this round) -- the benchFFT curve is the assembled
+  library's execute, chosen per (L, B, host) by measurement.
+* Round end: all stale gen_race/* keys (r12+r13 salts, 279 of them --
+  see the r13 reconstruction note) stripped from results/wisdom_a80n0.json
+  via gr_wisdom_drop_prefix; foreign keys untouched.
+
+### What I would do next (gen_r15)
+
+1. **Quiet-window benchFFT re-proof** of the full L curve (this session's
+   storm made it impossible): expect the must-win 10/12 from the exe14
+   routing + planner's exec codelets; at 64-128 (B=1 memory-bound) expect
+   firming, not leaps -- and if a cell still loses to fftw3, the exe race
+   receipts say whether it is a routing miss (arm loses that should win)
+   or an engine gap (self wins but slow -- then it is the class owner's).
+2. **Race the exe verdict at the graded batched cells' exact B** only if a
+   future case weights raw batched execute; today it costs one extra race
+   per create and can only matter to the single-call gate path.
+3. **Execute-workload tree race** (the "deliberately NOT done" above) if a
+   self-served size shows a real chain-tree-vs-exec-tree gap.
+4. **Prewarm protocol** (carried six rounds): one throwaway create on the
+   scoring host before the suite; this round's source churn re-exposes
+   every arm's first contact.

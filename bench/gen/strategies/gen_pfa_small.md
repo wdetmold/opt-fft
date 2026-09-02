@@ -1876,3 +1876,132 @@ Totals at 10: ~10.7k vector uops/step at the ~2.2/cycle dispatch cap.
    architectural, but CLX downclock changes the ld/st-vs-spill balance), and
    p3tail needs AVX512DQ.
 4. The batched cells remain saturated (r5-r10 verdicts stand); protect.
+
+## Round gen_r14
+
+### Headline
+The execute() reroute round -- and it was exactly my r13 next-list #1, now built
+across the whole class.  fft3d_execute() at B=1/B%8 no longer runs the r6
+sandwich (tuned sizes) or the lane-replicated SoA group (generic sizes): tuned
+10/12 run the r13 register-explicit split passes map-free, 15/20 the memory-form
+equivalent, and every generic size runs one map-free step of the r12 WVS engine
+(gstep_wvs with Wc == NULL -- the pencils always took cp == NULL; the chain and
+execute now share one engine, which is what the brief asked for).  The structural
+insight of the round is the OUTPUT INTERLEAVE FUSION (exst4): a tr8 whose input
+rows are the (re,im) register pairs of four consecutive output slots yields, per
+transposed column q, exactly row R0+q's natural-order interleaved complex -- so
+pass 3 stores straight into the caller's out array.  The r7 rotation trick is
+POINTLESS at m=1 (the chain-end un-rotate costs the transpose it saved), and the
+transpose-back the rotation avoided comes back fused with the interleave the
+sandwich paid separately.  Rows with L%4 slots use one overlapping 4-slot group
+(idempotent: identical values stored twice, pass 3 is out-of-place); L=10's
+2-slot tail uses exst2 (12 shuffles + 8 ymm stores vs the third tr8's 24+8).
+Pass 1 symmetrically reads the caller's INTERLEAVED input in registers
+(pencil10/12/15/20_ii via deint8 = 2 loadu + 2 vpermt2pd per 8 complex): the
+standalone deinterleave volume round trip (2L v8 stores + 2L reloads per pass-1
+pencil) is gone.
+
+### Measured on the node (a80n0, leased slot cores; benchFFT = the round's
+### acceptance harness, built against THIS entry via its fft3d API; driver
+### numbers from tryout.sh same session)
+
+benchFFT (5 N log2 N mflops, cofLxLxL, --verify PASS at every size):
+
+| L | r13 ship (same doit, -DEXEC3=0 -DGEXECWVS=0) | gen_r14 | fftw3 (r13 board) | verdict |
+|---|---|---|---|---|
+| 10  | 13,446 (3.71 us) | **25,980 (1.92 us)** | 23,842 | **WIN 1.09x** (was LOSE 1.77x) |
+| 12  | 18,932 (4.91)    | **33,310 (2.79)**    | 29,724 | **WIN 1.12x** (was LOSE 1.57x) |
+| 15  | 14,047 (14.08)   | **19,876 (9.95)**    | ~11.7k (brief: old won 1.20x) | ~1.7x |
+| 20  | 17,707 (29.29)   | **26,000 (19.95)**   | -- | +47% |
+| 14  | 2,521 (62.2)     | **13,156 (11.91)**   | -- | 5.2x |
+| 21  | 2,842 (214.7)    | **15,831 (38.5)**    | -- | 5.6x |
+| 50  | 2,426 (4,360)    | **13,455 (786)**     | -- | 5.5x |
+| 100 | 1,677 (59,410)   | **14,016 (7,110)**   | -- | 8.4x |
+
+Driver plain-execute (tryout, min): 10:1 2.138 us (r13 sandwich 4.25; MKL same
+window 1.469), 12:1 3.133 (MKL 2.127), 14:1 13.33, mixed 10:12 1.813 / 12:9
+2.846 / 15:9 7.22 / 20:9 15.72 -- all single-call gates PASS 2.8-5.7e-16,
+repeatable bit-identical.  (benchFFT reads ~9% faster than the driver on the
+same code -- its timing convention; both shown so nobody chases that gap.)
+
+### What changed
+1. **exec3_10/exec3_12** (register form) + **exec_fft_15/20** (memory form):
+   pass 1 stride-L^2 via pencil*_ii on the interleaved input, pass 2 stride-L
+   unchanged, pass 3 = p3blk's loads/DFTs with exst4/exst2 fused
+   interleaved-transposed stores to out.  No deinterleave pass, no interleave
+   pass, no rotation.  -DEXEC3=0 rebuilds the r6 sandwich.
+2. **Generic execute() reroute**: remainder volumes (batch%8 in 1..GSPLIT_RMAX,
+   incl. B=1) run wvs_pack_state + gstep_wvs(Wc=NULL) + wvs_unpack per volume
+   instead of the lane-replicated group (up to 8x waste).  One guard line in
+   gstep_wvs (cpb = Wc ? ... : NULL); chain callers unchanged.  -DGEXECWVS=0
+   races the replicated form back.
+3. **deinterleave/interleave vectorized** (2 loadu + 2 vpermt2pd + 2 storeu per
+   8 complex; pure copies, values identical) -- still used by the chain paths.
+4. **EXPS knob**: the exec functions' scheduler is raced SEPARATELY from the
+   chain's SCHEDP3 -- stock scheduler WINS on the map-free exec form (-5.6% at
+   10: 2.227 vs 2.358; -2% at 12: 3.133 vs 3.197) while r13's chain verdict
+   (pressure ON) stands untouched.  Sixth confirmation that scheduling
+   attributes are codelet-local; -DEXPS=1 puts pressure back for cross-arch.
+
+### Bit-identity matrix (cmp on out + .chain, r13 binary vs r14 binary, same
+### inputs, run on the node)
+10:64:1000, 12:64:600, 15:32:600, 20:32:256, 10:1:16384, 12:1:12288, 14:1:100,
+50:4:64 -- ALL IDENTICAL, both files.  This includes the EXECUTE outputs (the
+--out file is one plain execute -- my r10 harness note): exec3/exec_fft/WVS
+compute the same per-site DAG as the sandwich/replicated paths (same M_DFT
+macros, same order; transposes are data movement), so the reroute is provably
+value-transparent, not just gate-passing.  Chain timing A/B same-window
+interleaved pairs: r13/r14 statistically identical at 10:1 (2.213/2.218,
+1.977/1.985 across a window flip), 12:1 (3.045-3.091/3.029-3.099), 10:64
+(1.127-1.144/1.133-1.146, board-equal 1.147).
+
+### What did NOT work / verdicts, with the number
+* **sched-pressure on exec3** (P3PS/EXPS=1): +5.6% at 10, +2% at 12 (above).
+  The chain keeps it (r13: stripping cost +1.4% at 10 there).
+* The scalar interleave_rot route (my own r13 sketch: "form-3 passes + one
+  interleave_rot") was NOT built: costed at ~1000 strided scalar site copies
+  ~0.6-0.8 us at L=10 against a 2.09 us budget -- the exst4 fusion replaces it
+  for free inside pass 3's existing transpose-back.  Declined by arithmetic.
+* First cut (separate vectorized deinterleave + exec3, sched-pressure on) read
+  2.358 at 10:1 -- each of the three follow-ups (stock scheduler -5.6%, fused
+  _ii pass 1 -2.7%, exst2 tail -1.3%) was measured individually against the
+  MKL-stable window (1.466-1.475 all session).
+* Pass-2 lane waste at 10 (20 pencil calls where 12.5 carry information):
+  r13's costing note stands for the exec form too -- every removal scheme pays
+  more shuffle/scatter uops than it saves.  Not re-litigated.
+
+### Borrowed, plainly
+* My own r12 WVS engine (itself gen_batchlane gen_r11's design) -- now serving
+  execute() as well as chain, via the cp==NULL path that was already in the
+  pencils.  My own r13 p3blk register blocks and p3tail2/4, reused whole.
+* Nothing new from other entries this round; the exst4/exst2 output-interleave
+  fusion and the pencil*_ii fused input deinterleave are new here.  TAKE THEM:
+  any entry whose B=1 execute still deinterleaves/interleaves in separate
+  passes (or un-rotates at m=1) can fuse both into its last pass's existing
+  transpose for ~free -- this entry's benchFFT curve moved 1.4-1.9x at the
+  tuned sizes and 5-8x at generic sizes on exactly that plus the WVS reroute.
+
+### Operation count (exec path, per volume)
+Passes 1/2 unchanged from the chain form (ceil(L^2/8) + L*ceil(L/8) pencils,
+84/96/156/208 vector FP per pencil).  Pass-1 pencils: 2L deint8 (2 loadu +
+2 vpermt2pd) instead of 2L vload + the deint pass's 4L st + 4L ld per volume.
+Pass 3 per 8-row block: same tr8-in/p3tail as p3blk, NO map ladders, NO c
+loads; stores = ceil(L/4) exst4 groups (1 tr8 + 8 zmm st each; L=10 tail =
+exst2: 12 shuffles + 8 ymm st).  At 10: ~7.4k vector uops/execute vs the
+sandwich's ~10.5k + 1.5k interleave.
+
+### What I would do next (ranked)
+1. **The 10:1 execute margin is 9% over fftw3** -- thinnest must-win on the
+   board.  If a scoring window threatens it: the remaining costed-but-unbuilt
+   idea is pair-row store groups at L=10 (rows q,q+1 as five zmm spanning 40
+   doubles, tail merged into the neighbor row's s0-1 group: saves ~16 shuffles
+   + 4 stores per block ~2%).
+2. **Generic execute is now WVS-shaped but unswapped at 50/100 pays the swap's
+   absence**: gpen_w exists for the map's sake; a map-free execute might
+   prefer different role assignment.  Race GWVSSW under GEXECWVS at 100.
+3. **B%8 in 5..7 generic execute still lane-replicates** (no Wq allocated).
+   The r8 crossover was measured on the rotation chain; WVS execute is ~5x
+   faster than what that verdict priced, so r=5..7 likely flip to per-volume.
+   Needs GSPLIT_RMAX (or a separate execute threshold) re-raced + arena gating.
+4. Cross-arch: race EXEC3/EXPS/EXST2/GEXECWVS per host; SPR flips are likely
+   on EXPS (its scheduler behaves differently under wider RA).

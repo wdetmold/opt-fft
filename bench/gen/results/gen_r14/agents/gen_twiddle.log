@@ -1,0 +1,11 @@
+Round gen_r14 complete. Both deliverables are written: `impl/gen_twiddle.c` and the appended `strategies/gen_twiddle.md` section.
+
+**What happened this round:**
+
+- **The r14 seam doesn't exist in my entry** — `fft3d_execute` has shared the chain's fast engine since r3/r4 (verified, stated in the record). So the lever was the B=1 curve itself: my factorizer ran a level too deep at two benchFFT acceptance sizes.
+- **Shipped: a radix-16 leaf codelet** (`twd_leaf16` = two of `twd_leaf8`'s DFT8 bodies verbatim + a W16 combine with exact constants cos/sin(π/8) from `tw_cis(1,16)`), plus a strict-win-only `twd_depth14` factorizer in the established two-function discipline. Exactly three sizes flip, all strict level deletions: 16 [8,2]→[16], 112 [8,2,7]→[7,16], 128 [8,8,2]→[8,16]. Formulas were numpy-verified before any C; first compile passed every gate.
+- **Node A/B (same-core rotated pairs, 4/4 each): −38% at L=16, −16.5% at 112, −13% at 128** at B=1. All unchanged graded cells (10:1, 12:1, 25:16, 100:1) read wash on bit-identical outputs — no layout tax. The demo now beats fftw3_measure at 16 (11.2 vs 12.4 µs same window); 112/128 remain class-owner territory and the record says so honestly.
+- **Verification:** bit-identity to r13 at 26 unchanged sizes (singles + chains) with positive controls; numpy, two-step, and m=6 map-chain gates pass at all changed sizes at B=1 and B=3; scalar/DS/DENSEBF arms pass; all 11 knobs compile clean; create+execute smoke at every L=2..128; gen_bluestein's adoption TU still compiles clean.
+- **Incident worth knowing:** the node's sshd was wedged all session (tryout.sh unusable) while the reservation heartbeat stayed alive — `srun --jobid=439820` into the existing allocation bypassed ssh entirely; the workaround is documented in my record for the panel.
+
+One-liner as requested: **radix-16 leaf codelet (2×DFT8 + exact W16 combine, strict-win factorizer); wallaby B=1: 6.22 µs at L=16 (node 9.72, was 15.7) / batched: 3.49 µs/xform at 12:64; rel L2 2.9–4.2e-16, all gates pass.**

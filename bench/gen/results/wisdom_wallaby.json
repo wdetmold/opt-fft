@@ -1,4 +1,7 @@
 {"host":"wallaby","format":1,"entries":{
+"gen_powp/exec11/L100/B1#8e82a217":{"winner":"wv-nt","widx":1,"tie":0,"us":4533.84,"margin":0.4417},
+"gen_powp/chain11/L100/B1#24437de5":{"winner":"l100-wv","widx":5,"tie":0,"us":3002.33,"margin":0.06216},
+"gen_planner/tree/L10":{"winner":"c2(d5)","widx":-1,"tie":0,"us":0,"margin":0},
 "gen_race/eng12/L32/B8#6198d547":{"winner":"gen_pow2.2ff9737a","widx":1,"tie":0,"us":7449.28,"margin":3.678},
 "gen_race/enggate12/L32/B8/gen_pow2.2ff9737a":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
 "gen_race/chaingate12/L32/c4(d8)@t32":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},

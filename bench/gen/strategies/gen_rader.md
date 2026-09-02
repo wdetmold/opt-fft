@@ -2028,3 +2028,186 @@ over fftw3_measure), 11: -40%, 7: -57%, 5: -53%** — every prime in class now
 beats every library at B=1 except 11 (MKL-4%).  Single rel_l2 4.059e-16 (31) /
 3.114e-16 (13), two-step 1.784e-15 (31) / 1.025e-15 (13), map-chain m=140
 2.559e-14 — all gates PASS, all identical digits where paths are shared.
+
+## Round gen_r14
+
+### Where this round started
+
+r13 leaderboard: **86.176 us/step** at the graded cell (L=31 B=16 m=140), leading
+the crossover (gen_dense_prime 111.7, gen_bluestein 276.7, MKL/FFTW 849-885).
+The r14 brief: benchFFT (single-shot fft3d_execute) is the B=1 metric across
+L=10..128; route execute() through the fast engine the chain uses; beat fftw3 at
+every B=1 size.  Of the 14 acceptance sizes only 31 is mine, but the seam has a
+class-wide image: execute() at 31 has run the r1 FLAT layout since r1 (the exact
+4K-alias/line-split trap the r2 padded arena fixed for the CHAIN), and the r13
+record left "11 at MKL-4%" as the class's one remaining B=1 library loss.
+Node: a80n0 (job 439820), ONE held lease (slot 6, core 8), interleaved arms.
+
+### The baseline probe (execute B=1, node core 8, min over 3 reps; MKL/fftw3 same core)
+
+| p | gen_rader (r13) | fftw3_measure | mkl | verdict |
+|---|---|---|---|---|
+| 31 | **75.96** | 762.7 | 754.5 | lead 9.9x |
+| 11 | 2.764 | 4.341 | **2.613** | fftw beaten 1.57x; **MKL-5%, the class's one loss** |
+| 13 | 3.722 | 6.891 | 5.340 | lead 1.43x (r13 form holds) |
+| 37 | 262.8 | 1570 | 1594 | lead 6.0x |
+
+So the mission's own acceptance (beat fftw3 everywhere) was already met
+class-wide before the round; the round's real work was the two items above.
+
+### Built, raced, REJECTED: execute()-onto-the-padded-arena at 31 (-DR31_PADEXEC)
+
+The round's named seam, in this class's image: r31_exec_pad = z reads flat src
+straight into the r2 arena (the chain's step-0 form: 7 zquad_fp + 3-row dense
+tail per plane), x tail-free at the anti-alias pitch (r31_pass_xp), and a NEW
+final y pass that LOADS padded rows and STORES the flat output plane directly
+(r31_pass_yf -- no copy-out sweep; needed a dest-row-stride parameter threaded
+through r31_chunk/r31_pass_core, all call sites compile-time, pre-r14 sites
+pass ds == rs).  Node race, interleaved, 4 rounds:
+
+| arm | B=1 | B=16 |
+|---|---|---|
+| flat (r13 path) | **76.3 / 76.3-80.0** | **92.8-93.8** (one 104 warmup) |
+| padded reroute | 90.8-104.3 | 106.0-107.6 |
+
+**+15-20% at B=1, +14% at B=16, 4/4 non-overlapping.  REJECTED.**  Mechanism,
+so nobody re-derives it: the r2 arena win was measured on a chain whose THREE
+passes all ran in place on one aliased buffer.  Execute's flat z is already
+OUT-OF-PLACE (src -> dst: no store->load aliasing anywhere in the z pass), its
+y runs at small in-plane strides, so only the in-place x-pass pays the alias
+tax (~few % of 76 us) -- while the arena route adds a whole third buffer (st,
+574 KB), pushing the per-call working set src+st+dst = 1.5 MB past the 1.25 MB
+L2.  Execute IS m=1: this is the r5 arena lesson and the r11 zero-copy lesson
+met a THIRD time, now from the execute() side.  The boundary triangulated from
+all three: padded/staged state pays only when its fill/drain amortizes over
+m >> 1 in-place steps AND the flat alternative is genuinely in-place-aliased.
+Flat execute measures 76 us against a ~73 us three-pass port model -- there was
+never 10% on this table.  The ds refactor ships (harmless: chain outputs
+cmp-IDENTICAL to impl_13 at 31 B=16 m=140, 11/13/37/61 m=4); the engine stays
+opt-in for the xarch race.
+
+### Shipped: DENSE Z-ROWS at p=11 (rpd11_*) -- the r13 next-step-1 item, the last library loss closed to -1.5%
+
+The r13 skip-knob profile put the 11 z-pass at ~1.1 of 3.14 us against a ~0.6
+model; the transpose-quad z pays 12 tp4 shuffles (48 port-5 ops) + a staged
+stack round trip per 4 pencils before rp_chunk starts.  The dense form is
+r31_zrow's shape at compile-time p=11:
+
+- fold in 512-bit: u_{1..4}/v_{1..4} = one zmm add/sub of x_{1..4} against a
+  lane-reversed mirror load of x_{7..10} (ONE shuffle), u_5/v_5 one xmm pair;
+- half-spectrum accumulates in one zmm (k=0..3, duplicated pairs, k=0 included
+  so X_0 rides lane pair 0) + one ymm (k=4..5) per C/S system -- the ymm half
+  dispatches on port 1, which idles in every kernel on this panel (PMU audit
+  avenue 4, first productive use in this entry);
+- combine: X_k = C -+ iS via permute+SG (the R31_ZSTORE identities), mirror
+  half stored lane-reversed (shuffle 0x1B zmm masked 0x3F, permute2f128 ymm);
+- 4 rows per call share every table load; duplicated-pair trig (5 rows x 16
+  doubles, 640 B/table) built at create() into ctd/std_ (31-only fields,
+  free at generic p).  ~1 port-5 shuffle/row vs the quad form's ~12.
+
+Node race (interleaved, 4 rounds, execute B=1): **quad 2.780-2.791 (one 3.18
+warmup) vs dense 2.663-2.674 (-4.2%, 4/4); MKL 2.626-2.641 same core**.  The
+gap closes from -5% to **-1.5%**; fftw3_measure beaten 1.63x.  -DRPD11_QZ
+restores the quad z.  Execute outputs at 11 differ from r13 bitwise (different
+kernel form, both correct: rel_l2 2.547e-16); every OTHER size's execute and
+EVERY chain is cmp-IDENTICAL to the impl_13 control (12-prime battery:
+3/5/7/11/13/17/23/37/43/61/89/113 exec + 11/13/37/61 chain m=4 + 31 B=16
+m=140).
+
+### Gates (final binary)
+
+31: exec B=1/B=16 bit-identical to impl_13 (single rel_l2 4.055e-16 B=1);
+chain m=140 B=16 bit-identical => board digits inherited (two-step 1.784e-15,
+map-chain 2.559e-14, anchor 2.312e-14).  11: single 2.547e-16 (tol 1e-12),
+**two-step 8.527e-16** (tol 3e-14, 35x margin), chain m=4 bit-identical to
+r13.  The create() self-check gates the new z path (execute + one chain step
+vs dense reference at 1e-13) exactly as every engine since r1.
+
+### What did NOT work, with the number that killed it
+
+- **The padded execute() reroute: +15-20% B=1 / +14% B=16 at 31, 4/4** (the
+  round's headline negative, mechanism above).  Note what it means for the
+  panel: the r14 brief's "route execute() through the chain's fast engine"
+  is the right systemic fix ONLY where the chain's engine does not carry
+  private staged state whose fill/drain is a per-call fixed cost.  For
+  in-place-capable flat engines like this one, execute() was never on a slow
+  path -- measure before rerouting.
+- A skip-knob pass attribution of the remaining 2.66 us at 11 was staged
+  (bin_skZ/X/Y built) but the node's sshd dropped mid-session; the arms are
+  in r14/prof11.sh for whoever wants the decomposition.  The remaining MKL
+  gap is 37 ns/transform on a 1331-point problem -- fixed-cost territory
+  (dispatch, tails, driver loop), not pass arithmetic.
+
+### Borrowed this round, named
+
+- **gen_pfa_small gen_r13** (via the r14 brief): the execute()/chain() seam
+  framing that set the round's agenda -- raced here and found NOT to apply to
+  this class's flat execute (boundary contributed back above).
+- **My own r13 record**: the sketched dense-z design at 11, executed as
+  specified (including the warning to measure, not guess, after the
+  pair-interleave negative).
+- **gen_dense_prime gen_r1 (transitively ice)**: the R31_ZSTORE combine
+  identities, reused verbatim at p=11 width.
+- **PMU audit avenue 4 / gen_layout r9 gl_map4 line**: the port-1 ymm
+  co-issue idea, first landed in this entry as the k=4..5 ymm half.
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol, as
+  every round.
+
+### Operation count (shipped delta)
+
+Only p=11's z pass changed: per 4 pencils, OLD = 12 tp4 shuffles (48 p5) + 8
+masked loads + 24 staging stores/loads + rp_chunk(4 cols: ~50 FMA + fold);
+NEW = 4x(2 zmm loads + 1 shuffle + 2 zmm add/sub + 1 xmm pair + x0 bcast) fold
++ 5x(4 table loads shared + 8 pair-broadcasts + 8 zmm FMA + 8 ymm FMA) + 4x(2
+shuffles + 4 FMA-class combine + 4 stores).  Port 5 per row: ~12 -> ~1.25.
+Everything else: instruction paths untouched (objdump-level deltas are the
+description string and the dormant R31_PADEXEC/ds plumbing; chains cmp-prove
+it).
+
+### What I would do next
+
+1. **The 11 fixed-cost residue (MKL-1.5% = 37 ns)**: run the staged
+   r14/prof11.sh attribution; if z is now near its ~0.45 us model, the money
+   is in the x/y rp_chunk tails (the 1-column masked tail runs the full
+   11-row fold for 1 column) -- an overlapped 4-wide tail is impossible
+   in-place (r1 lesson) but the X pass could go out-of-place into t1 at 11
+   (working set 2x21 KB, trivially L1) to unlock it.
+2. **p=7/5 dense z** is the same kernel smaller (7: half-spectrum = exactly
+   one zmm, no ymm half) -- we already beat MKL there, so it is lead-padding
+   for the benchFFT curve only; do it if a round ever scores tiny primes.
+3. The 31 execute() is closed: AT its three-pass model, 9.9x over the best
+   library, and the padded route is measured dead.  Only deleted work moves
+   it (r4 law), and the passes are the settled minimum.
+4. **89 bimodality** (r8 item): still the one open measurement, still
+   luck-gated.
+5. Harness: a80n0's sshd dropped mid-session this round (reservation job
+   kept running; heartbeat-shim squeue still reported R) -- stage decision
+   scripts as files (the r9 pattern) so a dropped control connection costs
+   nothing; prof11.sh is exactly that.
+
+### Measured summary (the reply line)
+
+Dense z-rows at p=11; padded execute() reroute at 31 raced and rejected.
+L=31: execute B=1 **75.96 us** (fftw3 762.7, MKL 754.5 -- 9.9x), B=16 chain
+**bit-identical board form** (86.2 us/step r13 board; gates 4.055e-16 /
+1.784e-15 / 2.559e-14).  L=11 B=1: **2.797 -> 2.663 us** (-4.2% vs r13's quad
+z; fftw3 4.34 = 1.63x, MKL 2.63 = -1.5%, was -5%); single 2.547e-16, two-step
+8.527e-16.  All other sizes: execute AND chain outputs cmp-identical to the
+r13 binary.
+
+### Post-session harness addendum (the a80n0 sshd/pam event, for the monitor and the panel)
+
+Mid-session a80n0's sshd dropped and came back REFUSING logins with
+"Access denied by pam_slurm_adopt: you have no active jobs on this node" --
+while the reservation job's payload KEPT RUNNING (RESERVATION.heartbeat
+node-written and <60 s fresh throughout, so reserve.sh --status and the
+wallaby squeue shim both correctly report ALIVE).  Reading: slurmd on the
+node restarted and orphaned the job step; the payload process survives and
+heartbeats over NFS, but slurm no longer credits the job to the node, so
+pam_slurm_adopt denies every new connection.  Consequence for everyone: a
+FRESH HEARTBEAT NO LONGER PROVES SSH ACCESS -- the two failure modes are now
+distinguishable (stale heartbeat = job dead; fresh heartbeat + pam denial =
+slurmd lost the job).  tryout.sh will pass its reservation gate and then die
+at the ssh step.  The monitor needs to re-reserve (scancel the orphan first;
+its payload is still burning a node slot).  My slot-6 lease is released; the
+staged-but-unrun pass attribution at 11 lives in r14/prof11.sh.

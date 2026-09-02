@@ -2017,3 +2017,152 @@ in the cheap order.
 4. Harness: tryout's '$W/c.bin' map-check quoting bug is now ELEVEN
    rounds old (manual check.py battery in this round's session log runs
    all three gates + repeatability in one ssh; steal it).
+
+## Round gen_r14
+
+Standings into the round: the r13 board holds (40 B=8 159.77 / 50 B=4 419.4
+/ 100 B=1 4430.1 chained; 40 and 50 led, 100 conceded to gen_batchlane's SoA
+since r12).  The r14 brief makes benchFFT single-shot fft3d_execute the
+acceptance metric across L=10..128 (this class's sizes there: 40, 50, 100 —
+all currently WINS: 2.59x/2.35x/1.29x over fftw3-measure on the r12-era
+trunk run) and names the systemic seam: execute() and chain() must share one
+fast path at B=1.  For this entry the seam was one line of the r1 record:
+**"the exec fn rides along with the chain winner" — p->fn has been picked on
+a workload execute never runs, for thirteen rounds.**
+
+### What changed
+
+**1. EXECUTE-PATH RACE (`exec_tune`, per-size `xcandpl` pools, own wisdom
+tag `exec1`).**  After tune() installs the chain verdict, create() now races
+the exec pool on the exact benchFFT shape — repeated fn(in, out) with the
+same buffers, on 4K-backed posix_memalign memory (the caller's regime,
+deliberately NOT the THP arena: execute serves caller buffers).  The r9
+noise discipline is reused unchanged: rank prior (rank 0 = the arm the chain
+verdict has always installed on this host, so prior behavior is the
+deterministic default), tight-window upset with the 6% floor plus a fresh
+long-run confirmation, and only tight non-reverted verdicts persist.  A
+memcmp identity gate against the rank-0 arm guards the wiring (all arms are
+bit-identical by construction — prefetch hints only).  GENPFL_XPF=<nm>
+forces an arm; GENPFL_PF keeps its riding fn so the monitor's historical
+chain A/B semantics stay exact.  Cost: one wisdom read warm (~1 ms); cold
+exec race 0.02–0.7 s by size on top of the chain race.
+
+**2. Two new bit-identical exec arms, raced at every size.**
+`x_pfw1` — p2 pokes its RMW tile lines with WRITE intent (prefetchw): the
+in-place x-pass read-modify-writes every line, so a read poke leaves an
+S->E transition on each store.  Implemented as pf==5 inside FN(p2),
+compile-time-folded at the non-lean callsites (all existing expansions
+verified instruction-identical).  `x_pfa1` (non-lean sizes) — p1 mirrors
+every z-subpass granule load with a T1 prefetch of the same address one
+plane ahead: the r11 ipa trick the chain has had for three rounds while
+execute never got it.  Lean coverage sizes carry x0/x1/xw1 (no
+p1body_a there; instantiation cost).
+
+### Operation count
+
+Unchanged everywhere (278/434/661/968 FMA-port vector ops per line at
+40/50/80/100; r6 coverage counts stand).  x_pfw1 swaps 100 prefetcht0 for
+100 prefetchw per p2 tile pass; x_pfa1 adds GENL^2/4 prefetch uops per
+plane in p1 (the ipa density, measured free in the staging loop).
+
+### Measured on the node (a80n0, leased core 5; the session's windows were
+### BIMODAL — see incident 1 — so held-lease alternating pairs and race
+### minima are the only quoted evidence)
+
+Raw execute B=1, held-lease alternation:
+
+| size | arms | verdict |
+|---|---|---|
+| 100 | x1 vs xw1 | TIE in both regimes (churn: 7348/7486, 7358/7511, 7349/6685; quiet: 4457/4455, 4456/4459) |
+| 100 | x1 vs xa1 | **x1 5/6** (4453/4610, 4448/4616, 4466/4605, 4461/4379, 4162/4354, 4180/4321): xa1 +3% — the plane-ahead mirror pays only in the chain's prepass-fed regime; its fifth negative placement |
+| 50 | x1 vs xw1 | wash (378/377, 381/392, 389/393, 344/346, 347/341) |
+| 40 | x0 vs xa1 | wash (5 pairs within ±1.2%) |
+| 40 B=8 m=1 | x0 vs xa1 | **xa1 5/5** (156.0/154.9, 156.6/155.9, 157.4/156.6, 158.2/154.9, 156.2/155.6) — sub-1% margins |
+| 50 B=4 m=1 | x1 vs xa1 | **xa1 4/5**, mins tie (360.7 vs 363.1); xa1 far steadier under churn (385.9→368.9, 409.9→369.7) |
+
+So on ICL at B=1 the prior pick wins everywhere and the ranks correctly
+keep it; the race's value on this host is PROOF + BANKING (the pick is now
+measured on the workload it serves, per host, deterministically), and the
+arms are cross-arch insurance.  At the batched buckets xa1 is a real but
+sub-6% winner (the smaller demand footprint is contention armor — the r4
+ipp pattern at execute granularity); by design the quiet-window race keeps
+rank 0 there, and a genuinely >=6% host can still bank it.
+
+benchFFT itself (community harness linked directly against this entry,
+--verify PASS at all three sizes):
+
+| L^3 | this entry | fftw3-measure (stored board) | ratio |
+|---|---|---|---|
+| 40 | **39,777 "mflops"** (128.4 us) | 15,104 | 2.63x |
+| 50 | **29,058** (364.2 us) | 12,905 | 2.25x |
+| 100 | **23,689** (4.21 ms) | 12,897 | **1.84x** |
+
+The r12-era trunk report read 16,664 (1.29x) at 100 — that gap was a slow
+window plus trunk routing, NOT this engine: quiet-floor driver execute this
+session is 127.2 / 340.7 / 4161.5 us at 40/50/100 B=1.  gen_race: at 100
+B=1 your routed execute printed 5.98 ms where this engine holds ~4.2 —
+worth checking the eng-stage routing/window on your side.
+
+Gates (ship build, node): singles 3.582/4.336/4.522e-16 at 40/50/100 and
+5.035e-16 at 75 (tol 1e-12); two-step m=2 1.857/2.361/2.721e-15 (tol
+3e-14); full chains 3.804e-14 (40 B=8 m=128) / 5.028e-14 (50 B=4) /
+4.181e-14 (100 m=64) — ALL the exact historical digits; chains
+bit-repeatable across processes; benchFFT impulse/linearity verify passes.
+Chained windows this session: 166.7 (40 B=8, ~4% hot), 431.6 (50 B=4),
+4804–5052 (100).  Determinism: 5/5 identical cold picks (chain AND exec) at
+40/50/100 B=1.  Codegen identity vs the r13 object: EVERY scored-size
+symbol nm -S SAME except xc_ipq1_100 (+2.9 KB, an inliner mood flip in the
+rank-19 NTA insurance candidate that no host has ever picked — r5: +12.7%;
+accepted, documented) plus the usual lean constprop collateral (the
+r11/r12-accepted pattern).  Wallaby: builds + runs clean (40 B=1 123.4 us).
+
+### What did NOT work / incidents, with the numbers
+
+1. **The node's L=100 B=1 windows are BIMODAL at the process level: 7.35 ms
+   vs 4.46 ms regimes (65% apart!), flipping mid-session** — the r10
+   "sustained-slow scoring-slot" artifact, much larger at m=1 execute
+   because the whole call is DRAM-exposed.  First baseline probe read 6964
+   us at sd 0.37% (a tight, uniformly slow window) vs 4162 quiet the same
+   lease.  For the monitor: benchFFT numbers at 100 are contention-
+   sensitive in a way the chained cells are not; only full-quiet runs mean
+   anything.
+2. **xa1 (prefetch-ahead) at B=1: +3% at 100, wash at 40/50.**  Numbers in
+   the table.  Lesson recorded: the r11 ipa win lives in the ipp schedule
+   where the NEXT plane's state is read by a sequential prepass; mirrored
+   onto execute's direct granule loads the same prefetches lose.  Do not
+   promote xa1's rank at B=1 on this host.
+3. **xw1 (write-intent poke): tie everywhere on ICL.**  prefetchw buys
+   nothing over prefetcht0 on these RMW streams here (the read poke's line
+   already arrives E via the LLC on this part, evidently).  Kept raced:
+   CLX/SPR prefetchw economics differ.
+4. My dev battery briefly BANKED exec verdicts (including two xa1 batched
+   upsets that passed the 6%+confirmation gate inside one churny window —
+   quiet pairs later showed sub-1%).  All 7 dev keys (5 exec1 + 2 chain8
+   B=1 buckets from forced-arm alternation runs) stripped under flock at
+   round end; the monitor's 3 scoring-window chain8 keys untouched; file
+   left valid (321 entries).  The banked-verdict doctrine (gen_powp r9)
+   applies to SCORING-window verdicts only — dev keys never bank.
+
+### Borrowed, plainly
+
+- The brief/gen_pfa_small gen_r13's naming of the execute-chain plumbing
+  seam — this round is that item executed for this class.
+- My own r9 noise-gate machinery and r7 confirmation shape, reused verbatim
+  for the exec race; my own r11 p1body_a for x_pfa1.
+- gen_batchlane gen_r4 (via everyone): held-lease alternation, again the
+  arbiter for every verdict above.
+
+### What I would do next (ranked)
+
+1. **XARCH: xw1/xa1 on CLX and SPR.**  prefetchw and the L2 prefetch
+   economics are exactly what differs across these parts; the exec race +
+   exec1 wisdom bank the per-host answer automatically.
+2. **If the monitor's benchFFT run at 100 still prints < ~20k mflops, the
+   residue is trunk routing or window state, not this engine** — hand
+   gen_race the 4.2-vs-5.98 ms comparison above.
+3. **Batched-bucket exec ranks**: if batched execute ever becomes a scored
+   shape, xa1's 9/10 pairs justify a bucket-aware rank prior (rank 0 = xa1
+   at nv*vbytes beyond L3); not worth the complexity while only B=1 is
+   scored.
+4. The class-coverage holes (60/84/90/96/105/108/120/126; 112's 0.91x)
+   stand from r10-r13 as the only structural class work left.

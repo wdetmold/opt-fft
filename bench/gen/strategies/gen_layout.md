@@ -2065,3 +2065,151 @@ this campaign ('$W' r1, '$W/c.bin' r2–r12, and now the two-line awk).
    run if any adopter's cell lands on it.
 3. gl_tr8x8_ld exit-side analogue (extract-store) and the r2–r12 offers
    all stand.
+
+## Round gen_r14 (the execute()-reroute round)
+
+### The round's shape, up front
+
+The brief's seam — execute() and chain() must share one fast B=1 path — is a
+LAYOUT seam for every lane-resident engine: chain() packs once and stays
+split for m steps (the r13 kit), but a single-shot fft3d_execute() pays a
+full pack + unpack MEMORY ROUND TRIP around the transform. Two class records
+asked for exactly this round's kit by name: **gen_batchlane r13 next-step 1**
+("3.10 us of which ~1 us is pack + unpack + driver copy around a ~2 us
+transform ... fusing pack into the first pass and unpack into the last") and
+**gen_pfa_small r13 next-step 1** (route execute() through the form-3 passes
+"+ one interleave_rot"). The API freeze yields to those asks (the r9
+doctrine): section 6e ships.
+
+### What changed (library section 6e + gl_unpack8_st; demo arithmetic UNTOUCHED)
+
+1. **`gl_tr8x8_st(b, stride, v[8])`** — gl_tr8x8_ld's store-side mirror, the
+   exit-side analogue my r8/r10 records parked ("extract stores can only
+   serve the non-fused execute() path; not worth a window" — this round the
+   non-fused execute() path IS the metric, so it is built). v holds the
+   COLUMNS of an 8x8 double block; 8 unpacks + 8 vpermt2pd build zmm whose
+   256-bit halves are contiguous row quarters, which leave by 8 plain ymm
+   stores + 8 VEXTRACTF64X4-to-memory. **16 shuffles + 16 store uops per
+   block vs the gl_tr8x8 route's 24 + 8.** Verified before any window
+   (the r8 model-first discipline): llvm-mca icelake-server dispatches
+   vextractf64x4-to-mem on p4/p7/p8/p9 with ZERO p5 (same cost as a plain
+   ymm store), block RThroughput 16.0 vs 24.0; objdump confirms gcc 11.4
+   fuses `_mm256_storeu_pd(p, _mm512_extractf64x4_pd(v,1))` into the single
+   memory-destination form. Full 64-B rows only (the _ld caveat mirrored).
+2. **`gl_ldi8x8(src, stride, re[8], im[8])`** — 8 sites x 8 interleaved
+   streams straight into split site-major REGISTERS (lane = stream,
+   gl_pack8's block contract), two gl_tr8x8_ld calls: 32 loads + 32
+   shuffles, ZERO stores. The register form of one gl_pack8 block with the
+   block's 16 stores and the engine's 16 reloads deleted.
+3. **`gl_sti8x8(dst, stride, re[8], im[8])`** — exact inverse via two
+   gl_tr8x8_st networks: 32 shuffles + 32 store uops per block where the
+   gl_tr8x8_c2i + zmm-store exit spends 48 + 16. The r10 boundary is
+   documented in place: a fused-MAP exit still wants interleaved zmm for
+   gl_map8 — or better, map split-form FIRST (gl_map8s), then exit through
+   this.
+4. **`gl_unpack8_st`** — gl_unpack8 through the extract-store network
+   (standalone-unpack form of the same trade), fallback tail preserved.
+5. **`gl_selftest()` grew three legs**: gl_tr8x8_st inverts gl_tr8x8_ld
+   (bit-exact); gl_ldi8x8 lanes == gl_pack8's blocks AND gl_sti8x8 writes
+   the original rows back bit-exactly; gl_unpack8_st == gl_unpack8 (chunk +
+   fallback tail). Every adopter's create() re-proves all of it per host.
+
+### Operation count
+
+Per 8-site x 8-stream block: entry gl_pack8 (16 zmm st) + engine reloads
+(16 ld) -> gl_ldi8x8 32 ld + 32 sh, zero stores; exit engine stores (16 st)
++ gl_unpack8 (16 ld + 48 sh + 16 st) -> gl_sti8x8 32 sh + 32 st, zero
+loads. Fused into a pass, the loads/stores REPLACE the pass's own — the
+marginal cost over a resident pass is the shuffle networks alone. mca
+(icelake-server): tr8x8_st block RThroughput 16.0 vs 24.0; unpack8_st
+32.0 vs 48.0 per 8 sites. Demo: zero emitted-instruction changes in any
+hot path (new statics + description string only).
+
+### Measured on the node (a80n0, slot-leased core 4; ubench_r14.c kept at build/tryout/gen_layout/)
+
+**The sandwich itself, per volume (8-pencil groups over one L^3 volume,
+interleaved arms, min over 20k reps, two independent runs agreeing):**
+
+| route | L=10 (stride 160 B) | L=12 (stride 192 B) |
+|---|---|---|
+| mem: gl_pack8 -> gl_unpack8 (status quo) | 832 / 873 ns | 1154 / 1160 ns |
+| mem: gl_pack8_ld -> gl_unpack8_st | 940 / 954 ns (**LOSS**) | 1398 / 1406 ns (**LOSS**) |
+| reg: gl_ldi8x8 -> gl_sti8x8 | **786 / 789 ns (−6%)** | **965 / 979 ns (−16%)** |
+| unpack alone: gl_unpack8 -> gl_unpack8_st | 410-413 -> 409-412 (wash) | 689-694 -> 800-811 (**+15% LOSS**) |
+
+Readings: (a) the measured mem sandwich at L=10 (832 ns) is gen_batchlane's
+"~1 us around a ~2 us transform" figure, now itemized; (b) the register
+round trip wins UNFUSED at both strides — and unfused is its floor, since
+fusion merges its loads/stores into the pass's own; (c) **the r13 pack8_ld
+stride inversion reproduces on the store side**: gl_unpack8_st washes at
+160-B rows and loses +15% at 192-B rows, and the combined _ld/_st sandwich
+loses at both — so the standalone _ld/_st forms are NOT the round's answer;
+the register forms are. Adopters: fuse gl_ldi8x8/gl_sti8x8, don't shop
+between standalone unpacks, and measure at your stride if you must.
+
+### Regression control + gates (ship vs impl_14/gen_layout.c = the r13 ship, same node core)
+
+Chain outputs **BIT-IDENTICAL ship-vs-r13 at 12:64:600, 10:1:16384,
+12:1:12288** (node cmp), so every r8–r13 gate verdict transfers exactly.
+Interleaved timing pairs: 12:64 ctl 8.414/8.463 vs ship 8.635/8.392
+(mixed, inside the ±1.5–2.6% layout-confound band; min-of-mins ship);
+10:1 ctl 5.945(sd 11.7%, the documented B=1 bounce)/5.344 vs ship
+5.143/5.211; 12:1 ctl 8.541/8.830 vs ship 8.441/8.759 (ship wins 2/2, vs
+r13 board 9.345). Singles (execute path) 10:1 4.464 us, 12:1 7.311 us.
+Gates re-run anyway: single PASS 2.878e-16 / 2.945e-16 at 10:1 / 12:1
+(tol 1e-12); 10:1 m=16384 map-chain PASS 2.142e-06 vs anchor 9.771e-07
+(identical digits to r13, as bit-identity requires); tryout single at
+12:64 PASS 2.968e-16, repeatable. Scalar (-march=x86-64) build PASS
+single + m=3 map-chain at 9:2 and 12:2; SPR (wallaby native) single PASS
+at 10:1; selftest (with the three new legs) PASS on SPR and at every node
+create(). All six mode/arch builds compile -Wall -Wextra clean.
+tryout.sh's two-line-cases awk bug (r13 finding) now also breaks L=12 —
+every chain number above was taken by hand over the slot lease.
+
+### What did NOT work / boundaries, with numbers
+
+- **gl_unpack8_st standalone: wash at stride 10, +15% at stride 12** (table
+  above) — shipped anyway with the verdict attached (identical layout
+  contract, selftest-pinned), because its 8-site network is what gl_sti8x8
+  is made of and the STANDALONE loss does not transfer to the fused form
+  (fused, the 16 extra stores replace 16 engine stores + 16 unpack loads).
+  Nobody should adopt the standalone form at 192-B strides.
+- **The register route's unfused win is modest (−6% at L=10)** because the
+  memory traffic is identical — only the staging stores/reloads and 16
+  shuffles per block are deleted. The adoption case is fusion, where the
+  round trip disappears entirely; the microbench brackets it: an engine
+  that fuses recovers most of the 832–1160 ns/volume sandwich, which
+  against gen_batchlane's 3.10 us bare-execute at L=10 is the bulk of
+  their ~1 us residual.
+- **No demo reroute needed**: the demo's execute() and chain() have shared
+  the same three-axis engine since r2 (batch-invariant by construction) —
+  the round's seam does not exist in this entry. Demo hot paths untouched;
+  the only exposure is code layout, controlled above.
+
+### Borrowed this round, named
+
+- **gen_batchlane gen_r13** (next-step 1) and **gen_pfa_small gen_r13**
+  (next-step 1): the asks this kit is built to, quoted above.
+- **The r8 tools discipline**: llvm-mca verdict (16.0 vs 24.0) and the
+  objdump fusion check BEFORE the first lease minute; the measured node
+  table is the score, the model chose the schedule.
+- **gen_dense_prime r3's interleaved same-window A/B** and **gen_planner
+  r8's same-layout control arm** (impl_14 snapshot as the control binary),
+  as every round.
+
+### What I would do next (gen_r15, if there is one)
+
+1. **Adoption receipts**: gen_batchlane's bare-execute fusion and
+   gen_pfa_small's execute() reroute are one include away; gl_sti8x8 +
+   gl_map8s together give a mapped exit with zero interleave shuffles
+   beyond the store network. If pfa_small's "interleave_rot" needs the
+   rotation folded INTO the store network's permt2 indices (it can be — the
+   JA/JB vectors are just data), that is a 20-line variant on ask.
+2. **ymm 4-lane analogues** (gl_ldi4x4/gl_sti4x4) only if a B=4-style tail
+   or a 4-pencil execute() group lands in a scored cell — the r9/r10
+   width-inversion history says do not build it on SPR evidence.
+3. Root-cause the 160-vs-192-B stride inversion (now seen on BOTH sides)
+   with one PMU run if any adopter's cell lands on it; my money is on the
+   4K-set/L1-bank geometry of 3-line-apart rows, which the collision model
+   in section 4 could be taught to score for pack shapes.
+4. gl_tr8x8_ld/st promotion offers and the r2–r13 adoption offers stand.

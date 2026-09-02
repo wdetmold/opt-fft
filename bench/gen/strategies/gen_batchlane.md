@@ -1993,3 +1993,171 @@ as r10/r12).  Zero twiddles in the new engines.
    proven): only if a future round scores small-L B<8 beyond 10/12.
 4. **gen_race routing** (again): my 2.07x/2.33x only reach the trunk if the
    race enumerates this entry at B=1..4; same flag as r7/r8/r11.
+
+## Round gen_r14 -- the B=1 execute() curve hardened: within-volume goes to 15/20 (5-6x at B=1) and single-shot execute() loses pack AND unpack inside the transposes
+
+Standings into the round (r13 board): led or converged-tied every batched
+cell; the two new B=1 chain cells scored 2.370/3.648 behind gen_pfa_small's
+1.943/2.999 (their register-explicit split pass 3).  The r14 brief is the
+execute() reroute: benchFFT times SINGLE-SHOT fft3d_execute at B=1, r13
+fixed only the CHAIN path, and my own r13 record priced the residual
+("3.10 us of which ~1 us is pack + unpack around a ~2 us transform") and
+queued exactly this round's two builds as next-steps #1 and #3.
+
+### What shipped (three things)
+
+1. **Within-volume engines at 15 and 20** (r13 next-step #3, "one generator
+   run each now the pattern is proven"): DEF_WV_ENGINE, wv_zload/wv_zstore
+   parameterized by ZB = site-vectors per row (15: ZB=2, NG=29 groups, 7 pad
+   rows; 20: ZB=3, 400 rows = EXACTLY 50 groups, no pad rows -- the tidiest
+   size the engine has).  Pencils reused as-is: dft15_pencil (register
+   form), dft20_pencil (memory form); pack/unpack for 30- and 40-double
+   rows (15's z8..14 tail: two overlapped loads + one extra shuffle to force
+   the pad slot to EXACT zero; 20: five exact vector loads per row).
+   Routing extends the r13 remainder rule to all four sizes.
+2. **Fused AoS OUTPUT z-pass for single-shot execute() (all four wv sizes)**
+   (r13 next-step #1).  The derivation is the round's keeper: trans8's
+   out[j][lane l] = in[lanex[l]][j], so feeding it the scratch slots in
+   lanex-FOLDED INTERLEAVED order [re z0, im z0, re z2, im z2, re z1,
+   im z1, re z3, im z3] makes output register j exactly the 8 interleaved
+   doubles of row r0+j -- the complex re-interleave costs ZERO ops inside
+   the transpose (wv_zout_block; block list per size = ceil(N/4) blocks,
+   last block overlapped at d0 = 2N-8, same idempotent-tail rule as r1).
+   execute()'s z-pass stores straight into the caller's volume: the whole
+   unpack pass and the z store-back to S are gone.  Worth -17% at 10
+   (2.42-2.72 -> 2.17-2.20 before item 3), -19% at 12.
+3. **Fused AoS INPUT y-pass at 10/12** (BL_WVIN=1): stage-1 R2LA/R3LA load
+   the caller's rows directly, deinterleave shuffles riding the loads
+   (2 zmm + 2 SH per full-z slot; the partial z-block takes ONE overlapped
+   load per slot -- at 10 it reads doubles 12..19 so the volume's last row
+   never reads past the caller's array -- with pad lanes injected as exact
+   zeros from vz).  pack_vol vanishes from execute(); pad rows (10 only)
+   are zeroed explicitly per call.  Worth another -17% at 10 (2.18 ->
+   1.81-1.85), -12% at 12.  15/20 keep pack_vol: 15's pencil would need
+   R3LI macros for a ~2% end, and 20's memory-form stage 1 is in-place
+   (reads what it writes) -- a fused-load form needs restructuring, declined.
+
+### Measured on the node (a80n0 core 2, ONE held slot lease, interleaved
+### --samples 4 minima, first invocation discarded; libs same core same window)
+
+Single-shot execute() B=1 (the benchFFT convention -- THE r14 metric):
+
+| L | r13 ship | gen_r14 ship | fftw3_measure | fftw3_patient | mkl_dfti | vs best fftw |
+|---|---|---|---|---|---|---|
+| 10 | 2.42-2.72 | **1.798-1.845** (-31%) | 2.140 | 1.830 | 1.319 | **1.01-1.19x WIN** |
+| 12 | 3.77-3.87 | **2.695-2.774** (-29%) | 3.101 | 2.959 | 1.908 | **1.07-1.15x WIN** |
+| 15 | 35.7 (replicated) | **7.61-7.75** (4.6x) | 9.690 | 8.825 | 5.710 | **1.14-1.27x WIN** |
+| 20 | 88.4 (replicated) | **15.89-16.08** (5.5x) | 18.652 | 19.289 | 31.769 | **1.16-1.17x WIN** |
+
+benchFFT-mflops equivalents (their 5N log2 N convention): 10: ~27.5k vs
+fftw3's 23.8k target; 12: ~34.3k vs 29.7k -- both must-win cells clear from
+this entry's side.  MKL's B=1 single-shot small-L path still beats everyone
+at 10/12/15 (1.32/1.91/5.71 -- for the record, since the board's MKL rows
+are chain-shape and much slower); the acceptance metric is fftw3.
+
+B=1 chains (the r13 scored shape, now four sizes wide):
+10:1 m=16384: 2.121-2.123 vs r13 2.127-2.132 settled-state (bit-identical
+path, no layout tax; the 2.37-2.39 reads early in the session were the
+known slow-turbo state -- see below).  12:1 m=12288: 3.28 vs 3.25, wash.
+15:1 m=600: **6.67-6.79** (r13 replicated: 35.1-39.5, 5.2x).  20:1 m=256:
+**16.78-16.85** (r13: 107.0-107.4, 6.4x).
+Batched protection, same core: 10:64 1.142-1.143 vs r13 1.145-1.147;
+15:32 4.44-4.46 vs 4.41-4.47; 20:32 13.42-13.46 vs 13.48-13.50 -- all
+board-level, no tax; outputs bit-identical to r13 at 10:64/12:64/15:32/
+20:32/50:4/100:1 (cmp on chains, wallaby) AND at the scored 10:1/12:1
+chains (chainsteps_wv untouched).
+
+### The knob races (same core, 3+ interleaved rounds)
+
+- **BL_WVSWAP20 default flipped to 0 (UNSWAPPED)**: 16.85-16.91 vs swap
+  17.11-17.26 (-1.5%, 3/3).  The r13 wv rule holds at the new size: between
+  trans8 brackets that keep p5 busy, the WIDE stage-2 (M5STM's 5 interleaved
+  ladders) schedules better than the swapped thin one (M4STM's 4) -- the
+  batched swap verdict does not transfer, third size in a row.
+- **BL_WVSWAP15**: swap vs memory-X2 raced a WASH (6.71-7.54 vs 6.72-7.65,
+  mixed winners across a noisy window).  Swap kept to match the batched ship.
+- **BL_WVMAX20 = 5** (was a guessed 3): measured wv step 16.9 vs the
+  replicated group's fixed 8 x 12.85 = 102.8 -> crossover at nv=6 is a wash,
+  nv=5 clear.  15 shares BL_WVMAX=4 (nv=5 would be 34.0 vs 35.3, inside
+  window noise -- kept on the safe side).  Correctness proven both sides
+  (20 at B=12/13/14 single + m=2).
+- **BL_WVOUT / BL_WVIN off** (the fused-boundary prices, kept as cross-arch
+  race arms): +17-19% / +12-17% respectively, numbers above.
+
+### The window scare, resolved honestly
+
+A final confirmation sweep read exec at 12/15/20 +11% (3.03/8.58/17.8) with
+L=10 and ALL CHAINS unchanged -- looked exactly like an r12-class code-layout
+regression from the knob-default edits.  Discriminated by racing the final
+binary against the SESSION-2 binaries still on disk (identical exec
+semantics): in the recovered window all arms read equal (2.70-2.77 / 7.6-7.7
+/ 15.9-16.1).  Verdict: transient turbo state, no layout tax.  Lesson for
+the record: before believing a regression from a rebuild, race the OLD
+BINARY in the same window -- binaries are the only controls that survive
+window drift.
+
+### Gates (ship build; wallaby full battery FIRST, node re-proof -- zero node
+### minutes on debugging, sixth round running)
+
+Single call B=1: 3.083/2.902/3.532/3.358e-16 at 10/12/15/20 (tol 1e-12; the
+10/12 digits identical to r13 -- both fused boundaries are value-transparent,
+and BL_WVIN/BL_WVOUT arms cmp bit-identical).  Two-step m=2 (node):
+1.055/0.877/1.175/1.472e-15 (tol 3e-14, 20-34x margin).  Mixed remainders
+both crossover sides: 10 B=11/12, 12 B=9, 15 B=9/12/14, 20 B=6/9/11/12/13/14
+single + m=2 all PASS.  Other class sizes regression: 14/21/35/44/55 PASS.
+Fresh-process repeatability at B=1: 10/12/15/20 PASS on node.  Batched and
+50/100 paths bit-identical to r13 (cmp).
+
+### What did NOT work / was declined, with the number or reason
+
+- Nothing built this round lost -- both fused boundaries and both new sizes
+  shipped.  Declined: fused-INPUT at 15 (R3LI macros for ~2% of a cell that
+  already wins 1.2x) and at 20 (memory-form stage 1 is in-place; a fused
+  load form is a restructure, not a variant); within-volume at 14/21/28/35
+  (not benchFFT sizes, no scored B<8 case; one generator run each when a
+  round wants them).
+- The 10/12 single-shot gap to MKL (1.81 vs 1.32; 2.70 vs 1.91) is the
+  honest residual: the wv engine pays the zb=1 pad waste (half the
+  elementwise pencils at 10 run 2/8-full lanes) and 3 trans8 per z-group.
+  Closing it needs gen_pfa_small's pencil-lane shape (their r13 next-step #1
+  names the same reroute); their entry covers the trunk there -- do not
+  build it twice, the race picks.
+
+### Borrowed, plainly
+
+- **My own r11/r12/r13 within-volume machinery** end to end; the r12 f100
+  z-in-lanes discipline is what makes the fused AoS boundaries pure index
+  algebra.
+- **gen_pfa_small r13**: their "plain execute() is still the r6 sandwich"
+  next-step note is the same finding this round's brief generalizes; their
+  1.943 chain form set the bar my exec numbers are honest against.
+- **gen_pow2 r11 / my r4**: rotated-arm interleaved protocol; the old-binary
+  window control above is its corollary.
+- The r13 codelet-local rule (raced, hit again at 20).
+
+### Operation count
+
+Within-volume chain step unchanged at 10/12; new: 15 = 60 elementwise +
+29 scratch dft15 (156 FP each) + 232 trans8 pairs; 20 = 120 elementwise +
+50 scratch dft20 (208 FP each) + 400 trans8 pairs (ZB=3).  Single-shot
+execute at 10/12: pack and unpack DELETED (0 ops -- deinterleave rides the
+y-pass loads, interleave rides the z-pass transposes: net shuffle count
+DOWN, one trans8 per 4 z-slots instead of 2 per 8 + per-row shuffles);
+at 15/20: unpack deleted, pack kept.  Zero twiddles in the wv engines.
+
+### What I would do next (ranked)
+
+1. **gen_race: route B=1..4 (B=1..5 at 20) execute() AND chain() at
+   10/12/15/20 to this entry** -- the fused-boundary exec path only reaches
+   benchFFT through the trunk (the standing r7-r13 routing flag, now with
+   four sizes of measured wins behind it).
+2. **The zb-pad waste at 10** (half the yx pencils carry 2/8 lanes): a ymm
+   4-lane pencil family remains the only uncosted idea for the MKL gap;
+   model with mca first (the r9 port argument says op-count-only win).
+3. **Fused boundaries for the batched engine's pack_plane/unpack_plane**:
+   the same trans8 algebra applies to the 8-volume packers at chain ends;
+   worth ~nothing on scored chains (amortized over m) but firms every
+   batched single-shot benchFFT point 10-20%.
+4. **Cross-arch**: BL_WVIN/BL_WVOUT/BL_WVSWAP15/BL_WVSWAP20/BL_WVMAX20 join
+   the race axes; CLX's weaker shuffle throughput could flip the fused
+   boundaries (they trade stores for p5 work).

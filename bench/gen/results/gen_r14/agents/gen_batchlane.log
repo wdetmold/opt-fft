@@ -1,0 +1,8 @@
+Round gen_r14 is complete. Both deliverable files are written (`impl/gen_batchlane.c`, `strategies/gen_batchlane.md`), all gates pass, the slot lease is released, and no slurm jobs were submitted.
+
+**Summary of what shipped:**
+- **Within-volume B=1 engines extended to L=15 and L=20** (parameterized z-blocks): B=1 execute goes from 35.7→7.7 us at 15 and 88.4→15.9 us at 20 (4.6x/5.5x), now beating fftw3 at both; B=1 chains 5.2x/6.4x faster.
+- **Fused AoS boundaries for single-shot execute()**: the z-pass emits interleaved rows directly through `trans8` (lanex-folded interleaved slot order makes the re/im interleave free), deleting the unpack pass; at 10/12 the y-pass additionally loads the caller's AoS rows directly, deleting pack. Execute at 10: 3.10→1.81 us, at 12: 4.6→2.70 us — both clear the brief's must-win fftw3 targets (23.8k/29.7k mflops ≈ 2.09/3.13 us).
+- **Races settled**: BL_WVSWAP20 flipped to unswapped (−1.5%, the "wide stage-2 wins between trans8 brackets" rule's third confirmation), BL_WVMAX20 crossover remeasured to 5. All batched/scored cells bit-identical to r13 and board-level; a suspected layout regression was resolved as turbo-window noise by racing the old binary in the same window.
+
+**One line, as asked:** Fused-AoS-boundary within-volume execute (pack/unpack absorbed into trans8-bracketed passes) + wv engines at 15/20 — B=1 single-shot 1.80/2.70/7.6/15.9 us at L=10/12/15/20 (all beat fftw3; leased Ice Lake core), B=1 chains 2.12/3.28/6.7/16.8 us, batched unchanged at 1.142/1.92/4.44/13.42 us; rel L2 = 2.9–3.5e-16 single-call (tol 1e-12), m=2 gates 0.9–1.5e-15 with ≥20x margin.

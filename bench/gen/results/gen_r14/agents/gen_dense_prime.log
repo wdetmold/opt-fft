@@ -1,0 +1,13 @@
+Done. Only my two files changed (`impl_14/gen_dense_prime.c` via the `impl` symlink, and `strategies/gen_dense_prime.md`); the other modified files are other implementers' concurrent work.
+
+**Summary of round gen_r14 for gen_dense_prime:**
+
+The seam was exactly where the brief pointed: my r13 fx/fy engines at L=10/15 were bound to *padded* chain row widths, so `fft3d_execute()` fell through to the generic runtime-bounds masked GEMMs. I raced three routes on a80n0 (one held core, interleaved min-sets):
+
+- **Winner — flat compile-time x/y engines at 10/15** (same literal-shape cores as r13, instantiated at flat widths, zero copies): execute B=1 **10: 3.22–3.67 → 2.36 us (-27%)**, **15: 13.3–15.0 → 11.6 us (-13%)**, batched execute 10:64 -24%, 15:32 -14%, 4/4 pairwise everywhere.
+- **Rejected — padded copy-in/copy-out reroute**: +17% at 31 (3/3) and +2–20% at the bare primes — the strided copies are pure tax in the execute geometry; kept as `-DGDP_EXP31`/`-DGDP_NOFXE` cross-arch knobs.
+- 12/20/31 execute already shared the fast path (verified parity); all chain paths untouched and cmp-identical.
+
+Correctness: outputs **bit-identical to r13 at all 14 dev cells** (single and chain), fresh numpy gates PASS everywhere (singles ≤3.9e-16, two-step ≤1.6e-15 vs 3e-14 tol, all graded map-chains inside their anchors), scalar build verified end-to-end. At 15/20/31 my execute now beats every library by 1.7–8x; the residual at 10/12 vs fftw3 (2.36 vs 2.09 us-equivalent) is the settled dense-vs-PFA arithmetic, not plumbing — gen_pfa_small covers those cells for the trunk. Wallaby was too loaded (51 users, readings bimodal 2x) to decide anything; noted an SPR re-race of the fxe knob as next work.
+
+**One-liner:** Flat literal-shape execute() engines at 10/15 (zero-copy reroute of the r13 specialization; padded reroute raced and rejected at 31/primes) — node a80n0: 2.36 us/xform at 10 B=1 (2.88 at B=64), 11.6 at 15 B=1, 109.2 at 31 B=1; wallaby best-min 1.46 us at 10 B=1 (heavily loaded, advisory only); rel L2 = 2.8e-16..3.9e-16 single, two-step ≤1.6e-15, outputs bit-identical to r13.
