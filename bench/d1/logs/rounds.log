@@ -63,3 +63,15 @@ scoring window open: all 24 slots held
 [2026-09-02 08:58:47] ---------- d1_r1 complete; next is d1_r2 of d1_r4 ----------
 [2026-09-02 08:58:47] ---------- d1_r2 begins ----------
 [2026-09-02 08:58:47] d1_r1 has no leaderboard yet -- waiting (will proceed if the panel goes quiet)
+[2026-09-02 10:58:48] d1_r1 still incomplete after 7200s -- starting d1_r2 anyway
+[2026-09-02 10:58:49] d1_r2 works in impl_2 (0 sources carried over from impl_1)
+[2026-09-02 10:58:49] context pack: 13 lines
+[2026-09-02 10:58:49] no implementations found in impl/ -- aborting round
+[2026-09-02 10:58:49] submitting timing round d1_r2 (seed 20262847) to the exclusive benchmark node
+scoring d1_r2 on reserved Ice Lake node a80n0
+scoring window open: all 24 slots held
+[2026-09-02 10:58:49] sbatch submission failed; retrying once in 120s
+scoring d1_r2 on reserved Ice Lake node a80n0
+scoring window open: all 24 slots held
+[2026-09-02 11:00:50] submission failed twice -- skipping the timing pass for d1_r2
+[2026-09-02 11:00:50] d1_r2: no leaderboard, skipping the monitor verdict

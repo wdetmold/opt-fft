@@ -29,3 +29,12 @@
 2026-09-02 10:15:01 d1 tick skipped: lock held
 2026-09-02 10:30:01 d1 tick skipped: lock held
 2026-09-02 10:45:01 d1 tick skipped: lock held
+[2026-09-02 10:58:48] d1_r1 still incomplete after 7200s -- starting d1_r2 anyway
+[2026-09-02 10:58:49] d1_r2 works in impl_2 (0 sources carried over from impl_1)
+[2026-09-02 10:58:49] context pack: 13 lines
+[2026-09-02 10:58:49] no implementations found in impl/ -- aborting round
+[2026-09-02 10:58:49] submitting timing round d1_r2 (seed 20262847) to the exclusive benchmark node
+[2026-09-02 10:58:49] sbatch submission failed; retrying once in 120s
+2026-09-02 11:00:01 d1 tick skipped: lock held
+[2026-09-02 11:00:50] submission failed twice -- skipping the timing pass for d1_r2
+[2026-09-02 11:00:50] d1_r2: no leaderboard, skipping the monitor verdict
