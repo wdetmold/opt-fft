@@ -1,0 +1,57 @@
+== node interfaces and IB devices ==
+-- p51n1
+lo: UNKNOWN
+eth0: UP
+eth1: DOWN
+eth2: DOWN
+ib:
+mlx5_0
+-- p55n3
+lo: UNKNOWN
+eth0: UP
+eth1: DOWN
+eth2: DOWN
+ib:
+mlx5_0
+== openmpi transports available ==
+                 MCA btl: self (MCA v2.1.0, API v3.1.0, Component v4.1.5)
+                 MCA btl: smcuda (MCA v2.1.0, API v3.1.0, Component v4.1.5)
+                 MCA btl: tcp (MCA v2.1.0, API v3.1.0, Component v4.1.5)
+                 MCA btl: vader (MCA v2.1.0, API v3.1.0, Component v4.1.5)
+                 MCA osc: monitoring (MCA v2.1.0, API v3.0.0, Component v4.1.5)
+                 MCA osc: pt2pt (MCA v2.1.0, API v3.0.0, Component v4.1.5)
+                 MCA osc: rdma (MCA v2.1.0, API v3.0.0, Component v4.1.5)
+                 MCA osc: sm (MCA v2.1.0, API v3.0.0, Component v4.1.5)
+                 MCA osc: ucx (MCA v2.1.0, API v3.0.0, Component v4.1.5)
+                 MCA pml: cm (MCA v2.1.0, API v2.0.0, Component v4.1.5)
+                 MCA pml: monitoring (MCA v2.1.0, API v2.0.0, Component v4.1.5)
+                 MCA pml: ob1 (MCA v2.1.0, API v2.0.0, Component v4.1.5)
+                 MCA pml: ucx (MCA v2.1.0, API v2.0.0, Component v4.1.5)
+                 MCA pml: v (MCA v2.1.0, API v2.0.0, Component v4.1.5)
+== default (whatever OpenMPI picks) ==
+probe: 2 ranks; rank0=p51n1 rank1=p55n3
+probe: pingpong         8 B  one-way      1.807 us     0.004 GB/s
+probe: pingpong      1024 B  one-way      2.801 us     0.366 GB/s
+probe: pingpong     65536 B  one-way     52.669 us     1.244 GB/s
+probe: pingpong   1048576 B  one-way    125.673 us     8.344 GB/s
+probe: pingpong   8388608 B  one-way   1087.057 us     7.717 GB/s
+probe: alltoall 262144 B/peer x 2 ranks       0.123 ms     2.126 GB/s/rank
+probe-summary: latency_us=1.807 peak_bw_GBs=8.344 alltoall_ms=0.123
+== forced ucx ==
+probe: 2 ranks; rank0=p51n1 rank1=p55n3
+probe: pingpong         8 B  one-way      1.747 us     0.005 GB/s
+probe: pingpong      1024 B  one-way      2.785 us     0.368 GB/s
+probe: pingpong     65536 B  one-way     52.523 us     1.248 GB/s
+probe: pingpong   1048576 B  one-way    126.074 us     8.317 GB/s
+probe: pingpong   8388608 B  one-way   1136.470 us     7.381 GB/s
+probe: alltoall 262144 B/peer x 2 ranks       0.122 ms     2.141 GB/s/rank
+probe-summary: latency_us=1.747 peak_bw_GBs=8.317 alltoall_ms=0.122
+== forced tcp ==
+probe: 2 ranks; rank0=p51n1 rank1=p55n3
+probe: pingpong         8 B  one-way   5012.007 us     0.000 GB/s
+probe: pingpong      1024 B  one-way   5011.667 us     0.000 GB/s
+probe: pingpong     65536 B  one-way  15236.217 us     0.004 GB/s
+probe: pingpong   1048576 B  one-way  17076.910 us     0.061 GB/s
+probe: pingpong   8388608 B  one-way  66232.877 us     0.127 GB/s
+probe: alltoall 262144 B/peer x 2 ranks       0.203 ms     1.289 GB/s/rank
+probe-summary: latency_us=5012.007 peak_bw_GBs=0.127 alltoall_ms=0.203

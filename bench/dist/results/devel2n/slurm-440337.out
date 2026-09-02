@@ -1,0 +1,28 @@
+# commfrac devel2n
+date: 2026-09-02T14:08:41-04:00   slurm_job: 440337   nodes: 2
+nodelist: p51n1,p55n3
+cpu: Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
+cores/node: 32   isa build: avx2
+heffte: /home/lqcd/wdetmold/fft/ext/src/heffte/build-trace-avx2/benchmarks/speed3d_c2c
+mpi: mpirun (Open MPI) 4.1.5rc4
+modules: Currently Loaded Modulefiles: 1) slurm/19.05.8.1-cuda-11.8(default) 5) tbb/latest <aL> 2) cmake/3.26.3 6) compiler-rt/latest <aL> 3) cuda/12.2.1 7) mkl/latest 4) openmpi/4.1.5-cuda-11.8 8) python/3.12.11 Key: (symbolic-version) <module-tag> <aL>=auto-loaded 
+configs (ranks:perNode): 1:1 8:8 32:32 32:16 64:32   grids: 128 256   algos: a2av p2p_pl
+   ok   grid=128 ranks=1 nodes=1 algo=a2av  Time per run: 0.0794462 (s) Performance:  2.7717 GFlops/s 
+   ok   grid=128 ranks=8 nodes=1 algo=a2av  Time per run: 0.0198462 (s) Performance:  11.0954 GFlops/s 
+   ok   grid=128 ranks=8 nodes=1 algo=p2p_pl  Time per run: 0.0193153 (s) Performance:  11.4003 GFlops/s 
+   ok   grid=128 ranks=32 nodes=1 algo=a2av  Time per run: 0.00600133 (s) Performance:  36.692 GFlops/s 
+   ok   grid=128 ranks=32 nodes=1 algo=p2p_pl  Time per run: 0.00573222 (s) Performance:  38.4146 GFlops/s 
+   ok   grid=128 ranks=32 nodes=2 algo=a2av  Time per run: 0.644815 (s) Performance:  0.341495 GFlops/s 
+   ok   grid=128 ranks=32 nodes=2 algo=p2p_pl  Time per run: 1.15153 (s) Performance:  0.191225 GFlops/s 
+   ok   grid=128 ranks=64 nodes=2 algo=a2av  Time per run: 1.05637 (s) Performance:  0.208451 GFlops/s 
+   ok   grid=128 ranks=64 nodes=2 algo=p2p_pl  Time per run: 1.39535 (s) Performance:  0.157811 GFlops/s 
+   ok   grid=256 ranks=1 nodes=1 algo=a2av  Time per run: 0.704045 (s) Performance:  2.85957 GFlops/s 
+   ok   grid=256 ranks=8 nodes=1 algo=a2av  Time per run: 0.176366 (s) Performance:  11.4153 GFlops/s 
+   ok   grid=256 ranks=8 nodes=1 algo=p2p_pl  Time per run: 0.178043 (s) Performance:  11.3078 GFlops/s 
+   ok   grid=256 ranks=32 nodes=1 algo=a2av  Time per run: 0.0717309 (s) Performance:  28.0669 GFlops/s 
+   ok   grid=256 ranks=32 nodes=1 algo=p2p_pl  Time per run: 0.0688634 (s) Performance:  29.2356 GFlops/s 
+   ok   grid=256 ranks=32 nodes=2 algo=a2av  Time per run: 2.25546 (s) Performance:  0.892619 GFlops/s 
+   ok   grid=256 ranks=32 nodes=2 algo=p2p_pl  Time per run: 2.79279 (s) Performance:  0.72088 GFlops/s 
+   ok   grid=256 ranks=64 nodes=2 algo=a2av  Time per run: 1.87581 (s) Performance:  1.07328 GFlops/s 
+   ok   grid=256 ranks=64 nodes=2 algo=p2p_pl  Time per run: 2.25259 (s) Performance:  0.893755 GFlops/s 
+/home/lqcd/wdetmold/fft/bench/dist/commfrac.sh: error reading input file: Stale file handle

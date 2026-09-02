@@ -76,6 +76,24 @@ echo "configs (ranks:perNode): $CONFIGS   grids: $GRIDS   algos: $ALGOS_NOTE" \
   | tee -a "$OUT/environment.txt"
 ALGOS="a2av p2p_pl"
 
+# Characterize the fabric BEFORE the FFT sweep, so no result from here can be misread as an
+# FFT property when it is really a transport property.  This is not decoration: on the
+# devel/prod nodes the same 32-rank 128^3 transpose cost 0.006 s within one node and 0.645 s
+# across two, and without a direct latency/bandwidth number that 107x looks exactly like the
+# "communication dominates" conclusion we are trying to test.
+if [ "$NODES" -ge 2 ]; then
+  if mpicc -O2 -o "$OUT/fabric_probe" fabric_probe.c 2>"$OUT/probe_build.log"; then
+    mpirun -np 2 --map-by ppr:1:node -x LD_LIBRARY_PATH "$OUT/fabric_probe" \
+      > "$OUT/fabric_probe.txt" 2>&1 || true
+    mpirun -np $((CPN * NODES)) --map-by "ppr:$CPN:node" --bind-to core -x LD_LIBRARY_PATH \
+      "$OUT/fabric_probe" >> "$OUT/fabric_probe.txt" 2>&1 || true
+    grep -E "probe-summary|probe: pingpong|probe: alltoall|probe: [0-9]" "$OUT/fabric_probe.txt" \
+      | tee -a "$OUT/environment.txt"
+  else
+    echo "fabric probe FAILED to build -- see $OUT/probe_build.log" | tee -a "$OUT/environment.txt"
+  fi
+fi
+
 run_one() {
   local grid=$1 ranks=$2 ppn=$3 algo=$4
   local nnodes=$(( (ranks + ppn - 1) / ppn ))

@@ -155,3 +155,7 @@ bench/*/build/
 ext/benchfft/
 bench/*/leases/
 bench/*/RESERVATION*
+
+# comm-fraction harness: per-tag snapshots of the payload script
+bench/dist/.commfrac_snapshot_*.sh
+bench/dist/results/**/fabric_probe

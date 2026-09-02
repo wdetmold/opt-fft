@@ -1,0 +1,9 @@
+# commfrac devel2n
+date: 2026-09-02T14:08:41-04:00   slurm_job: 440337   nodes: 2
+nodelist: p51n1,p55n3
+cpu: Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
+cores/node: 32   isa build: avx2
+heffte: /home/lqcd/wdetmold/fft/ext/src/heffte/build-trace-avx2/benchmarks/speed3d_c2c
+mpi: mpirun (Open MPI) 4.1.5rc4
+modules: Currently Loaded Modulefiles: 1) slurm/19.05.8.1-cuda-11.8(default) 5) tbb/latest <aL> 2) cmake/3.26.3 6) compiler-rt/latest <aL> 3) cuda/12.2.1 7) mkl/latest 4) openmpi/4.1.5-cuda-11.8 8) python/3.12.11 Key: (symbolic-version) <module-tag> <aL>=auto-loaded 
+configs (ranks:perNode): 1:1 8:8 32:32 32:16 64:32   grids: 128 256   algos: a2av p2p_pl

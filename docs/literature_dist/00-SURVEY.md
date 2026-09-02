@@ -94,6 +94,49 @@ numbers were previously unquotable):
 at ≥4 CPU nodes, and at essentially nothing multi-node on GPUs.** Our kernel advantage does not
 survive contact with a large multi-node transform, and we should never pitch it as if it does.
 
+### Our own measurement (2026-09-02) — the small-node end the literature never decomposed
+
+`bench/dist/` now measures this directly, via heFFTe built with `Heffte_ENABLE_TRACING` so the
+split comes from `MPI_Wtime` events rather than inference. First run: 2× Xeon Gold 5218
+(Cascade Lake, 32 physical cores/node), OpenMPI 4.1.5, FFTW backend, fp64 c2c, MPI_Alltoallv.
+The bucketing is verified by closure against heFFTe's own reported time (traced total =
+2·nruns·per-transform, worst deviation 2.4%), so the percentages are complete and each event
+counted once:
+
+| grid | ranks | nodes | fft% | pack% | mpi% | unpack% | cap@3.5× | cap if pack absorbed |
+|---|---|---|---|---|---|---|---|
+| 128³ | 1 | 1 | **39.5** | – | 0 | – | 1.39 | 3.50 |
+| 128³ | 8 | 1 | **22.1** | 24.9 | 20.7 | 30.9 | 1.19 | 2.30 |
+| 128³ | 32 | 1 | **19.8** | 20.0 | 31.2 | 28.1 | 1.17 | 1.96 |
+| 256³ | 1 | 1 | **34.4** | – | 0 | – | 1.33 | 3.50 |
+| 256³ | 8 | 1 | **19.4** | 24.2 | 20.4 | 34.6 | 1.16 | 2.32 |
+| 256³ | 32 | 1 | **15.7** | 30.1 | 22.3 | 30.5 | 1.13 | 2.25 |
+
+Four things this settles:
+
+1. **Single-node local-FFT share is 16–22% at 8–32 ranks** — higher than the 11–13% ICL
+   measured at four nodes, as expected, but a kernel-only drop-in still caps at **1.13–1.19×**.
+   The small-node regime is friendlier than the published numbers, and not nearly friendly
+   enough to carry the claim on its own.
+2. **Even at ONE RANK, with no MPI whatsoever, the local FFT is only 34–40% of the transform.**
+   The other 60–66% is heFFTe's own local reshape copies. This is the most useful number here:
+   it means a kernel-only drop-in is capped at ~1.39× even in the completely serial case, so
+   the ceiling is *not* mainly about the network at all — it is about data movement.
+3. **Absorbing the transpose pack/unpack raises the cap to 1.96–2.32×** — now measured on our
+   hardware rather than projected from the ICL charts. This is the design instruction of §3
+   confirmed: the win is in fusing the data movement into the kernel, not in faster butterflies.
+4. **Shared-memory MPI is already 20–31% at one node.** The transpose is expensive before any
+   network is involved.
+
+**The two-node rows from that run are unusable and are deliberately not quoted.** The same 32
+ranks and same grid took 0.0060 s inside one node and 0.645 s split across two — 107×, with MPI
+at 98–99% of the trace. That is a transport fault on the `devel`/`prod` nodes, not a fabric
+latency penalty, and it is exactly the trap the survey warns about: read off the FFT alone it
+looks like a textbook confirmation of "communication dominates beyond one node". It was caught
+only because the ladder holds rank count fixed while varying node count. `bench/dist` now runs
+a ping-pong and all-to-all fabric probe before every multi-node sweep so this can never be
+reported as an FFT property. **The Ice Lake two-node number remains open.**
+
 Three ways the value survives, in descending order of confidence:
 
 - **Absorb the pack/unpack, not just the butterflies.** Under collective communication on CPU
@@ -277,12 +320,16 @@ running it on our shapes is a cheap experiment worth doing.
 
 ## Actionable list, ranked by leverage
 
-1. **Measure the 1–2 node CPU comm fraction ourselves** (heFFTe already built in `ext/install`;
-   one axxxl reservation, 2 nodes, timer split or heFFTe's tracing). Everything in §3 hinges on a
-   number the literature does not contain, and it is a few hours of work.
-2. **Design the kernel to absorb transpose pack/unpack**, not just the butterflies — the
-   difference between a 1.07× and a ~1.5–1.8× end-to-end cap on CPU. Feeds straight back into the
-   3D/1D kernel design, independent of whether we ever ship a distributed thing.
+1. ~~Measure the 1–2 node CPU comm fraction ourselves.~~ **Single-node done** (§3, `bench/dist/`):
+   16–22% local FFT at 8–32 ranks, and only 34–40% even at one rank. **Two-node still open** —
+   the `devel`/`prod` inter-node transport is broken (107× penalty), so it needs `axxxl`, which
+   means one window with both Ice Lake nodes in a single allocation.
+2. **Design the kernel to absorb transpose pack/unpack**, not just the butterflies — now
+   promoted to the top item, because the measurement moved it from "plausible" to "the whole
+   ballgame": kernel-only caps at 1.13–1.19× on one node, kernel-plus-data-movement at
+   1.96–2.32×, and the serial one-rank row shows 60–66% of the transform is data movement even
+   with zero MPI. Feeds straight back into the 3D/1D kernel design, independent of whether we
+   ever ship anything distributed.
 3. **Write the heFFTe backend adapter** (~100 lines: 1D ctor, throwing 2D/3D placeholders,
    optional `has_executor2d/3d=false`, AoS↔SoA shim, `use_reorder=true` assert). Cheap, fully
    specified above, and gives an A/B against fftw/mkl/cufft by changing one template parameter

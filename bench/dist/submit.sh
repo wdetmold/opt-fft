@@ -40,10 +40,16 @@ if [ -z "$ISA" ]; then
 fi
 SBATCH=$(command -v sbatch || echo /opt/software/slurm-19.05.8.1-cuda-11.8/bin/sbatch)
 mkdir -p "results/$TAG"
+# Snapshot the payload, the way bench/d1/submit.sh does.  bash reads a script incrementally,
+# so editing commfrac.sh while a job is executing it kills the job mid-sweep -- the first run
+# here died with "error reading input file: Stale file handle" after all 18 configurations had
+# completed, losing only the parse step but for no good reason.
+JOBSCRIPT=$(pwd)/.commfrac_snapshot_$TAG.sh
+cp commfrac.sh "$JOBSCRIPT"; chmod +x "$JOBSCRIPT"
 # Job name deliberately avoids the panels' prefixes: bench/geom/run_rounds.sh treats a queued
 # job carrying its own prefix as "a round is in flight" and would stall itself behind this.
 set -x
 "$SBATCH" --job-name="commfrac" --partition="$PART" --nodes="$NODES" --exclusive \
   --time="$TIME" ${NODELIST:+--nodelist="$NODELIST"} \
   --output="$(pwd)/results/$TAG/slurm-%j.out" \
-  --wrap="$(pwd)/commfrac.sh --tag $TAG --isa $ISA --nruns $NRUNS --grids '$GRIDS'"
+  --wrap="$JOBSCRIPT --tag $TAG --isa $ISA --nruns $NRUNS --grids '$GRIDS'"
