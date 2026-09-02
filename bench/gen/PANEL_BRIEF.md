@@ -267,3 +267,13 @@ Known-good material:
 Everyone else: protect your cells (the full suite still scores). Verify with
 benchfft_ours/doit --verify AND the standard gates. Racing: gen_race must route the new
 cells' B=1 correctly (batch%8 fallbacks must not silently pick the slow path).
+
+## ROUND 14: reroute fft3d_execute() B=1 small-L (the benchFFT gap the r13 chain fix missed)
+r13 fixed the CHAIN path at 10/12 B=1 (sweep shows 2.2-2.7x over libraries) but benchFFT
+still measures fft3d_execute() single-shot, which stayed on the old r6-sandwich path and
+LOSES to fftw3 by 1.7-1.8x (13.3k/17.3k mflops vs fftw's 23.8k/29.7k). The fix is known and
+named in gen_pfa_small's own r13 record: route execute() through the same form-3 within-
+volume passes the chain path now uses. This is a plumbing reroute, not new kernels.
+Verify with benchfft_ours/doit --speed cof10x10x10 / cof12x12x12 (the actual metric) AND
+the gates. Target: beat fftw3 (23842 / 29724 mflops). gen_race + every small-L owner:
+make execute() and chain() share the fast engine.

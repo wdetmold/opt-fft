@@ -6,6 +6,6 @@ doit: doit.o gen_race.o
 	$(CC) $(CFLAGS) -o $@ doit.o gen_race.o $(B)/libbench/libbench.a -lm
 doit.o: doit.c
 	$(CC) $(CFLAGS) -I$(B) -I$(B)/libbench -c doit.c
-gen_race.o: $(GEN)/impl_12/gen_race.c $(GEN)/fft3d_api.h
-	$(CC) $(CFLAGS) -I$(GEN) -c $(GEN)/impl_12/gen_race.c -o gen_race.o
+gen_race.o: $(GEN)/impl_13/gen_race.c $(GEN)/fft3d_api.h
+	$(CC) $(CFLAGS) -I$(GEN) -c $(GEN)/impl_13/gen_race.c -o gen_race.o
 clean: ; rm -f *.o doit

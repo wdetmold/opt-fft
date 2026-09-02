@@ -1,2 +1,2 @@
-ROUND 13 (quick): close the B=1 small-L gap — two NEW scored cells (10:1, 12:1).
-Read the brief section "ROUND 13". benchFFT numbers to beat: 23.8k/29.7k mflops.
+ROUND 14: benchFFT measures fft3d_execute() (single-shot), which r13 left slow —
+reroute it to the r13 fast chain engine. Beat fftw3 23842/29724 mflops. See brief.
