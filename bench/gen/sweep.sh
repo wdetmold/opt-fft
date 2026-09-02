@@ -60,6 +60,13 @@ fi
 
 BINDIR=build/$(hostname -s)/bin
 BACKENDS=$(cd "$BINDIR" && ls)
+# Refuse to produce a "leaderboard" that contains only libraries: if no panel binary was
+# built, the round measured nothing of ours and a board would read as a legitimate loss.
+npanel=$(cd "$BINDIR" && ls | grep -vcE "^(mkl|fftw|ducc|baseline)" || true)
+if [ "${npanel:-0}" -eq 0 ]; then
+  echo "ABORT: no PANEL BINARIES in $BINDIR -- impl/ is empty or the build failed" | tee -a "$OUT/build_errors.txt"
+  exit 4
+fi
 echo "== backends: $BACKENDS =="
 
 for case in $CASES; do

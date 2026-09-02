@@ -213,6 +213,14 @@ setup_impl_dir() {
     ln -sfn "impl_$n" "$GEOM/impl"
   fi
   log "$round works in impl_$n ($(ls "$dir"/*."$SRC_EXT" 2>/dev/null | wc -l) sources carried over from impl_$prev)"
+  # A round with an empty impl tree is a silent catastrophe: implementers edit files that
+  # do not exist, the sweep builds no panel binaries, and the emptiness copies forward to
+  # every later round (this destroyed d1_r1..r3). Refuse to start instead.
+  nsrc=$(ls "$dir"/*."$SRC_EXT" 2>/dev/null | wc -l)
+  if [ "$nsrc" -eq 0 ]; then
+    log "ABORT: $dir has 0 sources -- re-seed from impl_0 before running $round"
+    return 1
+  fi
 }
 
 # ---------------------------------------------------------------- context for implementers

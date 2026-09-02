@@ -27,10 +27,26 @@ if [ -f RESERVATION ] && ./reserve.sh --status >/dev/null 2>&1; then
   echo "scoring $ROUND on reserved Ice Lake node $RES_NODE"
   ./slot_lease.sh acquire-all --label "monitor:$ROUND"
   trap './slot_lease.sh release-all >/dev/null 2>&1' EXIT INT TERM
-  ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$RES_NODE" \
-    "cd '$(pwd)' && '$JOBSCRIPT' --round $ROUND --seed $SEED $EXTRA" \
-    > "results/$ROUND/sweep.out" 2>&1
-  rc=$?
+  # Run the sweep INSIDE the allocation via srun rather than ssh. pam_slurm_adopt has
+  # been observed refusing ssh ("you have no active jobs on this node") on a node where
+  # our job is demonstrably RUNNING with a live batch step -- which silently killed two
+  # d1 rounds and a gen rescore. srun needs no pam adoption, so it is the primary path;
+  # ssh stays as a fallback for the case where srun cannot get a step.
+  SRUN=$(command -v srun || echo /opt/software/slurm-19.05.8.1-cuda-11.8/bin/srun)
+  rc=1
+  if [ -x "$SRUN" ] && [ -n "${RES_JOB:-}" ]; then
+    "$SRUN" --jobid="$RES_JOB" bash -lc \
+      "cd '$(pwd)' && '$JOBSCRIPT' --round $ROUND --seed $SEED $EXTRA" \
+      > "results/$ROUND/sweep.out" 2>&1
+    rc=$?
+    [ $rc -ne 0 ] && echo "srun path failed (rc=$rc); falling back to ssh" >> "results/$ROUND/sweep.out"
+  fi
+  if [ $rc -ne 0 ]; then
+    ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$RES_NODE" \
+      "cd '$(pwd)' && '$JOBSCRIPT' --round $ROUND --seed $SEED $EXTRA" \
+      >> "results/$ROUND/sweep.out" 2>&1
+    rc=$?
+  fi
   ./slot_lease.sh release-all >/dev/null 2>&1; trap - EXIT INT TERM
   tail -3 "results/$ROUND/sweep.out"; exit $rc
 fi
