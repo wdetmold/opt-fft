@@ -68,7 +68,7 @@ pow2 (65537, 1021), Bluestein (chirp-z, pad to a convenient pow2) where N-1 is a
 which make this choice internally and often badly. Batched large primes go memory-bound
 (100003 x B=8 = 12.8 MB); the r11 traffic lessons apply.
 
-## LITERATURE (docs/literature_1d/00-SURVEY.md) — read before r2
+## LITERATURE (docs/literature_1d/00-SURVEY.md) — READ IT IN ROUND 1
 A 5-vein survey of 1D FFT optimization (CPU/batched/GPU/prime/accuracy). Actionable now,
 by class:
 - ALL: across-batch split-complex vectorization (lane j = transform j, ZERO shuffles, >=8
@@ -86,3 +86,16 @@ by class:
 - accuracy: our map is a contraction (bounded chain); gate tiers = dd reference / NTT-exact /
   Arb acb_dft provable checkpoint.
 Study FFTS (Blake 2013) for the fixed-geometry specialize-then-run model closest to ours.
+
+## RESTART NOTE (2026-09-02): this r1 is the real r1
+An earlier r1-r3 was lost to a harness error (the impl tree was emptied mid-round while
+implementers were editing it; the emptiness then copied forward). Nothing of yours
+survived, so start from the impl_0 stubs -- but you start with an advantage the lost
+rounds did not have: the full 5-vein 1D literature survey is already in
+docs/literature_1d/00-SURVEY.md, including the per-prime Rader-vs-Bluestein playbook
+(65537 -> unpadded Rader on a 2^16 convolution; 1021 -> Rader + twiddle-free Good-Thomas;
+10007/100003 -> Bluestein baseline PLUS an A/B against one-level nested Rader, which is
+exactly where FFTW's planner bails). A complete MKL/FFTW baseline for all 52 cells is
+saved at results/library_baseline/ -- those are the numbers to beat, per cell and regime.
+Two new guardrails now abort a round with an empty impl tree or a build with no panel
+binaries, so this class of silent loss cannot recur.
