@@ -116,10 +116,32 @@ Why it belongs here and why it is NOT free:
   is justified only by genuinely real-input domains (audio, images, real signals), not by
   pairing with the d=4 lattice work. [corrected 2026-09-02]
 
-Status: SURVEY IN PROGRESS (2026-09-02); this entry to be enriched with the survey's
-per-method verdicts and the realized-speedup estimate. Provisional scoping: a general
-real-input extension (modest 1.3-1.7x over our own c2c, and the honest question is whether
-we beat FFTW/MKL's already-tuned r2c paths) -- decoupled from the QCD target, which is c2c.
+Survey done (2026-09-02; full report docs/literature/staging_1d/06-real-vs-complex.md).
+Payoff-ranked verdicts:
+1. **Batched two-real-in-one = the easy ~2x, do first.** Pack B real transforms as B/2
+   complex (z=x+iy, recombine X[k]=(Z[k]+conj Z[N-k])/2); the recombine's index reversal is
+   along the transform axis so it vectorizes ACROSS the batch axis -- our batch-lane SoA
+   engine runs UNCHANGED. Near-full 2x, negligible overhead.
+2. **Multi-D r2c (3D) = the robust structural win.** One real axis pass (-> N/2+1 complex,
+   halves the data) then complex pencils on the other axes over the HALVED volume: ~1.7-1.9x
+   flops and a HARD 2x memory that never gets eaten. One new kernel into the existing
+   pencil/8x8-transpose architecture. The memory halving is the headline in any memory-bound
+   large-d REAL-INPUT regime -- but note this is a DIFFERENT workload from QCD (complex).
+3. **B=1 single = modest 1.3-1.6x** (NR realft N/2-pack; serial reversed-index recombine
+   dominates, -> parity at small N). Completeness, not excitement.
+4. **Large-prime real = TRAP, skip.** Rader re-mixes the symmetry, Bluestein's chirp
+   complexifies real input; libraries do complex-then-halve = memory only, ~1x flops. Given
+   the d1 large-prime focus, do not spend real-FFT effort here.
+5. **DHT route = dead since 1987.** Do not pursue.
+
+Design rule (the one that decides whether the win survives): keep the COMPUTE path
+full-complex and pack to half-complex/CCE only at the API boundary -- never thread the
+non-pow2 N/2+1 storage through the SIMD kernels (that is exactly what erodes FFTW/MKL/cuFFT
+on real). Accuracy is a non-blocker (r2c >= c2c; recombine twiddles fold into our dd table;
+gate unchanged). Vendor opening: FFTW/MKL tune real LESS than complex (benchFFT r2c is
+~1.4-1.7x c2c, not 2x), so our relative edge on real could match or exceed our ~3.5x c2c
+edge -- to be measured, not assumed. Realistic speedup over our OWN c2c: ~2x batched,
+~1.7-1.9x flops + 2x memory multi-D, ~1.3-1.6x B=1, ~1x primes.
 
 ## Dependency summary
 - d=2: standalone, cleanest next win.
