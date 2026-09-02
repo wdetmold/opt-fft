@@ -1917,3 +1917,151 @@ native/x86-64) compile clean. Setup unchanged.
    TLB r11, latency r12); remaining honest lever at L=100 is algorithmic
    class change, which is other entries' lane by design.
 3. gl_tr8x8_ld promotion and the r2-r11 adoption offers all stand.
+
+## Round gen_r13 (the B=1 small-L round)
+
+### The round's shape, up front
+
+The brief's two new scored cells (10:1:16384, 12:1:12288) belong to the
+class engines; this layer's job is the KIT their fix needs. The named
+known-good material — "within-volume pencil lanes ... same zero-shuffle
+steady state as batch-lanes, no batch needed" — is lane-SoA layout work,
+i.e. exactly this layer's remit. Three primitives ship, each with a
+measured node verdict attached, plus one harness finding every implementer
+racing the new cells needs (below).
+
+### What changed (library — the round-13 pencil-lane kit)
+
+1. **`gl_tr8x8_ld` PROMOTED (section 6c)** — the demo's gen_r8 insert-load
+   8×8 transpose, verbatim (16 shuffles + 16 pure-load-port VINSERTF64X4
+   µops per block vs gl_tr8x8's 24 + 8). The r8 offer said "promote on
+   first ask"; the round brief naming pencil-lane staging as everyone's
+   material is that ask. The demo now consumes the library form via
+   `#define dm_tr8x8_ld gl_tr8x8_ld` — identical instructions, and the r8
+   caveats travel in the comment (full 64-B rows only; gate it off under
+   kernels with < ~16-column sweeps).
+2. **`gl_pack8_ld` (section 6d)** — gl_pack8's exact layout contract,
+   full 8-site chunks staged by two gl_tr8x8_ld calls: 32 shuffles +
+   32 loads per 8 sites vs 48 + 16 (−33% port 5); sub-8 tails fall back
+   to gl_pack8. With stride = L this is the entry pack of a within-volume
+   z-pencil group.
+3. **`gl_map8s` / `gl_map4s` (sections 7b, 8)** — the graded chain map in
+   SPLIT (lane-SoA) form: s = re·re + (im·im + tiny), same
+   rsqrt14+2-Newton ladder, one exact vdivpd, reciprocal applied directly.
+   ZERO shuffles per call — gl_map8's 4 unpacks exist only to serve
+   interleaved data. BIT-IDENTICAL per complex to gl_map8/gl_map4
+   (asserted in gl_selftest, not assumed — same ops on the same numbers).
+   THE POINT, for any B=1 lane engine that owns its chain: the map was the
+   one per-step operation that seemed to force lane data back to
+   interleaved; in split form it doesn't, so a pencil-lane chain packs
+   ONCE at step 1, runs every FFT+map step lane-resident, and unpacks
+   ONCE at the final step. Pack/unpack cost divides by m (16384/12288 in
+   the new cells) instead of multiplying.
+4. `gl_selftest()` grew three legs: gl_tr8x8_ld ≡ gl_tr8x8 (bit-compare),
+   gl_pack8_ld ≡ gl_pack8 layout (8-site chunk AND fallback tail),
+   gl_map8s ≡ gl_map8 and gl_map4s ≡ gl_map8s bit-equality. Verified
+   passing on SPR (wallaby, real AVX-512) and in scalar (-march=x86-64)
+   builds; every adopter's create() re-proves them per host.
+
+### Measured on the node (a80n0, leased core, min over reps; ubench source kept at build/tryout/gen_layout/ubench_r13.c)
+
+**The kit, microbenched at the round's sizes** (one volume's worth of
+work; interleaved A/B loops, two independent runs each, agreeing):
+
+| primitive pair | L=10 | L=12 |
+|---|---|---|
+| entry pack, ns/volume: gl_pack8 → gl_pack8_ld | 553 → 490/496 (**−11%**) | 671–678 → 744–754 (**+10..12% — LOSS**) |
+| map on lane data, ns/volume: int8+gl_map8+deint8 → gl_map8s | 885 → 733 (**−17.2%**) | 1506 → 1236 (**−18.0%**) |
+
+gl_map8s is a clean, decisive win — adopt it wherever chain state lives in
+lane form. gl_pack8_ld SPLIT at exactly the two scored sizes and ships
+with that verdict attached: use it at L=10-class strides, keep gl_pack8 at
+L=12-class, and measure at your L before trusting either (the 8-site-chunk
+comparison inverting between strides 160 B and 192 B is not something the
+uop count predicts; I did not burn the round root-causing a microbench).
+Perspective that matters more than either number: the WHOLE pack is
+~0.5–0.75 µs/volume against cells whose per-step budget is ~1.5–3 µs —
+per-step packing is ruinous (~20–30% of the cell), pack-once-per-chain
+(via gl_map8s lane residency) is ~0.005%. The doctrine is the win; the
+_ld variant is a few percent on top of a cost you should be amortizing
+away anyway.
+
+**The new scored cells, this entry** (dense floor, unchanged engine):
+L=10 B=1 m=16384 chain: 4.96–5.04 µs (interleaved r13/r12 pairs
+5.037/4.962 vs 5.022/5.085 — wash; an earlier same-day window read 5.87,
+the documented B=1 bounce, fifth campaign instance); MKL same session
+4.354. Single-call L=10 B=1: 5.20 vs **MKL 1.47** — the benchFFT gap in
+the flesh; the chain narrows it only because MKL pays a separate map pass.
+L=12 B=1 m=12288: 9.345 (sd 0.03%); MKL 7.319. Not this entry's fight to
+win — the numbers are the floor/context rows for the board.
+
+**Regression control**: L=12 B=64 m=600 interleaved r13-vs-r12-snapshot
+(impl_13/gen_layout.c as the control arm): 8.364/8.388 vs 8.228/8.324 —
++0.8..1.6%, inside the ±1.5% code-layout confound band (only non-emitting
+edits separate the binaries: unused static inlines, a #define swap to
+identical code, a longer description string). Chain outputs
+**BIT-IDENTICAL r13 vs r12 at both 12:64:600 and 10:1:16384** (node cmp),
+so every r8–r12 gate verdict transfers exactly.
+
+### Gates
+
+Bit-identity above does the heavy lifting. Re-verified anyway: node
+chains PASS at 10:1:16384 (rel L2 2.142e-06 vs anchor 9.771e-07, tol
+3.0e-04 — the m=16384 gate tolerances scale with m), 12:1:12288
+(3.543e-09, anchor 7.995e-09), 12:64:600 (4.739e-14, anchor 3.887e-14);
+singles 2.9–3.0e-16 at all three (tol 1e-12); node runs repeatable
+(cmp-identical across samples-8/samples-2 runs). Wallaby (SPR AVX-512):
+singles + chains PASS at 10:1, 12:1, 12:64, 32:8. Scalar build PASS
+singles + m=3 chains at 4/9/12/27. Entry + LIB_ONLY × native/x86-64 and
+all six demo knob builds compile -Wall -Wextra clean. Setup unchanged.
+
+### Harness finding (flagging for the monitor and every implementer)
+
+**tryout.sh's chain-length lookup is broken for L=10 and L=12 this
+round**: cases.txt now has TWO lines per size (batched + new B=1), the
+line-35 awk prints both m values, and the `[ $M -gt 1 ]` test throws
+"integer expression expected" — tryout then silently runs the SINGLE-CALL
+case (m=1) with no chain and no map-check. If your 10/12 numbers from
+tryout look suspiciously like execute-only, that is why. Workaround until
+fixed: run the chain by hand over a slot lease (the r2 recipe, verbatim
+commands in this round's session); the check.py legs run fine from
+wallaby on the shared FS. This is the third distinct tryout expansion bug
+this campaign ('$W' r1, '$W/c.bin' r2–r12, and now the two-line awk).
+
+### What did NOT work / boundaries, with numbers
+
+- **gl_pack8_ld at L=12: +10..12%** (table above) — shipped anyway
+  because the layout contract is identical and the selftest pins it, but
+  the doc comment and this record carry the split verdict so nobody
+  adopts it blind at 192-B-stride sizes.
+- **A within-volume pencil-lane rebuild of the DEMO was considered and
+  skipped**: the demo's job is the any-L guaranteed floor and the layer's
+  test bench; rebuilding it as a lane engine duplicates exactly what
+  gen_pfa_small/gen_batchlane are doing this round with real small-L
+  kernels behind it. The kit + this record is the layer-shaped
+  contribution; their engines are the vehicles.
+- **No PMU window spent**: nothing this round changed an emitted
+  instruction in the demo, and the microbench deltas were unambiguous at
+  sd < 2%.
+
+### Borrowed this round, named
+
+- **The round brief / gen_batchlane's r11 within-volume pencil-lane
+  trick** is the shape the whole kit serves; gl_map8s exists because
+  staring at their zero-shuffle steady state made the map the one
+  remaining forced layout round trip in a B=1 chain.
+- **gen_dense_prime r3's interleaved same-window A/B** and **gen_planner
+  r8's same-layout control arm** (the impl_13 snapshot as control), as
+  every round.
+
+### What I would do next (gen_r14, if there is one)
+
+1. **Adoption**: gen_pfa_small / gen_batchlane B=1 paths — the one-call
+   swaps are gl_map8s at their lane exits and (measured per L) gl_pack8_ld
+   at entry; the lane-resident-chain doctrine is the real transfer. If
+   their records ask for a strided-site pack (y-pencil groups without an
+   8×8 block transpose), that is the next primitive.
+2. Root-cause the pack8_ld stride inversion (160 vs 192 B) with one PMU
+   run if any adopter's cell lands on it.
+3. gl_tr8x8_ld exit-side analogue (extract-store) and the r2–r12 offers
+   all stand.

@@ -1,0 +1,10 @@
+Done. Round gen_r13 complete — all work verified and recorded.
+
+**Summary of the round:**
+- **Built**: within-volume z-in-lanes engines for L=10/12 at B≤4 (the brief's known-good material #1, my own r11 L=100 trick at small scale): rows of 2 site-vectors of 8 consecutive z; y/x passes elementwise with the existing register-explicit pencils (zero shuffles); z-pass last through a trans8-bracketed 16-sv L1 scratch with the graded map fused at its stores; c packed once per chain in consumption order; pad slots/rows exact zeros that provably stay zero.
+- **New scored cells** (a80n0 core 7, held lease, interleaved minima, sd ≤0.14%): L=10 B=1 m=16384: **2.085 us/xform** (MKL 4.328, fftw3_measure 4.865 → 2.07x/2.33x); L=12 B=1 m=12288: **3.204 us** (MKL 7.457, fftw 8.753 → 2.33x/2.73x). The old replicated path was 10.3/17.4 us — a ~5x recovery.
+- **Codelet-local rule struck twice**: the batched swap/tail verdicts did not transfer — 10 ships unswapped+div (new `dft10_pencil_map_wv`, −5%), 12 ships swapped (−0.5%); z-pass sched-pressure lost +2.3%.
+- **Protection**: batched/large chains bit-identical to the r12 ship (cmp at 10:64, 12:64, 15:32, 20:32, 50:4, 100:1), no layout tax, all gates pass at every size including mixed remainders on both sides of the measured nv≤4 routing crossover.
+- **Flagged for the monitor**: tryout.sh's awk breaks on the duplicate-L cases.txt rows (needs a `$2==B` filter); the m=1 `--chain` segfault is a pre-existing driver bug (impl_12 control reproduces it); gen_race must enumerate this entry at B=1–4 or the trunk misses the win.
+
+One-line close: **Within-volume z-in-lanes engine (r11 trick at small scale) — L=10 B=1: 2.085 us, L=12 B=1: 3.204 us on the node (batched cells unchanged at 1.121/1.915 us, bit-identical); rel L2 = 3.1e-16/2.9e-16 single-call, full scored chains at/below the honest anchor (1.17e-6 vs 9.8e-7 anchor at m=16384; 4.0e-9 vs 8.0e-9 at m=12288), all gates PASS.**

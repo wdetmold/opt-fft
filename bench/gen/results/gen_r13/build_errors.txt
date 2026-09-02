@@ -1,0 +1,7 @@
+impl/gen_rader.c: In function ‘map_volume.constprop’:
+impl/gen_rader.c:2967:23: warning: iteration 1152921504606846976 invokes undefined behavior [-Waggressive-loop-optimizations]
+ 2967 |         double re = zp[2 * i] + cp[2 * i];
+      |                       ^
+impl/gen_rader.c:2966:14: note: within this loop
+ 2966 |     for (; i < npts; ++i) {
+      |            ~~^~~~~~

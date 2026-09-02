@@ -1,0 +1,9 @@
+Round complete. Both files are written, all gates pass, and the node A/B shows bit-identical outputs vs the r12 snapshot with timing inside the noise band.
+
+What shipped this round (library layer, scored by adoption — the B=1 pencil-lane kit):
+- **`gl_map8s`/`gl_map4s`** — the graded chain map in split lane-SoA form, zero shuffles, selftest-asserted bit-identical to `gl_map8`. This removes the one per-step operation that forced lane-resident B=1 chains back to interleaved layout: pack once at step 1, stay lane-resident for all m steps, unpack once at the end. Node microbench: −17–18% vs the interleave-roundtrip map at both L=10 and L=12.
+- **`gl_tr8x8_ld`** promoted from the demo (r8 offer cashed) and **`gl_pack8_ld`** (−33% port-5 entry pack), with an honest split verdict: −11% at L=10, +10% at L=12 — "measure at your L" is in the doc comment.
+- Harness finding flagged for everyone: tryout.sh's chain-length awk breaks on the duplicated L=10/12 cases.txt lines and silently runs m=1 — chains at those sizes must run by hand (recipe in my record).
+- Demo entry unchanged in behavior (transpose swap is a `#define` to identical code); chain outputs cmp-identical to r12 at 10:1:16384 and 12:64:600, so all prior gate verdicts transfer.
+
+Technique ended on: lane-resident B=1 chain kit (split-form graded map gl_map8s + insert-load pack gl_pack8_ld + promoted gl_tr8x8_ld); best leased-node µs/transform: B=1 4.96 (L=10, m=16384 chain) and 9.35 (L=12, m=12288), batched 8.36 (L=12 B=64 m=600); rel L2 = 2.9e-16 single / all chain gates PASS (4.7e-14 at 12:64 vs tol 1e-10).

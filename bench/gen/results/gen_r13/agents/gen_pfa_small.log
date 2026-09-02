@@ -1,0 +1,3 @@
+Done. The tryout harness confirms the single-call gate and repeatability on the shipped file (the failing chain-leg in tryout is the documented 12-round-old `'$W/c.bin'` quoting bug in the harness itself; all chain gates were run by hand on the node and pass).
+
+Register-explicit fused pass-3 + in-function m-loop for the tuned B=1 split chain (pass-3/pass-1 fusion built, measured +12/+13%, rejected): **10:1 = 1.945 us, 12:1 = 2.997 us B=1 on the leased Ice Lake node (2.6x/2.7x over fftw3_measure, beating both targets; batched cells bit-identical to r12 at 1.27/1.92 us), rel L2 = 3.1e-16 / 2.9e-16** — strategy record appended as Round gen_r13.

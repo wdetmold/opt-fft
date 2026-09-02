@@ -1747,3 +1747,132 @@ state + L*NBZ*L sites c (34 MB at 100), exact-zero pads.
 4. Cross-arch: GWVSSW/GWVSSW50/GWVSPF/GWVS_MIN per host; SPR's 2 MB L2
    fits the 1.35 MB slab with room -- the z-IPOK/y-buffered verdict and
    the swap may both flip there.
+
+## Round gen_r13
+
+### Headline
+The quick-fix round for the two NEW scored cells 10:1:16384 and 12:1:12288 (the
+benchFFT-exposed B=1 small-L gap), which are MY tuned sizes.  The tuned B=1/B%8
+split chain (r7 rotation form, untouched since r10's lift) was rebuilt around an
+asm audit: gcc 11 keeps the r7 pass-3 lane buffers (pzr/pzi/por/poi) in MEMORY
+with runtime-indexed stack stores, ~80 v8 stack ld/st per block that the batched
+register-explicit pencils never pay.  Node numbers (a80n0, held slot lease,
+interleaved adjacent pairs control-first, min-of-mins; libraries in the same
+windows):
+
+| case | r12 ship (same window) | gen_r13 ship | fftw3_measure | mkl_dfti | vs best lib |
+|---|---|---|---|---|---|
+| L=10 B=1 m=16384 | 2.246-2.277 | **1.945-1.950** (-13.5%) | 5.045-5.470 | 4.330-4.339 | **2.2x (MKL)** |
+| L=12 B=1 m=12288 | 3.351-3.359 | **2.996-3.004** (-10.6%) | 8.214-8.499 | 7.319-7.367 | **2.4x (MKL)** |
+
+(The brief's stated target was fftw3_measure: beaten 2.6x/2.7x.  Note the driver's
+chain shape is kinder to us than benchFFT's plain-transform convention -- the
+libraries pay a separate map pass per step; plain execute() at B=1 is still weak,
+see next-steps.)  ALL batched paths ship BIT-IDENTICAL to r12 (cmp on .chain at
+10:64:1000, 12:64:600, 15:32:600, 20:32:256 vs a fresh impl_12 build, same-window
+timings 1.271/1.918/4.344/12.668).
+
+### What changed (all in the tuned split path; SPLITZ10/12 default 3)
+
+1. **p3blk_10/p3blk_12 -- register-explicit fused pass 3** (SPLITZ<L>=3): the
+   tr8-in output feeds NAMED DFT registers directly (the same M_DFT2/3/4/5 macros
+   in the same order -- outputs cmp-BIT-IDENTICAL to the r7 array form at both
+   sizes over the full graded chains), map8c at the rotated stores.  The whole
+   win of the round lives here.
+2. **split_chain3_<L> -- the m-loop inside one SCHEDP function** (the r4
+   soa_chain move applied to the split path): ladder constants and the crs[q]
+   rotation bases hoist across steps; ping-pong pointer swap stays local.
+3. **p3tail2/p3tail4** (r13c): the second P3TR spent a full tr8 (24 shuffles) to
+   extract 2 (L=10) / 4 (L=12) columns; these build exactly those columns from
+   xmm-pair / ymm-quad row loads in 14/20 shuffle-class ops.  Bit-identical
+   (pure data movement).  Timing on ICL: a WASH (1.945 vs 1.947 / 3.000 vs
+   2.999) -- kept for the strictly lower uop count and the cross-arch races
+   (auto-disabled without AVX512DQ).
+
+### Built, measured, and REJECTED: pass-3/pass-1 fusion (SPLITZ<L>=4, kept buildable)
+The mapped pass-3 output registers of block R0 -- slot k destined for k*L^2+R0 --
+are EXACTLY the next step's pass-1 pencil (the stride-L^2 dim's slots over lanes
+R0..R0+7), so p3blkf_<L> applies the next step's pass-1 DFT in registers before
+storing and the steady-state step drops the whole pass-1 volume round trip
+(13/18 pencil calls' loads+stores per step).  Same-core interleaved: **LOSES
++12% at 10 (2.18 vs 1.95) and +13% at 12 (3.38 vs 3.00)**, 3/3 rounds.
+Mechanism: the fused block holds 2L site registers live ACROSS the L map
+ladders and the second DFT -- the r4 live-register rule (2L + module temps <=
+~32) is violated exactly where it bites, and the spill traffic exceeds the
+saved pass-1 streaming ld/st (which were L1-hot anyway: form 3's pass 1 reads
+what pass 3 just stored).  Lesson: a fusion that saves L1-HIT traffic but adds
+spills is a net loss; fusion pays when it saves misses (r11/r12), not hits.
+
+ALSO FOUND HERE: form 4 is NOT bit-transparent even though it runs the same
+macro arithmetic -- gcc contracts the shared products in +/- pairs (K3*ui_,
+KQ5*qr_: "t=mul; add/sub t" vs "fma + fnma") differently per inlining context.
+m=2 divergence is 3.3e-16 rel (1-ulp class), all gates re-run and pass with
+>=30x margin.  ANY entry claiming bit-identity across a refactor that changes
+inlining context must cmp, not assume -- form 3 happened to match, form 4 did not.
+
+### What else did NOT work, with the number
+* **rcp map tail** (-DPS_RCPMAP) on the new form: +4.3% at 10 (2.033 vs 1.950),
+  +5.6% at 12 (3.164 vs 2.997).  Sixth codelet-local div confirmation on this
+  entry; the divider stays free in every form this engine has had.
+* **P3PS=0** (default scheduler on the chain functions): +1.4% at 10 (1.977),
+  wash at 12.  Pressure scheduler ships ON.
+* tryout.sh's per-L m-lookup now breaks on the TWO-line cases (10:64 and 10:1):
+  `awk $1==l {print $3}` returns both m values and the chain leg dies -> it
+  silently runs m=1 plain execute.  All numbers above were taken by hand over
+  ssh with a held slot lease (monitor: fix is `$1==l && $2==b`).
+
+### The counter story (tools/pmu.sh, differential samples=4 minus samples=2)
+Form 3 at 10:1, per chain step: 10.7k insn, p0 3599 / p1 213 / p5 4429 /
+p2_3 1776 / p4_9 998, l1d.replacement 367 lines (23 KB -- L1-resident state,
+as expected), ALL cycles at 512-bit license level 2.  At the quiet-window min
+(1.95 us at the ~2.45 GHz license clock ~= 4800 cycles) total vector dispatch
+is ~2.2 uops/cycle -- AT the Ice Lake ~2.1 vector cap the ice notes describe.
+The cell is now UOP-THROUGHPUT-BOUND, not latency- or port-5-bound (p5 alone
+runs 0.69/cycle; the p3tail wash confirms shuffle relief buys nothing).  The
+remaining fat is pass 2's slab-lane waste at L=10 (20 calls where 12.5 carry
+information, ~930 of ~10.7k uops); every scheme I costed to remove it (tr8
+gathers, 4-slab xmm tail fusion, swapped-inner-store pass 1) pays more
+shuffle/scatter uops than it saves -- declined by arithmetic, numbers in my
+working notes; do not rediscover.
+
+### Gates (ship build, all run on the node by hand)
+Single call 3.091e-16 / 2.925e-16 at 10:1 / 12:1 (tol 1e-12).  Two-step m=2:
+1.074e-15 / 8.948e-16 (tol 3e-14, >=27x margin).  Graded chains: 10:1 m=16384
+rel 1.918e-06 vs anchor 9.771e-07 (1.96x, tol 300x); 12:1 m=12288 2.206e-09 vs
+7.995e-09 (0.28x).  Mixed batches THROUGH the new chain: 10 B=12 m=50 and
+12 B=9 m=20 PASS; m-parity 3/4 (both un-rotate branches + the m&1 buffer swap)
+PASS; generic WVS sanity 14 B=1 m=100 PASS; everything repeatable
+bit-identical across runs; batched cells bit-identical to impl_12 (table above).
+
+### Borrowed, plainly
+* **gen_batchlane gen_r3 / my own r4**: the register-explicit form and its
+  live-register rule -- applied to the split pass 3 (win), and the rule's
+  violation is exactly what killed form 4 (rejection explained, not mysterious).
+* My own r4 chainsteps move (m-loop inside the SCHED function), r7 rotation
+  chain and c bookkeeping (structure unchanged).
+* gen_batchlane gen_r4 / gen_pfa_large gen_r4: held-lease interleaved
+  adjacent-pair protocol, every verdict above.
+* The differential-PMU method (my r11) for the dispatch-cap reading.
+
+### Operation count (tuned split chain, per volume-step)
+Unchanged pass structure: pass 1 ceil(L^2/8) pencils stride L^2, pass 2
+L*ceil(L/8) stride L, pass 3 ceil(L^2/8) register blocks.  Pass-3 block now:
+16 row loads + 1 tr8 pair + p3tail (14/20 shuffle ops) + 84/96 register FP +
+L map8c (hs ladder + 1 vdivpd) + 2L rotated stores -- the ~80 v8 stack ld/st
+per block of the r7 array form are GONE (the round's -13.5%/-10.6%).
+Totals at 10: ~10.7k vector uops/step at the ~2.2/cycle dispatch cap.
+
+### What I would do next (ranked)
+1. **Plain execute() at B=1 is still the r6 sandwich** (4.25 us at 10 vs MKL
+   1.47 -- the actual benchFFT convention): route it through the form-3 passes
+   with a cr==NULL map skip + one interleave_rot.  Unscored in cases.txt, but
+   it is what benchFFT's community curve sees; ~half a session, no gate risk.
+2. **Pass-2 waste at 10/12** is the last 8-9% of uops with any slack; the only
+   uncosted idea left is an L=10-specific 5-slab pass-2 schedule with two
+   90-degree in-register turns amortized over 5 slabs -- sketch only, may be
+   nothing.
+3. Cross-arch: race SPLITZ<L> in {1,3,4} and P3PS per host -- form 4's spill
+   verdict could flip on a machine with different RA behavior (32 zmm are
+   architectural, but CLX downclock changes the ld/st-vs-spill balance), and
+   p3tail needs AVX512DQ.
+4. The batched cells remain saturated (r5-r10 verdicts stand); protect.

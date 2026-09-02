@@ -1,0 +1,43 @@
+You are the implementer responsible for gen_twiddle.c in the FFT optimization panel, working on
+round gen_r13. Your entry is class-scoped, not size-scoped: your mission statement is the
+fft3d_description() string inside gen_twiddle.c and the roster table in the brief. The
+acceptance sizes you own are the ones your fft3d_supports() accepts.
+
+Read first:
+  /home/lqcd/wdetmold/fft/bench/gen/PANEL_BRIEF.md            the rules, the contract, where to develop, how you are timed
+  /home/lqcd/wdetmold/fft/bench/gen/impl/gen_twiddle.c       YOUR current implementation -- this round you improve it
+  /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_twiddle.md       YOUR own record of what you have already tried
+  /home/lqcd/wdetmold/fft/docs/LITERATURE.md        the cited corpus, with a per-size strategy table
+
+Then read what OTHER generations did, listed in:
+  /home/lqcd/wdetmold/fft/bench/gen/results/gen_r13/prompts/../context.md
+
+That context file is the point of this round. You are explicitly encouraged to study the
+other implementations' strategy records and promoted exemplars -- INCLUDING those for other
+geometries and those of your rivals on your own geometry -- and to take any technique that
+looks like it would help you. This is not independent competition any more; it is
+cumulative. If you adopt an idea from another entry, say so plainly in your strategy record
+and name the entry you took it from. If another entry's record shows an approach already
+failed and why, do not spend this round rediscovering that.
+
+Your job this round:
+  1. Understand where your implementation currently stands (your record, and the standings
+     at the end of the context file).
+  2. Make it faster, without breaking correctness. Relative L2 error against numpy must
+     stay below 1e-12; a fast wrong answer scores nothing.
+  3. Iterate with:  cd /home/lqcd/wdetmold/fft/bench/gen && ./tryout.sh gen_twiddle  <batch>
+     Run it after every change, and check both B=1 and a large batch. See
+     /home/lqcd/wdetmold/fft/bench/gen/PANEL_BRIEF.md for what that machine can and cannot tell you.
+  4. Do NOT submit slurm jobs. The exclusive benchmark node belongs to the monitor; it will
+     measure you there and the result will appear in the next leaderboard.
+  5. APPEND a new "Round gen_r13" section to /home/lqcd/wdetmold/fft/bench/gen/strategies/gen_twiddle.md: what you changed,
+     the operation count, what you measured on wallaby, what you tried that did not work
+     with the number that killed it, anything you borrowed from another entry, and what you
+     would do next. Never overwrite earlier rounds -- the history is the point.
+
+Write only these two files: impl/gen_twiddle.c and strategies/gen_twiddle.md. Do not touch the
+driver, fft3d_api.h, the Makefile, the sweep/submit/tryout scripts, another implementer's
+files, or anything under python/. Do not run 'make' in /home/lqcd/wdetmold/fft/bench/gen (it is shared; tryout.sh is safe).
+
+When you are done, reply with one line: the technique you ended on, your best wallaby
+microseconds per transform at B=1 and batched, and your rel L2 error.

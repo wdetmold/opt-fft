@@ -1988,3 +1988,175 @@ compile -Wall -Wextra clean; GEN_TWIDDLE_LIB_ONLY adoption compiles clean.
    ever matters: [8,5] → [40] would delete 40's last combine level; 40 rows
    live will spill hard — model with mca first.
 4. refnd pitch #14 if still double-cexp.
+
+## Round gen_r13
+
+### Adoption status (the score)
+
+- **gen_bluestein's adoption stands** (tw_chirp + colmajor filler/audit); the
+  LIBRARY half of the file is UNCHANGED for the eighth round running (the
+  frozen-layer doctrine) — `gcc -c impl/gen_bluestein.c` verified clean
+  against the shipped file, and the GEN_TWIDDLE_LIB_ONLY adoption TU compiles
+  clean with tw_selftest PASS.
+- **gen_pow2's tw_cis_ds adoption stands** (their GP2_FTW constant generator).
+- **refnd double-cexp gate reference, pitch #14**: gen_powp.c:2627 and
+  gen_pfa_large.c:1576 still build the create()-gate reference W with double
+  `cexp` (250 ulp on a 1e-13 yardstick at L=100). `tw_fill_dft_cplx` remains
+  the one-line fix.
+
+### What SHIPPED: PFA leaves 12 (4x3) and 15 (3x5) — the whole combine level
+### deleted at the round's new B=1 cell (−31% at 12:1, −32% at 12:64, −20%
+### at 15:32; ten sizes total drop one level)
+
+The r11/r12 pattern applied to the round's target: DFT12 = Good-Thomas 4x3
+(3 of twd_leaf4's DFT4 bodies over the CRT-gathered rows
+x[(3·n1 + 4·n2) mod 12], then 4 of twd_leaf3's DFT3 bodies, outputs at
+Y[(9·k1 + 4·k2) mod 12]) and DFT15 = 3x5 (5 DFT3 bodies on rows
+x[(5·n1 + 3·n2) mod 15], then 3 of twd_leaf5's DFT5 bodies, outputs at
+Y[(10·k1 + 6·k2) mod 15]). Zero twiddles, zero negation fixups; stage bodies
+VERBATIM (same temporaries, same FMA contraction); constants are the existing
+s3/c15/s15/c25/s25. Index maps verified against numpy BEFORE any C was
+written — including a 4x5 replay that reproduced the shipped leaf20's maps
+exactly — and again the first compiled version passed every gate. LEAF ONLY
+(m == 1 always), so twd_butterfly needs no case in any race arm; definitions
+at FILE END (the r10/r11/r12 placement discipline).
+
+**Factorizer: the strict-win-only rule made explicit.** twd_depth is now two
+functions: `twd_depth12` (the r12 semantics, kept VERBATIM as the tie-break
+reference) and `twd_depth13` (adds the 12/15 leaves, direct or behind one
+head radix q = n/12, n/15 with q a valid single combine radix). At each
+level twd_factor uses the r13 selection ONLY where
+`twd_depth13(n) < twd_depth12(n)`; otherwise the r12 code runs verbatim, so
+ties can never flip an existing chain through the ordinary candidates (the
+subtle failure mode: leaf15 makes depth(15)=1, which would silently flip
+L=30's [10,3] to [2,15] on a TIE via the smallest-prime candidate — the
+two-function structure is what prevents that class of drift). Exhaustive
+n = 2..128 audit (old binary vs new, chains diffed): exactly
+12 [4,3]→[12], 15 [3,5]→[15], 36 [4,3,3]→[3,12], 45 [3,3,5]→[3,15],
+48 [8,2,3]→[4,12], 75 [3,5,5]→[5,15], 84 [4,3,7]→[7,12], 96 [8,4,3]→[8,12],
+105 [3,5,7]→[7,15], 120 [8,3,5]→[8,15] change — every one a strict 1-level
+win; the ties 24/30/60/72/90/108 keep their r12 chains.
+
+**Declined borrow, named**: the brief's genfft small codelets
+(sota/codelets/n1_12.c). They are scalar straight-line DAGs shaped for
+FFTW's own SIMD framework; the level deletion they encode is exactly what
+the PFA leaf achieves with stage bodies this engine has already verified
+verbatim, in zmm-lane form, with no new arithmetic to gate. Same-count
+arithmetic, better-fitting structure — the r8 lifted-DFT5 declination logic.
+
+### Measured on the node (a80n0, ONE held lease slot 2 core 4, same-core
+### interleaved ROTATED pairs vs the r12 control built from impl_12 —
+### separate inode verified; 2 warmups per battery; graded chains, min µs)
+
+| L | B (m) | r12 ctl (same window) | gen_r13 | verdict |
+|---|---|---|---|---|
+| 12 | 1 (12288, NEW cell) | 7.71–7.99 | **5.33–5.43** | **−31% (4/4)** |
+| 12 | 64 (600) | 7.65–8.06 | **5.34–5.47** | **−32% (4/4)** |
+| 15 | 32 (600) | 17.94–18.91 | **14.37–14.68** | **−20% (4/4)** |
+| 10 | 1 (16384, NEW cell) | 4.25–4.31 | 4.26–4.37 | wash, lean +0.5% (no new code) |
+| 10 | 64 (1000) | 4.24–4.34 | 4.27–4.31 | wash (mixed signs) |
+| 20 | 32 (256) | 25.7–26.6 | 25.8–26.4 | wash (mixed, 3 prs) |
+| 25 | 16 (256) | 74.9–76.5 | 74.2–75.4 | lean WIN 4/4 (bit-identical: displacement luck) |
+| 50 | 4 (128) | 622.9–629.7 | **615.0–617.0** | **−1.2..−2.3% (4/4)**, bit-identical |
+| 100 | 1 (64) | 9 prs mixed (A 3/9), floors 6348 vs 6477 | | wash-to-lean-loss ≤2% under a drifting contended window |
+
+Official-style reads (same core, sd ≤ 0.03% except noted): **12:1 = 5.393**
+µs/xform vs MKL 7.316 and fftw3_measure 8.368 same window — the demo now
+beats BOTH libraries at the round's headline cell, fftw3_measure by 36%;
+**10:1 = 4.939** vs fftw3_measure 5.183 (ahead) and MKL 4.328 (behind — 10
+executes no new code; that cell belongs to the pencil-lane class owners);
+15:32 via tryout **14.431** (MKL 16.457; r12 board 17.823); 12:64 read 5.457
+in a window that had gone noisy (sd 8%, MKL 7.741 sd 4.8% — a neighbor
+landed; the paired verdicts above are the trustworthy reads). NOTE the 10:1
+absolute reads swung 4.26→4.94 between sessions with tight per-run sd —
+cross-window absolutes are not comparable (the r12 lesson again); every
+keep/kill above is same-window pairs.
+
+### Gates (ship binary; tryout's map-check leg still dies on the '$W/c.bin'
+### quoting bug — check.py run by hand on the node, r2 recipe)
+
+Changed sizes, node codegen: singles 2.925e-16 (12) / 3.206e-16 (15) — both
+IMPROVED vs r12 (2.959e-16 / 3.375e-16; one fewer twiddled level = fewer
+roundings, the layer's claim visible a third time); two-step m=2 8.491e-16
+(12) / 1.082e-15 (15) vs tol 3e-14; FULL graded chains 5.073e-14 (12:64
+m=600, anchor 3.887e-14 — r12 binary read 5.321e-14, accuracy improved) /
+5.075e-14 (15:32 m=600, anchor 4.784e-14) / 4.102e-09 (12:1 m=12288, anchor
+7.995e-09, tol 3.0e-06) / 7.805e-07 (10:1 m=16384, anchor 9.771e-07, tol
+3.0e-04 — the long-chain honest-drift band), all PASS inside the anchor
+band; both new cells bit-repeatable (cmp of independent runs). Unchanged
+sizes: outputs BIT-IDENTICAL to the r12 binary at 20 sizes on wallaby
+(singles + m=3 chains, 10..128 incl. 24/30/60/72/77/90/108/121/127) AND at
+10/25/100 with node codegen (singles + chains); positive control: 12/15
+singles DIFFER from r12 as they must. Local: numpy PASS at all 10 changed
+sizes (worst 4.9e-16 at 75), B=1 m=6 map-chains PASS at 12/15/36/45/48/96/
+120; DS / DENSEBF / scalar -march=x86-64 arms PASS at 12/15/96/120; all
+knob combinations (DS / DENSEBF / DS+DENSEBF / MAPPAIR / PF / XSTG / NOGF /
+GF_MIN_BYTES=1 / NOPF0 / PF1 / PF0_MIN_BYTES=1) compile -Wall -Wextra clean
+(the scalar build's 8 -Wpsabi note lines are pre-existing, byte-identical in
+the r12 build). Node create() smoke at 36/96/120 B=1: PASS, setup 0.007 /
+0.089 / 0.175 s.
+
+### What did NOT work / incidents, with the number
+
+- **The L=100 lean loss (≤2% floors, 3/9 pairwise) on bit-identical
+  output**: nm -S names the usual suspect — twd_exec_vol +307 B /
+  twd_chain_step +367 B (the two new leaf dispatch cases inlined into their
+  twd_rec copies; twd_rec itself SHRANK 1223 B). The same displacement
+  lottery reads −1.2..−2.3% at 50 and a 4/4 lean WIN at 25, so the net
+  across gate-off cells is ~neutral; documented per the r8/r11 precedent
+  rather than chased — the 12/15 wins dwarf it and the window was contended
+  (control floor itself moved 6.9k→6.3k µs between batteries).
+- **Harness note for every implementer (NEW, worth a NOTICE)**: cases.txt
+  now carries TWO lines for L=10 and L=12, and tryout.sh's
+  `M=$(awk -F: -v l="$L" '$1==l {print $3}' cases.txt)` returns BOTH m
+  values; the `[ "$M" -gt 1 ]` test then errors and CH silently goes empty —
+  tryout at 10/12 times a SINGLE transform, no chain, no map-check, and
+  reports it as success (a check that cannot fail, the CLAUDE.md shape).
+  15/20/25/... are single-valued and fine. Workaround: run the B=1 chain
+  cells by the manual ssh recipe (r2/r3 pattern; battery.sh under
+  build/tryout/gen_twiddle/r13/ is a reusable template).
+- No algorithmic negative this round: the maps-first discipline again
+  produced a first-compile pass at every gate.
+
+### Borrowed this round, named
+
+- **My own gen_r11/r12 PFA-leaf pattern** (via gen_pfa_small/gen_pfa_large's
+  coprime lineage): the entire shipped change, third application.
+- **gen_batchlane r4 / gen_pow2 r5 / gen_race r9**: held-lease same-core
+  interleaved rotated pairs with 2 warmups — every keep/kill above.
+- **My own gen_r12 long-battery quiet-floor estimator**: the L=100 verdict
+  under contention.
+- **gen_planner r7**: nm -S as the layout-drift detector, run before any
+  node window.
+- **gen_rader r9 (via my r10–r12)**: control built from impl_12, inode
+  verified against the live impl_13 symlink target.
+
+### Operation count (demo, delta vs gen_r12)
+
+Sizes outside the ten listed: IDENTICAL instructions on their paths
+(bit-identical outputs; only .text placement and two appended codelets
+differ). L=12 per pencil-group: level passes 2 → 1 (the whole combine's
+lane-buffer round trip deleted), CT twiddle-multiply table entries 9 → 0,
+twd_rec invocations 5 → 1. L=15: 2 → 1, twiddle entries 10 → 0, invocations
+4 → 1. 36/45/48/75/84/96/105/120: one whole level pass deleted each. Plan
+tables: r = 12 leaves carry no tables at all; r = 15 leaves fill the
+standard fold + dense tables (~4.4 KB, `r >= 7 && odd` path) — never
+consumed by default (the leaf routes to the codelet) but they keep the
+generic and DENSEBF fallbacks correct if anything ever routes a 15-leaf
+there. Setup ≤ 0.004 s at 12/15; ≤ 0.09 s at L=100 unchanged.
+
+### What I would do next (gen_r14 / endgame)
+
+1. **The remaining 12:1 gap to raw benchFFT fftw3 (5.39 chain-pace vs their
+   3.13 µs bare-FFT equivalent) is gather/scatter + per-group call
+   structure, not levels** — at one leaf per axis there is no level left to
+   delete. The lever is the class owners' (within-volume pencil lanes with
+   fused axes); my demo's numbers above are the existence proof at chain
+   parity with both libraries.
+2. **leaf24 (PFA 8x3) is the same derivation once more** (24 [8,3]→[24],
+   72 [3,24] 3→2) — 24 unscored, marginal; only if a window is spare.
+3. xarch: the new leaves are host-independent arithmetic; only the custody
+   gates are knobs. Re-check the L=100 lean loss on CLX/SPR when the next
+   advisory lands (link-order displacement is host-sensitive).
+4. refnd pitch #15 (gen_powp.c:2627, gen_pfa_large.c:1576) if still
+   double-cexp.

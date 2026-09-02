@@ -1373,3 +1373,193 @@ measured process-wide (-3% wall at the cap).
    downclocked divider and 1 MB L2 may reweight both directions).
 4. bluestein_cost(L) for gen_planner (ninth carry, unchanged constants).
 5. The M = 2L periodicity note above if anyone ever builds a cheap 25-tail.
+
+## Round gen_r12 (reconstruction, written in gen_r13)
+
+RECORD HYGIENE NOTE: like gen_r9, this section was never written in round
+gen_r12 itself -- the r12 agent log (results/gen_r12/agents/gen_bluestein.log)
+is EMPTY (1 byte) though the round shipped a real change.  Reconstructed from
+`diff impl_11/gen_bluestein.c impl_12/gen_bluestein.c` (111 lines, two
+changes + one static null, all commented in-source) and the r12 leaderboard.
+
+1. **last_scatter_tr spill diet** (r11 next-step 1, the 1.3%-ceiling item):
+   the k = j+S outputs are staged through an aligned L1-hot stack slot
+   (`stg[64]`) as they are produced and reloaded only after the r0
+   transpose-store has retired its register set, instead of accumulating
+   ro[8]+r1o[8] (+ BST_LAST_LOAD temps, ~30 live) across the column loop.
+   The r11 spill audit had counted 76 chaotic rsp movs here.  Same FP ops in
+   the same order: outputs bit-identical.  -DBST_NOSTG restores the r11 form.
+2. **axis_pass incremental lane offsets** (r11 next-step 2): incremental
+   (rem, off) tracking replaces the per-lane (r/div, r%div) formula -- kills
+   8 idivs (~18 cyc each on ICL, unpipelined) + 16 imuls per 8-row group,
+   all on the group prologue's critical path.  rem walks 0..div-1 with a
+   wrap; off bumps by 2B per row and 2(A - div*B) at each div-block
+   boundary.  Offsets identical by construction; bit-identical outputs.
+   -DBST_NOINC restores the divide form.
+3. Static NULL (in-source comment): the same stack-staging treatment on
+   first_gather_tr's a-legs -- 654 -> 657 insns, rsp movs 32 both ways; gcc
+   already schedules the gather side cleanly.  Not shipped.
+
+r12 board (a80n0): L=100 B=1 13499.7 us (r11 board 13587-14132 lineage),
+L=50 1374.3, L=40 606.5, L=31 274.0, L=27 202.5, L=25 169.2, L=20 80.7,
+L=15 33.3, L=12 18.75, L=10 12.65 -- all gates ok (ch <= 5.7e-14 vs 1e-10,
+1s <= 3e-15).  No round section was written, so no same-window A/B
+attribution numbers exist for the two changes; the board reads are
+parity-to-slightly-better everywhere, consistent with two uop-deletion
+changes sized ~1-2% at the big cells.
+
+## Round gen_r13 (the B=1 small-L round)
+
+### What changed (impl/gen_bluestein.c, one structural change, ~176 diff lines)
+
+**Sub-32 convolution grid: M = 20, 24, 28, 40, 56 (S = M/4 = 5, 6, 7, 10,
+14), via CLAMP-OVERLAPPED transpose blocks.**  The k >= 4 floor on the
+{3,5,7}*2^k grid existed for one reason only: the axis-2 transpose
+gather/scatter processes j in 4-wide blocks and required S % 4 == 0.  My r6
+and r7 records declined M=24 twice ("surgery on the hottest, most
+correctness-critical functions... at L=11 even the masked boundary block
+overruns S=6") because the fix on the table was 2-wide block variants of
+every leg region.  The actual fix is 15 lines of loop schedule, not new
+blocks: iterate jb = 0, 4, 8, ... and CLAMP the final block to j = S-4.
+The clamped block recomputes up to 3 columns the previous block already
+produced -- but every column is a pure function of src (gather) or w
+(scatter), never of its own pass's output, so the overlap is IDEMPOTENT and
+bit-identical; and each block classifies itself dual/boundary/single
+against jful independently, so the r2 masked-b boundary machinery handles
+every mixed case (including the L=11 shape that scared r7) unchanged.  The
+r7 "overrun" objection dissolves entirely: with the clamp, no address ever
+passes S.  Chirp reads reach 2S-1, and every sub-32 pick satisfies
+2S-1 <= L+3 (worst cases L=17/M=40: 19<=20 and L=25/M=56: 27<=28), so the
+existing L+4 slack covers it -- checked per pick before shipping, noted at
+the alloc.  Grid change itself is three constants (M3/M5/M7 start at
+24/20/28 instead of 48/80/112).  New picks and their chains:
+  L=9,10:  M 32->20  first(5)+mid5+last(5)      -37.5% conv data, 5->3 passes
+  L=11,12: M 32->24  first(6)+mid6+last(6)      -25%
+  L=13,14: M 32->28  first(7)+mid7+last(7)      -12.5%
+  L=17..20: M 48->40 first(10)+mid10+last(10)   -17%  (graded 20:32)
+  L=25..28: M 64->56 first(14)+mid14+last(14)   -12.5% (graded 25:16, 27:16)
+All five tail modules (mid5/6/7/10/14) already existed from r6/r7 and loop
+generically over M; conv_rows_mid's zero-middle-stage dispatch was already
+exercised by M=16.  Every other size takes a byte-identical code path
+(S % 4 == 0 keeps the original three-phase loops; cmp-PROVEN below).
+-DBST_NOSML = the gen_r12 grid (attribution control + CLX/SPR re-race arm).
+The 15:32 cell stays at M=32 (2L-1=29 > 24); 29..32 stay at M=64 (M=60
+needs a DFT-15 module -- declined below).
+
+### Why this was the round's lever (the brief's B=1 small-L mandate)
+The two new scored cells 10:1:16384 and 12:1:12288 run exactly the M=32
+slice, where the old grid was weakest relative to size: a 5-pass pipeline
+(first + dif4(8) + mid2 + dit4(8) + last) for a 10-element row.  The r6
+lesson ("the M-grid cut is the most reliable lever this engine has") applied
+directly; the r8 flap-count boundary does not bite because DFT-5/6/7/10/14
+are all at-or-near radix-4's per-point cost (unlike the DFT-13 that lost r8).
+
+### Measured on the node (a80n0, ONE held lease per battery, control-first
+### same-core alternating pairs, -DBST_NOSML control vs ship; graded chain
+### cells incl. the fused map, min us/xform)
+
+| cell | ctl (r12 grid) | new | delta |
+|---|---|---|---|
+| 10:1 m=16384 | 12.93 / 13.17 (2 dirty 19-20) | 8.64 / 8.71 / 8.71 / 8.87 | **-33%** (4/4) |
+| 12:1 m=12288 | 18.07 / 18.14 / 18.18 / 18.29 | 11.99 / 12.20 / 12.48 / 13.03 | **-31%** (4/4) |
+| 10:64 m=1000 | 12.77 / 12.81 | 8.75 / 8.84 | **-31%** (2/2) |
+| 12:64 m=600 | 18.95 / 19.05 | 13.33 / 13.62 | **-30%** (2/2) |
+| 20:32 m=256 | 81.5 / 82.2 / 82.4 | 64.06 / 64.63 / 73.9 | **-20%** (3/3) |
+| 25:16 m=256 | 169.9-174.8 | 163.8-165.9 | **-4%** (4/4) |
+| 27:16 m=200 | 203.0-204.1 | 195.2-198.8 | **-3.5%** (4/4) |
+
+Singles (fresh-core tryout): 10:1 **9.01** us (r12 binary same window
+13.60; MKL 1.47-1.51), 12:1 **12.96** (MKL 2.18).  Parity reads at
+untouched cells: 15:32 33.13 (board 33.31), 31:16 276.8 (board 274.0).
+The 25/27 win is smaller exactly as the pass-count rule predicts (the
+deleted dif4(16)/dit4(16) passes over an 8 KiB buffer were L1-resident ~
+free, pfa_large r4's boundary; the win there is the -12.5% on the fused
+first/last passes), but it is 8/8 pairs consistent -- kept.
+For calibration against the round target: fftw3's benchFFT pace at 10:1 is
+~2.1 us/transform, so this entry stays a fallback at these cells (4x off);
+the class winners own them.  The fallback just got 1.5x better everywhere
+its grid was coarse.
+
+### Gates (ship default build, all on the node by hand, check.py)
+Generality singles B=1, 46 sizes = every new-M size {9..14, 17..20, 25..28}
++ the standing regression set {2,3,5,7,15,16,21,23,24,31,33,35,40,47,48,49,
+56,63,64,65,71,80,96,97,101,104,105,112,113,120,127,128}: ALL PASS
+<= 1.05e-15 (tol 1e-12).  Two-step m=2 fused-chain gate at {9,10,11,12,13,
+14 B=3, 17 B=4, 18, 19, 20 B=32, 25 B=16, 26 B=2, 27 B=16, 28}: 1.32e-15
+.. 2.60e-15 (tol 3e-14, >= 11x margin).  Graded chains: 10:1 m=16384
+2.73e-6 (anchor 9.77e-7, 2.8x honest, tol 3e-4 -- the 16k-step drift scale),
+12:1 m=12288 7.69e-9 (anchor 8.00e-9 -- BELOW honest), 10:64 m=1000
+2.01e-13 (1.08e-13), 12:64 m=600 9.31e-14 (3.89e-14), 20:32 6.79e-14
+(2.84e-14), 25:16 5.10e-14 (2.80e-14), 27:16 4.68e-14 (2.57e-14) -- all
+<= 2.8x honest, tol 1e-10.  Chain outputs cmp-repeatable (20:32, 12:1).
+PARITY: ship vs -DBST_NOSML outputs cmp-IDENTICAL at 9 untouched sizes
+{15:32, 16:4, 23:1, 31:16, 32:8, 40:8, 50:4, 64:1, 100:1} -- the graded
+suite outside the five changed slices is provably untouched.  Scalar
+-march=x86-64 build: singles PASS at {9..14, 18, 20, 26, 28} + m=2 chain at
+12:1 (the plain-C dft5/6/7/10/14 stages end to end).  create() still ~0 s.
+
+### What did NOT work / was declined, with the reason
+- Nothing raced off this round -- all five slices kept, 25/29 pairs to the
+  ship across seven cells (the 4 losses were all in the two dirty 10:1
+  control reads' pairs, which the ship still won).
+- **M=60 (15*4) for L=29,30**: S=15 works under the clamp, but needs a new
+  conv_mid15 (PFA 3x5, ~30 live zmm) for two never-graded sizes; L=31/32
+  (2L-1 = 61,63) stay on 64 regardless.  Same coverage decline as r6's
+  15*2^k.
+- **M=44 (11*4) for L=21,22 and M=36 (9*4) for L=17,18**: need DFT-11 /
+  DFT-9 tail modules that do not exist in this file; the r8 DFT-13 lesson
+  (a tail module pricier per point than radix-4 eats a <=10% data cut)
+  predicts at best a wash.  Declined without a window.
+- The gen_r5-era "M = 2L periodicity" note is now partially moot: at L=10
+  the new grid pick M=20 IS 2L, so the cyclic-convolution optimum and the
+  linear-embedding grid coincide there.
+
+### Harness notes (delta)
+- **tryout.sh's cases.txt lookup breaks at L=10/12 this round**: `awk $1==l`
+  now matches BOTH rows (10:64:1000 and 10:1:16384), M becomes two lines,
+  `[ $M -gt 1 ]` errors out and the chain leg silently runs m=1.  Chain
+  timings/gates for L=10/12 must be run by hand on the node (this round's
+  A/B script: build/tryout/gen_bluestein/r13_ab.sh).  Monitor may want the
+  awk keyed on $1==l && $2==b.
+- r13_verify.sh in the same directory is the full battery (build/sweep/
+  parity/gates/scalar) used above; first cut of the repeatability leg ran
+  without cd on the remote side and reported NOT-REPEATABLE from stale
+  files -- a check that could not pass; loud errors caught it, rerun clean.
+
+### Borrowed this round, named
+- **The round brief's known-good list**: item 1 (within-volume pencil
+  lanes) is already this engine's native form (8 rows of one volume per
+  group since r1), so the round's work went to the M-grid instead.
+- **literature 11 Tier-1 flap-count ranking** (standing since r6): the
+  cost-not-convenience grid framing; this round is its third application.
+- **gen_batchlane r4 / gen_pow2 r3** (standing): held-lease same-core
+  control-first pairing for every number above.
+- **gen_rader r9** (standing): control arm is the flag-disabled build
+  (-DBST_NOSML) of the same source, never an impl_N snapshot.
+
+### Operation count (delta vs r12, per row at the changed sizes)
+Buffer passes 5 -> 3 everywhere the grid moved; conv elements per pass
+32->20 (L=9,10), 32->24 (11,12), 32->28 (13,14), 48->40 (17..20),
+64->56 (25..28).  Transpose block count per tr row-group is UNCHANGED
+(ceil(S/4) with overlap = the old S/4 at every pick: 2 vs 2 at 10/12,
+3 vs 3 at 20, 4 vs 4 at 25), so the p5 bill did not move; the win is pure
+mid-pass deletion + first/last data cut.  Gather/scatter chirp work (O(L)
+per row) unchanged.  Overlapped tr columns recompute 1-3 of S columns
+(20-60% of one block), bounded by one block per group side.
+
+### What I would do next
+1. **Cross-arch re-races** (carried, list grows): BST_NOSML joins
+   BST_MAPFUSE_MAX_MIB, BST_NOCFUSE, BST_BLKFUSE, BST_PF, BST_SCHED,
+   BST_MID12, BST_NO7, BST_M13, BST_NOJX, BST_NOTRST, BST_NOTAIL,
+   BST_NOSTG, BST_NOINC on CLX/SPR when the next XARCH lands.
+2. **bluestein_cost(L) for gen_planner** (tenth carry, grid updated):
+   ~0.66 ns per (row * M(L)*log2 M(L) / 8) with M(L) now min over
+   {2^k, 3*2^k>=24, 5*2^k>=20, 7*2^k>=28} >= 2L-1 -- and a 3-pass constant
+   at the sub-32 picks vs 5-pass above; the planner should stop assuming
+   the k>=4 grid for me.
+3. If the 10:1/12:1 cells ever matter for this entry beyond fallback duty:
+   the remaining gap to fftw3 (~4x) is group-prologue overhead (13 groups
+   of 8 rows for a 100-row axis, gather/scatter dominated) -- the honest
+   fix is a whole-volume-in-registers small-L specialization, which is the
+   class winners' territory, not Bluestein's.
+4. conv_mid15 (M=60) only if a future round grades L=29/30.

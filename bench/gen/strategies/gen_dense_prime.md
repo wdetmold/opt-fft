@@ -1944,3 +1944,188 @@ refills, not uops, which is the round's finding).
    build/tryout/gen_dense_prime/r12dev/; a80n0 now times the 31 chain at
    the a81n2 board level (109.5-111), so r11's 113.9-vs-109.9 node gap no
    longer applies.
+
+## Round gen_r13
+
+### Where this round started
+
+r12 leaderboard (a80n0): 111.333 at the graded crossover cell (L=31 B=16
+m=140; gen_rader 84.753 — settled); roster 5.079 / 7.673 / 14.760 / 38.428
+at 10/12/15/20.  The r13 brief adds TWO scored B=1 cells — 10:1:16384 and
+12:1:12288 (the benchFFT-exposed weakness) — with target "beat
+fftw3_measure".  Baselines measured on the node this round, core 4,
+graded chains: my r12 binary 5.8-6.2 us/step at 10:1 and 8.7-9.4 at 12:1;
+the library bars ARE NOT the benchFFT raw-FFT paces — through this
+harness's chain (map included) fftw3_measure reads 5.78 / 8.51,
+fftw3_patient 5.08 / 8.04, mkl_dfti 4.33 / 7.32; gen_pfa_small's r12
+binary already runs 2.25 / 3.36 (their PFA arithmetic, unreachable for
+dense — the 31-crossover story again).  So the dense-arm goal: beat every
+LIBRARY at both new cells and close as much of the 2.7x panel gap as
+engineering allows.
+
+### The diagnosis (pass-knockout profile + counters, all a80n0 core 4)
+
+Pass-disabled builds at 10:1 split the 6.0 us step: z 2.1, y 1.6, x 1.25,
+map 1.0 — ALL far above their port math (whole-step FMA floor ~0.6 us).
+The generic engine is overhead-shaped at tiny L: runtime loop bounds
+nothing unrolls, a function-POINTER call per z row-PAIR, a fold_pass
+prologue per y-PLANE, masked tails everywhere.  And the counters found a
+capacity term: l1d.replacement 51M over the 10:1 chain (~1040 line
+fills/step = the whole working set cycling every step) — sp + cp + the
+three 8 KB scratch buffers sit AT the 48 KB L1D boundary, and the
+standalone map pass's c sweep is what tips it.
+
+### What shipped (outputs BIT-IDENTICAL to r12 at every size, single AND
+### chain — cmp-verified at 9 cells including 13/17/31)
+
+1. **Compile-time specialization of the scored composites.**  fold_pass
+   factored into an always_inline fold_core; folds_x10/12/15/20 and
+   folds_y10/12/15/20 instantiate it with EVERY shape parameter literal
+   (L, hc, hs, inner, BC): j-loops unroll, the KN/TW tail dispatches fold
+   away, and at these widths (rows of 12/12/16/20 complex = multiples of
+   4) every mask degenerates — zero masked ops in the whole x/y machinery.
+   fy runs the plane loop inside one call.  Per-output op sequence
+   unchanged => bit-identical (the r5/r8 argument).
+2. **Row-QUAD z kernel** (gdps_z4_10/12/15, all KQ=2): four rows per
+   iteration share each table load (4 loads + 8 broadcasts feed 16 FMAs/j
+   vs the pair kernel's 8/8), bounds and store masks/offsets are literals
+   (computed in-function by the create() formulas, gcc-folded to
+   immediates), and the whole pass is ONE direct-called function — the
+   per-pair function-pointer calls are gone.  Pair/solo tail for odd row
+   counts (L=15).  Per-row op sequence identical to zrow_pair_k2 =>
+   bit-identical.
+3. **Scratch de-aliasing**: U/V/Cb now ONE allocation with +320 B staggers
+   — three separate same-size aligned_allocs land at the SAME page phase
+   (the r3 arena lesson, still biting five rounds later) and stacked their
+   hot heads on the same L1 sets on top of sp+cp.  With (1)+(2)+narrow
+   blocks this cut 10:1 l1d.replacement 51M -> 10M.
+4. **L=12/20 chains moved into plan-owned flat-pitch volumes** (PL = L,
+   boundary copies amortized over m): the flat chain ran in the CALLER's
+   state/c buffers — same-size driver allocations at the SAME 4K phase, so
+   the map's c loads aliased the state stores in flight every step.  Plan
+   volumes pin c at +2048.  Values bit-identical (same ops, same order);
+   ~1.5% at 12:1, wash at 20 — kept mostly as scoring-window insurance
+   against allocation luck.
+
+### Measured on the node (a80n0 core 4, ONE held lease, interleaved
+### same-core min-sets vs the r12 control, min us/step)
+
+| cell | r12 ctl (same windows) | gen_r13 | delta |
+|---|---|---|---|
+| 10:1 m=16384 (NEW) | 5.77 / 5.80 / 5.88 | **3.39 / 3.39 / 3.40** (quiet-window best 2.98) | **-41%** |
+| 12:1 m=12288 (NEW) | 8.77 / 8.79 / 9.23 | **5.34 / 5.34 / 5.39** (quiet best 4.71) | **-39%** |
+| 10:64 m=1000 | 5.11 / 5.30 | **2.97 / 2.97** | **-42%** |
+| 12:64 m=600 | 7.67 / 7.68 | **4.71 / 4.81** | **-38%** |
+| 15:32 m=600 | 14.95 / 14.99 | **10.91 / 11.01** (BC15=16 arm) | **-27%** |
+| 20:32 m=256 | 37.97 / 38.65 | **33.90 / 34.69** | **-10%** |
+| 17:4 m=8 | 27.29 / 27.36 | 26.95 / 27.53 | parity (bit-identical path) |
+| 31:16 m=140 | 110.40 / 111.59 | 110.20 / 111.27 | parity (bit-identical path) |
+
+Versus the library bars at the new cells: **10:1 3.4 vs fftw3_measure 5.78
+(1.70x) and mkl 4.33 (1.28x); 12:1 5.34 vs 8.51 (1.59x) and 7.32 (1.37x)**
+— both round targets met with margin.  gen_pfa_small (r12 binary) still
+leads the panel at 2.25/3.36; that residual is PFA-vs-dense arithmetic
+(10 = 2x5, 12 = 3x4), not engineering — the crossover story of cell 31,
+reproduced at the composites.
+
+Correctness, shipped binary: outputs bit-identical to the r12 control at
+9 cells (10:1, 12:1, 10:64, 12:64, 15:32, 20:32, 13:4, 17:4, 31:16),
+single and chain; numpy gates fresh — singles 2.7e-16..3.9e-16 (tol
+1e-12) everywhere; **two-step gate 8.6e-16..1.7e-15 at all 9 cells**
+(tol 3e-14, 17-35x margin; 31 reads the exact inherited 1.726e-15);
+graded map-chains PASS at 1.0-2.5x their honest anchors including the
+long new chains (10:1 m=16384: 1.095e-07 vs anchor 9.771e-07; 12:1
+m=12288: 7.947e-09 vs anchor 7.995e-09); two-run cmp-identical at both
+new cells at full m; non-AVX512 build (-mno-avx512f) verified end-to-end
+at L=7 B=2 and L=10 B=1 with chain gates on wallaby.
+
+### What did NOT work, with the number that killed it
+
+- **LAZY MAP at the quad sizes (map-on-z-load, the r4/r6 lever re-raced
+  where the L1-thrash argument said it should finally win): +22% at 10:1
+  (3.80-3.84 vs 3.10-3.11), +27% at 12:1 (6.22-6.26 vs 4.89-4.90), 4/4
+  pairwise.**  Even with 4 rows in flight (quad fold) and the standalone
+  pass demonstrably thrashing L1, moving the ladder onto the z feed path
+  costs more than the thrash.  The r6 doctrine — the map wants to be a
+  standalone max-ILP pass — now holds in BOTH cache regimes.  Ships
+  compiled-in behind -DGDP_LZ (cross-arch raceable); machinery: quad
+  kernel takes a cvol arg, gdp_map_row per row, final map materialized
+  once per chain.
+- **Wide x-pass blocks (BC 60/48/60/40) LOSE to BC = PL (12/12/16/20)**:
+  10:1: 3.01-3.05 vs 3.10 for BC=12 over BC=60; 12:1 4.77 vs 4.89; 15:32
+  10.91-11.01 vs 11.31-11.47 (BC=16 over 60); 20:32 lean win for 20.  The
+  wide blocks touch 13.4 KB of U/V/Cb vs 2.7 KB — at the L1-capacity
+  boundary the footprint beats the block-count overhead the widening was
+  meant to amortize (and the specialization had already deleted most of
+  that overhead).  My round-opening hypothesis was exactly backwards;
+  raced both ways before shipping.  Knobs -DGDP_BC10/12/15/20.
+- **NTA prefetch of the map's c stream** (-DGDP_MAPNTA): wash at 10
+  (+1.5%), -1% at 12 — after the stagger fix the c stream was no longer
+  the binder.  Knob kept.
+- **-falign-loops=32** at the new cells: wash to -1%, 3/3 — consistent
+  with r7's verdict on the 31 path (the r6 win at 29 remains per-path).
+- Map arithmetic re-races at B=1 (div8 vs paired: wash; rcp: +4%) — the
+  r10 paired-div default survives; the map's residual ~0.9 us at 10:1 is
+  latency/junction shape (divider only 37% busy, p0+p5 1.2/2.0), not
+  divider or alias-bound; per-plane map grouping and a fused z->x drain
+  were costed at ~4% and struck for scope.
+
+### Borrowed this round, named
+
+- **The r13 brief / benchFFT finding** (Frigo & Johnson's harness): the
+  B=1 small-L exposure itself, and the "it is pure schedule, not memory"
+  hint that pointed at specialization rather than arithmetic.
+- **gen_pfa_small / gen_batchlane r12 binaries**: used as the panel bars
+  at the new cells (measured, not assumed).  The within-volume pencil-lane
+  material was read and NOT adopted: for a dense-GEMM engine the x/y
+  passes are already zero-shuffle vertical; only the z-axis could use
+  lanes, and the quad specialization got the z-pass to 2.8 uops/cyc
+  without any transpose overhead.
+- **My own r3 arena lesson** (same-size aligned_allocs share a page
+  phase), applied twice: the U/V/Cb stagger and the L=12/20 plan-owned
+  chain volumes.
+- **gen_batchlane gen_r4**: the one-lease same-core interleave protocol,
+  as every round.
+- **The r5/r8 bit-identity discipline**: both new kernel families keep
+  per-output op sequences, so the entire correctness story is cmp + the
+  standard gates.
+
+### Operation count (shipped)
+
+FMA counts identical to r5-r12 at every size (bit-identical outputs).
+What changed is issue shape at 10/12/15/20: z-pass table loads per 4 rows
+drop 2x(2KQ+4) -> 4+2KQ per j with all four rows' 16 FMAs fed from them;
+all x/y masked loads/stores at the specialized widths become full vectors;
+per-pair call/dispatch overhead (~15 uops x L^2/2 rows) and the fold_pass
+per-plane prologues are gone; scratch footprint per block 13.4 -> 2.7 KB.
+l1d.replacement at 10:1: 51M -> 10M per chain.
+
+### What I would do next
+
+1. **The remaining gap at 10/12 B=1 is arithmetic** (pfa_small 2.25/3.36
+   vs my 3.0/4.8 quiet): dense 46/67 cMACs per pencil vs PFA's ~2-3x
+   fewer.  Not closable in schedule; the dense rows at these cells are now
+   the honest dense floor, and they beat every library.
+2. **Fused z->x drain at 10/12** (the fold31zx architecture at KQ=2 quads:
+   mirrored plane pairs, combine straight into U/V, z spectra never touch
+   the volume): costed at ~4% of the step for a full day of intricate
+   macro work + a reassociation (loses bit-identity); worth it only if a
+   future round re-contests these cells.
+3. **L=20 z-quad (KQ=3)**: register-count is tight (24 acc + 6 tables);
+   the 20 cell is L2-resident so expect less than the 10/12 wins; the
+   pattern is ready to instantiate if a window is spare.
+4. **Map pass residual (~0.9 us at 10:1, ~37 cyc/16-pt group at 37%
+   divider, 1.2/2.0 p0+p5)**: neither port- nor divider- nor alias-bound;
+   the next probe would be uops_retired stalls / a hand-unrolled 2x
+   interleave of independent groups, but the whole pass floor is ~0.45 us
+   — single-digit % of the cell.
+5. **Cross-arch**: the specialization is shape-only and should transfer;
+   the new knobs (GDP_LZ, GDP_BC*, GDP_MAPNTA) are all raceable on
+   CLX/SPR; the L1-capacity findings are 48-KB-L1D-specific — CLX (32 KB
+   L1D) will sit deeper in the thrash regime and may reward smaller
+   footprints even more.
+6. Harness notes: tryout.sh's m-lookup breaks on the duplicated L rows in
+   cases.txt (both 10:64:1000 and 10:1:16384 match `awk $1==l`, the [ -gt ]
+   test dies, and it silently times m=1) — FOR THE MONITOR; the r13dev kit
+   (r13_ab.sh: build/gen/time/gates phases + per-cell in/c bins + the
+   pass-knockout prof copies) lives in build/tryout/gen_dense_prime/r13dev/.

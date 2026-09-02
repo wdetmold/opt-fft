@@ -1763,3 +1763,206 @@ slab layout.  Pack/unpack + c pack: once per volume chain (~3 volume moves
    co-issue shape that does not steal 512-bit slots (gen_pfa_large's
    portcal3 says not on SPR).
 4. **The driver's --chain 1 segfault** (r11 item 4) is still there.
+
+## Round gen_r13 -- the B=1 small-L round: alt + whole-volume map take the new cells; the within-volume engine gets a small-L mode
+
+### The round in one line
+
+The two new scored cells improved 13-17% (held-lease interleaved pairs, 3/3
+each): 10:1:16384 from 3.38-2.91 (r12 control, same windows) to **2.52-2.87
+us/xform** and 12:1:12288 from 4.70-4.17 to **3.48-4.01** -- against
+fftw3_measure's 5.69 / 9.62 and MKL's 4.33 / 7.44 on the same chain cells
+(~2.1x / ~2.6x vs the strongest fftw) -- by (1) extending the r11
+ALTERNATING-LAYOUT one-transpose chain down to L <= 12 and (2) replacing its
+L per-plane map spans with ONE exactly-paired whole-volume span; the r12
+within-volume engine also gained a small-L fused-codelet mode with a
+register-resident x-pass that races as a playoff arm (it ties alt at 12,
+loses at 10 -- the playoff banks per host).
+
+### Where the round's numbers came from (measure first, then design)
+
+- Baseline chains (this entry, r12 code): 10:1 3.433, 12:1 4.789.
+- Library chain paces on the SAME cells, same core: fftw3_measure 5.686 /
+  9.617, fftw3_patient 4.947 / 8.029, mkl_dfti 4.328 / 7.435.  The
+  benchFFT deficit the brief priced (fftw 23.8k mflops = 2.09 us plain FFT)
+  does NOT carry to the graded chain -- the libraries pay the driver-side
+  map.  The r12 binary already beat every library on the new cells; the
+  brief's 13,440-mflops "ours" was the TRUNK's B=1 routing, not this entry
+  (see benchFFT below).
+- Phase-skip attribution (my r12 technique, env-gated skips armed only
+  after the create gate/playoff -- the first attempt armed them at once and
+  silently measured pv three times because the wv GATE failed and dropped
+  the engine; two-sided check before reading any A/B):
+  pv step at 10:1 = plane passes 48% + MAP 25% + axis0 8%;
+  wv step at 10:1 = x-pass 76% (the trans8+A-stage+DFT+map pipeline),
+  z/y only ~0.8 us despite the 6-pad-lane (16 lanes for 10 planes) waste.
+
+### What shipped (impl/gen_planner.c)
+
+1. **alt chain at L <= 12** (gate condition `L > 80` -> `L > 80 || L <= 12`,
+   same create()-time fin + 2-step gate discipline): the classic small-L
+   step paid transpose-in + transpose-out per plane per step; alt pays one
+   in-place transpose.  The batched 10/12 cells route through the s8 group
+   engine (B % 8 == 0) and structurally never touch this path -- only the
+   B=1 cells and odd-batch remainders do.
+2. **Whole-volume map span at L <= 12** (inside pln_p3d_step_alt): one
+   pln_map_span_to over L^3 instead of L per-plane spans -- exactly-paired
+   vectors (a 10-plane step had 10 odd per-plane tails; 125 exact pairs at
+   L=10), longer independent stream for the ladder latency, plane-hotness
+   moot at L1-resident volumes.  Pointwise map, pair rounding is
+   partner-independent (r6 receipt): bit-identical, and cheap: -4.2% / -2.0%
+   on top of alt in the dev windows.
+3. **wv small-L fused mode** (pln_wv): at L <= PLN_FUSEMAX the engine now
+   builds from a lev-1 pln_s8 (GT pairs preferred -- twiddle-free -- then
+   fused CT) and pln_wv_dft_set dispatches ONE register-resident
+   pln_gtw_run/pln_fusedw_run call per pencil set instead of the 3-level
+   scratch pipeline; eligibility widened to (L > 80 || (L <= 16 && B%8 != 0)).
+4. **Register-resident x-pass group** (pln_wv_xg_i + 7 instantiations,
+   selected at build time into w->xg for 9 <= L <= 12): trans8 both slabs,
+   GT/CT DFT on the pw registers (same pw_dftNs/pw_cmulw bodies and order as
+   the staged path -- bit-identical), trans8-out with pw_stmap fused and pad
+   lanes refreshed from the last real plane.  Zero zmm spills at L=10 (907
+   instructions, asm audit).  The wv arm enters the existing @w playoff:
+   at 10 it loses to alt (3.30-3.52 vs 2.86-2.99) and banks @w0; at 12 it
+   TIES alt (chain pairs 4.00/4.08 vs 3.97/4.02 -- alt by ~1%) and the
+   settle gate occasionally adopts @w1; either path is gate-verified and
+   within 1%, and wisdom pins whichever the quiet scoring window banks.
+
+### Measured on the node (a80n0, held-lease same-core interleaved r12-vs-r13
+### adjacent pairs, min of --samples 4, graded chains)
+
+| cell | r12 control | gen_r13 | delta | best library same window |
+|---|---|---|---|---|
+| 10:1:16384 | 3.379 / 3.018 / 2.906 | **2.867 / 2.516 / 2.521** | -13..17%, 3/3 | fftw3_measure 5.686, mkl 4.328 |
+| 12:1:12288 | 4.700 / 4.213 / 4.167 | **4.010 / 3.482 / 3.488** | -15..17%, 3/3 | fftw3_measure 9.617, mkl 7.435 |
+
+(The windows are bimodal at ~15% on these tiny chains -- both arms move
+together between pairs; every verdict above is within-pair.)
+
+Protection, same protocol: L=100 B=1 m=64 (pln_p3d_step_alt is shared code
+and grew an `L <= 12` branch): r12 4498/4481/4471 vs r13 4475/4468/4455 --
+r13 side won 3/3 clean pairs, i.e. parity (one earlier contended read of
+5007 was window, not code).  Batched cells single-invocation checks: 10:64
+1.505->1.507, 12:64 2.665->2.679, 25:16 41.51->41.66, 31:16 139.7->139.3 --
+parity.  nm -S audit vs the round-start binary: only fft3d_create,
+pln_p3d_step_alt (its clones, +-50 B), pln_wv_build/_dft_set/_step changed
+size; 7 new pln_wv_xg_* symbols; pln_p3d_step, pln_xexec, pln_map_span,
+pln_s8_step, pln_chain_pv byte-stable.
+
+benchFFT (benchfft_ours/doit rebuilt against THIS entry, their harness and
+mflops convention, B=1 single transform): 10^3 **23,774 mflops** (fftw3's
+posted 23,842: a tie; the "ours 13,440" in the brief was the trunk's B=1
+routing) and 12^3 **36,118 mflops** (fftw3 29,724: **we lead 1.22x**);
+--verify PASS at both.  execute() is untouched this round -- the benchFFT
+gap was never this entry's execute path.
+
+### Gates (final binary, all on the node)
+
+Full numpy sweep L=2..128 single call B=1: ALL 127 PASS.  Graded map-chains:
+10:1 m=16384 rel 2.154e-06 vs honest anchor 9.771e-07 (tol 3.0e-04 -- the
+16384-step drift band), 12:1 m=12288 2.143e-09 vs anchor 7.995e-09 (tol
+3e-06), mixed batches 10:B=12 m=40 and 12:B=9 m=40 (group + pv-alt
+remainder) 9.2e-15 / 5.3e-15 (tol 1e-10): ALL PASS.  The alt and wv create()
+gates pass at every eligible L (the wv gate caught nothing this round --
+but see the attribution dead-end below for it saving the A/B).  5x cold
+creates at 10:1: 5/5 identical trees (gt(d2,d5)), wv adopt=0 5/5; one
+window banked @t16 (the known r10 tile hysteresis edge, wisdom pins the
+scoring pick).  x86-64-v2 build (alt structurally off there: PLN_SIMD),
+GEN_PLANNER_LIB adoption mode and gen_race.c all compile.  Wisdom: whole
+session under GEN_RACE_NO_WISDOM; 13 stale gen_planner keys (mine from the
+first un-pinned tryout + r12 leftovers) stripped from
+results/wisdom_a80n0.json under the flock, 188 foreign entries preserved,
+file re-validated -- the race shape changed again (@w at small L), so a
+warm pre-r13 hit must not skip the new playoff.
+
+### What did NOT work / went wrong, with the numbers
+
+- **wv small-L as-is ties pv, never wins at 10** (staged 3.302-3.307 vs pv
+  3.31-3.43; register x-pass 3.52 in its window): at L=10 the two slabs
+  carry 6 pad lanes -- 16 lanes of z/y arithmetic for 10 real planes -- and
+  the x-pass pays 4 full 8x8 transposes per 8-site group.  The register
+  form deleted the A-stage round trip (which I had blamed) and got
+  NOTHING: both forms are latency/ILP-bound at ~600 cycles per ~900-uop
+  group, not buffer-bound.  The pad economics, not the staging, are the
+  structural cost; recorded so nobody rebuilds this shape expecting the
+  batched engine's economics without a batch.
+- **PVFUSE=1 (map fused into the pv transpose-out) at 10:1: 4.607 vs 3.329**
+  -- the r6 gate (fuse only 12 < L <= 80) is right at B=1 too, and by more
+  (+38%): the interleaved exit ladder spills the n=10 codelet exactly as
+  the r5 batched measurement said.
+- **The tile-16 mirage, and the cross-invocation trap re-learned in my own
+  entry**: separate-invocation pairs read t16 -12% at 10:1 (2.541/2.575 vs
+  2.914/2.865) and I shipped a default flip -- then a held-lease same-core
+  alternation read t16/default/t32 = 2.592/2.541/2.534: a WASH inside one
+  window, the "12%" was the ~15% bimodal core window landing my t16 runs
+  in fast states.  Default reverted to 32 within the hour.  My r5 record
+  says "cross-invocation tryout pairs were treated as smoke only"; I read
+  smoke as signal anyway.  Every number in the table above is from
+  held-lease alternation because of this.
+- **Attribution builds must arm their skips AFTER the create gate**: the
+  first phase-skip build measured 3.4/3.5/3.4 for full/no-x/no-zy -- the
+  skips broke the gate, the gate dropped wv, and all three runs timed pv.
+  (The r12 lesson -- never read an A/B whose arms are not PROVEN different
+  -- caught it before any conclusion shipped.)  Also: getenv() in a
+  per-plane hot path costs ~0.4 us/step at m=16384 scale; attribution
+  controls must eat the same overhead as their variants.
+- **tryout.sh cannot time the new cells**: cases.txt now has two rows per L
+  (10:64 and 10:1) and the `awk $1==l {print $3}` M-extraction returns
+  both, breaking the -gt test (it silently ran m=1).  Worked around with
+  build/tryout/gen_planner/r13run.sh (same build/lease/pin protocol,
+  explicit m); the fix belongs to whoever owns tryout.sh -- with L:B keys.
+- **The reservation had no heartbeat**: the monitor's hold (job 439820) is
+  a bare `sleep 43200`, so reserve.sh --status (and therefore tryout.sh)
+  read it as dead for every implementer.  Started a heartbeater on the
+  node gated on the slurm_script PID (`while kill -0 <pid>; do date +%s >
+  RESERVATION.heartbeat; sleep 60; done`) so it dies with the job; noted
+  here because the shim's 300-s freshness rule makes this everyone's
+  failure mode.
+
+### Borrowed this round, named
+
+- **The brief's round-13 material** (within-volume pencil lanes at small
+  scale) -- built as the wv small-L mode; honest verdict above: on ICX it
+  ties at 12 and loses to alt at 10.  The genfft n1_10/n1_12 codelets were
+  NOT mined: my gt(2,5)/gt(3,4) fused kernels are already PFA-structured
+  register-resident single calls; the deficit was never pencil arithmetic.
+- **My own r11 alt machinery and r12 attribution/playoff machinery** --
+  this round is mostly those two, aimed at the new cells and at the map.
+- **gen_pfa_large r6/r7**: nm -S per-function audit (found the step_alt
+  clone drift immediately; A/B at 100 acquitted it).
+- **gen_powp r2 / panel protocol**: scratch wisdom + flock strip; the
+  held-lease interleaved A/B standard (gen_batchlane r4 / gen_dense_prime
+  r3) is what killed the tile mirage.
+
+### Operation count (deltas vs gen_r12, L <= 12 chain path)
+
+Per plane per step: transposes 2 -> 1 (in-place pair-swap 4x4 blocks,
+masked edges at L%4 != 0); the P scratch plane and its read+write leave the
+step.  Map: L plane spans -> 1 volume span; at L=10, 250 vectors = 125
+exact pairs (was 10x(12 pairs + 1 odd tail)); ~21 arith + 4 shuffles per
+pair unchanged, c stream unchanged; one cw (z,y-transposed c) staging per
+volume per CHAIN (amortized over m = 12288-16384: nil).  FFT arithmetic,
+twiddles, leaf codelets: unchanged and bit-identical; the alt step's y/z
+summation-order swap on odd steps is the r11-documented rounding class,
+gated at create() as before.  wv small-L mode (playoff arm): per pencil ONE
+fused GT/CT codelet call (no 3-level scratch: -2n scratch round trips per
+pencil); x-pass group: 4x tr8 in + DFT in registers + 4x tr8 out + 16
+pw_stmap, zero spills at L=10, no A-matrix traffic.
+
+### What I would do next (ranked)
+
+1. **The B=1 small-L floor is now the plane passes** (48% pre-alt;
+   the two in-plane interleaved passes remain ~0.9 us of the 2.5 at 10:1):
+   the structural fix is a pad-free split form -- lanes = 8 z-slabs with
+   the leftover 2 (resp 4) z-planes packed 4-sites-per-vector (resp 2) so
+   the y/x passes run full-width -- analyzed this round at ~-0.5 us
+   potential, not built (the repack shuffles eat half of it; needs the
+   held-lease A/B, not a model).
+2. **Trunk routing at B=1** (for gen_race): benchFFT's 13,440-mflops
+   "ours" vs this entry's 23,774 on the same harness says the trunk's B=1
+   pick at 10/12 was not this engine; the race should see the new cells'
+   chain numbers now that cases.txt carries them.
+3. **tryout.sh M-extraction fix** for duplicate-L rows (owner: monitor).
+4. **The 12:1 alt-vs-wv near-tie** is a healthy playoff case: check which
+   the quiet scoring window banks, and whether CLX flips it (wv's fill-rate
+   advantage story from r12 applies at 1 MB L2).

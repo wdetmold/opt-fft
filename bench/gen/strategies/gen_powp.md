@@ -2078,3 +2078,180 @@ digits bit-exactly.
 4. **50 stays interleaved** on their own measurement; 25/27 stay soa
    (within-volume is for B < 8 by construction -- their r11 next-list
    item 3, same conclusion).
+
+## Round gen_r13 (quick-fix round: B=1 small-L cells for their owners; my duty is protection)
+
+Standings into the round (r12 board, a80n0): led 25 (31.698) and 27 (44.031)
+outright; L=100 at 4090.5 -- statistical parity with gen_batchlane's 4084.1
+(the r12 wv adoption did its job); **and L=50 shipped 480.616 where ~415 was
+available** (my r11 board number 413.898; gen_pfa_large's same-suite 413.440
+proves the window was normal) -- a ~16% regression on a scored cell with the
+kernel code untouched.  The new scored cells 10:1/12:1 are not mine
+(supports() is p^k only, verified); the round's whole job here was the 50
+diagnosis plus protection.
+
+### The wound, read out of the wisdom record (r9 banking pays off again)
+
+wisdom_a80n0.json: `gen_powp/chain9/L50/B4#640ac588 -> l50-ipm0, tie=1,
+us=484.842, margin=-0.0188`.  Anatomy: the r12 scoring window's cold race at
+50 B=4 read ipm0 trial-best; the challenger playoff then ran ipm0 vs rank-0
+ipp0 in the SAME biased window and "decided" for ipm0; the r10 authoritative
+override -- working exactly as designed, on a wrong premise -- barred the
+hysteresis from handing the slot back.  The graded cell then shipped ipm0's
+true number (~480; my r3 record already had ipm0 tie-at-best at 50, +11-16%
+at 100).  This is the THIRD observed instance of the r9 boundary ("the
+spread gate cannot catch sustained bias"): r8's l25-ip0, r11's dev-window
+l25-ip0, now the r12 scoring window itself.  A decision rule cannot
+out-measure its window; what CAN be fixed deterministically is who is
+allowed on the ballot.
+
+### What was built (pool hygiene; kernel arithmetic untouched at every size)
+
+1. **Recorded-winner DEFAULT pools at the scored 50/100 cells.**  Twelve
+   rounds of boards, dev sessions, wallaby, CLX and SPR advisories give
+   every family a per-size win/loss record; the default pools now carry
+   only families with at least one recorded WIN at that size on some host:
+   50: ipp0/ipp1/ip0/ip1/ipf (13 -> 5 candidates); 100:
+   ipk1/ipp1/ipp0/ip0/ip1/wv (14 -> 6).  Trimmed: ipm0/ipm1 (never won 50
+   or 100 anywhere; the r12 wound), ipq1/ipk1/iqn1 at 50 (c-bypass loses
+   big at B=4 -- r5: ipk1 548 vs ip1 469 -- the batch's c IS the L3 reuse
+   set), f0/fr/frw and ipf at 100 (f-family craters at streaming sizes
+   since r1; ipf never picked there on any host), ipq1/iqn1 at 100 (never
+   won; ipq1 +11% in r5 -- NTA hurts on this part, only the CLFLUSHOPT
+   variant ever carried the bypass win, and ipk1 STAYS: it won the
+   r6-r8 boards).  Every never-winner a biased window can elevate was a
+   scored-cell risk with zero recorded upside.  25/27 pools untouched (f0/
+   fr are recorded winners there; the soa playoff is the protection, and
+   trimming interleaved arms would not change the soa-vs-best-interleaved
+   tie risk anyway).  Lite pools (49/81/121/125) untouched -- ipm0 WINS at
+   121/125 (r4) and ipq0 at 125 (r5); the trim is strictly per-size
+   evidence, not a family judgment.
+2. **GENPWP_FULLPOOL=1 (env knob, not a build flag) restores the r12
+   pools** (cross-arch forensics; also needed if the monitor forces a
+   trimmed pf id).  The wisdom sig covers the offered name set, so trimmed
+   and full pools never share verdicts; pf ids unchanged so GENPWP_PF
+   forcing stays comparable across rounds.
+3. **Wisdom tag chain9 -> chain10** so the poisoned l50-ipm0 verdict (or
+   any chain9 verdict) can never replay; the pool change re-sigs 50/100 on
+   top, and the tag re-keys 25/27 so every cell's scoring verdict is
+   re-raced under the new protocol.
+4. Free side effect (the also-ran trim queued in my r10/r12 records): cold
+   create() 0.73-0.74 s at 50 (was ~1.42 measured in this round's A/B
+   control) and 3.5 s at 100 (r12: 5.25-5.29 quiet, 25.8 s under 12-agent
+   contention) -- round-6-budget headroom roughly doubles at the two
+   heaviest scored sizes.
+
+### Measured on the node (a80n0, reservation 439820, held slot lease core 3,
+### quiet windows sd 0.01-0.25%; full battery r13_battery.sh, gates by hand)
+
+| case | r12 board | gen_r13 | MKL same session | pick |
+|---|---|---|---|---|
+| L=25 B=16 m=256 | 31.698 | **31.021** (sd 0.03%) | 124.6 | soa (4.02x) |
+| L=27 B=16 m=200 | 44.031 | **43.591** (sd 0.01%) | 144.4 | soa (3.31x) |
+| L=50 B=4 m=128  | 480.616 (ipm0 mis-pick) | **410.177-411.945** (sd 0.04-0.05%) | 968.3 | ip1 this window (2.35x) -- the RECOVERY, and the best 50 number this entry has recorded on a node |
+| L=100 B=1 m=64  | 4090.543 | **4051.7** (sd 0.13%; tryout window 4309 at sd 1.06%) | 7777.9 | wv (1.92x) |
+
+Verbose cold races, quiet window (the new pools doing their job):
+50: trials ip1 412.2 / ipp1 415.3 / ip0 419.6 / ipp0 426.8 / ipf 609.4;
+challenger playoff ipp0 426.79 vs ip1 412.37 (decided, 3 rounds, Q 0.0%) ->
+ip1 installs.  The winner class at 50 is a genuine ip1/ipp0/ipp1 coin flip
+window-to-window (r6's re-observation stands); ALL of them run 410-427 --
+the trim's point is that 480-class never-winners are no longer on the
+ballot.  100: challenger playoff ipp0 4320.5 vs rank-0 ipk1 4649.9
+(decided); wv playoff wv 4024.9 vs ipp0 4512.0 -> l100-wv installs at a
++6.7% margin over the 3% hurdle.
+
+FULLPOOL A/B at 50 (3 same-core alternating cold-race pairs, honest
+reading): trim 420.6/431.7/420.8 vs full 416.9/413.1/421.2 -- a WASH within
+window noise, full arm min-of-mins 2 of 3 pairs ahead by ~1%.  Recorded
+plainly: in a QUIET window the r12 pool also picks a winner-class family;
+the trim buys nothing on the quiet mean.  What it removes is the tail risk
+(a biased window elevating a 480-class candidate through trials + playoff +
+override, the r12 board's measured -16%) and half the cold-create cost.
+That risk-vs-mean trade is the round's entire design.
+
+Gates, all hand-run (tryout's map-check leg still ships the '/c.bin'
+quoting bug, eleventh round): single call 3.604/3.725/4.336/4.522e-16 at
+25/27/50/100 (tol 1e-12); two-step m=2 **1.467/1.624/2.361/3.090e-15**
+(tol 3e-14) -- the EXACT r7-r12 digits; graded chains
+**3.061/3.147/5.028/4.422e-14** at 1.09-1.83x honest anchors (tol 1e-10) --
+exact r12 digits, as a kernel-untouched change must read; all four graded
+chains bit-repeatable across independent processes; L=81 B=2 lite smoke
+5.038e-16 (setup 2.80 s).  -Wall -Wextra: exactly the 16 pre-existing
+unused-candidate warnings (the FULLPOOL tables keep every trimmed candidate
+referenced -- no new dead code).  Round end: all five gen_powp/chain10 dev
+keys stripped from wisdom_a80n0.json under flock (r9-r12 protocol; the
+chain6/8/9 keys are dead to this binary and are scoring-window property).
+
+### What did NOT work / boundaries, with the numbers
+
+* **The trim is NOT a quiet-window speedup**: the 3-pair FULLPOOL A/B above
+  is a wash (full arm ahead ~1% in 2/3 pairs, all inside the 410-431
+  window wobble of a near-tied winner class).  Anyone reading this as
+  "trimming candidates made 50 faster" is misreading it; the 480 -> 410
+  recovery is entirely "the mis-picked family is off the ballot".
+* **Battery harness trap (cost one lease cycle)**: a hand battery script
+  run over ssh must `source /home/lqcd/wdetmold/fft/env.sh` -- the node's
+  default python3 has no numpy, gen_input.py dies, and every downstream
+  check "fails" with missing-file noise.  tryout.sh does this for you; a
+  by-hand script must do it itself (r13_battery.sh in build/tryout/
+  gen_powp/ is the reusable template, marker check included).
+* Considered and declined: **porting gen_batchlane's r12 BL_FUSE100**
+  (one-sweep fused CT 10x10).  Their own record prices it at -0.3..-1.2%
+  wall on this host -- their LLC counters showed the within-volume engine
+  is NOT DRAM-bound at 100 (demand DRAM ~2 MB/step; the 88%-DRAM reading
+  was engine-specific to the interleaved shell) -- and it requires
+  abandoning the PFA pencil for a twiddled equal-radix form.  A ~1% quiet
+  gain is not worth two engines' worth of new code in a protection round;
+  gen_race already races their .so at 100 for the trunk.  Revisit only if
+  a CLX advisory shows the fused form's DRAM cut mattering there (their
+  own prediction).
+* Considered and declined: hardening the r10 authoritative override with a
+  margin floor (gen_pfa_large's r9 6%-floor shape).  It would have blocked
+  the r10 fix's own use case (ipp1-over-ipk1 at +1.6%); the disease was
+  WHO WAS ON THE BALLOT, not the override.  With recorded-winner pools the
+  override arbitrates only among families whose worst case is the known
+  ~3% coin-flip band.
+
+### Borrowed, plainly
+
+- **The r9 banking design (own, after the monitor's PMU-audit avenue 1)**
+  is what made this round's diagnosis a one-line wisdom read instead of a
+  session of re-measurement -- third round running it pays for itself.
+- **gen_pfa_large (gen_r9)**: their determinism lesson ("a noise gate
+  cannot deliver determinism without a margin floor calibrated to
+  between-window drift") framed the decline of the override-hardening
+  route in favor of ballot hygiene.
+- **gen_batchlane (gen_r12)**: their LLC-loads/LLC-load-misses
+  discriminator and the "run it BEFORE building traffic cuts" instruction
+  is why BL_FUSE100 was declined on their numbers instead of re-measured
+  on a lease.
+
+### Operation count
+
+Unchanged everywhere (192/218/434/968 scored, 534/850/1850/1552 lite
+FMA-port vector ops per line; soa 388/408 per pencil; wv 2016 per pencil
+per 8 lanes at 100).  Shipped chains bit-identical to r7-r12 at every size
+(every historical gate digit reproduces above).  tune() cost: cold create
+HALVES at 50/100 (fewer arms); warm wisdom unchanged (ms-scale).
+
+### What I would do next (ranked)
+
+1. **Verify on the r13 board** that 50 lands back in the 410-425 class
+   (any of ip1/ipp0/ipp1 is the machinery working) and that
+   wisdom_a80n0.json holds plain-name chain10 verdicts from the scoring
+   window; 25/27/100 should hold at ~31.0/43.6/4.05-4.1k.
+2. **If the monitor's benchFFT B=1 curve starts scoring my sizes**: the
+   interleaved B=1 paths are already raced engines (this round's battery:
+   42.3 us single at 25 B=16-equivalent shapes; chain9 had banked B=1
+   picks at 25/27/50) -- but nobody has tuned a B=1 chain at 25/27
+   specifically; a within-volume 8-pencil variant (gen_pfa_small's r12
+   generic form covers the idea at their sizes) is the candidate if that
+   cell ever materializes.  Not before it is scored.
+3. **Round-6-style surprise draws**: lite pools untouched and now
+   documented as evidence-based (ipm0 wins 121/125); cold budgets have
+   fresh headroom.  Nothing to do but watch.
+4. **XARCH**: GENPWP_FULLPOOL is the forensics knob if an advisory host
+   ever wants a trimmed family; the per-host race + banked verdicts do the
+   rest.  CLX's l50-ipp1 and SPR's l100-ipp1 picks are both inside the
+   trimmed pools -- no advisory regression expected.

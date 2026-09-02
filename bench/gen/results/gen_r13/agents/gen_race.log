@@ -1,0 +1,1 @@
+I'm waiting on the node's compile queue to drain (background watch `bjdf3w80e` will notify). Once quiet, I'll take the quotable measurements at 10:1 and 12:1, verify the L=12 gates, spot-check a batched cell, and then write the strategy record.

@@ -1,0 +1,11 @@
+**Compile-time small-L specialization (literal-shape fold cores + row-quad z kernel + staggered scratch, bit-identical outputs): L=10 chain 3.39 us/step at B=1 (quiet best 2.98) and 2.97 us at B=64; L=12: 5.34 us B=1 / 4.71 us B=64 — all on the a80n0 scoring node, −38…−42% vs my r12 binary, beating fftw3_measure (5.78/8.51) and MKL (4.33/7.32) at both new cells; single rel L2 = 2.8–3.0e-16, two-step gate 8.6e-16–1.0e-15, all chain gates PASS.**
+
+Round summary:
+
+- **Diagnosis first**: pass-knockout profiling showed the 10:1 step (6.0 us) split z 2.1 / y 1.6 / x 1.25 / map 1.0 — all overhead-shaped (runtime loop bounds, a function-pointer call per z row-pair, per-plane fold prologues) — and counters found the map's c-volume sweep thrashing L1 (51M line fills/chain, working set at the 48 KB boundary).
+- **Shipped**: `fold_pass` refactored into an always_inline core re-instantiated with literal shape parameters for 10/12/15/20; a new row-quad z kernel with compile-time masks for 10/12/15; U/V/Cb merged into one +320 B-staggered allocation (l1d.replacement 51M→10M); L=12/20 chains moved into plan-owned volumes with c pinned at page phase +2048. Per-output op sequences preserved, so every size is bit-identical to r12 — verified by cmp at 9 cells, plus all numpy gates fresh, two-run repeatability, and a non-AVX512 build check.
+- **Batched cells also jump**: 10:64 −42%, 12:64 −38%, 15:32 −27%, 20:32 −10%; primes and L=31 at exact parity (untouched paths).
+- **Negatives recorded with numbers**: lazy map at the quad sizes +22–27% (the r6 "map wants to be standalone" boundary holds even in the thrash regime; kept behind `-DGDP_LZ`), wide x-blocks lose to BC=PL (footprint beats amortization at the L1 edge), NTA c-prefetch and `-falign-loops=32` washes.
+- The remaining gap to gen_pfa_small at these cells (2.25/3.36 us) is PFA-vs-dense arithmetic, not engineering — the same crossover story as rader at L=31.
+
+Strategy record appended as "Round gen_r13"; slot lease released; no slurm jobs submitted.

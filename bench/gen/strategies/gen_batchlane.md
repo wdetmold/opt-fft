@@ -1846,3 +1846,150 @@ unchanged (op counts as r11).
   REPEATABLE" -- the same quoting-artifact class as tryout.sh's 11-round-old
   '$W/c.bin' bug.  If a repeatability check fails, verify the files exist
   before believing it.
+
+## Round gen_r13 -- the within-volume engine comes home: B=1 at 10/12 goes from 10.3/17.4 us to 2.09/3.20 (the r11 trick at small scale)
+
+Standings into the round (r12 board): led or converged-tied every owned cell
+(10: 1.121, 12: 1.912, 15: 4.333, 20: 12.729 within noise of pfa_small;
+100: won at 4.07 in r11/r12).  The r13 brief opens TWO NEW SCORED CELLS --
+10:1:16384 and 12:1:12288 -- after benchFFT exposed the B=1 small-L gap my
+own records have carried as "next step" since r1 (twelve rounds!): the
+replicated-lane fallback pays 8x arithmetic for one volume (10.3 / 17.4 us
+vs MKL 4.3 / 7.5).  The brief names known-good material #1 for this entry:
+the r11 L=100 within-volume trick at small scale.
+
+### What shipped: within-volume z-in-lanes engines at 10 and 12
+
+ONE volume fills the lanes.  Layout chosen over the r11 x-planes-in-lanes
+form on shuffle arithmetic (see below): row r = x*L + y, row = 2
+site-vectors of 8 CONSECUTIVE z (the r12 f100 discipline).  Per chain step:
+
+1. **y-pencils** (stride 2 sv, fixed (x, zb)) and **x-pencils** (stride 2L
+   sv, fixed (y, zb)): pure elementwise batch-lane code, ZERO shuffles,
+   reusing the shipped register-explicit dft10/dft12_pencil under SCHED1012.
+2. **z-pass LAST so the graded map fuses into its stores**: per 8 rows, the
+   r11/r12 zcol trans8 bracket (LX8 on the row index in, natural slots and
+   lanes both ways -- the t8.c-measured semantics, fourth reuse) around a
+   16-sv L1 scratch; the fused-map pencil runs on the scratch at stride 16;
+   c is packed ONCE per chain in consumption order CT[group][k] (scalar
+   pack, amortized over m = 12288..16384).
+3. **Zero-pad discipline**: z slots L..15 and (at 10) pad rows 100..103 are
+   packed EXACT ZEROS and provably stay zero through the whole chain (DFT of
+   0 = 0; the map only touches real z slots, and map(0, c=0) = 0) -- no NaN
+   growth, no denormals, no masking anywhere.
+4. **Routing**: full 8-volume groups keep the batch engine (bit-identical,
+   see gates); a remainder group goes within-volume per volume iff
+   nv <= BL_WVMAX = 4.  Crossover from measurement, not modeling: within =
+   2.09 / 3.21 us per volume-step vs a replicated group's 8 x 1.147 = 9.2 /
+   8 x 1.912 = 15.3 -- within wins to nv = 4 at both sizes, loses from 5.
+   -DBL_NOWV=1 restores the replicated path (race knob).
+
+Why z-in-lanes and not the r11 x-planes-in-lanes: the cross-lane pass costs
+ceil(L^2/8) trans8 groups (13 at 10, 18 at 12 -- the brief's own lane-group
+counts) instead of L*ceil(L/8) columns (20 / 24); the elementwise-pass pad
+waste (2 z-blocks where 1.25 / 1.5 are needed) is identical in both forms.
+Per step at 10: 40 elementwise + 13 scratch DFT10s = 53 vector pencils
+(vs 37.5 equivalent per volume at B=64 -- the no-batch tax) + 104 trans8.
+
+### Measured on the node (a80n0 core 7, held slot lease, interleaved
+### --samples 4 minima, first invocation discarded; sd 0.01-0.14% quiet)
+
+| case | old (replicated) | NEW within-volume | MKL 2022 | fftw3_measure | vs best lib |
+|---|---|---|---|---|---|
+| L=10 B=1 m=16384 | ~10.3 us | **2.085-2.096** | 4.328 | 4.865 | **2.07x** |
+| L=12 B=1 m=12288 | ~17.4 us | **3.204-3.208** | 7.457 | 8.753 | **2.33x** |
+
+Single-call execute() B=1 (the benchFFT convention's shape): 3.10 us at 10
+(was ~10.5) -- ~16k mflops on their 5N log2 N scale vs fftw3's 23.8k: the
+CHAIN cells are won 2x+ but a bare single 10^3 transform still trails fftw
+(pack + 3 passes + unpack, no amortization; residual, see next steps).
+Batched scored cells, same-core layout-tax check: 10:64 1.121 vs ctl 1.121;
+12:64 1.915-1.916 vs ctl 1.912-1.924 -- no tax.
+
+### The knob races (same core, 3+ interleaved rounds each; the r3/r9
+### codelet-local rule hit BOTH defaults again)
+
+- **10: UNSWAPPED map pencil beats the batched swap verdict**: 2.128 vs
+  2.200 (-3.3%, 3/3).  And on that unswapped register codelet the **div
+  tail beats the rcp ladder**: 2.085-2.096 vs 2.129-2.132 (-1.7%, 3/3) --
+  new pencil dft10_pencil_map_wv with WV-local MAPTAIL_WV10=1 (follows
+  BL_MAPDIV/BL_MAPRCP overrides).  The batched x-pass verdict (swap+div)
+  does NOT transfer: the wv scratch pencil sits between two 24-shuffle
+  trans8 blocks that keep p5 busy, so the wide DFT5 stage-2's 5 interleaved
+  ladders schedule better than the thin DFT2 codelets, and the divider is
+  idle here where the batched pass keeps it warm.
+- **12: SWAPPED wins** (opposite of the batched BL_SWAP12=0): 3.202-3.208
+  vs 3.219-3.222 (-0.5%, 3/3).  BL_WVSWAP12=1 shipped.
+- **sched-pressure on the z-pass (BL_WVZSCHED=1): LOSES +2.3%** (2.251-2.253
+  vs 2.200, 3/3) -- the r1 "scheduling flags hurt shuffle networks" lesson,
+  measured on this shape; default stock.  Stripping SCHED1012 from the
+  elementwise passes: wash (2.201-2.206 vs 2.200) -- kept for uniformity
+  with the batched sweeps.
+
+### Gates (final ship build; wallaby full battery + node re-proof)
+
+Single call 3.083e-16 / 2.902e-16 at 10/12 B=1 (tol 1e-12); two-step m=2
+1.055e-15 / 8.767e-16 (tol 3e-14, ~30x margin); FULL SCORED CHAINS
+m=16384: 1.172e-06 vs honest anchor 9.771e-07 (tol 3e-04), m=12288:
+4.038e-09 vs anchor 7.995e-09 (tol 3e-06) -- at/below anchor tier;
+repeatable bit-identical (fresh-process cmp); remainder routing proven on
+BOTH sides of the crossover (B=4, 6, 9, 12, 14 mixed single + m=2 all
+PASS); all other class sizes (14/15/20/21/22/28/33/35/44/55) single + m=2
+PASS; batched/large paths BIT-IDENTICAL to the r12 ship (cmp on 10:64,
+12:64, 15:32, 20:32, 50:4, 100:1 chains -- the routing refactor is provably
+transparent for full groups).
+
+### What did NOT work / was checked, with the numbers
+
+- The three knob losses above (swap10 +3.3%, rcp10 +1.7%, zsched +2.3%).
+- **m=1 --chain segfaults in the DRIVER** at every size/batch INCLUDING the
+  impl_12 control binary at 10:64 (rc=139, garbage 110^3-sized output file)
+  -- the r12 L=100 note generalizes: it is a pre-existing driver bug, not
+  an engine bug, and never scored (all chain cases have m >= 2).  Monitor:
+  worth one look if m=1 chains ever enter a case file.
+- tryout.sh cannot time the new cells: cases.txt now has TWO rows per L
+  (10:64:1000 and 10:1:16384) and the awk at line 42 returns both m values,
+  breaking the harness ("integer expression expected"; it then runs m=1).
+  Worked around by hand (held lease, taskset, --chain 16384) -- monitor:
+  the awk needs a batch filter ($2==B) for the r13 cells to time correctly.
+- benchfft_ours/doit links the impl_12 gen_race TRUNK by Makefile, so my
+  r13 file cannot be verified through it from here (Makefile is off-limits
+  and points at the previous round's tree); standard gates cover my side.
+  gen_race: route 10/12 B=1..4 to gen_batchlane -- the brief's routing
+  warning is live, my within-volume path only wins if you enumerate it.
+
+### Borrowed, plainly
+
+- **My own r11/r12 within-volume machinery**: the z-in-lanes layout, the
+  LX8/trans8 bracket semantics, and the zero-pad-lanes discipline -- this
+  round is that engine at 1/1000th the volume; the brief's known-good
+  material #1 note priced it correctly.
+- **gen_pfa_small r3 / my r9**: the codelet-local map-tail/swap rule --
+  applied as a checklist this round (raced all four axes on the new shape
+  before shipping), and it flipped two defaults.
+- **Literature 10 / my r4**: held-lease interleaved protocol throughout.
+
+### Operation count
+
+Within-volume chain step: L=10: 53 pencil DFT10s (84 FP each) + 10 map
+ladders x 13 groups (~14 FMA + rsqrt14 + vdivpd per site-vector) + 104
+trans8 (2496 shuffles) + 2 x 40 elementwise ld/st sv per pass; L=12: 66
+DFT12s (96 FP) + 144 trans8.  Batched paths unchanged everywhere (FP counts
+as r10/r12).  Zero twiddles in the new engines.
+
+### What I would do next (ranked)
+
+1. **The bare-execute residual at B=1** (benchFFT's convention): 3.10 us of
+   which ~1 us is pack + unpack + driver copy around a ~2 us transform.
+   Fusing pack into the first pass and unpack into the last (the bl8
+   pack-once idea applied to a SINGLE call) would close most of it if the
+   benchFFT curve ever becomes a scored target rather than a diagnostic.
+2. **The zb=1 pad waste at 10** (half the elementwise pencils run 2/8-full
+   lanes): a ymm 4-lane pencil family for tail z-blocks would cut ~25% of
+   the yx-pass FP at 10 (nothing at 12 where the tail is 4/8-full); the r9
+   port analysis says 256-bit work costs 512-bit slots 1:1, so the win is
+   op-count only -- model with mca before building.
+3. **Within-volume at 14/15/20** (one generator run each now the pattern is
+   proven): only if a future round scores small-L B<8 beyond 10/12.
+4. **gen_race routing** (again): my 2.07x/2.33x only reach the trunk if the
+   race enumerates this entry at B=1..4; same flag as r7/r8/r11.

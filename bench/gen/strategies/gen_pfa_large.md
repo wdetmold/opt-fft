@@ -1891,3 +1891,129 @@ monitor's scoring window writes its own chain8 verdicts.
    pass count flat (gen_pow2's, where stage-2 and stage-1 share one tile
    visit) can win, and on this engine the tile that closes under both GT
    stages is the whole volume.
+
+## Round gen_r13
+
+Standings into the round (r12 board): led 40 (159.25, 2.55x MKL) and 50 B=4
+(413.4, 2.29x); 100 B=1 at 4562.5 scored (1.12x vs the cell winner —
+gen_batchlane's within-volume SoA holds the cell, as conceded in r12). The
+r13 brief is a QUICK round aimed at the benchFFT-exposed B=1 small-L cells
+(10:1, 12:1) — gen_pfa_small/gen_batchlane's lane, not this class
+(supports() declines 10/12 by construction; verified no exposure). Duty
+here: protect 40/50/100, and spend the one queued lever from my own r12
+next-list — gen_dense_prime r11's "convert staging round trips to the
+256-bit access class" re-accounting — before declaring the engine closed.
+
+### What changed
+
+**CODE UNCHANGED** (r10 precedent: the impl header note is the only edit;
+all generated FFT/chain code is instruction-identical to r12 — a final
+node rebuild from the edited source reproduces every gate digit).
+
+**The round's work is a CALIBRATION CLOSURE: the 256-bit access-class
+lever at L=100 is measured DEAD, both directions, without engine
+surgery.** gen_dense_prime's r11 ubcap measured the load side (zmm loads
+ceiling ~1.124/cyc, ymm loads 2.0/cyc, zmm ld+st POOL at ~1.17/cyc) and
+suggested my zsub/ysub staging could escape the pooled 512-bit ceiling by
+converting round trips to 256-bit accesses ("a DIFFERENT budget").  Their
+own note flagged it unmeasured on the store side.  Built the missing
+kernels (r13dev/ubst.c + ubst_ldzy.c, rdtscp min-of-7 on a leased a80n0
+core; ldz reproduces ubcap's pmu-measured 1.125/cyc exactly, so TSC ==
+core cycles at this license level):
+
+| kernel | shape | result |
+|---|---|---|
+| ldz | 64 dead zmm ld | 1.125/cyc (ubcap control, reproduced) |
+| stz | 64 zmm st | 1.00/cyc = 64 B/cyc |
+| sty | 128 ymm st, same bytes | 2.00/cyc = 64 B/cyc — no byte gain |
+| stx | 64 x (ymm-lo st + vextractf64x4-hi-to-mem) | 128 cyc vs sty's 64: **extract-to-mem is NOT shuffle-free; the split pair runs at HALF the plain-ymm rate** |
+| ldzstz | 32 zmm ld + 32 zmm st | 1.142/cyc pooled = **73 B/cyc** (gdp's 1.17 reproduced) |
+| ldzsty | 32 zmm ld + 64 ymm st | 64.0 cyc = **64 B/cyc — WORSE than all-512b** |
+| ldzy | 32 zmm ld + 64 ymm ld | 66.75 cyc vs 60 predicted by a weighted single pool, ~32 by separate budgets |
+
+**The model that fits all eight kernels plus gdp's r11 table: ICL-SP L1
+runs ONE ~2-slot/cycle access budget, loads and stores, where a 512-bit
+access costs ~1.75 slots and a 256-bit access 1 slot** (ld-only 2/1.78 =
+1.125; pooled ld+st 2/1.75 = 1.142; ymm-only 2.0; ldzsty (32x1.75+64)/64
+= 1.875 ≈ 2).  There is NO separate 256-bit budget to escape into — for
+loads or stores — and 512-bit accesses are the most byte-efficient
+currency in the shared pool (72-73 B/cyc vs 64).  Consequences:
+1. My r8 minimum-uop staging closure was computed in a currency that
+   turns out to give the same answer in gdp's corrected currency: the
+   all-512b schedule already maximizes staging bytes/cycle.  zsub/ysub
+   have no access-class lever.  **L=100 on this engine is now closed from
+   four directions: uops (r8), traffic (r10/r12), overlap (r11), and
+   access class (here).**
+2. For the panel: nobody should build ymm-staging candidates on this
+   host, load-side OR store-side — and vextractf64x4-to-memory
+   specifically is a trap (2x cost vs plain ymm stores; whoever needs a
+   zmm split must pay a register extract + two ymm stores, and per item
+   above it still loses bytes/cycle).  gdp's feed-ratio doctrine
+   (<0.56 zmm ld/FMA for FMA saturation) is unaffected.
+
+### Operation count
+
+Unchanged everywhere (278/434/661/968 FMA-port vector ops per line at
+40/50/80/100; r6 coverage counts stand). No new families; pool, ranks and
+wisdom tags exactly r12's.
+
+### Measured on the node (a80n0, leased cores; ordinary round windows)
+
+| case | this session | same-window MKL | pick |
+|---|---|---|---|
+| L=40 B=8 m=128 | **159.77** (r12 ship 159.7) | 404.1 (2.53x) | ip0.ch (warm) |
+| L=50 B=4 m=128 | **419.4** | 988.5 (2.36x; window ~4% hot by the MKL yardstick) | ip1.ch (warm) |
+| L=100 B=1 m=64 | **4430.1** (r12 ship 4428.8); rebuild-from-edited-source window 4453.7 | 7755.9 (1.75x) | ipa1.ch + re-home (warm) |
+
+Gates, all EXACT historical digits (bit-identity, code untouched):
+singles 3.582/4.336/4.522e-16 (tol 1e-12); two-step m=2 1.857/2.361/
+2.721e-15 (tol 3e-14); full chains 3.804e-14 (40 B=8) / 5.028e-14 (50
+B=4) / 4.181e-14 (100), tol 1e-10; chain outputs bit-identical across
+independent node runs at all three sizes.  Setup: warm wisdom 1-15 ms
+everywhere (all runs hit the monitor's r12 chain8 verdicts).  Wisdom
+protocol: NO keys added or changed this round (diffed against a
+round-start snapshot, r13dev/wisdom_snapshot_r13start.json) — nothing to
+strip; the monitor's 9 scoring-window keys left untouched.
+
+### What did NOT work, with the numbers that killed it
+
+The round's whole experiment IS the negative result, banked above at
+microbench cost instead of engine-surgery cost: the planned "ipx"
+split-store family (ymm-half stores for the zsub pl stores, ysub mx
+stores, p2 ST3) was designed, then killed BEFORE implementation by
+ldzsty = 64 B/cyc vs ldzstz = 73 B/cyc and stx = 2x stz.  Estimated
+saved: a full p1body_s/p1body_as/p2s clone set plus race plumbing that
+could only have lost ~12% on the staging phases.  Measure the mechanism
+before building the candidate — this entry's r3 lesson, finally applied
+in the cheap order.
+
+### Borrowed, plainly
+
+- **gen_dense_prime gen_r11**: ubcap.c (kit reused as the control and
+  extended), the corrected-currency framing, and the explicit ask that
+  this entry re-run the zsub/ysub accounting.  Their speculative
+  "256-bit is a different budget" clause is hereby refuted with their
+  own method — the productive kind of cross-entry disagreement.
+- **The r12 boundary doctrine** (demand-LLC-misses before traffic
+  candidates) kept this round from re-opening any traffic idea.
+
+### What I would do next (ranked)
+
+1. **The only lever left at 100 for THIS entry is structural adoption:
+   within-volume pencil lanes (gen_batchlane's r11 winner, named again in
+   the r13 brief as known-good material).**  A full SoA engine rewrite
+   was out of scope for a quick round; the trunk routes gen_batchlane at
+   100 (gen_race r11), so the library cell is covered either way.  If a
+   future round makes large-L individual cells decisive again, that
+   rewrite is the move — budget a full round for it.
+2. **XARCH**: the weighted-access-budget model is ICL-SKU-specific;
+   CLX/SPR may genuinely have 2/cyc 512-bit loads (SPR does on paper).
+   The per-host race already covers this; anyone tempted to generalize
+   this round's "no ymm staging" rule off-host should re-run ubst there
+   first (it is in r13dev/, argv-selectable, 30 s per host).
+3. **Class coverage holes** (60/84/90/96/105/108/120/126 three-factor GT;
+   112's 0.91x) — unchanged from r10-r12, still the only structural
+   class work left.
+4. Harness: tryout's '$W/c.bin' map-check quoting bug is now ELEVEN
+   rounds old (manual check.py battery in this round's session log runs
+   all three gates + repeatability in one ssh; steal it).

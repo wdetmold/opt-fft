@@ -1,0 +1,9 @@
+All my leases are released (remaining slots belong to sibling agents). Round complete.
+
+**GT-PFA two-sweep + ipa1 prefetch-ahead + THP re-home (unchanged; round spent closing the 256-bit access-class lever negatively by microbench): B=1 4430.1 us/xform at L=100 (batched: 159.77 at 40 B=8, 419.4 at 50 B=4), rel L2 3.6-4.5e-16.**
+
+Details of what this round did:
+
+- **Protected all three cells** on the node at r12 ship values: 40 B=8 **159.77 us** (MKL 404.1, 2.53x), 50 B=4 **419.4** (988.5, 2.36x), 100 B=1 **4430.1** (7755.9, 1.75x). Every gate at the exact historical digits (singles 3.582/4.336/4.522e-16, two-step m=2 1.857/2.361/2.721e-15, chains 3.804/5.028/4.181e-14), bit-repeatable, warm wisdom hits everywhere, no wisdom keys added (diffed against a round-start snapshot).
+- **Closed my r12 queued lever with a calibration instead of engine surgery**: extended gen_dense_prime's ubcap with store-side kernels (`build/tryout/gen_pfa_large/r13dev/ubst.c`). Result: ICL-SP's L1 runs one weighted ~2-slot/cycle access budget (512-bit ≈ 1.75 slots, 256-bit = 1) pooled across loads and stores — the zmm-load+ymm-store mix moves 64 B/cyc vs 73 for all-512-bit, and `vextractf64x4`-to-memory costs 2x a plain ymm store. The planned split-store family was killed before implementation; L=100 on this engine is now closed from four directions (uops, traffic, overlap, access class), and the finding warns the whole panel off ymm staging on this host.
+- The new 10:1/12:1 cells are outside my class (`supports()` declines them — verified). Impl edit is header-only; the rebuilt binary reproduces all gates. Strategy record appended as Round gen_r13.

@@ -1746,3 +1746,136 @@ the fusion target, and their THP re-home already ships.
    attribution unchanged).
 4. Knob inventory for the wisdom race grows by {GP128_ZF, GP128_YF,
    GP64_ZF, GP128_HP} on top of the r10 list.
+
+## Round gen_r13 — the B=1 single-call round: execute-path conversion fusion
+## ships (-19/-19/-24/-13% at 16/32/64/128 singles), the r8 "if anyone ever
+## scores 2^k singles" lever finally spent, and a TLB inversion at 128 worth
+## every peer's attention
+
+Standings into the round: led L=32 at 54.851 us (3.13x mkl_dfti 171.758, r12
+board).  The r13 brief is the benchFFT round: the community harness times
+REPEATED B=1 fft3d_execute() CALLS (their calibrated min-timing, 5N log2 N
+"mflops"), and the two new scored cells (10:1, 12:1) are other classes'
+problems — my instruction was "protect your cells."  But the benchFFT curve
+(results/benchfft/) runs straight through this class at 2^k, and it showed
+exactly the disease my own r8 record predicted and postponed: the trunk's
+16/32/64/128 single-call points were 1.39x / 1.32x / 1.16x / **1.03x** over
+fftw3_measure — the custody conversions (nat_to_cust + cust_to_nat, two full
+volume sweeps) are unamortized at m=1, ~20% of a 32 call and ~35% of a 128
+call, and L=128 sat one bad window from a community LOSS.  This round built
+the r8-designed fix.  The scored chain paths are UNTOUCHED (verified, below).
+
+### What shipped: GP2_XFE=1 — conversion fusion on the execute path
+
+The z-pass is the first consumer of the input and the x-pass pass-2 store is
+the last producer of the output, and the custody conversion at 2^k is a pure
+interleave (lanes = 8 adjacent z = one natural row segment; NO transpose
+exists in the conversion).  So:
+* **Load side**: per-engine z-codelet variants (zpair_n / zquad16_n /
+  zrow64_n / zrow128_n) read the NATURAL volume directly, deinterleaving
+  with the same 2 DEIN shuffles per slot the conversion sweep paid anyway,
+  and write custody S as usual.  Deletes one custody-volume store + load.
+* **Store side**: vertical-FFT variants (vfft32e / vfft16e / vfft64e /
+  vfft128e) whose pass-2 stores ILV-interleave straight to the natural
+  output at stride 2·L·L doubles — custody S is never written by the last
+  pass at all.  Deletes another custody-volume store + load.
+* Four new top-level steps (fft_exec16/32/64/128) instantiate the plain
+  two-sweep step shape (z/y skew as shipped, DSB-rolled bodies) with those
+  variants; fft3d_execute routes per size.  All codelet arithmetic is the
+  byte-for-byte shape of the unfused variants, so the fused output is
+  **BIT-IDENTICAL to nat_to_cust + step_plain + cust_to_nat** — cmp-verified
+  at every size, which is also why every gate digit below is the standing
+  one.  Phase ordering (all natural reads in the z-phase, all natural writes
+  in the x-phase) makes it in-place-safe; nin/nout deliberately carry no
+  restrict against each other.  GP2_XFE=0 restores the r12 execute as the
+  raced control; chain paths never see any of it.
+
+### The L=128 finding: huge pages invert the fusion (GP128_XF)
+
+Full fusion at 128 was a WASH (17.2-17.4 vs ctl 17.1-18.2 ms, mixed signs,
+3 rotated rounds) despite deleting ~138 MB of the call's ~240 MB of DRAM
+traffic.  Mechanism: the custody block is huge-paged since r12 (GP128_HP),
+so the unfused x-pass stores at X128 stride (270 KB) cost ~8 stores per 2-MB
+page — but the fused stores land in the DRIVER'S natural buffer, 4-KB pages,
+at 256-KB stride: ONE PAGE WALK PER STORE LINE, and the TLB cost eats the
+entire traffic win.  **GP128_XF=1 ships the load-side-only form** (z reads
+natural, x-pass keeps its huge-paged S stores, the sequential cust_to_nat
+sweep stays): 15.08-15.67 vs ctl 17.22-18.16 ms, 3/3 rotated rounds, ~-13%.
+=2 (full) and =0 (unfused) stay compilable as the race axes.  Rule for the
+record, the r11 "fused operands take the fused consumer's walk order" lesson
+extended one level down: **a fusion that redirects strided STORES from your
+own (huge-paged) buffer to a caller's 4-KB-paged buffer can lose to page
+walks everything it wins in traffic — check the store-target's page size
+before fusing, not just the walk order.**  At 16/32/64 the natural stride is
+16 lines/page or the set is L2-resident: full fusion is clean there.
+
+### Measured on the node (a80n0 core 6, slot lease 4, rotated same-core
+### adjacent pairs; fused vs GP2_XFE=0 ctl, same day, same core)
+
+| case (B=1 single call) | ctl (unfused) | gen_r13 ship | verdict |
+|---|---|---|---|
+| L=16 | 7.445-8.493 us | **6.016-6.808** (best 6.016) | -19..-21%, 3/3 |
+| L=32 | 75.86-76.04 | **61.60-61.63** (sd 0.04%) | **-19%**, 3/3 |
+| L=64 | 1047-1057 | **793.4-799.6** (best 793.4) | **-24%**, 3/3 (r8's 1219 us single is now 793) |
+| L=128 | 17.22-18.16 ms | **15.08-15.67** (GP128_XF=1) | **-13%**, 3/3; full form wash (TLB, above) |
+
+benchFFT-convention equivalents (5N log2 N / t, node): 16: 32.7k -> ~40.9k;
+32: 31.9k -> ~39.9k (fftw3 24.2k); 64: 21.4k -> ~29.7k (fftw3 18.5k);
+128: 13.0k -> **~14.6k** (fftw3 12.6k — the 1.03x cell moves to ~1.16x).
+wallaby dev signal (SPR core 97, load 148 — noisy, footprint kept minimal):
+L=32 B=1 single fused 60.5-62.9 vs unfused 76.5-86.6, 3/3, same story.
+
+### Protection (the round's standing order), all on the node
+
+* Chain outputs **cmp-IDENTICAL to the r12 ship binary** at L=32 (B=8
+  m=250), L=16 (B=8 m=300), L=64 (B=1 m=64), L=128 (B=1 m=2).
+* Graded case timing: 54.813 us min via tryout.sh (MKL same-window 185.2),
+  56.18/56.23 in the by-hand same-window pair vs the r12 binary — code-
+  layout tax a wash (0.07%), the gen_twiddle r5 hazard cleared.
+* Gates, ship build, standing digits exactly: L=32 single 2.902e-16 (B=8) /
+  2.915e-16 (B=1); m=2 fused **1.338e-15**; chain m=250 3.328e-14 (B=8) /
+  2.948e-14 (B=1); L=32 B=1 chain 57.80 us this window.  Singles vs numpy:
+  L=16 2.337e-16, L=64 3.214e-16, L=128 4.092e-16 (r8's exact digit).
+  Generic 2/4/8: 0 / 0 / 1.4e-16.  B=8 fused execute PASS (2.902e-16).
+* -Wall -Wextra: only the pre-existing 'nxt' note; scalar (no-AVX-512)
+  build clean.  tryout.sh runs unaided again; its remote map-check leg
+  still dies on the literal '$W/c.bin' (standing since r1), map gates by
+  hand as always.
+
+### What did NOT work, with the number that killed it
+
+* **Full store-side fusion at L=128** (GP128_XF=2): 17.34-17.95 vs ctl
+  17.22-18.16 ms — wash, 3 rounds, mechanism above.  Kept compilable; on a
+  host where the driver's buffers are THP-backed it should flip, which is
+  exactly a wisdom-race axis.
+
+### Borrowed / attribution (gen_r13)
+
+* The fusion design is my own r8 "single-call conversion fusion" note,
+  built at last because the round made 2^k singles visible (benchFFT);
+  the monitor's benchfft_ours wiring supplied the target numbers.
+* **gen_layout/gen_powp gen_r11's THP finding**, which I adopted in r12 as
+  GP128_HP, is the direct CAUSE of the L=128 inversion — an honest case of
+  one optimization changing the sign of the next.  The page-size boundary
+  condition on store-side fusion is this round's contribution back.
+* Protection protocol: gen_batchlane gen_r8's final-round rule (chain paths
+  untouched, bit-identity cmp against the shipped binary), gen_twiddle
+  gen_r5's code-layout hazard race, rotated-order same-core pairs (my r5),
+  one-lease-one-core (gen_dense_prime r5 / gen_batchlane r4).
+
+### What I would do next
+
+1. **L=128 single residual**: 15.1 ms = z-fused sweep + x sweep + the
+   sequential cust_to_nat.  The remaining lever is applying the r11/r12
+   FUSED-SWEEP structure (one tile-resident sweep + ZF) to the execute
+   path too — the m=1 case of the chain engine, with the natural-load z
+   variants feeding stage-1 and cust_to_nat_g on the permuted planes.
+   Worth ~2-3 ms on paper; a full round of careful permutation work.
+2. **If 10:1/12:1-style B=1 cells ever reach 2^k** (16:1 is the obvious
+   candidate): the fused execute IS the B=1 chain step at m=1; a fused
+   B=1 CHAIN at small L would additionally want the c volume read
+   natural-side, the same shape gen_pfa_small is building this round.
+3. Wisdom-race axes grow by {GP2_XFE, GP128_XF}.  Cross-arch note: on CLX
+   (no THP'd custody block? smaller STLB) GP128_XF may flip either way;
+   the SPR signal agrees with ICL on the 16/32/64 wins.
+4. Nothing at L=32 chain — bit-identical for the seventh round.

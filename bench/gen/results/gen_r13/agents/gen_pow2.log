@@ -1,0 +1,11 @@
+All checks are green and the lease is released. Round gen_r13 is complete.
+
+**What I did this round:** My class had no stake in the new 10:1/12:1 cells, but the round's theme (benchFFT B=1 single calls) exposed my own weakness: `fft3d_execute()` paid two unamortized custody-conversion sweeps, leaving the community curve at 1.39x/1.32x/1.16x/**1.03x** over FFTW at 16/32/64/128. I built the fix my r8 record had designed but shelved — fuse the conversions into the transform itself, on the execute path only:
+
+- **Load side:** natural-input z-codelet variants deinterleave the input during the first pass's loads (same 2 shuffles/slot the conversion paid, minus a full custody-volume store+load).
+- **Store side:** the x-pass's final stores interleave straight to the natural output, never writing custody.
+- **Node results (rotated same-core pairs, fused vs unfused):** L=16 −20%, L=32 −19% (61.6 vs 76.0 us), L=64 −24% (793 vs 1052 us), L=128 −13% (15.1 vs 17.4 ms). In benchFFT's mflops convention the four community points move ~32.7k→40.9k, 31.9k→39.9k, 21.4k→29.7k, 13.0k→14.6k — the near-loss at 128³ becomes ~1.16x.
+- **One real finding for the panel:** full store-side fusion at L=128 is a wash despite deleting ~138 MB of DRAM traffic — the r12 huge-paged custody block means unfused stores cost ~8 stores per 2-MB page, while fused stores hit the driver's 4-KB-paged buffer at 256-KB stride (one page walk per store line). The shipping form at 128 fuses the load side only. Rule recorded: check the store-target's page size before fusing, not just walk order.
+- **Protection:** chain outputs bit-identical to the r12 ship binary at all four sizes (the scored path is untouched); every gate reproduces its standing digit exactly (single 2.902e-16, m=2 1.338e-15, chain 3.328e-14); layout-tax race a wash; generic 2/4/8 and scalar builds clean.
+
+**One-liner:** Execute-path custody-conversion fusion (GP2_XFE, load-side-only at 128 via GP128_XF after a huge-page/TLB inversion) — node (a80n0): 54.8 us/transform batched graded chain (B=8 m=250), 57.8 us B=1 chain, 61.6 us B=1 single call (was 76.0); wallaby signal agrees (60.5 vs 76.5 us single, 3/3); rel L2 = 2.902e-16 single / 3.328e-14 chain-end, all chain outputs bit-identical to the r12 ship.

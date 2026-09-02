@@ -1878,3 +1878,153 @@ digits to r4-r11.  Class duty, node same-window rotated races: **127: -12.2%
 (31.3 ms), 107: -9.6% (16.5 ms), 83: -8.6%, 59: -5.7%, 71: -4..7%** via the
 4-wide E/O phase-split dense chunks; gates at 107/127 PASS (9.3e-16/4.9e-15,
 8.7e-16/4.9e-15).
+
+## Round gen_r13
+
+### Where this round started
+
+r12 leaderboard: **84.753 us/step** at the graded cell (L=31 B=16 m=140), leading
+the crossover (gen_dense_prime 111.3, gen_bluestein 274.0, MKL/FFTW 849-883).
+The round-13 brief is the benchFFT B=1 small-L round: two new scored cells
+(10:1, 12:1) that my class declines (composite), and "everyone else: protect
+your cells."  This round's control reads: 31 B=16 **85.56 / 84.76 / 85.32**
+(quiet windows, board-consistent), all gates identical digits.  The cell is
+protected; the round's work came from asking whether the benchFFT finding has
+an image INSIDE this class.
+
+### The probe: the class has the same B=1 small-L hole, at the tiny primes
+
+B=1 execute on the node (leased core, MKL same core; libraries from the r12
+build/a80n0 binaries):
+
+| p | gen_rader (r12) | MKL | fftw3_measure | verdict |
+|---|---|---|---|---|
+| 5 | 0.669 | 0.337 | — | LOSE 2.0x |
+| 7 | 1.540 | 0.751 | — | LOSE 2.05x |
+| 11 | 5.257 | 2.970 | — | LOSE 1.77x |
+| 13 | 8.393 | 6.086 | 7.323 | LOSE 1.38x (dense_prime 11.29, trunk gen_race 7.94 — the LIBRARY lost this cell to MKL 1.3x) |
+| 17 / 19 / 23 | 19.4 / 32.8 / 67.9 | 82.7 / 122 / 224 | — | win 3.4-6.4x |
+
+The boundary is razor sharp: everything from 17 up crushes the libraries,
+everything at 13 and below loses.  13 is the only prime where MKL has a tuned
+small radix AND we were slow.
+
+### The diagnosis: at tiny p the runtime-table engines are all fixed cost
+
+Skip-knob timing (compile-time RP_SKIP{Z,X,Y} arms; wrong output, timing only)
+at 13 B=1, full = 8.64 that window: z ~3.3 us, x ~2.2, y ~2.3 — every pass
+~3x its uop model (~130 uops/chunk at m=3 should be ~50 cyc; measured ~148).
+At m=3 the chunk does almost no arithmetic, so what dominates is: the
+switch-dispatch + call per 4 columns, the plan-struct and kernel-table pointer
+reloads per call, the runtime js/jv/kp/km index loads, and the j*rs address
+arithmetic — none of which can hoist out of the column loop across a call
+boundary.  First attempt at the skip arms was caught by create()'s self-check
+(the deliberately-wrong output fell back to the dense reference path and read
+177 us): the gate cannot be probed through, which is exactly what it is for —
+the timing arms explicitly bypass it and say so.
+
+### What shipped: compile-time engines for p <= 13, execute path only
+
+The r31 lesson in miniature ("instantiated with compile-time strides", r1):
+
+1. **p=13 (rp13_\*)**: the rp2 m=3 arithmetic, identical op order, with the
+   p=13 Rader index tables HARDCODED (js/jv/kp/km derived from rp2_build's
+   construction offline; create() memcmp-verifies them against the live
+   rp2_build output and uses the generic path on mismatch, so a transcription
+   bug cannot ship even before the self-check).  Kernel doubles stay in
+   pl->k2 — broadcast cost is address-independent, nothing to transcribe.
+   Chunks always_inline; three pass shapes instantiated at literal rs (z 8,
+   x 338, y 26) with literal masks and trip counts; z quads with compile-time
+   tiling (nt=4, tail mask 0x03).
+2. **p=3/5/7/11 (rpd_\*, dense)**: rp_chunk was ALREADY always_inline with
+   p/h as parameters — RPD_DEFINE instantiates volume drivers that call it
+   with literal constants, and gcc constant-folds every loop bound, row
+   offset and mask for free.  No new kernel, no new tables.
+3. Dispatch in fast_volume ahead of rp_volume, gated on use13 (13) /
+   !m2 && !m3 (tiny dense); RP_NO13 / RP_NOD13 restore the r12 paths.
+
+### Measured on the node (a80n0 leased cores, tryout; MKL same core same window)
+
+| p | r12 | gen_r13 | delta | vs MKL |
+|---|---|---|---|---|
+| 3 | — | **0.085** | — | 0.093 -> ahead |
+| 5 | 0.669 | **0.313** | **-53%** | 0.336 -> ahead |
+| 7 | 1.540 | **0.663** | **-57%** | 0.751 -> ahead |
+| 11 | 5.257 | **3.139** | **-40%** | 3.009 -> **MKL-4%, the one remaining loss** |
+| 13 | 8.393 | **4.20** | **-50%** | 6.06-6.41 -> **1.44-1.52x ahead**; fftw3_measure 7.32 -> 1.74x |
+| 13 B=16 | — | 4.33/vol | — | batched inherits it (volume-major) |
+
+Graded cell PROTECTED: 31 B=16 **84.76 / 85.32** us/step this round's windows
+(board 84.753), B=1 97.5 (the documented a80n0 B=1 window signature).  Chain
+outputs at 31 **bit-identical to the impl_12 binary** (cmp on the node, exec
+AND chain m=140), 37 exec bit-identical; 37/61 execute same digits as always.
+Gates by hand on the node: 31 B=16 single 4.059e-16, map-chain m=140 2.559e-14
+(anchor 2.312e-14), **two-step 1.784e-15** — identical digits to r4-r12; 13
+B=1 two-step **1.025e-15**, map-chain m=100 1.031e-14 (anchor 7.861e-15).
+SPR (wallaby) correctness PASS at 3/5/7/11/13 B=2 (timing not raced there —
+the r9 anti-pairing calibration discipline stands).  Setup at 13: 0.001 s.
+
+### What did NOT work, with the number that killed it
+
+- **Paired-interleaved z-quads at 11 (two 4-pencil quads staged before either
+  chunk, chunks back to back, un-stagings last): 3.268 vs 3.139 (+4%).**
+  Built to test a 512-bit store->forward-stall theory for the z residue (z
+  ~1.1 us at 11 vs ~0.6 model; the staging stores are consumed immediately).
+  The theory is DEAD: distance did not pay, the doubled staging footprint
+  cost more.  Reverted; the z residue at tiny p is still unattributed.
+- The first skip-knob build measured nothing twice: (a) the self-check
+  correctly benched the wrong-output build to the reference path; (b) after
+  bypassing that, the knobs sat in rp_volume while p=11 had already moved to
+  rpd_volume_11 — both runs read identical.  Both are recorded because both
+  are the verification discipline working as designed: a timing arm must
+  prove it measures the path it thinks it measures.
+
+### Borrowed this round, named
+
+- **The r13 brief's material #3** ("FFTW's small-codelet quality is pure
+  schedule, not memory") — the licence to treat tiny-p B=1 as a fixed-cost
+  problem, and the round's framing that exposed the class's own hole.
+- **My own r1/r31 lineage**: compile-time indices/strides as THE small-size
+  lever; the create()-verify-hardcoded-tables gate is the r5 rp3 recipe
+  turned around.
+- **gen_dense_prime r1 (transitively)**: rp_chunk itself — the dense tiny-p
+  win is entirely their kernel under constant folding.
+- Probed rivals at 13 B=1 before building (dense_prime 11.29, trunk 7.94):
+  the class entry is now the library's best 13 and the trunk inherits it.
+
+### Operation count
+
+Tiny primes: arithmetic op ORDER identical to the generic engines (rp13 =
+rp2_chunk_3's sequence with folded addressing; rpd = rp_chunk itself), so
+per-chunk FMA counts are unchanged — the round deleted only dispatch, call,
+table-pointer and index-load overhead plus runtime address arithmetic.
+p >= 17, 31, chains everywhere: untouched instruction paths (objdump-level
+changes are rodata shifts from the description string), outputs bit-identical.
+
+### What I would do next
+
+1. **11 is the last losing size (MKL-4%)**: the z-pass (~1.1 of 3.14 us) is
+   the target — a dense z-row GEMM (r31_zrow_pair shape at compile-time p=11:
+   duplicated-pair trig rows, 2 zmm accumulators, ~3 shuffles/pencil vs 12)
+   deletes the transpose port-5 bill; needs a small rp_trig_dup(p) table.
+   Sketched, not built — the pair-interleave negative says measure, not guess.
+2. 17/19/23 compile-time instantiation is nearly free (17 needs an rp17 table
+   set like rp13; 19/23 are RPD_DEFINE one-liners) — unpressed (we lead 3-6x)
+   but the benchFFT curve would show it.
+3. The CHAIN at tiny primes still runs the generic machinery; if a tiny-prime
+   chain cell ever gets scored, rp13-style passes with the map fused into the
+   volume scheme (NOT into the stores — five negatives stand) are the shape.
+4. Harness: skip-knob timing arms must live in the SAME volume function the
+   dispatch actually reaches (this round's own trap); RP_SKIP* + the
+   self-check bypass are compile-time, default-off, wrong-output — never race
+   them into a shipped binary.
+
+### Measured summary (the reply line)
+
+Compile-time tiny-prime execute engines.  L=31 B=16 m=140: **84.76-85.32
+us/step** (bit-identical lineage since r4), B=1 97.5 (a80n0 window signature).
+Round headline, B=1 execute: **13: 8.39 -> 4.20 us (1.44-1.52x over MKL, 1.74x
+over fftw3_measure), 11: -40%, 7: -57%, 5: -53%** — every prime in class now
+beats every library at B=1 except 11 (MKL-4%).  Single rel_l2 4.059e-16 (31) /
+3.114e-16 (13), two-step 1.784e-15 (31) / 1.025e-15 (13), map-chain m=140
+2.559e-14 — all gates PASS, all identical digits where paths are shared.
