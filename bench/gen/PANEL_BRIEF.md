@@ -268,12 +268,22 @@ Everyone else: protect your cells (the full suite still scores). Verify with
 benchfft_ours/doit --verify AND the standard gates. Racing: gen_race must route the new
 cells' B=1 correctly (batch%8 fallbacks must not silently pick the slow path).
 
-## ROUND 14: reroute fft3d_execute() B=1 small-L (the benchFFT gap the r13 chain fix missed)
-r13 fixed the CHAIN path at 10/12 B=1 (sweep shows 2.2-2.7x over libraries) but benchFFT
-still measures fft3d_execute() single-shot, which stayed on the old r6-sandwich path and
-LOSES to fftw3 by 1.7-1.8x (13.3k/17.3k mflops vs fftw's 23.8k/29.7k). The fix is known and
-named in gen_pfa_small's own r13 record: route execute() through the same form-3 within-
-volume passes the chain path now uses. This is a plumbing reroute, not new kernels.
-Verify with benchfft_ours/doit --speed cof10x10x10 / cof12x12x12 (the actual metric) AND
-the gates. Target: beat fftw3 (23842 / 29724 mflops). gen_race + every small-L owner:
-make execute() and chain() share the fast engine.
+## ROUND 14: harden the WHOLE B=1 curve via the execute() reroute
+benchFFT (Frigo-Johnson, single-shot fft3d_execute) is the B=1 metric. r13 fixed the CHAIN
+path at 10/12 (2.2-2.7x over libs in the sweep) but execute() stayed on the old r6-sandwich
+path and LOSES to fftw3 there (13.3k/17.3k vs 23.8k/29.7k mflops). The gap is systemic, not
+local: the current execute() B=1 curve wins elsewhere but only thinly where our chain path
+dominates -- L=15 1.20x, L=32 1.32x, L=64 1.16x, L=128 1.03x -- the SAME plumbing seam.
+
+Mission: route fft3d_execute() through the fast within-volume engine the chain path uses,
+ACROSS THE WHOLE L RANGE, and beat fftw3 at every B=1 size. The fix is plumbing (execute()
+and chain() share the fast engine), named already in gen_pfa_small's r13 record; not new
+kernels except where a size never had a B=1 fast path.
+
+Metric & acceptance: benchfft_ours/doit --speed cof<L>x<L>x<L> for L in
+10,12,15,16,20,25,27,31,32,40,50,64,100,128 -- MUST beat fftw3 (must-win: 10=23842,
+12=29724, the two we currently lose; must-not-regress: all others), plus --verify and the
+standard gates on the batched suite. Expectation by regime: compute-bound small/mid
+(10-32) gain most from the schedule reroute; large (64-128) are partly B=1 memory-bound --
+firm the thin wins, do not expect leaps; use tools/pmu.sh to tell which cell is which.
+gen_race + every engine owner: make execute() and chain() share one fast path at B=1.

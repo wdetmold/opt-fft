@@ -1,2 +1,2 @@
-ROUND 14: benchFFT measures fft3d_execute() (single-shot), which r13 left slow —
-reroute it to the r13 fast chain engine. Beat fftw3 23842/29724 mflops. See brief.
+ROUND 14: harden the WHOLE B=1 curve. benchFFT (fft3d_execute, single-shot) is the
+metric across L=10..128. Reroute execute() to the r13 fast engine; beat fftw3 everywhere.
