@@ -63,8 +63,8 @@ done
 
 # Implementers write and tune the kernels; the monitor reads results and judges. They are
 # different jobs, so they get different models.
-IMPL_MODEL=${FFT_IMPL_MODEL:-claude-fable-5}
-MONITOR_MODEL=${FFT_MONITOR_MODEL:-claude-opus-5}
+IMPL_MODEL=${FFT_IMPL_MODEL:-fable}
+MONITOR_MODEL=${FFT_MONITOR_MODEL:-opus}
 
 # A geometry wave can change where and how long rounds are benchmarked without editing this
 # script, by writing KEY=VALUE lines here (e.g. FFT_PARTITION=prod, FFT_TIME=150). Needed
