@@ -52,3 +52,18 @@ and L2/L3 traffic become the dashboard, not just port dispatch. Expect TIGHTER m
 than at small L: pow2 at 4K/16K is exactly where FFTW's decades of tuning are strongest.
 Winning even by 1.05-1.2x at 4096/16384 non-batched is a real result; the batched and
 chained columns are where our lane-fill and fused-map edges should still open daylight.
+
+## LARGE PRIMES (added before the fresh r1): the real large-size contest
+Dense O(L^2) is impossible at 10^3..10^6, so EVERYONE (us, FFTW, MKL) uses Rader or
+Bluestein -- and this is where FFTW is WEAKEST relative to its pow2 peak, i.e. our best
+large-L shot. The decisive fact: Rader turns a prime-N DFT into an (N-1)-POINT CONVOLUTION,
+so the factorization of N-1 sets the cost. The four primes are chosen to contrast:
+  1021   N-1 = 2^2*3*5*17   smooth      -> Rader's (N-1)-conv is itself easy
+  10007  N-1 = 2*5003       awkward     -> 5003 prime; Rader-conv is hard, Bluestein may win
+  65537  N-1 = 2^16         RADER-IDEAL -> (N-1)-conv is a clean pow2 FFT; Rader should crush
+  100003 N-1 = 2*3*7*2381   awkward     -> 2381 prime; awkward, Bluestein territory
+d1_rader and d1_bluestein owners: this is your headline. Pick Rader where N-1 is smooth/
+pow2 (65537, 1021), Bluestein (chirp-z, pad to a convenient pow2) where N-1 is awkward
+(10007, 100003) -- and MEASURE the crossover, do not assume it. Compare against FFTW/MKL,
+which make this choice internally and often badly. Batched large primes go memory-bound
+(100003 x B=8 = 12.8 MB); the r11 traffic lessons apply.

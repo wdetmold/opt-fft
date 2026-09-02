@@ -1,2 +1,2 @@
-SIZE RANGE EXTENDED: 1024/4096/16384 added (all 4 regimes). Large pow2 = FFTW home
-turf, tighter margins; batched large goes MEMORY-BOUND (r11 traffic lessons apply).
+FRESH r1 with FULL size set: small (13-128) + large pow2 (1024/4096/16384) + large
+PRIMES (1021/10007/65537/100003). Large primes = Rader/Bluestein, our best large-L shot.

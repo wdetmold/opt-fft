@@ -46,3 +46,23 @@
 16384:64:1
 16384:1:250
 16384:64:150
+# --- LARGE PRIMES (10^3..10^6): dense impossible, everyone uses Rader/Bluestein.
+# N-1 factorization decides Rader cost -- chosen to contrast smooth / awkward / ideal.
+# 1021 (N-1=2^2*3*5*17 smooth) | 10007 (N-1=2*5003 awkward) |
+# 65537 (N-1=2^16 Rader-IDEAL) | 100003 (N-1=2*3*7*2381 awkward) ---
+1021:1:1
+1021:256:1
+1021:1:2000
+1021:256:400
+10007:1:1
+10007:64:1
+10007:1:400
+10007:64:80
+65537:1:1
+65537:16:1
+65537:1:60
+65537:16:20
+100003:1:1
+100003:8:1
+100003:1:40
+100003:8:15

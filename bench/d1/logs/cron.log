@@ -5,3 +5,5 @@
 [2026-09-02 08:00:01] context pack: 13 lines
 [2026-09-02 08:00:01] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
 2026-09-02 08:15:01 d1 tick skipped: lock held
+/tmp/fft_rounds_uwj5BL.sh: line 411: [: 0
+0: integer expression expected
