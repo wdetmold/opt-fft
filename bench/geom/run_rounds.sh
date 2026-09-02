@@ -451,6 +451,15 @@ run_timing() {
   log "leaderboard for $round is in"
   python3 leaderboard.py --round "$round" \
       --markdown "$GEOM/results/$round/leaderboard.md" >/dev/null 2>&1
+  # Record which models ACTUALLY served this round's workers. Claude Code can re-run a
+  # flagged request on a fallback model, and in headless -p mode that substitution is not
+  # visible to this runner -- so a round's model composition can differ from its
+  # configuration. That would be a silent confound, so it is measured, not assumed.
+  if [ -x "$ROOT/bench/geom/served_models.sh" ]; then
+    served=$("$ROOT/bench/geom/served_models.sh" --harness "$GEOM" --round "$round" 2>/dev/null \
+             | grep -E "^ *[0-9]+ (claude|[a-z])" | tr '\n' ' ')
+    [ -n "$served" ] && log "served models for $round: $served"
+  fi
   return 0
 }
 
