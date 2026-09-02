@@ -36,7 +36,9 @@ for path in glob.glob(os.path.join(root, "t_*.json")):
 
 checks = {}
 for path in glob.glob(os.path.join(root, "c_*.json")):
-    base = os.path.basename(path)[2:-5]           # <name>_L<L>_B<B>
+    base = os.path.basename(path)[2:-5]           # <name>_L<L>_B<B>[_m<M>]
+    if "_m" in base:
+        base, _, _m = base.rpartition("_m")
     name, _, rest = base.rpartition("_L")
     L, _, B = rest.partition("_B")
     with open(path) as f:

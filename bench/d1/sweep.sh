@@ -93,8 +93,8 @@ for case in $CASES; do
       CHAINARGS=""
       [ "$M" -gt 1 ] && CHAINARGS="--chain $M --map --cin $CIN"
       timeout 600 "$BINDIR/$backend" --L "$L" --batch "$B" $CHAINARGS --in "$IN" \
-        --out "$OUT/out_${backend}_L${L}_B${B}.bin" \
-        --json "$OUT/t_${backend}_L${L}_B${B}_r${run}.json" \
+        --out "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin" \
+        --json "$OUT/t_${backend}_L${L}_B${B}_m${M}_r${run}.json" \
         --samples "$SAMPLES" --warmup 5 --min-sample-ms 20 --run-index "$run" \
         >>"$OUT/timing.log" 2>>"$OUT/timing.err"
       rc=$?
@@ -103,29 +103,29 @@ for case in $CASES; do
       fi
     done
     # correctness on the output of the last run, against numpy
-    if [ -f "$OUT/out_${backend}_L${L}_B${B}.bin" ]; then
+    if [ -f "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin" ]; then
       CHKARGS=""
       [ "$M" -gt 1 ] && CHKARGS="--map-check $M --cin $CIN"
-      python3 check.py --input "$IN" --output "$OUT/out_${backend}_L${L}_B${B}.bin" \
-        --L "$L" --batch "$B" $CHKARGS --json "$OUT/c_${backend}_L${L}_B${B}.json" \
+      python3 check.py --input "$IN" --output "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin" \
+        --L "$L" --batch "$B" $CHKARGS --json "$OUT/c_${backend}_L${L}_B${B}_m${M}.json" \
         >>"$OUT/check.log" 2>&1
-      rm -f "$OUT/out_${backend}_L${L}_B${B}.bin" "$OUT/out_${backend}_L${L}_B${B}.bin.chain"   # outputs are large; keep the verdicts
+      rm -f "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin" "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin.chain"   # outputs are large; keep the verdicts
     fi
     # ONE-STEP map gate (chained cases only): two steps of the graded map must match
     # numpy to 3e-14 (chaos cannot amplify in 2 steps; fp32-seeded maps land ~5e-12). This carries the precision contract; the chain gate above only
     # catches gross cheats, because the chain is chaotic (docs/GRADER.md).
     if [ "$M" -gt 1 ]; then
       timeout 120 "$BINDIR/$backend" --L "$L" --batch "$B" --chain 2 --map --cin "$CIN" \
-        --in "$IN" --out "$OUT/one_${backend}_L${L}_B${B}.bin" \
-        --json "$OUT/t1_${backend}_L${L}_B${B}.json" \
+        --in "$IN" --out "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin" \
+        --json "$OUT/t1_${backend}_L${L}_B${B}_m${M}.json" \
         --samples 1 --warmup 1 --min-sample-ms 1 --run-index 1 \
         >>"$OUT/timing.log" 2>>"$OUT/timing.err"
-      if [ -f "$OUT/one_${backend}_L${L}_B${B}.bin" ]; then
-        python3 check.py --input "$IN" --output "$OUT/one_${backend}_L${L}_B${B}.bin" \
+      if [ -f "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin" ]; then
+        python3 check.py --input "$IN" --output "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin" \
           --L "$L" --batch "$B" --map-check 2 --cin "$CIN" \
-          --json "$OUT/o_${backend}_L${L}_B${B}.json" >>"$OUT/check.log" 2>&1
+          --json "$OUT/o_${backend}_L${L}_B${B}_m${M}.json" >>"$OUT/check.log" 2>&1
       fi
-      rm -f "$OUT/one_${backend}_L${L}_B${B}.bin" "$OUT/one_${backend}_L${L}_B${B}.bin.chain" "$OUT/t1_${backend}_L${L}_B${B}.json"
+      rm -f "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin" "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin.chain" "$OUT/t1_${backend}_L${L}_B${B}_m${M}.json"
     fi
   done
   rm -f "$IN" "$CIN"
