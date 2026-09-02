@@ -1,0 +1,288 @@
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pow2: does not support L=10
+gen_pow2: does not support L=10
+gen_pow2: does not support L=10
+gen_pow2: does not support L=10
+gen_powp: does not support L=10
+gen_powp: does not support L=10
+gen_powp: does not support L=10
+gen_powp: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+timeout: failed to run command ‘build/a80n0/bin/ducc0_c2c’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/ducc0_c2c’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/ducc0_c2c’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/ducc0_c2c’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_custom’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_custom’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_custom’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_custom’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_custom_soa’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_custom_soa’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_custom_soa’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_custom_soa’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_estimate’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_estimate’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_estimate’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_estimate’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_guru’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_guru’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_guru’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_guru’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_measure’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_measure’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_measure’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_measure’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_patient’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_patient’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_patient’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/fftw3_patient’: No such file or directory
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pow2: does not support L=12
+gen_pow2: does not support L=12
+gen_pow2: does not support L=12
+gen_pow2: does not support L=12
+timeout: failed to run command ‘build/a80n0/bin/gen_powp’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_powp’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_powp’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_powp’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_race’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_race’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_race’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_race’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_rader’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_rader’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_rader’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_rader’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_twiddle’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_twiddle’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_twiddle’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/gen_twiddle’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/mkl2026_dfti’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/mkl2026_dfti’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/mkl2026_dfti’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/mkl2026_dfti’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/mkl_dfti’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/mkl_dfti’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/mkl_dfti’: No such file or directory
+timeout: failed to run command ‘build/a80n0/bin/mkl_dfti’: No such file or directory
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=15
+gen_pfa_large: does not support L=15
+gen_pfa_large: does not support L=15
+gen_pfa_large: does not support L=15
+gen_pow2: does not support L=10
+gen_pow2: does not support L=10
+gen_pow2: does not support L=10
+gen_pow2: does not support L=10
+gen_powp: does not support L=10
+gen_powp: does not support L=10
+gen_powp: does not support L=10
+gen_powp: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+gen_pow2: does not support L=15
+gen_pow2: does not support L=15
+gen_pow2: does not support L=15
+gen_pow2: does not support L=15
+gen_powp: does not support L=15
+gen_powp: does not support L=15
+gen_powp: does not support L=15
+gen_powp: does not support L=15
+gen_rader: does not support L=15
+gen_rader: does not support L=15
+gen_rader: does not support L=15
+gen_rader: does not support L=15
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pow2: does not support L=12
+gen_pow2: does not support L=12
+gen_pow2: does not support L=12
+gen_pow2: does not support L=12
+gen_powp: does not support L=12
+gen_powp: does not support L=12
+gen_powp: does not support L=12
+gen_powp: does not support L=12
+gen_rader: does not support L=12
+gen_rader: does not support L=12
+gen_rader: does not support L=12
+gen_rader: does not support L=12
+gen_pfa_large: does not support L=20
+gen_pfa_large: does not support L=20
+gen_pfa_large: does not support L=20
+gen_pfa_large: does not support L=20
+gen_pow2: does not support L=20
+gen_pow2: does not support L=20
+gen_pow2: does not support L=20
+gen_pow2: does not support L=20
+gen_powp: does not support L=20
+gen_powp: does not support L=20
+gen_powp: does not support L=20
+gen_powp: does not support L=20
+gen_rader: does not support L=20
+gen_rader: does not support L=20
+gen_rader: does not support L=20
+gen_rader: does not support L=20
+gen_pfa_large: does not support L=15
+gen_pfa_large: does not support L=15
+gen_pfa_large: does not support L=15
+gen_pfa_large: does not support L=15
+gen_pow2: does not support L=15
+gen_pow2: does not support L=15
+gen_pow2: does not support L=15
+gen_pow2: does not support L=15
+gen_powp: does not support L=15
+gen_powp: does not support L=15
+gen_powp: does not support L=15
+gen_powp: does not support L=15
+gen_rader: does not support L=15
+gen_rader: does not support L=15
+gen_rader: does not support L=15
+gen_rader: does not support L=15
+gen_batchlane: does not support L=25
+gen_batchlane: does not support L=25
+gen_batchlane: does not support L=25
+gen_batchlane: does not support L=25
+gen_dense_prime: does not support L=25
+gen_dense_prime: does not support L=25
+gen_dense_prime: does not support L=25
+gen_dense_prime: does not support L=25
+gen_pfa_large: does not support L=25
+gen_pfa_large: does not support L=25
+gen_pfa_large: does not support L=25
+gen_pfa_large: does not support L=25
+gen_pfa_small: does not support L=25
+gen_pfa_small: does not support L=25
+gen_pfa_small: does not support L=25
+gen_pfa_small: does not support L=25
+gen_pow2: does not support L=25
+gen_pow2: does not support L=25
+gen_pow2: does not support L=25
+gen_pow2: does not support L=25
+gen_rader: does not support L=25
+gen_rader: does not support L=25
+gen_rader: does not support L=25
+gen_rader: does not support L=25
+gen_pfa_large: does not support L=20
+gen_pfa_large: does not support L=20
+gen_pfa_large: does not support L=20
+gen_pfa_large: does not support L=20
+gen_pow2: does not support L=20
+gen_pow2: does not support L=20
+gen_pow2: does not support L=20
+gen_pow2: does not support L=20
+gen_powp: does not support L=20
+gen_powp: does not support L=20
+gen_powp: does not support L=20
+gen_powp: does not support L=20
+gen_rader: does not support L=20
+gen_rader: does not support L=20
+gen_rader: does not support L=20
+gen_rader: does not support L=20
+gen_batchlane: does not support L=27
+gen_batchlane: does not support L=27
+gen_batchlane: does not support L=27
+gen_batchlane: does not support L=27
+gen_dense_prime: does not support L=27
+gen_dense_prime: does not support L=27
+gen_dense_prime: does not support L=27
+gen_dense_prime: does not support L=27
+gen_pfa_large: does not support L=27
+gen_pfa_large: does not support L=27
+gen_pfa_large: does not support L=27
+gen_pfa_large: does not support L=27
+gen_pfa_small: does not support L=27
+gen_pfa_small: does not support L=27
+gen_pfa_small: does not support L=27
+gen_pfa_small: does not support L=27
+gen_pow2: does not support L=27
+gen_pow2: does not support L=27
+gen_pow2: does not support L=27
+gen_pow2: does not support L=27
+gen_rader: does not support L=27
+gen_rader: does not support L=27
+gen_rader: does not support L=27
+gen_rader: does not support L=27
+gen_batchlane: does not support L=25
+gen_batchlane: does not support L=25
+gen_batchlane: does not support L=25
+gen_batchlane: does not support L=25
+gen_dense_prime: does not support L=25
+gen_dense_prime: does not support L=25
+gen_dense_prime: does not support L=25
+gen_dense_prime: does not support L=25
+gen_pfa_large: does not support L=25
+gen_pfa_large: does not support L=25
+gen_pfa_large: does not support L=25
+gen_pfa_large: does not support L=25
+gen_pfa_small: does not support L=25
+gen_pfa_small: does not support L=25
+gen_pfa_small: does not support L=25
+gen_pfa_small: does not support L=25
+gen_pow2: does not support L=25
+gen_pow2: does not support L=25
+gen_pow2: does not support L=25
+gen_pow2: does not support L=25
+gen_rader: does not support L=25
+gen_rader: does not support L=25
+gen_rader: does not support L=25
+gen_rader: does not support L=25
+gen_batchlane: does not support L=27
+gen_batchlane: does not support L=27
+gen_batchlane: does not support L=27
+gen_batchlane: does not support L=27
+gen_dense_prime: does not support L=27
+gen_dense_prime: does not support L=27
+gen_dense_prime: does not support L=27
+gen_dense_prime: does not support L=27
+gen_pfa_large: does not support L=27
+gen_pfa_large: does not support L=27
+gen_pfa_large: does not support L=27
+gen_pfa_large: does not support L=27
+gen_pfa_small: does not support L=27
+gen_pfa_small: does not support L=27
+gen_pfa_small: does not support L=27
+gen_pfa_small: does not support L=27
+gen_pow2: does not support L=27
+gen_pow2: does not support L=27
+gen_pow2: does not support L=27
+gen_pow2: does not support L=27
+gen_rader: does not support L=27
+gen_rader: does not support L=27
+gen_rader: does not support L=27
+gen_rader: does not support L=27
+gen_batchlane: does not support L=31
+gen_batchlane: does not support L=31
+gen_batchlane: does not support L=31
+gen_batchlane: does not support L=31
+gen_pfa_large: does not support L=31
+gen_pfa_large: does not support L=31
+gen_pfa_large: does not support L=31
+gen_pfa_large: does not support L=31
+gen_pfa_small: does not support L=31
+gen_pfa_small: does not support L=31
+gen_pfa_small: does not support L=31
+gen_pfa_small: does not support L=31
+gen_pow2: does not support L=31
+gen_pow2: does not support L=31
+gen_pow2: does not support L=31
+gen_pow2: does not support L=31
+gen_powp: does not support L=31
+gen_powp: does not support L=31
+gen_powp: does not support L=31
+gen_powp: does not support L=31

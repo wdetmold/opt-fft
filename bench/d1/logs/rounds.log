@@ -47,3 +47,15 @@
 [2026-09-02 08:00:01] d1_r1 works in impl_1 (10 sources carried over from impl_0)
 [2026-09-02 08:00:01] context pack: 13 lines
 [2026-09-02 08:00:01] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+[2026-09-02 08:26:42] implementers finished: 0 reported
+[2026-09-02 08:26:42] submitting timing round d1_r1 (seed 20261834) to the exclusive benchmark node
+scoring d1_r1 on reserved Ice Lake node a80n0
+waiting for 1 in-flight lease(s) to finish
+still 1 lease(s) held after 1800s; reaping and proceeding
+reaping stale lease slot0 held by d1_batchlane for 36 min
+scoring window open: all 24 slots held
+[2026-09-02 08:56:43] sbatch submission failed; retrying once in 120s
+scoring d1_r1 on reserved Ice Lake node a80n0
+scoring window open: all 24 slots held
+[2026-09-02 08:58:44] submission failed twice -- skipping the timing pass for d1_r1
+[2026-09-02 08:58:44] d1_r1: no leaderboard, skipping the monitor verdict

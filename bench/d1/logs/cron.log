@@ -7,3 +7,13 @@
 2026-09-02 08:15:01 d1 tick skipped: lock held
 /tmp/fft_rounds_uwj5BL.sh: line 411: [: 0
 0: integer expression expected
+/tmp/fft_rounds_uwj5BL.sh: line 401: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r1/agents/exits.txt: No such file or directory
+/tmp/fft_rounds_uwj5BL.sh: line 401: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r1/agents/exits.txt: No such file or directory
+/tmp/fft_rounds_uwj5BL.sh: line 401: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r1/agents/exits.txt: No such file or directory
+[2026-09-02 08:26:42] implementers finished: 0 reported
+[2026-09-02 08:26:42] submitting timing round d1_r1 (seed 20261834) to the exclusive benchmark node
+2026-09-02 08:30:01 d1 tick skipped: lock held
+2026-09-02 08:45:01 d1 tick skipped: lock held
+[2026-09-02 08:56:43] sbatch submission failed; retrying once in 120s
+[2026-09-02 08:58:44] submission failed twice -- skipping the timing pass for d1_r1
+[2026-09-02 08:58:44] d1_r1: no leaderboard, skipping the monitor verdict
