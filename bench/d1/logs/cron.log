@@ -17,3 +17,15 @@
 [2026-09-02 08:56:43] sbatch submission failed; retrying once in 120s
 [2026-09-02 08:58:44] submission failed twice -- skipping the timing pass for d1_r1
 [2026-09-02 08:58:44] d1_r1: no leaderboard, skipping the monitor verdict
+[2026-09-02 08:58:47] committed round d1_r1
+[2026-09-02 08:58:47] ---------- d1_r1 complete; next is d1_r2 of d1_r4 ----------
+[2026-09-02 08:58:47] ---------- d1_r2 begins ----------
+[2026-09-02 08:58:47] d1_r1 has no leaderboard yet -- waiting (will proceed if the panel goes quiet)
+2026-09-02 09:00:01 d1 tick skipped: lock held
+2026-09-02 09:15:01 d1 tick skipped: lock held
+2026-09-02 09:30:01 d1 tick skipped: lock held
+2026-09-02 09:45:01 d1 tick skipped: lock held
+2026-09-02 10:00:01 d1 tick skipped: lock held
+2026-09-02 10:15:01 d1 tick skipped: lock held
+2026-09-02 10:30:01 d1 tick skipped: lock held
+2026-09-02 10:45:01 d1 tick skipped: lock held

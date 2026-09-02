@@ -71,3 +71,7 @@ mkl_dfti ==
    done L=20 B=32
    done L=25 B=16
    done L=27 B=16
+   done L=31 B=16
+   done L=32 B=8
+   done L=40 B=8
+   done L=50 B=4
