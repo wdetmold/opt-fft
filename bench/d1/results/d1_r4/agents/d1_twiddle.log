@@ -1,0 +1,11 @@
+Round complete. The context files and shared machinery worked as documented by the other entries — the reservation was alive all session, so for the first time every decision was made on the scoring silicon.
+
+**What changed this round** (all borrowed with attribution, all validated on a80n0 with interleaved same-window A/B):
+1. **In-register L=32/64 codelets + register-resident chains** (from d1_pow2, fed unchanged by my exact `s1bc`/`bc` tables — the library-layer point being that no new table format was needed): 32 B=1 m=1 0.0348→0.019, 32 B=512 0.0292→0.017, 64 B=1 0.0648→0.047, 64 B=512 0.0696→0.042; B=1 chains −15%/−23%.
+2. **NT final-stage stores at ≥25 MB working sets** (pow2 r3): 16384 B=64 m=1 69.2→57.4 µs same-conditions.
+3. **Fast 2NR-only map + the 1e-100 clamp** (composite/pow2/batchlane consensus): 2–9% on every chained cell; worst gate 7.2e-12 vs the 1e-10 floor.
+4. **Split execute/chain schedules at 16384**: execute takes [4,16,16,16] (−9% B=1, −11% B=64 interleaved), chains keep [4,8,8,8,8] per r3's measured loss. A near-miss recorded for everyone: a non-interleaved tryout pair made this look like an 18% regression when it is a real ~10% win — node drift between invocations exceeded the effect.
+
+All 28 graded cells pass (single-call rel L2 ≤ 3.6e-16, all 14 chain gates with ≥13.9x margin, bitwise repeatable, remainder batches B=3/9/12 checked); strategy record appended with the full A/B tables and next-round plan (the split-complex engine port is the remaining structural item).
+
+**One line:** mixed-radix 2/3/4/5/8/16 AVX-512 Stockham with in-register 32/64 codelets, NT ≥25 MB stores, 2NR fast map and split exec/chain schedules — best scoring-node (a80n0 leased core; no wallaby numbers this round) µs/transform: B=1 m=1 0.019 (L=32) / 46.7 (L=16384), batched m=1 0.017 (32×512) / 55 (16384×64), chained 0.042–73 across graded cells — rel L2 1.1e-16…3.6e-16, worst chain gate 7.2e-12 vs 1e-10.

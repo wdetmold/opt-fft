@@ -1,0 +1,5 @@
+   d1_composite                  0.0451 us      0.0430 us    39.25     15.1%   3r   0.000s  ok 1.9e-16       1.00x?
+   d1_composite                  0.1104 us      0.1104 us    16.05      0.1%   3r   0.000s  ok ch=4.0e-15/1e-10 1s=4e-16 1.00x?
+   d1_composite                  0.0578 us      0.0531 us    30.66     18.1%   3r   0.000s  ok 2.1e-16       1.12x
+   d1_composite                  0.0740 us      0.0589 us    23.96     29.9%   3r   0.000s  ok ch=2.2e-13/1e-10 1s=5e-16 1.05x?
+   d1_composite             Good-Thomas PFA 60=4x3x5 twiddle-free; broadcast-fed signed-FMA DFT-4 (zero cross-lane shuffles), zmm 2x2 batched kernel with pure-store vextractf64x2 outputs; SoA-resident in-place batched chain and coset-row B=1 chain, both with fused rsqrt/rcp map

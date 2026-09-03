@@ -1,0 +1,11 @@
+   d1_prime                      0.0181 us      0.0181 us    13.28      0.4%   3r   0.000s  ok 1.6e-16       1.22x
+   d1_prime                      0.0422 us      0.0421 us     5.70      0.5%   3r   0.000s  ok ch=1.6e-15/1e-10 1s=5e-16 1.07x
+   d1_prime                      0.0106 us      0.0095 us    22.62     12.1%   3r   0.000s  ok 1.7e-16       1.00x?
+   d1_prime                      0.0171 us      0.0171 us    14.04      1.5%   3r   0.000s  ok ch=1.5e-13/1e-10 1s=4e-16 1.17x
+   d1_prime                      0.0471 us      0.0470 us    16.29     22.3%   3r   0.000s  ok 3.3e-16       1.00x?
+   d1_prime                      0.0534 us      0.0533 us    14.39     13.9%   3r   0.000s  ok ch=4.2e-15/1e-10 1s=8e-16 1.00x?
+   d1_prime                      0.0484 us      0.0484 us    15.86      0.3%   3r   0.000s  ok 2.9e-16       1.14x
+   d1_prime                      0.0476 us      0.0467 us    16.15      3.8%   3r   0.000s  ok ch=5.1e-12/3e-10 1s=7e-16 1.02x?
+   d1_batchlane             SoA 8-lane zmm batch-lane engine: interleaved-pair m=1 kernels at 13/31 (d1_prime) and an in-register AoS codelet at 32 (d1_pow2), fused-AoS single-shot kernels looped for m=1 at 60/64/128, register-resident B=1 chains (fold-ready A/B rows at 13/31, natural-row four-step at 32/64/128), L1-blocked fused FFT+Newton-map batched chain
+   d1_planner               LIBRARY LAYER (adoption-scored): factorization planner on a split-complex Stockham core (true-zmm noinline kernels; 2/3/4/5/8 + generic prime<=61 stage) -- direct smooth / unpadded Rader (smooth L-1) / smooth-padded Bluestein; adopted codelets: d1_prime pair kernels at 13/31, d1_pow2 register codelets at 32/64; NT fused exits above L3; fused split/lane/register map chains
+   d1_prime                 symmetric-pair dense prime DFT; interleaved-pair zmm kernels at 13/31 (pair-dup tables, 2-transform tiling); register-resident B=1 chains + SoA batched chains, c-field folded into accumulator seeds (rsqrt14+NR map)

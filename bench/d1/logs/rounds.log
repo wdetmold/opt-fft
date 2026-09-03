@@ -183,3 +183,34 @@ promoted d1_race
 wrote exemplars/d1_r3/NOTES.md skeleton -- fill it in before committing
 
 next: git add exemplars/d1_r3 strategies && git commit
+[2026-09-03 07:26:27] committed round d1_r3
+[2026-09-03 07:26:27] ---------- d1_r3 complete; next is d1_r4 of d1_r4 ----------
+[2026-09-03 07:26:27] ---------- d1_r4 begins ----------
+[2026-09-03 07:26:27] d1_r4 works in impl_4 (10 sources carried over from impl_3)
+[2026-09-03 07:26:27] context pack: 235 lines
+[2026-09-03 07:26:27] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+[2026-09-03 08:26:35] implementers finished: 9 reported
+[2026-09-03 08:26:35] submitting timing round d1_r4 (seed 20264873) to the exclusive benchmark node
+scoring d1_r4 on reserved Ice Lake node a80n0
+waiting for 1 in-flight lease(s) to finish
+still 1 lease(s) held after 1800s; reaping and proceeding
+reaping stale lease slot1 held by d1_planner_r4dev for 81 min
+scoring window open: all 24 slots held
+   fftw1d_patient           FFTW 3.3.10 plan_many_dft 1D, fftw1d_patient
+   mkl1d_dfti               oneMKL DFTI 1D, sequential, batched
+== round d1_r4 complete: results/d1_r4 ==
+[2026-09-03 12:11:20] leaderboard for d1_r4 is in
+[2026-09-03 12:11:23] served models for d1_r4:    1310 claude-fable-5 
+[2026-09-03 12:25:13] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r4/monitor.log)
+[2026-09-03 12:25:13] promoting: d1_prime d1_pow2 d1_rader d1_bluestein d1_composite d1_batchlane d1_twiddle d1_race
+promoted d1_prime
+promoted d1_pow2
+promoted d1_rader
+promoted d1_bluestein
+promoted d1_composite
+promoted d1_batchlane
+promoted d1_twiddle
+promoted d1_race
+wrote exemplars/d1_r4/NOTES.md skeleton -- fill it in before committing
+
+next: git add exemplars/d1_r4 strategies && git commit

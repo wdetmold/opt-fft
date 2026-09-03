@@ -1,0 +1,19 @@
+`VERDICT.md` is written to `/home/lqcd/wdetmold/fft/bench/d1/results/d1_r4/VERDICT.md`.
+
+**Three things about the brief you should know first.** The geometries are not L = 6, 8, 17, 36 — those are the *3D* campaign's cube edges. This is the 1D board: **L = 13, 31, 32, 60, 64, 128, 1021, 1024, 4096, 16384, 10007, 65537, 100003**, 52 cells. And the scoring node is a **Xeon Gold 6326 (Ice Lake-SP)**, not a Cascade Lake 5218 — the implementers develop on wallaby (Sapphire Rapids), so the machine gap is real but it is SPR→ICL, not SPR→CLX. The r3 monitor filed both corrections already; they're still in the brief. I reported against the actual board.
+
+**The result.** 43 of 52 cells to the panel, and the split is entirely along one axis: **all 26 chained cells won** (geometric mean 1.95×, best 3.92× at L=31), and 17 of 26 single-call cells (1.22×). All nine library wins are m=1 cells; four are inside the measurement noise. Aggregate 1.543× against r3's 1.436×. Two cells flipped to the panel (64 B=1, 4096 B=256), none the other way.
+
+**Adversarial pass.** Nothing failed correctness, nothing failed to build, nothing crashed, nothing is missing — and I checked the checks could fail: two independent gate types, errors that scale sanely with L, and `d1_rader`'s convolution measurably *less* accurate than `d1_prime`'s dense kernel at the same L, which a non-comparing harness would not produce. What I did find:
+
+- **`d1_planner` shipped the round's largest diff (1012 lines) with no r4 strategy record at all.** It won two cells and there is no document saying what it did. That's the one exclusion.
+- **`d1_batchlane` regressed 14–18% at three chained cells** — reporting the new numbers in its record while asserting "nothing else regressed."
+- **`d1_race` wins 25 cells by shipping its siblings' kernels**; those headlines belong to the siblings. Its plan cost is disproportionate at small L (14.34 s to plan a 14.8 ns transform) — though `fftw1d_patient` pays 846 s across the same board, so the criticism is proportion, not racing.
+
+**The sleeper finding.** At L=32 B=1 chained, four structurally different implementations all measure 0.070 µs and the *same code relinked with different alignment flags* measures 0.060 — repeated at 64 and 4096 chained. Code placement is worth ~14% on Ice Lake-SP and is currently a confound under every number on the board.
+
+**Literature §4.8-6 moved twice.** `d1_composite` A/B'd a port-5 shuffle diet across both machines: **zero effect on Sapphire Rapids** (frequency confound killed by direct measurement) and **12% on Ice Lake-SP**. So SPR is the wrong stopwatch for that whole class of optimisation. Separately, `d1_pow2` showed the large-L bottleneck on this part is twiddle-table L2 footprint, not ports — worth 22–38%.
+
+Numbers for §2 are min-against-min, because r3 ranked on min-of-3 and r4 on median-of-3. On unchanged library code the r3→r4 shift has p90 of 17%, so nothing below that on a single-call cell is a result — which is also why the highest-value item on the board isn't implementer work at all: finishing `RESCORE_PLAN.md`'s 9-run top-up, 1.7 h sharded, converts nine currently-undecidable verdicts into decisions.
+
+PROMOTE: d1_prime d1_pow2 d1_rader d1_bluestein d1_composite d1_batchlane d1_twiddle d1_race

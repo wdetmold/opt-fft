@@ -1,0 +1,10 @@
+Everything is in place: `impl` is a symlink to this round's `impl_4/`, and only my two files changed. Work summary:
+
+**What I did this round (d1_r4):**
+- **Flipped the batched default to `fft60_zmm2x2`** — d1_race's on-node r3 wisdom showed it beating my ymm2 default at L60/B512 on the Ice Lake scorer (29.27 vs ~30.0 µs/call), settling the r2 open question without a reservation.
+- **Put both hot kernels on a shuffle diet**: operands now arrive via memory-source `vbroadcastf64x2` (one load uop, no insert blends), the DFT-4 lane split became two signed FMAs (exact, bit-identical — verified by `cmp` on full outputs) plus a single in-lane `vpermilpd` instead of two cross-lane `vpermt2pd`, and stage-C outputs leave through memory-form `vextractf64x2` (pure stores). zmm2x2 dropped 415 → 287 instructions/transform with p5 shuffles ~97 → 37 per pair; on the node, where every 512-bit shuffle steals an FMA port, that's the whole bet.
+- The same stage-A trick in `fft60_ymm1` won the **B=1 cell outright: 0.033 → 0.029 µs on wallaby** (MKL 0.036).
+- Honest caveat, recorded in the strategy file: on wallaby SPR the zmm2x2 default reads 0.037 vs old ymm2's 0.032 — the flip is a node bet backed by race's on-node data, with `-DUSE_YMM2_BATCH` kept for reversal if the leaderboard disagrees.
+- Chains untouched (both winning 1.9×/4.2× on the node). All gates pass: exec rel L2 ≈ 2.2e-16, chain gates 3.1e-15 / 6.6e-13 (tol 1e-10), edge batches, dense L=12/24/36, bit-repeatable, all flag variants `-Wall -Wextra` clean.
+
+**Final line:** Broadcast-fed signed-FMA PFA-60 with a zmm 2×2 batched kernel (pure-store extracts, node-bet default) — wallaby B=1 **0.029 µs**/transform, batched B=512 **0.037 µs** (zmm2x2; chained 0.084/0.044 µs), rel L2 **2.2e-16**.

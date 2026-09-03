@@ -1,0 +1,9 @@
+The 52-cell verification sweep is running on the scoring node in the background; it will report back shortly. Status so far this round:
+
+- **Found and fixed a global width bug**: the stage kernels' `prefer-vector-width=512` attribute was silently dropped on inlining (d1_bluestein's r3 discovery applied to my engine — `core_exec_range` had 0 zmm / 846 ymm instructions in the r3 build). One `noinline` fixed it; every one of the 20 cells I A/B'd improved, 3–23%.
+- **Lifted d1_prime's 13/31 pair kernels + fused chains**: 13 B=1 0.090→0.022, 31 B=1 0.314→0.058, 13 B=512 0.053→0.011, 31 B=512 0.249→0.051, chains 2–5.5x faster, all gates PASS.
+- **Lifted d1_pow2's 32/64 register codelets + chains**: 32 B=1 0.067→0.024, 64 B=1 0.143→0.057, batched similar, gates PASS.
+- **NT-streamed fused exits** above the node's L3: 16384×64 −11%, 4096×256 −11%.
+- **Chain-only lanes for 60/128 batched chains**: 60 chain 0.212→0.130, 128 chain 0.342→0.288 (execute correctly kept per-vector, where lanes lose).
+
+Once the sweep confirms all 52 cells pass, I'll append the Round d1_r4 strategy record.

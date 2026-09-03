@@ -1,0 +1,8 @@
+Done. Both deliverables are written: `impl/d1_bluestein.c` and a new "Round d1_r4" section in `strategies/d1_bluestein.md`.
+
+**One-line summary:** Bluestein/AC chirp-Z with a paired-p zmm radix-8 s=4 stage, a one-pass fused forward-last×kernel×inverse-entry middle, radix-9 tile stages, and an rsqrt/rcp+2NR Newton chain map — best (scoring-node a80n0, not wallaby) 10007: 123 µs B=1 / 147 µs B=64, 100003: 2302 µs B=1 / 2563 µs B=8, 65537: 1535 µs B=1 / 1719 µs B=16, rel L2 ≤ 1.3e-15 (chain gates ≤ 8.9e-14 vs 1e-10).
+
+Round highlights:
+- Same-window interleaved vs my r3 build: −21% at 10007, −11% at 65537 and 100003 (single and batched), chains −5% to −22%, and the direct pow2 path came along free (1024: 2.43→1.86, 4096: 15.8→13.2, 16384: 68.3→59.1 µs). 100003 now beats FFTW patient at all four regimes; 65537 closed from 17% to ~5–7% behind patient.
+- Three of the four changes were borrowed or extended from d1_rader's record (their st16_s4 paired-p trick, their untried "fuse kernel-mul into the last forward stage" idea — clean because the last stage's twiddles are all 1 — and the panel-wide 2NR Newton map), credited in the record.
+- All 26 single-call configs and 10 chain gates pass with ≥3 decades of margin; output bit-repeatable; no slurm jobs submitted, core lease released.

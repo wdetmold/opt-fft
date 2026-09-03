@@ -191,3 +191,37 @@
 2026-09-03 07:15:01 d1 tick skipped: lock held
 [2026-09-03 07:26:18] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r3/monitor.log)
 [2026-09-03 07:26:18] promoting: d1_prime d1_rader d1_pow2 d1_batchlane d1_composite d1_bluestein d1_twiddle d1_race
+[2026-09-03 07:26:27] committed round d1_r3
+[2026-09-03 07:26:27] ---------- d1_r3 complete; next is d1_r4 of d1_r4 ----------
+[2026-09-03 07:26:27] ---------- d1_r4 begins ----------
+[2026-09-03 07:26:27] d1_r4 works in impl_4 (10 sources carried over from impl_3)
+[2026-09-03 07:26:27] context pack: 235 lines
+[2026-09-03 07:26:27] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+2026-09-03 07:30:01 d1 tick skipped: lock held
+2026-09-03 07:45:01 d1 tick skipped: lock held
+/tmp/fft_rounds_sKHc36.sh: line 419: [: 0
+0: integer expression expected
+2026-09-03 08:00:01 d1 tick skipped: lock held
+2026-09-03 08:15:01 d1 tick skipped: lock held
+[2026-09-03 08:26:35] implementers finished: 9 reported
+[2026-09-03 08:26:35] submitting timing round d1_r4 (seed 20264873) to the exclusive benchmark node
+2026-09-03 08:30:01 d1 tick skipped: lock held
+2026-09-03 08:45:01 d1 tick skipped: lock held
+2026-09-03 09:00:01 d1 tick skipped: lock held
+2026-09-03 09:15:01 d1 tick skipped: lock held
+2026-09-03 09:30:01 d1 tick skipped: lock held
+2026-09-03 09:45:01 d1 tick skipped: lock held
+2026-09-03 10:00:01 d1 tick skipped: lock held
+2026-09-03 10:15:01 d1 tick skipped: lock held
+2026-09-03 10:30:01 d1 tick skipped: lock held
+2026-09-03 10:45:01 d1 tick skipped: lock held
+2026-09-03 11:00:01 d1 tick skipped: lock held
+2026-09-03 11:15:01 d1 tick skipped: lock held
+2026-09-03 11:30:01 d1 tick skipped: lock held
+2026-09-03 11:45:01 d1 tick skipped: lock held
+2026-09-03 12:00:01 d1 tick skipped: lock held
+[2026-09-03 12:11:20] leaderboard for d1_r4 is in
+[2026-09-03 12:11:23] served models for d1_r4:    1310 claude-fable-5 
+2026-09-03 12:15:01 d1 tick skipped: lock held
+[2026-09-03 12:25:13] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r4/monitor.log)
+[2026-09-03 12:25:13] promoting: d1_prime d1_pow2 d1_rader d1_bluestein d1_composite d1_batchlane d1_twiddle d1_race

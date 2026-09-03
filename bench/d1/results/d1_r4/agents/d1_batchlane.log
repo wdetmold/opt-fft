@@ -1,0 +1,12 @@
+Round d1_r4 complete. Both deliverable files are written: `impl/d1_batchlane.c` and `strategies/d1_batchlane.md` (r4 section appended, history intact).
+
+**One-line summary:** Ended on borrowed interleaved-pair m=1 kernels (13/31, from d1_prime), an in-register AoS L=32 codelet (from d1_pow2), and map-fused batched chain steps — best scoring-node (a80n0 leased core; the reservation was alive this round, so all numbers are Ice Lake, not wallaby) µs/transform: B=1 m=1 0.020/0.048/0.019/0.073/0.049/0.100 and B=512 m=1 0.009/0.044/0.015/0.063/0.053/0.165 at L=13/31/32/60/64/128, chains 0.018–0.216 batched, with rel L2 = 1.1–2.3e-16 single-call and all 12 chain gates passing (worst 2.6e-12 vs 1e-10).
+
+Key outcomes vs the r3 board:
+- **13 B512 m=1: 0.022→0.009** (was losing 1.54x to fftw_measure; now leads the whole r3 field including d1_prime's 0.0107)
+- **32 m=1: 0.038/0.037→0.019/0.015** (was my worst library loss at 2.06x behind MKL; now at MKL/pow2 parity)
+- **31 m=1: 0.074/0.067→0.048/0.044** — the fix was eliminating the ICX store-forward stall (stack-array u/v reloaded as `{1to8}` broadcasts, which SPR forwards but ICX does not; third confirmation of prime's r3 finding)
+- Batched chains gained 5–20% from fusing the map into the final FFT stage plus the 2NR-only map: 13 ch 0.018, 31 ch 0.056, 32 ch 0.039, 64 ch 0.077
+- Settled two r3 open dispatch questions with node data: SoA stays at 60 batched (0.069 vs 0.075), AoS-loop stays at 64/128 batched (0.062 vs 0.125, 0.168 vs 0.252)
+
+All borrowings are named in the strategy record; remaining weakness for next round is the 60 m=1 pair of cells, where d1_composite's ymm PFA kernels are the known fix.

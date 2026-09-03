@@ -1,0 +1,27 @@
+   d1_batchlane                  0.0192 us      0.0148 us    12.52     38.0%   3r   0.000s  ok 1.4e-16       1.30x
+   d1_batchlane                  0.0451 us      0.0451 us     5.33      0.1%   3r   0.000s  ok ch=2.5e-15/1e-10 1s=5e-16 1.14x
+   d1_batchlane                  0.0107 us      0.0107 us    22.38      1.8%   3r   0.000s  ok 1.4e-16       1.01x?
+   d1_batchlane                  0.0176 us      0.0176 us    13.64      0.2%   3r   0.000s  ok ch=1.3e-14/1e-10 1s=3e-16 1.21x
+   d1_batchlane                  0.0530 us      0.0464 us    14.50     16.4%   3r   0.000s  ok 2.5e-16       1.12x
+   d1_batchlane                  0.0549 us      0.0548 us    14.00      0.1%   3r   0.000s  ok ch=2.9e-15/1e-10 1s=5e-16 1.03x?
+   d1_batchlane                  0.0502 us      0.0502 us    15.29      0.0%   3r   0.000s  ok 2.1e-16       1.18x
+   d1_batchlane                  0.0560 us      0.0553 us    13.72      1.7%   3r   0.000s  ok ch=1.3e-12/3e-10 1s=4e-16 1.20x
+   d1_batchlane                  0.0218 us      0.0218 us    36.68     28.4%   3r   0.000s  ok 1.3e-16       1.14x?
+   d1_batchlane                  0.0699 us      0.0698 us    11.45      0.1%   3r   0.000s  ok ch=2.3e-15/1e-10 1s=3e-16 1.17x
+   d1_batchlane                  0.0176 us      0.0176 us    45.43      0.1%   3r   0.000s  ok 1.4e-16       1.15x
+   d1_batchlane                  0.0340 us      0.0340 us    23.54     13.8%   3r   0.000s  ok ch=6.5e-12/1e-10 1s=3e-16 1.00x?
+   d1_batchlane                  0.0687 us      0.0676 us    25.79     19.6%   3r   0.000s  ok 2.3e-16       1.52x
+   d1_batchlane                  0.1335 us      0.1334 us    13.28      0.2%   3r   0.000s  ok ch=1.7e-15/1e-10 1s=4e-16 1.21x
+   d1_batchlane                  0.0699 us      0.0695 us    25.36     12.8%   3r   0.000s  ok 2.2e-16       1.36x
+   d1_batchlane                  0.0747 us      0.0747 us    23.71      0.1%   3r   0.000s  ok ch=2.5e-13/1e-10 1s=5e-16 1.06x
+   d1_batchlane                  0.0556 us      0.0489 us    34.56     26.5%   3r   0.000s  ok 1.6e-16       1.30x
+   d1_batchlane                  0.0965 us      0.0965 us    19.89      0.0%   3r   0.000s  ok ch=1.2e-15/1e-10 1s=3e-16 1.14x
+   d1_batchlane                  0.0657 us      0.0594 us    29.21     15.5%   3r   0.000s  ok 1.5e-16       1.56x
+   d1_batchlane                  0.0677 us      0.0677 us    28.36      0.6%   3r   0.000s  ok ch=4.4e-13/1e-10 1s=4e-16 1.00x?
+   d1_batchlane                  0.1134 us      0.1133 us    39.51      3.1%   3r   0.000s  ok 2.0e-16       1.09x
+   d1_batchlane                  0.1850 us      0.1631 us    24.22     13.5%   3r   0.000s  ok ch=4.1e-13/1e-10 1s=4e-16 1.00x?
+   d1_batchlane                  0.1947 us      0.1837 us    23.00     11.7%   3r   0.000s  ok 2.0e-16       1.23x
+   d1_batchlane                  0.2158 us      0.2154 us    20.76      0.4%   3r   0.000s  ok ch=2.2e-14/1e-10 1s=5e-16 1.15x
+   d1_batchlane             SoA 8-lane zmm batch-lane engine: interleaved-pair m=1 kernels at 13/31 (d1_prime) and an in-register AoS codelet at 32 (d1_pow2), fused-AoS single-shot kernels looped for m=1 at 60/64/128, register-resident B=1 chains (fold-ready A/B rows at 13/31, natural-row four-step at 32/64/128), L1-blocked fused FFT+Newton-map batched chain
+   d1_pow2                  Stockham autosort DIF: blocked split-complex radix-8 engine at L>=128 (zero-shuffle middle stages, conversion fused into the stride-1 stage), compact (c,s)-pair twiddle tables at L>=1024 (halved L2 footprint -- the ICX large-L bottleneck was table-bloated L1/L2 fill traffic, not ports), first-stage pair fused through an L1 tile at L>=4096 and the two middle radix-8 stages fused into a radix-64 tile pass at 4096/16384 (three array passes total), in-register AoS codelets at L=32/64, NT final stores above the scoring node's L3; chains: across-batch SoA groups of 8 (L<=2048, from d1_batchlane) or per-transform blocking, with a 2-Newton rsqrt/rcp map fused into the final stage in split form
+   d1_twiddle               LIBRARY LAYER (adoption-scored): exact 1D twiddle tables, consumption order (d1tw_cexp quadrant-exact ~1ulp, d1tw_chirp integer-reduced, d1tw_stage v1 + v2 broadcast-pair/lane-major AVX-512 formats; v1 doubles as the SoA-broadcast format); vehicle: mixed-radix 2/3/4/5/8/16 Stockham, zmm 4-complex lanes, in-register 32/64 codelets + register chains (borrowed from d1_pow2, fed by the s1bc/bc tables), SoA across-batch chain at B>=8 L<=2048 (d1_batchlane), NT final stores >=25MB, 2NR fast map, split exec/chain schedules at 16384, smooth L

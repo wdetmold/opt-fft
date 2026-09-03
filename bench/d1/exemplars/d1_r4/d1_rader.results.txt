@@ -1,0 +1,17 @@
+   d1_rader                      0.0471 us      0.0471 us     5.11     20.7%   3r   0.000s  ok 3.2e-16       3.18x
+   d1_rader                      0.0801 us      0.0801 us     3.00     20.7%   3r   0.000s  ok ch=3.4e-15/1e-10 1s=1e-15 2.03x
+   d1_rader                      0.0188 us      0.0179 us    12.82      5.5%   3r   0.000s  ok 2.8e-16       1.76x
+   d1_rader                      0.0146 us      0.0146 us    16.43      0.1%   3r   0.000s  ok ch=4.1e-13/1e-10 1s=5e-16 1.00x
+   d1_rader                      0.2112 us      0.1750 us     3.64     22.7%   3r   0.000s  ok 3.2e-16       4.48x
+   d1_rader                      0.2064 us      0.2063 us     3.72      0.1%   3r   0.000s  ok ch=1.1e-14/1e-10 1s=7e-16 3.87x
+   d1_rader                      0.0719 us      0.0717 us    10.68      0.4%   3r   0.000s  ok 3.6e-16       1.69x
+   d1_rader                      0.0555 us      0.0553 us    13.83     16.0%   3r   0.000s  ok ch=2.7e-12/3e-10 1s=8e-16 1.19x
+   d1_rader                      7.4836 us      6.6595 us     6.82     12.7%   3r   0.000s  ok 1.0e-15       1.01x?
+   d1_rader                      7.1277 us      7.1225 us     7.16     15.0%   3r   0.000s  ok ch=1.8e-12/3e-10 1s=3e-15 1.00x?
+   d1_rader                      8.6351 us      7.4409 us     5.91     33.0%   3r   0.000s  ok 9.9e-16       1.18x
+   d1_rader                      7.2335 us      7.1683 us     7.05      1.5%   3r   0.000s  ok ch=2.3e-13/1e-10 1s=3e-15 1.00x?
+   d1_rader                    869.4113 us    868.0236 us     6.03      0.3%   3r   0.005s  ok 1.3e-15       1.02x
+   d1_rader                    740.7070 us    739.0555 us     7.08      8.2%   3r   0.007s  ok ch=4.2e-14/1e-10 1s=5e-15 1.02x?
+   d1_rader                   1757.4992 us   1370.6238 us     2.98     32.9%   3r   0.006s  ok 1.3e-15       1.32x
+   d1_rader                    776.7887 us    761.1282 us     6.75      2.5%   3r   0.006s  ok ch=2.1e-14/1e-10 1s=5e-15 1.00x?
+   d1_rader                 Rader prime->cyclic conv sized by N-1: UNPADDED conv 65536=[4,16,16,16,4] at N=65537 (two-layer radix-16 through an L1 tile; FUSED MID PASS runs fwd-last butterfly + kernel multiply + inv-first butterfly in one pass, 9 passes not 10 -- the spectrum is never materialized), unpadded 1020=[4,3,5,17] at 1021 (AVX-512 two-half radix-17, scatter-fused exit, paired-p full-lane radix-5), CRT codelets Z12=Z4xZ3 / Z30=Z2xZ3xZ5 at 13/31 (Agarwal-Cooley) with ACROSS-BATCH SoA: 8 transforms per zmm, transpose only at entry/exit; pad 256 at 127; split-complex Stockham core (from d1_bluestein), X[0] free from conv DC; fused map chain keeps state in conv order (gather o scatter = index reversal), Newton rsqrt/rcp map (no divider) in every vector chain exit

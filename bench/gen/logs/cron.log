@@ -3206,3 +3206,83 @@ results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
 [2026-09-03 07:15:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
 [2026-09-03 07:15:01]     implementers: fable    monitor: opus
 [2026-09-03 07:15:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 07:30:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 07:30:01]     implementers: fable    monitor: opus
+[2026-09-03 07:30:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 07:45:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 07:45:01]     implementers: fable    monitor: opus
+[2026-09-03 07:45:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 08:00:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 08:00:01]     implementers: fable    monitor: opus
+[2026-09-03 08:00:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 08:15:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 08:15:01]     implementers: fable    monitor: opus
+[2026-09-03 08:15:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 08:30:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 08:30:01]     implementers: fable    monitor: opus
+[2026-09-03 08:30:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 08:45:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 08:45:01]     implementers: fable    monitor: opus
+[2026-09-03 08:45:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 09:00:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 09:00:02]     implementers: fable    monitor: opus
+[2026-09-03 09:00:02] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 09:15:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 09:15:01]     implementers: fable    monitor: opus
+[2026-09-03 09:15:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 09:30:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 09:30:01]     implementers: fable    monitor: opus
+[2026-09-03 09:30:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 09:45:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 09:45:01]     implementers: fable    monitor: opus
+[2026-09-03 09:45:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 10:00:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 10:00:01]     implementers: fable    monitor: opus
+[2026-09-03 10:00:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 10:15:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 10:15:01]     implementers: fable    monitor: opus
+[2026-09-03 10:15:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 10:30:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 10:30:01]     implementers: fable    monitor: opus
+[2026-09-03 10:30:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 10:45:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 10:45:01]     implementers: fable    monitor: opus
+[2026-09-03 10:45:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 11:00:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 11:00:01]     implementers: fable    monitor: opus
+[2026-09-03 11:00:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 11:15:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 11:15:01]     implementers: fable    monitor: opus
+[2026-09-03 11:15:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 11:30:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 11:30:01]     implementers: fable    monitor: opus
+[2026-09-03 11:30:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 11:45:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 11:45:01]     implementers: fable    monitor: opus
+[2026-09-03 11:45:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 12:00:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 12:00:01]     implementers: fable    monitor: opus
+[2026-09-03 12:00:01] === series complete: rounds through gen_r14 are done ===
+results/.rounds_config: line 5: /home/lqcd/wdetmold/fft/bench/mt: Is a directory
+[2026-09-03 12:15:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 12:15:01]     implementers: fable    monitor: opus
+[2026-09-03 12:15:01] === series complete: rounds through gen_r14 are done ===
