@@ -159,3 +159,7 @@ bench/*/RESERVATION*
 # comm-fraction harness: per-tag snapshots of the payload script
 bench/dist/.commfrac_snapshot_*.sh
 bench/dist/results/**/fabric_probe
+
+# Shipping tarballs: built on demand from bench/ice/impl_8 + its harness, never a source
+# of truth.  See bench/ice/results/ice_r8/leaderboard.txt for the numbers they carry.
+/fft3d-graded-best-*.tar.gz
