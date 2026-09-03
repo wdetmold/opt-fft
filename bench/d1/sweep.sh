@@ -13,6 +13,7 @@ cd "$(dirname "$0")"
 source /home/lqcd/wdetmold/fft/env.sh >/dev/null 2>&1
 
 ROUND=""; SEED=0; RUNS=3; SAMPLES=20; QUICK=0; CASEFILE=cases.txt; FRESH=0
+SHARD=""; BOARD=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --round) ROUND=$2; shift 2 ;;
@@ -22,6 +23,14 @@ while [ $# -gt 0 ]; do
     --quick) QUICK=1; shift ;;
     --cases) CASEFILE=$2; shift 2 ;;
     --fresh) FRESH=1; shift ;;      # ignore any existing results and remeasure everything
+    # Grading is sharded across the reserved nodes (see submit.sh).  Each shard measures a
+    # DISJOINT set of cells into the shared round directory: the per-cell JSON names are
+    # unique, but every other file this script writes -- manifest, done-list, logs,
+    # environment record -- is per-shard and must be suffixed, or two nodes racing on one
+    # NFS directory would clobber each other's state.  The manifest is the dangerous one:
+    # sharing it would let one shard's resume decision be judged against the other's.
+    --shard) SHARD="_$2"; shift 2 ;;
+    --no-board) BOARD=0; shift ;;   # submit.sh builds one leaderboard after all shards finish
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -39,7 +48,7 @@ mkdir -p "$OUT"
 # splice two generations of results into one leaderboard, which is worse than redoing the
 # work.  So a manifest records what produced the directory, and a mismatch moves the old
 # artifacts aside instead of mixing them.
-MANIFEST="$OUT/.manifest"
+MANIFEST="$OUT/.manifest$SHARD"
 # The SOURCES decide the numbers, not the binaries: make clean rebuilds those every attempt,
 # so their hashes differ even when nothing changed.
 SRCFP=$(cat driver.c fft1d_api.h sota/*.c impl/*.c 2>/dev/null | md5sum | cut -d" " -f1)
@@ -50,21 +59,30 @@ if [ -f "$MANIFEST" ] && [ "$FRESH" = 0 ]; then
   if [ "$HAVE" = "$WANT" ]; then
     RESUME=1
   else
-    STALE="$OUT/stale_$(date +%Y%m%d-%H%M%S)"
-    mkdir -p "$STALE"
-    mv "$OUT"/t_*.json "$OUT"/c_*.json "$OUT"/o_*.json "$STALE/" 2>/dev/null
     echo "== NOT resuming $ROUND: manifest differs, so the existing results are from a"
     echo "   DIFFERENT measurement and must not be mixed into one leaderboard."
     echo "     was: $HAVE"
     echo "     now: $WANT"
-    echo "   moved the old artifacts to $STALE"
+    if [ -n "$SHARD" ]; then
+      # A shard must NOT sweep the round directory: the per-cell JSON names are unique but
+      # the glob is round-wide, so moving "the old artifacts" aside would take the OTHER
+      # shard's results with them -- while that shard is still running.  A shard therefore
+      # just remeasures its own disjoint cells, overwriting them in place.
+      echo "   shard${SHARD}: remeasuring this shard's own cells in place (round-wide"
+      echo "   artifacts left alone -- another shard may be using them)"
+    else
+      STALE="$OUT/stale_$(date +%Y%m%d-%H%M%S)"
+      mkdir -p "$STALE"
+      mv "$OUT"/t_*.json "$OUT"/c_*.json "$OUT"/o_*.json "$STALE/" 2>/dev/null
+      echo "   moved the old artifacts to $STALE"
+    fi
   fi
 fi
 printf "%s" "$WANT" > "$MANIFEST"
 
 # Which (backend,L,B,m) units are already complete.  Scanned ONCE into a file rather than
 # re-tested per unit, so resume costs one python call instead of thousands.
-DONELIST="$OUT/.done_units"
+DONELIST="$OUT/.done_units$SHARD"
 : > "$DONELIST"
 if [ "$RESUME" = 1 ]; then
   python3 - "$OUT" "$RUNS" > "$DONELIST" <<'PY'
@@ -118,14 +136,14 @@ unit_done() {   # backend L B m
   echo "isa: $(lscpu | grep -o -E 'avx512[a-z_]*|avx2|fma' | sort -u | tr '\n' ' ')"
   echo "cores: $(nproc)   governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown)"
   echo "gcc: $(gcc --version | head -1)"
-} | tee "$OUT/environment.txt"
+} | tee "$OUT/environment$SHARD.txt"
 
 # Compilation happens here, outside every timed region.
 echo "== building on $(hostname) =="
 make clean >/dev/null 2>&1
-if ! make -k 2>"$OUT/build_errors.txt"; then
-  echo "!! some backends failed to build; see $OUT/build_errors.txt"
-  grep -E 'error' "$OUT/build_errors.txt" | head -20
+if ! make -k 2>"$OUT/build_errors$SHARD.txt"; then
+  echo "!! some backends failed to build; see $OUT/build_errors$SHARD.txt"
+  grep -E 'error' "$OUT/build_errors$SHARD.txt" | head -20
 fi
 make list
 
@@ -153,7 +171,7 @@ BACKENDS=${BACKENDS:-$(cd "$BINDIR" && ls)}
 # scoring round -- that is precisely the silent-zero the guard exists to catch.
 npanel=$(cd "$BINDIR" && ls | grep -vcE "^(mkl|fftw|ducc|baseline)" || true)
 if [ "${npanel:-0}" -eq 0 ] && [ "${ALLOW_NO_PANEL:-0}" != 1 ]; then
-  echo "ABORT: no PANEL BINARIES in $BINDIR -- impl/ is empty or the build failed" | tee -a "$OUT/build_errors.txt"
+  echo "ABORT: no PANEL BINARIES in $BINDIR -- impl/ is empty or the build failed" | tee -a "$OUT/build_errors$SHARD.txt"
   exit 4
 fi
 echo "== backends: $BACKENDS =="
@@ -187,11 +205,11 @@ for case in $CASES; do
     # sanity floor, not a contender: skip it once the case is large.
     if [ "$backend" = "baseline_dft" ] && [ $((L * L * B)) -gt 8000000 ]; then
       echo "   skipping baseline_dft at L=$L B=$B (too expensive to be informative)" \
-        >> "$OUT/timing.log"
+        >> "$OUT/timing$SHARD.log"
       continue
     fi
     if unit_done "$backend" "$L" "$B" "$M"; then
-      echo "   skip $backend L=$L B=$B m=$M (already measured)" >> "$OUT/timing.log"
+      echo "   skip $backend L=$L B=$B m=$M (already measured)" >> "$OUT/timing$SHARD.log"
       continue
     fi
     for run in $(seq 1 "$RUNS"); do
@@ -202,10 +220,10 @@ for case in $CASES; do
         --out "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin" \
         --json "$OUT/t_${backend}_L${L}_B${B}_m${M}_r${run}.json" \
         --samples "$SAMPLES" --warmup 5 --min-sample-ms 20 --run-index "$run" \
-        >>"$OUT/timing.log" 2>>"$OUT/timing.err"
+        >>"$OUT/timing$SHARD.log" 2>>"$OUT/timing$SHARD.err"
       rc=$?
       if [ $rc -ne 0 ] && [ $rc -ne 3 ]; then
-        echo "$backend L=$L B=$B run=$run exited $rc" >>"$OUT/failures.txt"
+        echo "$backend L=$L B=$B run=$run exited $rc" >>"$OUT/failures$SHARD.txt"
       fi
     done
     # correctness on the output of the last run, against numpy
@@ -214,7 +232,7 @@ for case in $CASES; do
       [ "$M" -gt 1 ] && CHKARGS="--map-check $M --cin $CIN"
       python3 check.py --input "$IN" --output "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin" \
         --L "$L" --batch "$B" $CHKARGS --json "$OUT/c_${backend}_L${L}_B${B}_m${M}.json" \
-        >>"$OUT/check.log" 2>&1
+        >>"$OUT/check$SHARD.log" 2>&1
       rm -f "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin" "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin.chain"   # outputs are large; keep the verdicts
     fi
     # ONE-STEP map gate (chained cases only): two steps of the graded map must match
@@ -225,11 +243,11 @@ for case in $CASES; do
         --in "$IN" --out "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin" \
         --json "$OUT/t1_${backend}_L${L}_B${B}_m${M}.json" \
         --samples 1 --warmup 1 --min-sample-ms 1 --run-index 1 \
-        >>"$OUT/timing.log" 2>>"$OUT/timing.err"
+        >>"$OUT/timing$SHARD.log" 2>>"$OUT/timing$SHARD.err"
       if [ -f "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin" ]; then
         python3 check.py --input "$IN" --output "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin" \
           --L "$L" --batch "$B" --map-check 2 --cin "$CIN" \
-          --json "$OUT/o_${backend}_L${L}_B${B}_m${M}.json" >>"$OUT/check.log" 2>&1
+          --json "$OUT/o_${backend}_L${L}_B${B}_m${M}.json" >>"$OUT/check$SHARD.log" 2>&1
       fi
       rm -f "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin" "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin.chain" "$OUT/t1_${backend}_L${L}_B${B}_m${M}.json"
     fi
@@ -238,5 +256,9 @@ for case in $CASES; do
   echo "   done L=$L B=$B"
 done
 
-python3 leaderboard.py --round "$ROUND" | tee "$OUT/leaderboard.txt"
+if [ "$BOARD" = 1 ]; then
+  python3 leaderboard.py --round "$ROUND" | tee "$OUT/leaderboard.txt"
+else
+  echo "== shard${SHARD:-} done; leaderboard deferred to submit.sh =="
+fi
 echo "== round $ROUND complete: $OUT =="

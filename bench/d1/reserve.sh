@@ -35,6 +35,11 @@ while [ $# -gt 0 ]; do
     --hours) HOURS=$2; shift 2 ;;
     --partition) PARTITION=$2; shift 2 ;;
     --status) ACTION=status; shift ;;
+    # Grading is sharded across every reserved node, so the panel can hold more than one.
+    # --extra claims an ADDITIONAL node and records it in its own RESERVATION.extra.<jobid>
+    # file: RESERVATION itself, and everything that reads it (tryout.sh, slot_lease.sh, the
+    # runner), keeps meaning "the node the implementers develop on" and is untouched.
+    --extra) ACTION=extra; shift ;;
     --release) ACTION=release; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -68,6 +73,12 @@ status)
   exit 1
   ;;
 release)
+  for x in "$GPU"/RESERVATION.extra.*; do
+    [ -f "$x" ] || continue
+    xj=$(sed -n 's/^RES_JOB=//p' "$x")
+    [ -n "$xj" ] && scancel "$xj" 2>/dev/null && echo "cancelled extra grading node job $xj"
+    rm -f "$x"
+  done
   if read_res; then
     scancel "$RES_JOB" 2>/dev/null && echo "cancelled reservation job $RES_JOB on $RES_NODE"
     rm -f "$RES" "$BEAT"
@@ -75,6 +86,23 @@ release)
     echo "no reservation to release"
   fi
   exit 0
+  ;;
+extra)
+  # Only claim what is actually free: an extra grading node is a convenience, and queueing
+  # for one would hold up scoring rather than speed it up.
+  free=$(sinfo -h -p "$PARTITION" -o "%T %n" | awk '$1=="idle"{print $2}' | head -1)
+  if [ -z "$free" ]; then
+    echo "no idle node in $PARTITION -- grading will use the nodes it already has"
+    exit 1
+  fi
+  for x in "$GPU"/RESERVATION.extra.*; do
+    [ -f "$x" ] || continue
+    xj=$(sed -n 's/^RES_JOB=//p' "$x")
+    if squeue -h -j "$xj" -o '%t' 2>/dev/null | grep -q '^R$'; then
+      echo "extra grading node already held: job $xj"; exit 0
+    fi
+    rm -f "$x"                      # stale record for a job that is gone
+  done
   ;;
 esac
 
@@ -88,25 +116,40 @@ fi
 PAYLOAD=$GPU/.reservation_payload.sh
 cat > "$PAYLOAD" <<'INNER'
 #!/bin/bash
+# $1 is the file to record this hold in: RESERVATION for the primary node the implementers
+# develop on, RESERVATION.extra.<jobid> for a node claimed only to shard grading across.
 GPU=$(dirname "$(readlink -f "$0")")
+TARGET=${1:-$GPU/RESERVATION}
 {
   echo "RES_JOB=$SLURM_JOB_ID"
   echo "RES_NODE=$(hostname -s)"
   echo "RES_PARTITION=$SLURM_JOB_PARTITION"
   echo "RES_STARTED=$(date -Is)"
   echo "RES_GPUS=$({ lscpu -p=CORE 2>/dev/null | grep -vc "^#" || nproc; })"
-} > "$GPU/RESERVATION"
+} > "$TARGET"
 # Heartbeat so a crashed or preempted reservation is detectable rather than silently stale.
+# Only the primary hold owns the shared heartbeat file; an extra beats beside its own record.
 while true; do
-  date +%s > "$GPU/RESERVATION.heartbeat"
+  case "$TARGET" in
+    *RESERVATION) date +%s > "$GPU/RESERVATION.heartbeat" ;;
+    *)            date +%s > "$TARGET.heartbeat" ;;
+  esac
   sleep 60
 done
 INNER
 chmod +x "$PAYLOAD"
 
+if [ "$ACTION" = extra ]; then
+  TARGETARG='$GPU/RESERVATION.extra.$SLURM_JOB_ID'
+  NODEARG="--nodelist=$free"
+  echo "claiming extra grading node $free in $PARTITION for ${HOURS}h"
+else
+  TARGETARG=''
+  NODEARG=''
+fi
 jid=$(sbatch --parsable --job-name=icehold --partition="$PARTITION" --nodes=1 --exclusive \
-             --time="${HOURS}:00:00" --output="$GPU/logs/reservation-%j.out" \
-             --wrap="$PAYLOAD" 2>&1)
+             $NODEARG --time="${HOURS}:00:00" --output="$GPU/logs/reservation-%j.out" \
+             --wrap="$PAYLOAD $TARGETARG" 2>&1)
 if ! echo "$jid" | grep -qE '^[0-9]+$'; then
   echo "reservation submission failed: $jid" >&2
   exit 1
