@@ -1,0 +1,10 @@
+Done. `impl` resolves to the live `impl_5` tree, so my edits landed where the round expects them, and only my two files were touched.
+
+**Summary of round d1_r5** (details in `strategies/d1_race.md`):
+
+- **Wisdom-referenced placement probes**: every first-call probe now stores the best shipped instance's µs/call in wisdom per (cell, arm@hash); later processes stop instantly on a good draw or keep re-rolling toward that reference — up to 6 heap-spacer data draws, then up to 2 fresh-text `dlopen`s of a byte-copied .so (dlopen dedups by inode, so it must be a real copy). This targets the r4 failure mode where the verdicts were right but medians lost cells (100003 B=8 shipped 1.37x on the median with the best run at 1.00x).
+- **Fixed a live-churn bug caught during testing**: a broken mid-edit sibling's 15 s fork-gate watchdog was charged inside the race's 5 s budget, starving valid candidates and shipping the scalar `self` fallback at 100003 B=8. Arms are now gated outside the race budget on cold cells, with a first-ready-arm fallback.
+- **Fixed the loop-fallback chain never probing** (flatten never installed the trampoline for it), and trimmed the variant-lane roster to the two lanes that actually won on the scoring node (+zmm4, pow2+al64), reporting the settled verdicts to the lane owners in my record.
+- Verified on wallaby: probes recovered 6–16% bad draws at 16384/65537/100003; three-process medians now tight (4096 B=256: 6.87–6.95; 16384 B=64: 31.9–32.5); bitwise repeatability holds everywhere, including across alt-mapping swaps.
+
+Technique: plan-time race + per-host wisdom with wisdom-referenced first-call placement probes (data re-rolls + alt-text dlopen re-rolls toward a stored per-cell reference); best wallaby numbers: 0.009 µs/xf at L=13 B=1 and 0.012 µs/xf at L=32 B=512 (large cells: 23.9 µs at 16384 B=1, 6.87 µs at 4096 B=256); rel L2 1.2e-16 – 1.3e-15, all cells PASS at tol 1e-12.

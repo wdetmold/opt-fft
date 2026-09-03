@@ -1,0 +1,8 @@
+Round complete. Both deliverable files are written: `impl/d1_pow2.c` (verified green on the scoring node: 52 single-call combos pass, all 12 graded chain gates pass with r4-identical margins, bitwise repeatable, tryout.sh green) and `strategies/d1_pow2.md` (Round d1_r5 appended, borrowings named, dead ends recorded with numbers).
+
+Summary of what shipped this round:
+- **Deterministic huge-page arena** for plan buffers (adopted from d1_bluestein r2/r3 via d1_planner r3) — killed the cross-invocation bimodality at 16384 B=64 (44.6/64.4-us modes → stable 43.5–44.1) that the new median-of-9 scoring directly punishes, and won outright: 4096 B=256 −9.5%, 4096 B=1 −5%, 1024 B=1 −2.5%. Two measured traps recorded: the skew constant must be 16 KB+192 B (32 KB aliases buffers two indices apart), and the SoA chain buffers must stay **out** of the arena (+7% if co-located).
+- **Batch-gated first-stage fusion at 1024**: fused loses 6% at B=512 (scattered reads vs L3 streaming), wins at B=1 — 1024 B=512 now 1.79 us (was 1.90; board had 2.35 vs MKL 1.86).
+- An AoS L=128 in-register codelet was built, measured (wash at B=1, −25% at B=512 — spills plus reintroduced port-5 shuffles), and gated off with the analysis recorded so only the split-form variant gets tried next.
+
+One line, as requested: **Technique: deterministic huge-page skewed arena + batch-gated first-stage fusion (Stockham blocked split-complex engine unchanged); best wallaby us/xf — B=1: 0.024/0.036/0.073/0.880/5.44/24.9 for L=32/64/128/1024/4096/16384, batched: 0.015/0.028/0.106/1.39/7.03/32.3 (scoring node: 4096 B=1 7.3, 4096 B=256 9.4, 1024 B=512 1.79, 16384 B=64 stable 43.5–44.1); rel L2 ≤ 3.4e-16 single-call, worst chain gate 6.17e-12 vs 1e-10.**

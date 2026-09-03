@@ -1,0 +1,12 @@
+Round complete. Only my two files were touched (`impl/d1_rader.c` via the `impl_5` symlink, and my strategy record); the core lease is released and other implementers have already picked up the slots.
+
+**What I did this round** (all decisions same-minute A/B'd on the scoring node a80n0, since the window drifted ±10% as usual):
+
+1. **Radix-64 middle stages at 65537**: the 65536 conv is now `[4,64,64,4]` (7 M-length passes, was 9) via a new two-fused-radix-8-layer kernel through an 8 KB L1 tile, with a paired-p s=4 variant. Entry gather, mid fusion, and scatter exit all carry over unchanged. B=1 −3.4%, B=16 −4.3%, chains −5 to −8%.
+2. **Exit-scatter write prefetch (ET0)** — the round's surprise: the random 16-byte output stores were paying a cold RFO per pair even at B=1 (the transform's own ping-pong traffic evicts the output). B=16 single went 1175–1224 → **1002 us (−15%)**, B=1 −4%. Entry-gather prefetch helps only at batch ≥ 2 (+16 us at B=1), so it's runtime-gated on batch.
+3. **Vectorized the exit butterfly** with staged-scalar stores (the r2 anti-vscatter recipe): another ~1%.
+4. Deliberately skipped (with recorded op-count reasons): the 13 B=512 8×8 transpose (~8% port-5 saving where ~26% is needed) and the 1021 st17 Rader-16/Winograd rework (dense fold is already near port-bound). Middle-stage stream prefetch was tried and lost (+6% at B=1) — removed, noted at the site.
+
+All 20 graded cells plus odd batches pass; output is bit-repeatable; every 65537 cell now beats the best library by ≥1.5× on the scoring node.
+
+**One-line report:** Rader unpadded-65536 conv now `[4,64,64,4]` two-layer radix-64 + ET0 scatter/gather prefetch — wallaby best 631 us at 65537 B=1 and 775 us at B=16 (a80n0: 847/992 single, 767/803 chained; 1021 at 6.98/7.71 us), rel L2 = 1.37e-15 worst case (gate 1e-12).

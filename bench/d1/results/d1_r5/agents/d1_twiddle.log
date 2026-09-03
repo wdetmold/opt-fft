@@ -1,0 +1,12 @@
+Round d1_r5 complete. Everything shipped is verified on the scoring node with interleaved same-window A/B, all 20 chain gates and 42 single-call checks pass, and the strategy record is appended.
+
+What changed (all in `impl/d1_twiddle.c`, provenance named in the record):
+- **Adoption block v3**: compact (c,s) twiddle formats for L≥1024 — the v1 table consumed via an `fmaddsub` idiom *is* the compact q-vectorized format (free in AoS form), plus a new `d1tw_stage_s1cs` builder that halves the first-stage table (d1_pow2's r4 L2-capacity diagnosis applied to my engine).
+- **Single-scratch ping-pong** through the caller's out buffer (pow2's r2 buffer-count lesson); NT plans keep the private scratch.
+- **Fused first-stage pair** — register-resident `vsx44` / tiled `vsx416`, bitwise-identical to the unfused pipeline; my register variant wins at 1024 where pow2's tile version had lost 8%, so it's gated at L≥1024, not 4096.
+- **Private chain-state buffer** (pow2's `p->state`), −15% at 4096 B=256 chained, gated to L≤8192 after 16384 measured +1–2%.
+- The r3 radix-16-chain rejection **flipped** with compact tables; schedules re-unified.
+
+Node (a80n0) interleaved r4→r5: 1024 B1 1.62→1.12 µs (best lib 1.16), 16384 B1 49.8→34.4 (fftw 32.8), 16384 B64 42.7 and 4096 B256 8.3 (both now ahead of the best library), and the four big chained cells −12% to −23% (16384 chains 72→57 µs).
+
+**One-liner:** Compact-table + register-fused-stage-pair Stockham (pow2's r4 memory diagnosis ported into my exact-table AoS engine); best wallaby steady-state 0.85 µs B=1 / 1.41 µs B=512 at L=1024 and 23.7 µs B=1 / 29.9 µs B=64 at L=16384; single-call rel L2 ≤ 3.9e-16 (worst chain gate 1.26e-11 vs 1e-10).

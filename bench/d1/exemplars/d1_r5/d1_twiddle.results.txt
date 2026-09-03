@@ -1,0 +1,29 @@
+   d1_twiddle                    0.0194 us      0.0173 us    41.22     18.7%   9r   0.000s  ok 1.7e-16       1.01x?
+   d1_twiddle                    0.0804 us      0.0804 us     9.95      0.0%   3r   0.000s  ok ch=9.2e-16/1e-10 1s=4e-16 1.34x
+   d1_twiddle                    0.0173 us      0.0152 us    46.30     14.6%   9r   0.000s  ok 1.4e-16       1.12x
+   d1_twiddle                    0.0368 us      0.0366 us    21.74     14.0%   3r   0.000s  ok ch=2.7e-13/1e-10 1s=4e-16 1.00x?
+   d1_twiddle                    0.0787 us      0.0688 us    22.51     22.1%   9r   0.000s  ok 1.8e-16       1.83x
+   d1_twiddle                    0.1651 us      0.1639 us    10.73      1.8%   3r   0.000s  ok ch=1.3e-15/1e-10 1s=4e-16 1.32x
+   d1_twiddle                    0.0884 us      0.0841 us    20.05      7.5%   9r   0.000s  ok 1.7e-16       1.72x
+   d1_twiddle                    0.0895 us      0.0889 us    19.79      1.0%   3r   0.000s  ok ch=2.3e-13/1e-10 1s=5e-16 1.48x
+   d1_twiddle                    0.0449 us      0.0438 us    42.76     19.2%   9r   0.000s  ok 2.0e-16       1.03x?
+   d1_twiddle                    0.1358 us      0.1358 us    14.14      0.0%   3r   0.000s  ok ch=9.6e-15/1e-10 1s=4e-16 1.60x
+   d1_twiddle                    0.0442 us      0.0428 us    43.42      9.5%   9r   0.000s  ok 1.8e-16       1.16x
+   d1_twiddle                    0.0918 us      0.0806 us    20.92     15.3%   3r   0.000s  ok ch=1.0e-13/1e-10 1s=5e-16 1.18x
+   d1_twiddle                    0.1322 us      0.1189 us    33.89     17.4%   9r   0.000s  ok 1.9e-16       1.27x
+   d1_twiddle                    0.3190 us      0.3170 us    14.04      5.8%   3r   0.000s  ok ch=1.8e-14/1e-10 1s=6e-16 1.93x
+   d1_twiddle                    0.1770 us      0.1669 us    25.30     15.1%   9r   0.000s  ok 2.1e-16       1.25x
+   d1_twiddle                    0.2112 us      0.2112 us    21.21      2.2%   3r   0.000s  ok ch=6.9e-14/1e-10 1s=6e-16 1.07x
+   d1_twiddle                    1.2823 us      1.2738 us    39.93      2.0%   9r   0.000s  ok 2.7e-16       1.18x
+   d1_twiddle                    2.7480 us      2.7470 us    18.63      0.2%   3r   0.000s  ok ch=2.3e-12/1e-10 1s=9e-16 1.20x
+   d1_twiddle                    1.7436 us      1.7310 us    29.36      0.9%   9r   0.000s  ok 2.6e-16       1.00x?
+   d1_twiddle                    2.6615 us      2.6604 us    19.24      4.3%   3r   0.000s  ok ch=8.1e-13/1e-10 1s=9e-16 1.14x
+   d1_twiddle                    8.0220 us      7.9629 us    30.64      1.3%   9r   0.000s  ok 3.1e-16       1.33x
+   d1_twiddle                   12.9756 us     12.9644 us    18.94      0.9%   3r   0.000s  ok ch=7.8e-14/1e-10 1s=1e-15 1.32x
+   d1_twiddle                   10.0507 us      9.9854 us    24.45     14.0%   9r   0.000s  ok 3.1e-16       1.02x?
+   d1_twiddle                   11.4767 us     11.4687 us    21.41      0.7%   3r   0.000s  ok ch=4.3e-14/1e-10 1s=1e-15 1.12x
+   d1_twiddle                   46.7921 us     37.5254 us    24.51     32.4%   9r   0.001s  ok 3.4e-16       1.44x
+   d1_twiddle                   56.6834 us     56.5729 us    20.23      1.4%   3r   0.001s  ok ch=3.0e-14/1e-10 1s=2e-15 1.13x
+   d1_twiddle                   50.0249 us     40.4099 us    22.93     27.8%   9r   0.001s  ok 3.4e-16       1.13x
+   d1_twiddle                   57.6696 us     57.4577 us    19.89      0.4%   3r   0.001s  ok ch=2.3e-14/1e-10 1s=1e-15 1.13x
+   d1_twiddle               LIBRARY LAYER (adoption-scored): exact 1D twiddle tables, consumption order (d1tw_cexp quadrant-exact ~1ulp, d1tw_chirp integer-reduced, d1tw_stage v1 + v2 broadcast-pair/lane-major AVX-512 formats + v3 COMPACT: v1 consumed via fmaddsub IS the compact q-vectorized format, s1cs halves the first-stage table); vehicle: mixed-radix 2/3/4/5/8/16 Stockham, zmm 4-complex lanes, compact tables at L>=1024 (d1_pow2 r4's L2-capacity fix), single-scratch ping-pong through caller's out, in-register 32/64 codelets + register chains (d1_pow2), SoA across-batch chain at B>=8 L<=2048 (d1_batchlane), NT final stores >=25MB, 2NR fast map, split exec/chain schedules at 16384, smooth L

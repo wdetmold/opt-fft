@@ -1,0 +1,22 @@
+`/home/lqcd/wdetmold/fft/bench/d1/results/d1_r5/VERDICT.md` is written. Summary of what the round actually says:
+
+**First, three corrections to the brief** (the same ones r3 and r4 recorded): the geometries are L = 13/31/32/60/64/128/1021/1024/4096/10007/16384/65537/100003, not 6/8/17/36 — those are the 3D campaign's. The node is a **Xeon Gold 6326, Ice Lake-SP**, not a Cascade Lake 5218. And I could not reproduce the "MKL spans 2.9×" figure from any round's data; the largest wallaby→node MKL span documented this round is 1.26×.
+
+**The board.** 45 of 52 cells to the panel, geomean 1.602× (r3 1.436 → r4 1.543 → r5 1.602). Chained cells 26/26. Only **two** of the seven library wins survive resolution: L=4096 B=1 (0.84×) and L=1024 B=1 (0.85×). Four of r4's nine library wins were converted outright, three of them r4's own named targets.
+
+**The finding that reframes everything.** The scoring node's per-process execution rate is quantised into three discrete states — ratios **1.1401 ± 0.009** (348 samples) and **1.2090 ± 0.008** (200) — identical across MKL, all five FFTW configs, `baseline_dft` and all nine panel entries, independent of working set from 0.4 KB to 32 MB, not warm-up-correlated, selected per process. `environment.txt` records `governor: schedutil`, and 3.3 GHz ÷ 1.1401 = 2.894 GHz, the part's base clock. Consequences:
+
+- Twelve "regressions" at L=32/60/64 chained are one mode step across eight unrelated codebases in cells three entries state they didn't touch.
+- **r4's three "established" `d1_batchlane` regressions did not happen** — all three reverted exactly to their r3 values in untouched code, and all three r4/r3 ratios sit on the mode band. The accountability finding built on them should be withdrawn.
+- **r4's headline placement result (~14%) is retracted by `d1_race` itself**, which dropped four of five variant lanes because the wallaby wins didn't transfer to the node.
+- `RESCORE_PLAN.md`'s 3.5 h top-up assumes √N shrinkage of a Gaussian band; against discrete mode occupancy that's the wrong model. One field in `driver.c` settles it — that's §6's top item, above any implementation work.
+
+**Adversarial pass:** 1325 PASS / 0 FAIL across three independent gate types; worst chained residual 26× inside tolerance; no fast wrong answers (the nine "fast and least accurate" flags are all ≤1.2× error gaps three decades inside tolerance, and MKL trips the same screen). Zero build errors, no crashes, no unexplained absences. Two things named: `d1_race` is the only entry that tuned and verified on **wallaby, not the scoring node** — which is where its two median regressions come from — and `d1_batchlane`'s signed-overflow UB is now flagged by two consecutive monitors.
+
+**§4's real story isn't the machine gap.** Eight of nine entries measured on-node, and their claims match the leaderboard's *min* column closely while the *median* sits a mode above. `d1_pow2`'s one cell where it eliminated its own bimodality is the one cell where median = claim — and it won it.
+
+**Open question moved:** `LITERATURE.md` §4.8 item 6, and it moves against the corpus. `d1_composite`'s on-node interleaved A/B has the **256-bit kernel beating the 512-bit one by 13%** at identical measured 3.3 GHz, reversing r4's port-5 conclusion; `d1_pow2` replicated the mechanism independently. New rule for the corpus: on Ice Lake-SP a lower instruction count only wins if the instructions are ≤256-bit.
+
+All nine entries promoted — including `d1_planner`, reversing r4's exclusion now that its record exists (and it earns it on numbers independently), and `d1_race` on ground 3 for its negative result.
+
+PROMOTE: d1_prime d1_composite d1_pow2 d1_rader d1_bluestein d1_twiddle d1_batchlane d1_planner d1_race

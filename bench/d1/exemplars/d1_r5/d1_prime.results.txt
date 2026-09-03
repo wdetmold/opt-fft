@@ -1,0 +1,11 @@
+   d1_prime                      0.0202 us      0.0177 us    11.92     43.9%   9r   0.000s  ok 1.9e-16       1.20x
+   d1_prime                      0.0385 us      0.0385 us     6.25      0.0%   3r   0.000s  ok ch=1.1e-15/1e-10 1s=5e-16 1.14x
+   d1_prime                      0.0093 us      0.0093 us    25.93     14.3%   9r   0.000s  ok 1.7e-16       1.00x?
+   d1_prime                      0.0157 us      0.0139 us    15.35     13.1%   3r   0.000s  ok ch=2.2e-14/1e-10 1s=4e-16 1.01x?
+   d1_prime                      0.0544 us      0.0471 us    14.12     22.8%   9r   0.000s  ok 2.9e-16       1.02x?
+   d1_prime                      0.0511 us      0.0510 us    15.02     13.8%   3r   0.000s  ok ch=1.7e-15/1e-10 1s=6e-16 1.00x?
+   d1_prime                      0.0484 us      0.0419 us    15.88     16.6%   9r   0.000s  ok 2.9e-16       1.00x?
+   d1_prime                      0.0511 us      0.0509 us    15.02      0.6%   3r   0.000s  ok ch=1.3e-12/1e-10 1s=7e-16 1.11x
+   d1_batchlane             SoA 8-lane zmm batch-lane engine: interleaved-pair m=1 kernels at 13/31 (d1_prime), in-register AoS codelets at 32/64 (d1_pow2), broadcast-fed PFA ymm1/zmm2x2 kernels at 60 (d1_composite), register-resident B=1 chains (fold-ready A/B rows at 13/31, natural-row four-step at 32/64/128), L1-blocked fused FFT+Newton-map batched chain
+   d1_planner               LIBRARY LAYER (adoption-scored): factorization planner on a split-complex Stockham core (true-zmm noinline kernels; 2/3/4/5/8 + generic prime<=61 stage; paired-p zmm st8@s4/st3@s4/st5@s12) -- direct smooth / unpadded Rader (smooth L-1) / smooth-padded Bluestein, both with the fused fwd-last x kernel x inv-entry mid pass (spectrum never materialized); adopted codelets: d1_prime 13/31, d1_pow2 32/64, d1_composite PFA-60 + fused PFA chain; NT fused exits above L3; fused split/lane/register map chains
+   d1_prime                 symmetric-pair dense prime DFT; interleaved-pair zmm kernels at 13/31 (pair-dup tables, 2-transform tiling); register-resident B=1 chains + SoA batched chains, c-field folded into accumulator seeds (Goldschmidt-sqrt + early-seeded-rcp map)

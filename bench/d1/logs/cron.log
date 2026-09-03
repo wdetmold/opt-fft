@@ -225,3 +225,40 @@
 2026-09-03 12:15:01 d1 tick skipped: lock held
 [2026-09-03 12:25:13] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r4/monitor.log)
 [2026-09-03 12:25:13] promoting: d1_prime d1_pow2 d1_rader d1_bluestein d1_composite d1_batchlane d1_twiddle d1_race
+[2026-09-03 12:25:32] committed round d1_r4
+[2026-09-03 12:25:32] ---------- d1_r4 complete; next is d1_r5 of d1_r6 ----------
+[2026-09-03 12:25:32] ---------- d1_r5 begins ----------
+[2026-09-03 12:25:32] d1_r5 works in impl_5 (10 sources carried over from impl_4)
+[2026-09-03 12:25:32] context pack: 249 lines
+[2026-09-03 12:25:32] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+2026-09-03 12:30:01 d1 tick skipped: lock held
+2026-09-03 12:45:01 d1 tick skipped: lock held
+2026-09-03 13:00:01 d1 tick skipped: lock held
+/tmp/fft_rounds_sKHc36.sh: line 419: [: 0
+0: integer expression expected
+2026-09-03 13:15:01 d1 tick skipped: lock held
+2026-09-03 13:30:01 d1 tick skipped: lock held
+[2026-09-03 13:44:48] implementers finished: 9 reported
+[2026-09-03 13:44:48] submitting timing round d1_r5 (seed 20265886) to the exclusive benchmark node
+2026-09-03 13:45:01 d1 tick skipped: lock held
+2026-09-03 14:00:01 d1 tick skipped: lock held
+2026-09-03 14:15:01 d1 tick skipped: lock held
+2026-09-03 14:30:01 d1 tick skipped: lock held
+2026-09-03 14:45:01 d1 tick skipped: lock held
+2026-09-03 15:00:01 d1 tick skipped: lock held
+2026-09-03 15:15:01 d1 tick skipped: lock held
+2026-09-03 15:30:01 d1 tick skipped: lock held
+2026-09-03 15:45:01 d1 tick skipped: lock held
+2026-09-03 16:00:01 d1 tick skipped: lock held
+2026-09-03 16:15:01 d1 tick skipped: lock held
+2026-09-03 16:30:01 d1 tick skipped: lock held
+2026-09-03 16:45:01 d1 tick skipped: lock held
+2026-09-03 17:00:01 d1 tick skipped: lock held
+2026-09-03 17:15:01 d1 tick skipped: lock held
+2026-09-03 17:30:01 d1 tick skipped: lock held
+2026-09-03 17:45:01 d1 tick skipped: lock held
+[2026-09-03 17:59:36] leaderboard for d1_r5 is in
+[2026-09-03 17:59:39] served models for d1_r5:    1358 claude-fable-5 
+2026-09-03 18:00:01 d1 tick skipped: lock held
+[2026-09-03 18:13:04] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r5/monitor.log)
+[2026-09-03 18:13:04] promoting: d1_prime d1_composite d1_pow2 d1_rader d1_bluestein d1_twiddle d1_batchlane d1_planner d1_race
