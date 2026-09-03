@@ -62,7 +62,7 @@ if [ -f RESERVATION ] && ./reserve.sh --status >/dev/null 2>&1; then
 fi
 
 echo "no live reservation -- trying to claim one"
-./reserve.sh --hours 8 >/dev/null 2>&1 && exec "$0" --round "$ROUND" --seed "$SEED" $EXTRA
+./reserve.sh >/dev/null 2>&1 && exec "$0" --round "$ROUND" --seed "$SEED" $EXTRA
 echo "claim failed -- queueing a whole-node axxxl job"
 sbatch --job-name="ice-$ROUND" --partition=axxxl --nodes=1 --exclusive --time=100 \
   --output="results/$ROUND/slurm-%j.out" \

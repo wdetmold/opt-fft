@@ -9,7 +9,7 @@
 # (see gpu_lease.sh).
 #
 #   ./reserve.sh                 claim a node for the default duration
-#   ./reserve.sh --hours 10      claim it for longer
+#   ./reserve.sh --hours 36      claim it for longer (axxxl caps at 48)
 #   ./reserve.sh --status        where is it, and is it alive
 #   ./reserve.sh --release       give it back
 #
@@ -22,7 +22,12 @@ GPU=$(pwd)
 RES=$GPU/RESERVATION
 BEAT=$GPU/RESERVATION.heartbeat
 PARTITION=${FFT_ICE_PARTITION:-axxxl}
-HOURS=${FFT_ICE_HOURS:-10}
+# 24 h, not 10.  A d1 round is roughly 1.25 h of implementer work plus 4-5 h of scoring, so
+# a 4-round campaign needs about a day; the previous 10 h default (and submit.sh's 8 h
+# fallback) expired mid-scoring twice, and axxxl allows 2 days.  Raised on request rather
+# than to the cap: an over-long -t is harder to backfill and delays our own start, and this
+# holds one of only two axxxl nodes.  FFT_ICE_HOURS still overrides.
+HOURS=${FFT_ICE_HOURS:-24}
 ACTION=claim
 
 while [ $# -gt 0 ]; do
