@@ -106,7 +106,11 @@ extra)
   ;;
 esac
 
-if alive; then
+# --extra is asking for an ADDITIONAL node, so "the primary reservation is alive" is not a
+# reason to stop -- it is the normal case.  Without this guard --extra fell straight through
+# to here, printed "reservation already alive" and exited 0, so the caller's `|| true` hid a
+# failure that silently cost d1_r5 its second grading node.
+if [ "$ACTION" != extra ] && alive; then
   echo "reservation already alive: job $RES_JOB on $RES_NODE"
   exit 0
 fi
@@ -116,10 +120,16 @@ fi
 PAYLOAD=$GPU/.reservation_payload.sh
 cat > "$PAYLOAD" <<'INNER'
 #!/bin/bash
-# $1 is the file to record this hold in: RESERVATION for the primary node the implementers
-# develop on, RESERVATION.extra.<jobid> for a node claimed only to shard grading across.
+# $1 is "extra" for a node claimed only to shard grading across, absent for the primary node
+# the implementers develop on.  It is a MODE, not a path: a path cannot be passed in, because
+# sbatch --wrap runs in a shell where neither $GPU nor $SLURM_JOB_ID is defined yet, so an
+# interpolated filename arrives as "/RESERVATION.extra.<jobid>" and the write fails on /.
 GPU=$(dirname "$(readlink -f "$0")")
-TARGET=${1:-$GPU/RESERVATION}
+if [ "${1:-}" = extra ]; then
+  TARGET=$GPU/RESERVATION.extra.$SLURM_JOB_ID
+else
+  TARGET=$GPU/RESERVATION
+fi
 {
   echo "RES_JOB=$SLURM_JOB_ID"
   echo "RES_NODE=$(hostname -s)"
@@ -140,7 +150,7 @@ INNER
 chmod +x "$PAYLOAD"
 
 if [ "$ACTION" = extra ]; then
-  TARGETARG='$GPU/RESERVATION.extra.$SLURM_JOB_ID'
+  TARGETARG=extra
   NODEARG="--nodelist=$free"
   echo "claiming extra grading node $free in $PARTITION for ${HOURS}h"
 else

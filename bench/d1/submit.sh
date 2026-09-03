@@ -42,11 +42,19 @@ if [ -f RESERVATION ] && ./reserve.sh --status >/dev/null 2>&1; then
   # FFT_GRADE_SHARDS=1 forces the old single-node behaviour.
   WANT_SHARDS=${FFT_GRADE_SHARDS:-2}
   if [ "$WANT_SHARDS" -gt 1 ]; then
-    ./reserve.sh --extra >/dev/null 2>&1 || true
-    for _ in $(seq 1 20); do            # a just-submitted hold needs a moment to start
-      ls RESERVATION.extra.* >/dev/null 2>&1 && break
-      sleep 15
-    done
+    # Say out loud whether the extra grading node was obtained.  The first version swallowed
+    # reserve.sh's output and its exit code, so a failure to claim looked identical to a
+    # cluster with no spare node -- grading quietly ran on one node and nothing recorded why.
+    xout=$(./reserve.sh --extra 2>&1); xrc=$?
+    echo "   extra grading node: $(echo "$xout" | tail -1) (rc=$xrc)"
+    if [ $xrc -eq 0 ]; then
+      for _ in $(seq 1 20); do          # a just-submitted hold needs a moment to start
+        ls RESERVATION.extra.* >/dev/null 2>&1 && break
+        sleep 15
+      done
+      ls RESERVATION.extra.* >/dev/null 2>&1 \
+        || echo "   WARNING: extra hold submitted but never started; grading on one node"
+    fi
   fi
   GJOBS="$RES_JOB"; GNODES="$RES_NODE"
   for x in RESERVATION.extra.*; do
