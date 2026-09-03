@@ -1,0 +1,55 @@
+=== comm-vs-compute fractions: ice1n ===
+  date: 2026-09-02T16:07:32-04:00   slurm_job: 440338   nodes: 1
+  nodelist: a81n2
+  cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+  cores/node: 32   isa build: avx512
+  mpi: mpirun (Open MPI) 4.1.5rc4
+
+  grid ranks nds algo     fft%   pack%    mpi%  unpack%  local%  resid%   traced_s  per_run_s  cap@3.5x  cap_local
+   128     1   1 a2av    40.00    0.00    0.00     0.00   60.00    0.00     0.7625    0.0763     1.400     3.500
+   128     8   1 a2av    20.77   24.69   21.14    32.20    1.14    0.06     0.1686    0.0169     1.174     2.288
+   128     8   1 p2p_pl   23.15   26.21   16.58    32.23    1.16    0.67     0.1559    0.0156     1.198     2.445
+   128    32   1 a2av    21.07   21.99   28.23    27.92    0.64    0.15     0.0404    0.0041     1.177     2.048
+   128    32   1 p2p_pl   24.01   23.00   23.21    23.91    0.97    4.90     0.0360    0.0036     1.207     2.055
+   256     1   1 a2av    37.53    0.00    0.00     0.00   62.47    0.00     5.1683    0.5168     1.366     3.500
+   256     8   1 a2av    19.49   25.02   19.78    34.33    1.37    0.01     1.4150    0.1415     1.162     2.342
+   256     8   1 p2p_pl   21.29   25.55   14.21    36.52    1.15    1.28     1.3385    0.1342     1.179     2.523
+   256    32   1 a2av    17.97   27.14   22.34    31.02    1.49    0.03     0.4744    0.0475     1.147     2.244
+   256    32   1 p2p_pl   20.35   27.48   17.16    32.97    1.31    0.73     0.4512    0.0453     1.170     2.418
+   512     1   1 a2av    31.14    0.00    0.00     0.00   68.86    0.00    44.4627    4.4463     1.286     3.500
+   512     8   1 a2av    18.10   21.32   21.67    37.62    1.27    0.00    10.9608    1.0974     1.149     2.270
+   512     8   1 p2p_pl   20.32   22.17   14.35    40.80    1.21    1.15    10.3834    1.0434     1.170     2.522
+   512    32   1 a2av    16.79   25.13   22.74    33.52    1.81    0.01     3.7631    0.3764     1.136     2.231
+   512    32   1 p2p_pl   18.57   25.95   17.06    36.51    1.38    0.54     3.5749    0.3586     1.153     2.430
+
+  verification -- traced total vs the benchmark's OWN reported time
+  (speed3d times nruns forward + nruns backward, so closure should be 1.000;
+   a mis-resolved nesting would still print a tidy table, so this is the check
+   that the percentages above are actually complete and counted once each)
+    g128   r1    n1 a2av    traced    0.7625s  closure 1.000  nest  leaf
+    g128   r8    n1 a2av    traced    0.1686s  closure 0.999  nest 1.000
+    g128   r8    n1 p2p_pl  traced    0.1559s  closure 0.998  nest 1.000
+    g128   r32   n1 a2av    traced    0.0404s  closure 0.997  nest 1.000
+    g128   r32   n1 p2p_pl  traced    0.0360s  closure 0.996  nest 1.000
+    g256   r1    n1 a2av    traced    5.1683s  closure 1.000  nest  leaf
+    g256   r8    n1 a2av    traced    1.4150s  closure 1.000  nest 1.000
+    g256   r8    n1 p2p_pl  traced    1.3385s  closure 0.998  nest 1.000
+    g256   r32   n1 a2av    traced    0.4744s  closure 0.999  nest 1.000
+    g256   r32   n1 p2p_pl  traced    0.4512s  closure 0.997  nest 1.000
+    g512   r1    n1 a2av    traced   44.4627s  closure 1.000  nest  leaf
+    g512   r8    n1 a2av    traced   10.9608s  closure 0.999  nest 1.000
+    g512   r8    n1 p2p_pl  traced   10.3834s  closure 0.995  nest 1.000
+    g512   r32   n1 a2av    traced    3.7631s  closure 1.000  nest 1.000
+    g512   r32   n1 p2p_pl  traced    3.5749s  closure 0.997  nest 1.000
+    worst closure deviation: 0.49%
+
+  fft%     = local batched-1D executor call -- the slot our kernel would occupy
+  pack%/unpack% = gather into / scatter out of the communication buffers
+  mpi%     = the wire (all2allv, or isend/irecv/waitany on the p2p paths)
+  local%   = copy/scale outside the transpose, plus childless reshapes (1-rank local copies)
+  resid%   = time inside a reshape not covered by its own child events (large on the p2p
+             paths); deliberately NOT folded into mpi%, since what it is was not established
+  traced_s = summed over the TIMED runs only; the warmup transform is excluded
+  cap      = end-to-end Amdahl limit from speeding up ONLY the fft slot
+  cap_local= same if a fused kernel also absorbs pack+unpack+local
+  The 1-rank rows do no MPI at all: that is the pure-local control.

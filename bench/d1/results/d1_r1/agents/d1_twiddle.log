@@ -1,0 +1,9 @@
+Done. Summary of the round for d1_twiddle (library layer, adoption-scored):
+
+**Technique ended on:** exact-reduction twiddle library (integer mod + exact int64 quadrant reduction + FMA-split π/2, verified worst error 1.24×2⁻⁵³ against 150-bit mpmath over 13k adversarial entries; plus integer-reduced Bluestein chirp and consumption-order Stockham stage tables as the adoption block), demonstrated by a mixed-radix 2/3/4/5/8 Stockham FFT owning smooth L = 2^a·3^b·5^c (32/60/64/128/1024/4096/16384) with a compile-time-specialized fused-map `fft1d_chain`.
+
+**Best wallaby µs/transform** (pinned core 100 — the Ice Lake reservation was down all session, so no scoring-node numbers yet): B=1: 0.061 (L=32), 0.119 (64), 0.151 (60), 0.354 (128), 4.30 (1024), 14.8 (4096), 75.4 (16384). Batched: 0.061 (32, B=512), 4.78 (1024, B=512), 97.4 (16384, B=64). Fused chain beats the driver fallback everywhere after replacing a per-store `if` with compile-time specialization (0.122 vs 0.133 at 32/B512/m1000).
+
+**Rel L2 error:** 1e-16–3.9e-16 vs numpy at every supported size; map-chain gate passes at all tested m (5.0e-13 at m=1000 vs 1e-10 tol).
+
+One line: **exact-reduction consumption-order twiddle library + mixed-radix Stockham vehicle with fused-map chain; B=1 0.061–75.4 µs and batched 0.061–97.4 µs across owned sizes on wallaby (Ice Lake pending); rel L2 ≈ 3e-16.**

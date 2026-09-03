@@ -1,0 +1,15 @@
+`VERDICT.md` is written. Three things in the tasking didn't match the data, and I followed the data:
+
+- **The geometries aren't L = 6, 8, 17, 36** — those are the 3D `geom` campaign's cubes. This is the 1D contest: 13 sizes (13, 31, 32, 60, 64, 128, 1021, 1024, 4096, 10007, 16384, 65537, 100003) × 4 regimes = 52 cells.
+- **The scoring machine is Ice Lake SP (Xeon Gold 6326), not Cascade Lake 5218.** That changes the §4 attribution — no severe AVX-512 licence downclock, 1.25 MB L2. The "MKL spans 2.9×" constant isn't reproducible from this tree (no wallaby MKL measurement exists), so I substituted a measured noise floor instead: 244 paired library measurements across two nodes of the same model give a median 1.000 but excursions to 1.38×.
+- **There is no previous round.** Per `PANEL_BRIEF.md`, the earlier r1–r3 was destroyed by the harness error; this r1 is the real first. Nothing can have regressed, and I said so rather than inventing a comparison.
+
+The result: **the panel owns the chained regimes and does not own the non-chained ones.** Regime geomeans vs the stock libraries — R1 0.974×, R2 0.943×, R3 1.505×, R4 1.811×. R3/R4 win 24 of 26 cells; R1/R2 win 4 of 26. Two wins are structural rather than chain-fusion artifacts: L=31 at 4.8–6.0× across all four regimes, and L=65537 at 1.22× over an `fftw1d_patient` that paid 58 s of planning.
+
+On the adversarial pass — no fast wrong answers. Zero `FAILED`, zero `unchecked`, no build errors, no crashes, all 52 cells present. I specifically verified that leaderboard absences are self-declared `"supported":false` declines rather than silent skips (checked the raw JSON at L=31 against `leaderboard.py:44`), since that's the failure mode that would look identical. What I did flag: `d1_race` is a dispatcher whose correctness residual is identical to the sibling it ships in every cell, so its 20 "wins" aren't independent results; its setup column is a warm-wisdom number, not the race's real price; `d1_batchlane` declines all seven large batched sizes and wins zero R2 cells despite the batched regime being its whole purpose; and the three adoption-scored library layers have zero adoption — `d1tw_*` appears in no sibling at all.
+
+On §5, the strongest movement is on **§4.2**: dense-symmetric beats Rader by 3.4–7.9× at L=13 and 31, extending the corpus's n ≲ 20 claim to n = 31, while Rader beats Bluestein 2.2–2.9× at 65537 — locating the crossover between 31 and 1021 and pinning it to the factorisation of N−1. I also found a clean single-variable A/B for the batch-lane lever: `fftw1d_custom` vs `_soa` is the same genfft codelet on the same split arrays behind one `-DCUSTOM_SOA` flag, worth a geomean 1.47×.
+
+I held back `d1_planner` and `d1_twiddle` — correct everywhere they ran, but fastest in 0/52 cells and adopted by nobody, which `CURATION.md` treats as dilution rather than an instructive failure.
+
+PROMOTE: d1_prime d1_pow2 d1_batchlane d1_composite d1_rader d1_bluestein d1_race

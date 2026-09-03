@@ -1,0 +1,215 @@
+=== round d1_libbase2 ===
+# round d1_libbase2
+host: a81n2.lqcd.mit   date: 2026-09-02T13:56:09-04:00   slurm_job: 440335
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512bw avx512cd avx512dq avx512f avx512ifma avx512_vbmi avx512vbmi avx512vl avx512_vnni avx512_vpopcntdq fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+
+-- L=13 (non-batched), volume 2197, working set 0.07 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_estimate                0.022 us     0.022 us  5540.10 73951518.3%    0.001s  ok ch=1.5e-15/1e-10 1.00x
+   fftw1d_measure                 0.022 us     0.022 us  5530.79 73825466.4%    0.001s  ok 1.5e-16       1.00x
+   mkl1d_dfti                     0.026 us     0.026 us  4712.10 62104643.0%    0.037s  ok ch=1.6e-15/1e-10 1.18x
+   fftw1d_patient                 0.026 us     0.026 us  4620.32 61678673.7%    0.001s  ok 1.5e-16       1.20x
+   fftw1d_custom                  0.057 us     0.057 us  2151.10 26608424.8%    0.000s  ok 1.1e-16       2.58x
+
+-- L=13 (batched B=512), volume 2197, working set 34.33 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_patient                 0.014 us     7.140 us  8744.93  844616.2%    0.002s  ok ch=8.3e-15/1e-10 1.00x
+   fftw1d_measure                 0.014 us     7.199 us  8672.95  828877.9%    0.002s  ok ch=8.3e-15/1e-10 1.01x
+   mkl1d_dfti                     0.019 us     9.861 us  6331.66  563357.8%    0.034s  ok ch=7.2e-14/1e-10 1.38x
+   fftw1d_custom_soa              0.037 us    18.744 us  3331.00  145008.4%    0.000s  ok ch=1.5e-14/1e-10 2.63x
+   fftw1d_estimate                0.040 us    20.487 us  3047.68  372911.7%    0.001s  ok 1.8e-16       2.87x
+   fftw1d_custom                  0.049 us    24.955 us  2502.01  195943.6%    0.000s  ok ch=1.5e-14/1e-10 3.50x
+
+-- L=31 (non-batched), volume 29791, working set 0.91 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_custom                  0.217 us     0.217 us 10187.13 11634996.6%    0.000s  ok 2.4e-16       1.00x
+   fftw1d_estimate                0.260 us     0.260 us  8517.71 16350417.4%    0.001s  ok 1.7e-16       1.20x
+   fftw1d_patient                 0.262 us     0.262 us  8465.53 13414609.1%    0.120s  ok ch=5.2e-15/1e-10 1.20x
+   mkl1d_dfti                     0.279 us     0.279 us  7922.97 13806398.2%    0.032s  ok 2.2e-16       1.29x
+   fftw1d_measure                 0.318 us     0.318 us  6968.18 13281985.5%    0.043s  ok 1.7e-16       1.46x
+
+-- L=31 (batched B=512), volume 29791, working set 465.48 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_custom_soa              0.090 us    46.040 us 24619.97  104223.8%    0.000s  ok 2.6e-16       1.00x
+   fftw1d_custom                  0.162 us    82.925 us 13668.96  131398.4%    0.000s  ok ch=8.1e-13/1e-10 1.80x
+   fftw1d_patient                 0.263 us   134.833 us  8406.68  161072.4%    0.119s  ok ch=1.1e-12/1e-10 2.93x
+   fftw1d_measure                 0.263 us   134.883 us  8403.52  161076.5%    0.042s  ok 2.1e-16       2.93x
+   mkl1d_dfti                     0.274 us   140.072 us  8092.26  138263.4%    0.038s  ok ch=7.1e-13/1e-10 3.04x
+   fftw1d_estimate                0.318 us   162.794 us  6962.74  133390.1%    0.001s  ok ch=1.1e-12/1e-10 3.54x
+
+-- L=32 (non-batched, chain m=100000), volume 32768, working set 1.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     0.000 us     0.025 us 9658067129.09 51528988.1%    0.002s  ok ch=3.8e-15/1e-10 1.00x
+   fftw1d_measure                 0.000 us     0.037 us 6646320477.48 41864142.6%    0.008s  ok 1.6e-16       1.45x
+   fftw1d_patient                 0.000 us     0.038 us 6541623177.62 36287858.7%    0.014s  ok 1.6e-16       1.48x
+   fftw1d_estimate                0.000 us     0.047 us 5203830522.37 34998732.3%    0.001s  ok ch=4.4e-15/1e-10 1.86x
+   fftw1d_custom                  0.000 us     0.108 us 2270264347.14 13798279.6%    0.000s  ok 1.4e-16       4.25x
+
+-- L=32 (batched B=512, chain m=1000), volume 32768, working set 512.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     0.000 us     7.830 us 160699139.91  733942.0%    0.001s  ok ch=6.2e-13/1e-10 1.00x
+   fftw1d_patient                 0.000 us    12.978 us 96952634.79  483404.4%    0.057s  ok ch=1.3e-12/1e-10 1.66x
+   fftw1d_measure                 0.000 us    14.682 us 85703933.56  431310.7%    0.010s  ok 1.5e-16       1.88x
+   fftw1d_custom                  0.000 us    44.794 us 28090760.07  143366.9%    0.000s  ok 1.4e-16       5.72x
+   fftw1d_custom_soa              0.000 us    46.908 us 26824687.17   72765.1%    0.000s  ok 1.4e-16       5.99x
+   fftw1d_estimate                0.000 us    51.396 us 24482251.15  185781.5%    0.001s  ok ch=9.9e-13/1e-10 6.56x
+
+-- L=60 (non-batched), volume 216000, working set 6.59 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     0.053 us     0.053 us 359143.38 30377558.4%    0.002s  ok 2.4e-16       1.00x
+   fftw1d_measure                 0.068 us     0.068 us 280712.32 22290771.4%    0.046s  ok 1.9e-16       1.28x
+   fftw1d_patient                 0.070 us     0.070 us 272856.83 23637152.1%    0.128s  ok 1.9e-16       1.32x
+   fftw1d_estimate                0.083 us     0.083 us 230516.43 20717011.4%    0.001s  ok 2.5e-16       1.56x
+   fftw1d_custom                  0.229 us     0.229 us 83602.36 7139792.2%    0.000s  ok ch=1.5e-15/1e-10 4.30x
+
+-- L=60 (batched B=512, chain m=600), volume 216000, working set 3375.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     0.000 us    22.110 us 265911254.22  317499.2%    0.002s  ok 2.5e-16       1.00x
+   fftw1d_patient                 0.000 us    33.768 us 174108952.28  229313.8%    0.434s  ok ch=1.5e-13/1e-10 1.53x
+   fftw1d_measure                 0.000 us    35.586 us 165214443.24  237506.2%    0.047s  ok ch=2.6e-13/1e-10 1.61x
+   fftw1d_estimate                0.000 us    44.079 us 133381538.31  188050.6%    0.001s  ok ch=2.2e-13/1e-10 1.99x
+   fftw1d_custom_soa              0.000 us    96.085 us 61188414.86   55438.2%    0.000s  ok 2.2e-16       4.35x
+   fftw1d_custom                  0.000 us   120.008 us 48990832.60   59203.9%    0.000s  ok ch=2.5e-13/1e-10 5.43x
+
+-- L=64 (non-batched), volume 262144, working set 8.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     0.045 us     0.045 us 521383.04 35795775.0%    0.002s  ok ch=1.8e-15/1e-10 1.00x
+   fftw1d_patient                 0.057 us     0.057 us 415393.63 29563685.5%    0.053s  ok 1.7e-16       1.26x
+   fftw1d_measure                 0.059 us     0.059 us 399875.50 25194150.0%    0.022s  ok ch=2.6e-15/1e-10 1.30x
+   fftw1d_estimate                0.079 us     0.079 us 300126.31 23280016.5%    0.001s  ok ch=2.4e-15/1e-10 1.74x
+   fftw1d_custom                  0.226 us     0.226 us 104613.43 9580267.6%    0.000s  ok 1.8e-16       4.98x
+
+-- L=64 (batched B=512), volume 262144, working set 4096.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     0.038 us    19.438 us 621433.82  315301.6%    0.002s  ok 1.7e-16       1.00x
+   fftw1d_patient                 0.067 us    34.095 us 354292.77  204236.9%    0.219s  ok ch=3.2e-13/1e-10 1.75x
+   fftw1d_measure                 0.068 us    34.767 us 347446.07  198402.1%    0.026s  ok 1.9e-16       1.79x
+   fftw1d_estimate                0.194 us    99.500 us 121402.85  102039.3%    0.000s  ok ch=3.2e-13/1e-10 5.12x
+   fftw1d_custom_soa              0.212 us   108.498 us 111334.31   36210.1%    0.000s  ok 1.8e-16       5.58x
+   fftw1d_custom                  0.261 us   133.813 us 90272.07   47830.3%    0.000s  ok ch=2.7e-13/1e-10 6.88x
+
+-- L=128 (non-batched, chain m=30000), volume 2097152, working set 64.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     0.000 us     0.105 us 63052958842.64 13625523.0%    0.002s  ok ch=7.3e-15/1e-10 1.00x
+   fftw1d_patient                 0.000 us     0.118 us 56105651832.47 14203008.1%    0.135s  ok 2.3e-16       1.12x
+   fftw1d_measure                 0.000 us     0.124 us 53165428959.52 11930437.0%    0.040s  ok 2.3e-16       1.19x
+   fftw1d_estimate                0.000 us     0.170 us 38798749438.24 9345562.7%    0.001s  ok ch=1.0e-14/1e-10 1.63x
+   fftw1d_custom                  0.000 us     0.772 us 8556067261.52 3495857.6%    0.000s  ok 2.2e-16       7.37x
+
+-- L=128 (batched B=512), volume 2097152, working set 32768.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     0.146 us    74.832 us 1506617.51  103139.8%    0.002s  ok ch=2.5e-14/1e-10 1.00x
+   fftw1d_patient                 0.187 us    95.715 us 1177896.53   77498.8%    0.806s  ok ch=4.6e-14/1e-10 1.28x
+   fftw1d_measure                 0.205 us   105.070 us 1073023.75   70760.0%    0.050s  ok ch=4.0e-14/1e-10 1.40x
+   fftw1d_custom_soa              0.502 us   257.099 us 438519.36   19567.9%    0.000s  ok 2.1e-16       3.44x
+   fftw1d_estimate                0.652 us   334.076 us 337476.72   32502.4%    0.001s  ok 2.1e-16       4.46x
+   fftw1d_custom                  0.736 us   376.613 us 299360.39   22660.3%    0.000s  ok ch=3.0e-14/1e-10 5.03x
+
+-- L=1021 (non-batched, chain m=2000), volume 1064332261, working set 32480.84 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     0.005 us     9.409 us 33920536649.43  275473.0%    0.036s  ok 5.6e-16       1.00x
+   fftw1d_measure                 0.006 us    11.861 us 26909869971.73  285090.7%    0.285s  ok ch=1.6e-12/1e-09 1.26x
+   fftw1d_patient                 0.006 us    11.872 us 26883020724.27  253823.0%    2.988s  ok 5.7e-16       1.26x
+   fftw1d_estimate                0.006 us    12.771 us 24992231819.05  287829.8%    0.001s  ok 5.7e-16       1.36x
+
+-- L=1021 (batched B=256, chain m=400), volume 1064332261, working set 8315095.79 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     0.025 us  2581.287 us 6330648630.27   49115.8%    0.051s  ok 5.7e-16       1.00x
+   fftw1d_patient                 0.030 us  3076.640 us 5311386319.64   52617.4%    3.005s  ok 5.7e-16       1.19x
+   fftw1d_measure                 0.030 us  3102.373 us 5267329633.21   52555.4%    0.287s  ok 5.7e-16       1.20x
+   fftw1d_estimate                0.033 us  3334.893 us 4900074322.46   50516.8%    0.001s  ok 5.8e-16       1.29x
+
+-- L=1024 (non-batched), volume 1073741824, working set 32768.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     1.086 us     1.086 us 148309318.08 1749044.5%    0.002s  ok ch=8.1e-12/1e-10 1.00x
+   fftw1d_measure                 1.154 us     1.154 us 139613848.62 1679950.7%    0.115s  ok 2.7e-16       1.06x
+   fftw1d_patient                 1.158 us     1.158 us 139039325.62 1676324.4%    0.812s  ok 2.6e-16       1.07x
+   fftw1d_estimate                1.338 us     1.338 us 120374239.10 1737683.2%    0.000s  ok ch=6.4e-12/1e-10 1.23x
+
+-- L=1024 (batched B=512), volume 1073741824, working set 16777216.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     1.677 us   858.370 us 96069731.30  585957.6%    0.003s  ok 2.8e-16       1.00x
+   fftw1d_measure                 1.828 us   935.787 us 88121984.12  563456.9%    0.117s  ok ch=6.8e-13/1e-10 1.09x
+   fftw1d_patient                 1.832 us   937.917 us 87921806.00  567832.9%   11.364s  ok ch=6.8e-13/1e-10 1.09x
+   fftw1d_estimate                2.782 us  1424.613 us 57884767.95  412352.2%    0.001s  ok ch=7.4e-13/1e-10 1.66x
+
+-- L=4096 (non-batched), volume 68719476736, working set 2097152.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   mkl1d_dfti                     6.010 us     6.010 us 2058058569.91  348875.9%    0.002s  ok 3.1e-16       1.00x
+   fftw1d_patient                 6.716 us     6.716 us 1841735270.12  285398.5%    1.937s  ok 3.1e-16       1.12x
+   fftw1d_measure                 8.428 us     8.428 us 1467672964.39  266311.6%    0.234s  ok 3.1e-16       1.40x
+   fftw1d_estimate               15.750 us    15.750 us 785349841.14  207034.1%    0.001s  ok ch=8.9e-14/1e-10 2.62x
+
+-- L=4096 (batched B=256, chain m=400), volume 68719476736, working set 536870912.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_patient                 0.027 us  2791.571 us 453736406918.52   88339.4%   45.491s  ok 3.1e-16       1.00x
+   mkl1d_dfti                     0.030 us  3072.469 us 412253917885.04   76217.3%    0.002s  ok ch=4.6e-14/1e-10 1.10x
+   fftw1d_measure                 0.037 us  3832.145 us 330529643528.42   78077.8%    0.233s  ok 3.0e-16       1.37x
+   fftw1d_estimate                0.054 us  5548.874 us 228269266427.86   65341.5%    0.001s  ok 3.1e-16       1.99x
+
+-- L=10007 (non-batched, chain m=400), volume 1002101470343, working set 30581709.91 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_patient                 0.495 us   198.167 us 403194568116.07   47746.4%   19.797s  ok ch=3.3e-13/1e-10 1.00x
+   mkl1d_dfti                     0.667 us   266.875 us 299390339258.34   44638.7%    0.002s  ok 6.8e-16       1.35x
+   fftw1d_measure                 0.806 us   322.515 us 247740223359.03   44465.9%    1.142s  ok 8.0e-16       1.63x
+   fftw1d_estimate                1.407 us   562.762 us 141978068203.85   35030.5%    0.002s  ok 8.5e-16       2.84x
+
+-- L=10007 (batched B=64, chain m=80), volume 1002101470343, working set 1957229434.26 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_patient                 2.564 us 13128.016 us 77903511145.56    9257.4%   19.746s  ok ch=3.4e-14/1e-10 1.00x
+   fftw1d_measure                 2.702 us 13836.764 us 73913133022.34    9231.6%    1.223s  ok 8.0e-16       1.05x
+   mkl1d_dfti                     4.459 us 22828.012 us 44801033905.41    6747.8%    0.057s  ok ch=3.3e-14/1e-10 1.74x
+   fftw1d_estimate                4.508 us 23082.247 us 44307581864.34    8591.5%    0.002s  ok 8.5e-16       1.76x
+
+-- L=16384 (non-batched, chain m=250), volume 4398046511104, working set 134217728.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_patient                 0.130 us    32.493 us 7106015706960.30   63776.9%    6.252s  ok 3.5e-16       1.00x
+   mkl1d_dfti                     0.134 us    33.495 us 6893491907963.23   77745.1%    0.003s  ok 3.4e-16       1.03x
+   fftw1d_measure                 0.142 us    35.472 us 6509328610709.82   70749.5%    0.600s  ok ch=3.6e-14/1e-10 1.09x
+   fftw1d_estimate                0.278 us    69.618 us 3316626683893.44   48591.5%    0.001s  ok ch=3.6e-14/1e-10 2.14x
+
+-- L=16384 (batched B=64, chain m=150), volume 4398046511104, working set 8589934592.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_patient                 0.298 us  2860.478 us 3099643859605.31   35337.6%   66.682s  ok ch=2.8e-14/1e-10 1.00x
+   mkl1d_dfti                     0.398 us  3820.777 us 2320591097940.09   25691.2%    0.003s  ok 3.4e-16       1.34x
+   fftw1d_measure                 0.409 us  3928.524 us 2256944736308.25   29315.1%    0.568s  ok ch=2.9e-14/1e-10 1.37x
+   fftw1d_estimate                0.611 us  5861.787 us 1512586867904.16   24060.2%    0.001s  ok ch=2.6e-14/1e-10 2.05x
+
+-- L=65537 (non-batched, chain m=60), volume 281487861809153, working set 8590327814.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_patient                24.555 us  1473.321 us 2751221181584.09    6579.7%   58.419s  ok ch=6.4e-14/1e-10 1.00x
+   fftw1d_measure                26.318 us  1579.100 us 2566925427190.30    6545.2%    4.227s  ok 1.2e-15       1.07x
+   fftw1d_estimate               28.771 us  1726.249 us 2348114532897.13    6523.0%    0.008s  ok ch=3.9e-14/1e-10 1.17x
+   mkl1d_dfti                    54.420 us  3265.207 us 1241400976838.54    6313.3%    0.013s  ok ch=3.5e-14/1e-10 2.22x
+
+-- L=65537 (batched B=16), volume 281487861809153, working set 137445245024.00 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_patient              1539.840 us 24637.447 us 43872843957.74    2213.1%   58.289s  ok 1.2e-15       1.00x
+   fftw1d_measure              1652.824 us 26445.179 us 40873797250.43    2193.0%    4.429s  ok ch=1.7e-14/1e-10 1.07x
+   fftw1d_estimate             2420.642 us 38730.266 us 27908790415.29    1641.2%    0.009s  ok 1.2e-15       1.57x
+   mkl1d_dfti                  3992.688 us 63883.008 us 16920225117.18    1702.6%    0.069s  ok 1.0e-15       2.59x
+
+-- L=100003 (non-batched), volume 1000090002700027, working set 30520324789.43 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_patient              2689.014 us  2689.014 us 92661347125.70    4558.6%   62.464s  ok 9.0e-16       1.00x
+   fftw1d_measure              2745.041 us  2745.041 us 90770125940.23    4676.2%    4.733s  ok 9.0e-16       1.02x
+   mkl1d_dfti                  3893.296 us  3893.296 us 63999157871.77    3643.9%    0.016s  ok ch=2.4e-14/1e-10 1.45x
+   fftw1d_estimate             5555.866 us  5555.866 us 44847673982.69    3670.4%    0.016s  ok 9.1e-16       2.07x
+
+-- L=100003 (batched B=8, chain m=15), volume 1000090002700027, working set 244162598315.44 MiB --
+   backend                   per-transform     per-call     GF/s  run spread     setup  correctness
+   fftw1d_patient               187.340 us 22480.774 us 1330030807962.90    1705.7%   62.542s  ok 9.0e-16       1.00x
+   fftw1d_measure               202.225 us 24266.980 us 1232131953981.45    1571.8%    4.654s  ok ch=1.5e-14/1e-10 1.08x
+   mkl1d_dfti                   232.699 us 27923.876 us 1070772610788.06    1570.9%    0.070s  ok 8.8e-16       1.24x
+   fftw1d_estimate              331.700 us 39803.989 us 751184044835.44    1541.1%    0.012s  ok 9.1e-16       1.77x
+
+backends:
+   fftw1d_custom            genfft monolithic codelet, split arrays, scalar DAG + autovec
+   fftw1d_custom_soa        genfft monolithic codelet, SoA 8-transform batch-lane split-complex
+   fftw1d_estimate          FFTW 3.3.10 plan_many_dft 1D, fftw1d_estimate
+   fftw1d_measure           FFTW 3.3.10 plan_many_dft 1D, fftw1d_measure
+   fftw1d_patient           FFTW 3.3.10 plan_many_dft 1D, fftw1d_patient
+   mkl1d_dfti               oneMKL DFTI 1D, sequential, batched

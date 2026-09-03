@@ -1,2 +1,5 @@
 scoring gen_r14 on reserved Ice Lake node a80n0
 scoring window open: all 24 slots held
+   mkl2026_dfti             oneMKL 2026.1 (pip wheel) DFTI, sequential, batched
+   mkl_dfti                 oneMKL 2022.0.2 DFTI, sequential, batched
+== round gen_r14 complete: results/gen_r14 ==

@@ -531,3 +531,126 @@ gen_rader: does not support L=50
 gen_rader: does not support L=50
 gen_rader: does not support L=50
 results/gen_r14/in_L50_B4.bin: No such file or directory
+fftw3_custom: does not support L=100
+fftw3_custom: does not support L=100
+fftw3_custom: does not support L=100
+fftw3_custom: does not support L=100
+fftw3_custom_soa: does not support L=100
+fftw3_custom_soa: does not support L=100
+fftw3_custom_soa: does not support L=100
+fftw3_custom_soa: does not support L=100
+fftw3_custom: does not support L=100
+fftw3_custom: does not support L=100
+fftw3_custom: does not support L=100
+fftw3_custom: does not support L=100
+fftw3_custom_soa: does not support L=100
+fftw3_custom_soa: does not support L=100
+fftw3_custom_soa: does not support L=100
+fftw3_custom_soa: does not support L=100
+gen_dense_prime: does not support L=100
+gen_dense_prime: does not support L=100
+gen_dense_prime: does not support L=100
+gen_dense_prime: does not support L=100
+gen_dense_prime: does not support L=100
+gen_dense_prime: does not support L=100
+gen_dense_prime: does not support L=100
+gen_dense_prime: does not support L=100
+gen_pow2: does not support L=100
+gen_pow2: does not support L=100
+gen_pow2: does not support L=100
+gen_pow2: does not support L=100
+gen_pow2: does not support L=100
+gen_pow2: does not support L=100
+gen_pow2: does not support L=100
+gen_pow2: does not support L=100
+gen_rader: does not support L=100
+gen_rader: does not support L=100
+gen_rader: does not support L=100
+gen_rader: does not support L=100
+gen_rader: does not support L=100
+gen_rader: does not support L=100
+gen_rader: does not support L=100
+gen_rader: does not support L=100
+results/gen_r14/in_L100_B1.bin: No such file or directory
+fftw3_custom_soa: fft3d_create failed for L=10 batch=1
+fftw3_custom_soa: fft3d_create failed for L=10 batch=1
+fftw3_custom_soa: fft3d_create failed for L=10 batch=1
+fftw3_custom_soa: fft3d_create failed for L=10 batch=1
+fftw3_custom_soa: fft3d_create failed for L=10 batch=1
+fftw3_custom_soa: fft3d_create failed for L=10 batch=1
+fftw3_custom_soa: fft3d_create failed for L=10 batch=1
+fftw3_custom_soa: fft3d_create failed for L=10 batch=1
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pfa_large: does not support L=10
+gen_pow2: does not support L=10
+gen_pow2: does not support L=10
+gen_pow2: does not support L=10
+gen_pow2: does not support L=10
+gen_powp: does not support L=10
+gen_powp: does not support L=10
+gen_powp: does not support L=10
+gen_powp: does not support L=10
+gen_pow2: does not support L=10
+gen_pow2: does not support L=10
+gen_pow2: does not support L=10
+gen_pow2: does not support L=10
+gen_powp: does not support L=10
+gen_powp: does not support L=10
+gen_powp: does not support L=10
+gen_powp: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+gen_rader: does not support L=10
+results/gen_r14/in_L10_B1.bin: No such file or directory
+fftw3_custom_soa: fft3d_create failed for L=12 batch=1
+fftw3_custom_soa: fft3d_create failed for L=12 batch=1
+fftw3_custom_soa: fft3d_create failed for L=12 batch=1
+fftw3_custom_soa: fft3d_create failed for L=12 batch=1
+fftw3_custom_soa: fft3d_create failed for L=12 batch=1
+fftw3_custom_soa: fft3d_create failed for L=12 batch=1
+fftw3_custom_soa: fft3d_create failed for L=12 batch=1
+fftw3_custom_soa: fft3d_create failed for L=12 batch=1
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pfa_large: does not support L=12
+gen_pow2: does not support L=12
+gen_pow2: does not support L=12
+gen_pow2: does not support L=12
+gen_pow2: does not support L=12
+gen_powp: does not support L=12
+gen_powp: does not support L=12
+gen_powp: does not support L=12
+gen_powp: does not support L=12
+gen_pow2: does not support L=12
+gen_pow2: does not support L=12
+gen_pow2: does not support L=12
+gen_pow2: does not support L=12
+gen_powp: does not support L=12
+gen_powp: does not support L=12
+gen_powp: does not support L=12
+gen_powp: does not support L=12
+gen_rader: does not support L=12
+gen_rader: does not support L=12
+gen_rader: does not support L=12
+gen_rader: does not support L=12
+gen_rader: does not support L=12
+gen_rader: does not support L=12
+gen_rader: does not support L=12
+gen_rader: does not support L=12
+results/gen_r14/in_L12_B1.bin: No such file or directory

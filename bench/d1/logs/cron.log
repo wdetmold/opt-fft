@@ -38,3 +38,90 @@
 2026-09-02 11:00:01 d1 tick skipped: lock held
 [2026-09-02 11:00:50] submission failed twice -- skipping the timing pass for d1_r2
 [2026-09-02 11:00:50] d1_r2: no leaderboard, skipping the monitor verdict
+[2026-09-02 11:00:51] committed round d1_r2
+[2026-09-02 11:00:51] ---------- d1_r2 complete; next is d1_r3 of d1_r4 ----------
+[2026-09-02 11:00:51] ---------- d1_r3 begins ----------
+[2026-09-02 11:00:51] d1_r2 has no leaderboard yet -- waiting (will proceed if the panel goes quiet)
+2026-09-02 11:15:01 d1 tick skipped: lock held
+2026-09-02 11:30:01 d1 tick skipped: lock held
+2026-09-02 11:45:01 d1 tick skipped: lock held
+[2026-09-02 11:47:51] STOP file present -- halting cleanly (remove /home/lqcd/wdetmold/fft/bench/d1/STOP to continue)
+[2026-09-02 11:47:52] === halted before d1_r3 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/d1/STOP' then resume ===
+[2026-09-02 12:00:01] === run_rounds[d1]: next=d1_r1 last=d1_r4 jobs=6 ===
+[2026-09-02 12:00:01]     implementers: fable    monitor: opus
+[2026-09-02 12:00:01] STOP file present -- halting cleanly (remove /home/lqcd/wdetmold/fft/bench/d1/STOP to continue)
+[2026-09-02 12:00:01] === halted before d1_r1 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/d1/STOP' then resume ===
+[2026-09-02 12:15:01] === run_rounds[d1]: next=d1_r1 last=d1_r4 jobs=6 ===
+[2026-09-02 12:15:01]     implementers: fable    monitor: opus
+[2026-09-02 12:15:01] STOP file present -- halting cleanly (remove /home/lqcd/wdetmold/fft/bench/d1/STOP to continue)
+[2026-09-02 12:15:01] === halted before d1_r1 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/d1/STOP' then resume ===
+[2026-09-02 12:30:01] === run_rounds[d1]: next=d1_r1 last=d1_r4 jobs=6 ===
+[2026-09-02 12:30:01]     implementers: fable    monitor: opus
+[2026-09-02 12:30:01] STOP file present -- halting cleanly (remove /home/lqcd/wdetmold/fft/bench/d1/STOP to continue)
+[2026-09-02 12:30:01] === halted before d1_r1 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/d1/STOP' then resume ===
+[2026-09-02 12:45:01] === run_rounds[d1]: next=d1_r1 last=d1_r4 jobs=6 ===
+[2026-09-02 12:45:01]     implementers: fable    monitor: opus
+[2026-09-02 12:45:02] STOP file present -- halting cleanly (remove /home/lqcd/wdetmold/fft/bench/d1/STOP to continue)
+[2026-09-02 12:45:02] === halted before d1_r1 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/d1/STOP' then resume ===
+[2026-09-02 13:00:01] === run_rounds[d1]: next=d1_r1 last=d1_r4 jobs=6 ===
+[2026-09-02 13:00:01]     implementers: fable    monitor: opus
+[2026-09-02 13:00:01] STOP file present -- halting cleanly (remove /home/lqcd/wdetmold/fft/bench/d1/STOP to continue)
+[2026-09-02 13:00:01] === halted before d1_r1 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/d1/STOP' then resume ===
+[2026-09-02 13:15:01] === run_rounds[d1]: next=d1_r1 last=d1_r4 jobs=6 ===
+[2026-09-02 13:15:01]     implementers: fable    monitor: opus
+[2026-09-02 13:15:01] STOP file present -- halting cleanly (remove /home/lqcd/wdetmold/fft/bench/d1/STOP to continue)
+[2026-09-02 13:15:01] === halted before d1_r1 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/d1/STOP' then resume ===
+[2026-09-02 13:30:01] === run_rounds[d1]: next=d1_r1 last=d1_r4 jobs=6 ===
+[2026-09-02 13:30:01]     implementers: fable    monitor: opus
+[2026-09-02 13:30:01] STOP file present -- halting cleanly (remove /home/lqcd/wdetmold/fft/bench/d1/STOP to continue)
+[2026-09-02 13:30:01] === halted before d1_r1 (STOP file); 'rm /home/lqcd/wdetmold/fft/bench/d1/STOP' then resume ===
+[2026-09-02 13:45:01] === run_rounds[d1]: next=d1_r1 last=d1_r4 jobs=6 ===
+[2026-09-02 13:45:01]     implementers: fable    monitor: opus
+[2026-09-02 13:45:01] ---------- d1_r1 begins ----------
+[2026-09-02 13:45:01] d1_r1 works in impl_1 (10 sources carried over from impl_0)
+[2026-09-02 13:45:01] context pack: 13 lines
+[2026-09-02 13:45:01] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+2026-09-02 14:00:01 d1 tick skipped: lock held
+2026-09-02 14:15:01 d1 tick skipped: lock held
+2026-09-02 14:30:01 d1 tick skipped: lock held
+/tmp/fft_rounds_sKHc36.sh: line 419: [: 0
+0: integer expression expected
+2026-09-02 14:45:01 d1 tick skipped: lock held
+[2026-09-02 14:59:34] implementers finished: 9 reported
+[2026-09-02 14:59:34] submitting timing round d1_r1 (seed 20261834) to the exclusive benchmark node
+2026-09-02 15:00:01 d1 tick skipped: lock held
+2026-09-02 15:15:01 d1 tick skipped: lock held
+2026-09-02 15:30:01 d1 tick skipped: lock held
+2026-09-02 15:45:01 d1 tick skipped: lock held
+2026-09-02 16:00:01 d1 tick skipped: lock held
+2026-09-02 16:15:01 d1 tick skipped: lock held
+2026-09-02 16:30:01 d1 tick skipped: lock held
+2026-09-02 16:45:01 d1 tick skipped: lock held
+2026-09-02 17:00:01 d1 tick skipped: lock held
+2026-09-02 17:15:01 d1 tick skipped: lock held
+2026-09-02 17:30:01 d1 tick skipped: lock held
+2026-09-02 17:45:01 d1 tick skipped: lock held
+2026-09-02 18:00:01 d1 tick skipped: lock held
+2026-09-02 18:15:01 d1 tick skipped: lock held
+[2026-09-02 18:28:40] sbatch submission failed; retrying once in 120s
+2026-09-02 18:30:01 d1 tick skipped: lock held
+2026-09-02 18:45:01 d1 tick skipped: lock held
+2026-09-02 19:00:02 d1 tick skipped: lock held
+2026-09-02 19:15:01 d1 tick skipped: lock held
+2026-09-02 19:30:01 d1 tick skipped: lock held
+2026-09-02 19:45:01 d1 tick skipped: lock held
+2026-09-02 20:00:01 d1 tick skipped: lock held
+2026-09-02 20:15:01 d1 tick skipped: lock held
+2026-09-02 20:30:01 d1 tick skipped: lock held
+2026-09-02 20:45:01 d1 tick skipped: lock held
+2026-09-02 21:00:01 d1 tick skipped: lock held
+2026-09-02 21:15:01 d1 tick skipped: lock held
+2026-09-02 21:30:01 d1 tick skipped: lock held
+2026-09-02 21:45:01 d1 tick skipped: lock held
+2026-09-02 22:00:01 d1 tick skipped: lock held
+[2026-09-02 22:12:18] leaderboard for d1_r1 is in
+[2026-09-02 22:12:26] served models for d1_r1:    1204 claude-fable-5 
+2026-09-02 22:15:01 d1 tick skipped: lock held
+[2026-09-02 22:20:44] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r1/monitor.log)
+[2026-09-02 22:20:44] promoting: d1_prime d1_pow2 d1_batchlane d1_composite d1_rader d1_bluestein d1_race
+[2026-09-02 22:20:44] promote.sh reported a problem

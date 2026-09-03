@@ -1232,3 +1232,426 @@ PASS rel_l2=4.605e-16 rel_max=5.668e-16 (tol 1e-12) L=50 B=4
 PASS map-2-step: rel_l2=2.518e-15 (tol 3.0e-14)
 PASS rel_l2=4.605e-16 rel_max=5.668e-16 (tol 1e-12) L=50 B=4
 PASS map-chain m=128: rel_l2=3.557e-14 (anchor 2.394e-14, tol 1.0e-10)
+PASS rel_l2=9.395e-16 rel_max=1.317e-15 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=4.931e-15 (tol 3.0e-14)
+PASS rel_l2=9.395e-16 rel_max=1.317e-15 (tol 1e-12) L=100 B=1
+Traceback (most recent call last):
+  File "/home/lqcd/wdetmold/fft/bench/gen/check.py", line 65, in <module>
+    got_chain = np.fromfile(a.output + ".chain", dtype=np.complex128).reshape(shape)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'results/gen_r14/one_baseline_matrix_L100_B1.bin.chain'
+PASS rel_l2=3.878e-16 rel_max=3.973e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=1.728e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=3.878e-16 rel_max=3.973e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.260e-15 (tol 3.0e-14)
+PASS rel_l2=3.878e-16 rel_max=3.973e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=1.728e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=3.878e-16 rel_max=3.973e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.260e-15 (tol 3.0e-14)
+PASS rel_l2=4.668e-16 rel_max=5.080e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.070e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.668e-16 rel_max=5.080e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.771e-15 (tol 3.0e-14)
+PASS rel_l2=4.668e-16 rel_max=5.080e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.070e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.668e-16 rel_max=5.080e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.771e-15 (tol 3.0e-14)
+PASS rel_l2=4.690e-16 rel_max=5.474e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.010e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.690e-16 rel_max=5.474e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.716e-15 (tol 3.0e-14)
+PASS rel_l2=4.690e-16 rel_max=5.474e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.010e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.690e-16 rel_max=5.474e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.716e-15 (tol 3.0e-14)
+PASS rel_l2=4.679e-16 rel_max=5.179e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.170e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.679e-16 rel_max=5.123e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.746e-15 (tol 3.0e-14)
+PASS rel_l2=4.679e-16 rel_max=5.179e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.170e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.688e-16 rel_max=5.179e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.812e-15 (tol 3.0e-14)
+PASS rel_l2=4.610e-16 rel_max=5.850e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.058e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.668e-16 rel_max=5.397e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.054e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.689e-16 rel_max=5.474e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.710e-15 (tol 3.0e-14)
+PASS rel_l2=4.657e-16 rel_max=5.088e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.642e-15 (tol 3.0e-14)
+PASS rel_l2=5.199e-16 rel_max=6.790e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.333e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=5.199e-16 rel_max=6.790e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.973e-15 (tol 3.0e-14)
+PASS rel_l2=5.199e-16 rel_max=6.790e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.333e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=5.199e-16 rel_max=6.790e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.973e-15 (tol 3.0e-14)
+PASS rel_l2=6.759e-16 rel_max=7.124e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=3.128e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=6.759e-16 rel_max=7.124e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=3.878e-15 (tol 3.0e-14)
+PASS rel_l2=6.759e-16 rel_max=7.124e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=3.128e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=6.759e-16 rel_max=7.124e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=3.878e-15 (tol 3.0e-14)
+PASS rel_l2=4.661e-16 rel_max=5.222e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.131e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.661e-16 rel_max=5.222e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.822e-15 (tol 3.0e-14)
+PASS rel_l2=4.661e-16 rel_max=5.222e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.131e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.661e-16 rel_max=5.222e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.822e-15 (tol 3.0e-14)
+PASS rel_l2=4.523e-16 rel_max=4.911e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.073e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.523e-16 rel_max=4.911e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.798e-15 (tol 3.0e-14)
+PASS rel_l2=4.523e-16 rel_max=4.911e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.073e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.523e-16 rel_max=4.911e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.798e-15 (tol 3.0e-14)
+PASS rel_l2=5.094e-16 rel_max=5.393e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.099e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=5.094e-16 rel_max=5.393e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.099e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=5.094e-16 rel_max=5.393e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.756e-15 (tol 3.0e-14)
+Traceback (most recent call last):
+  File "/home/lqcd/wdetmold/fft/bench/gen/check.py", line 28, in <module>
+    got = np.fromfile(a.output, dtype=np.complex128)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'results/gen_r14/one_gen_pfa_small_L100_B1.bin'
+PASS rel_l2=4.558e-16 rel_max=5.071e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.064e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.558e-16 rel_max=5.071e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.064e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.558e-16 rel_max=5.071e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.728e-15 (tol 3.0e-14)
+PASS rel_l2=4.558e-16 rel_max=5.071e-16 (tol 1e-12) L=100 B=1
+Traceback (most recent call last):
+  File "/home/lqcd/wdetmold/fft/bench/gen/check.py", line 65, in <module>
+    got_chain = np.fromfile(a.output + ".chain", dtype=np.complex128).reshape(shape)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'results/gen_r14/one_gen_planner_L100_B1.bin.chain'
+PASS rel_l2=5.199e-16 rel_max=6.790e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.350e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=5.199e-16 rel_max=6.790e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.350e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=5.199e-16 rel_max=6.790e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=3.045e-15 (tol 3.0e-14)
+PASS rel_l2=5.199e-16 rel_max=6.790e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=3.045e-15 (tol 3.0e-14)
+PASS rel_l2=4.523e-16 rel_max=4.911e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.064e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.523e-16 rel_max=4.911e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.064e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.523e-16 rel_max=4.911e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.728e-15 (tol 3.0e-14)
+PASS rel_l2=4.523e-16 rel_max=4.911e-16 (tol 1e-12) L=100 B=1
+Traceback (most recent call last):
+  File "/home/lqcd/wdetmold/fft/bench/gen/check.py", line 65, in <module>
+    got_chain = np.fromfile(a.output + ".chain", dtype=np.complex128).reshape(shape)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'results/gen_r14/one_gen_race_L100_B1.bin.chain'
+PASS rel_l2=4.618e-16 rel_max=4.911e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.068e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.618e-16 rel_max=4.911e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.068e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.618e-16 rel_max=4.911e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=2.761e-15 (tol 3.0e-14)
+PASS rel_l2=4.618e-16 rel_max=4.911e-16 (tol 1e-12) L=100 B=1
+Traceback (most recent call last):
+  File "/home/lqcd/wdetmold/fft/bench/gen/check.py", line 65, in <module>
+    got_chain = np.fromfile(a.output + ".chain", dtype=np.complex128).reshape(shape)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'results/gen_r14/one_gen_twiddle_L100_B1.bin.chain'
+PASS rel_l2=5.092e-16 rel_max=5.559e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.343e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=5.092e-16 rel_max=5.559e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=3.076e-15 (tol 3.0e-14)
+PASS rel_l2=5.092e-16 rel_max=5.559e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.343e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=5.092e-16 rel_max=5.559e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=3.076e-15 (tol 3.0e-14)
+PASS rel_l2=5.104e-16 rel_max=5.474e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.372e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=5.104e-16 rel_max=5.474e-16 (tol 1e-12) L=100 B=1
+PASS map-2-step: rel_l2=3.100e-15 (tol 3.0e-14)
+PASS rel_l2=5.104e-16 rel_max=5.474e-16 (tol 1e-12) L=100 B=1
+PASS map-chain m=64: rel_l2=2.372e-14 (anchor 1.633e-14, tol 1.0e-10)
+PASS rel_l2=4.377e-16 rel_max=5.231e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=2.602e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=4.377e-16 rel_max=5.231e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=1.032e-15 (tol 3.0e-14)
+PASS rel_l2=4.377e-16 rel_max=5.231e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=2.602e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=4.377e-16 rel_max=5.231e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=1.032e-15 (tol 3.0e-14)
+PASS rel_l2=2.274e-16 rel_max=2.711e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.191e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.274e-16 rel_max=2.711e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=6.634e-16 (tol 3.0e-14)
+PASS rel_l2=2.274e-16 rel_max=2.711e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.191e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.274e-16 rel_max=2.711e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=6.634e-16 (tol 3.0e-14)
+PASS rel_l2=2.572e-16 rel_max=2.711e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.948e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.572e-16 rel_max=2.711e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=7.460e-16 (tol 3.0e-14)
+PASS rel_l2=2.572e-16 rel_max=2.711e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.948e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.572e-16 rel_max=2.711e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=7.460e-16 (tol 3.0e-14)
+PASS rel_l2=2.667e-16 rel_max=2.941e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.471e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.667e-16 rel_max=2.941e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=7.771e-16 (tol 3.0e-14)
+PASS rel_l2=2.667e-16 rel_max=2.941e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.471e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.667e-16 rel_max=2.941e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=7.771e-16 (tol 3.0e-14)
+PASS rel_l2=2.715e-16 rel_max=3.288e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.265e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.715e-16 rel_max=3.288e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.643e-16 (tol 3.0e-14)
+PASS rel_l2=2.715e-16 rel_max=3.288e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.265e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.715e-16 rel_max=3.288e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.643e-16 (tol 3.0e-14)
+PASS rel_l2=2.712e-16 rel_max=2.941e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.520e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.712e-16 rel_max=2.941e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.070e-16 (tol 3.0e-14)
+PASS rel_l2=2.667e-16 rel_max=2.941e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.471e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.681e-16 rel_max=3.288e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.130e-16 (tol 3.0e-14)
+PASS rel_l2=2.681e-16 rel_max=3.288e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.302e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.659e-16 rel_max=2.809e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=7.598e-16 (tol 3.0e-14)
+PASS rel_l2=2.667e-16 rel_max=2.941e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.471e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.681e-16 rel_max=3.288e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.130e-16 (tol 3.0e-14)
+PASS rel_l2=3.112e-16 rel_max=4.159e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=2.833e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=3.112e-16 rel_max=4.159e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=9.054e-16 (tol 3.0e-14)
+PASS rel_l2=3.112e-16 rel_max=4.159e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=2.833e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=3.112e-16 rel_max=4.159e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=9.054e-16 (tol 3.0e-14)
+PASS rel_l2=4.534e-16 rel_max=5.261e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=2.516e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=4.534e-16 rel_max=5.261e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=1.295e-15 (tol 3.0e-14)
+PASS rel_l2=4.534e-16 rel_max=5.261e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=2.516e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=4.534e-16 rel_max=5.261e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=1.295e-15 (tol 3.0e-14)
+PASS rel_l2=2.769e-16 rel_max=2.959e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.810e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.769e-16 rel_max=2.959e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.308e-16 (tol 3.0e-14)
+PASS rel_l2=2.769e-16 rel_max=2.959e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.810e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.769e-16 rel_max=2.959e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.308e-16 (tol 3.0e-14)
+PASS rel_l2=2.851e-16 rel_max=3.276e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.560e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.851e-16 rel_max=3.276e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.788e-16 (tol 3.0e-14)
+PASS rel_l2=2.851e-16 rel_max=3.276e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.560e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.851e-16 rel_max=3.276e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.788e-16 (tol 3.0e-14)
+PASS rel_l2=3.099e-16 rel_max=3.949e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=2.660e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=3.099e-16 rel_max=3.949e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.870e-16 (tol 3.0e-14)
+PASS rel_l2=3.099e-16 rel_max=3.949e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=2.660e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=3.099e-16 rel_max=3.949e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.870e-16 (tol 3.0e-14)
+PASS rel_l2=3.082e-16 rel_max=3.353e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.292e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=3.082e-16 rel_max=3.353e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=9.993e-16 (tol 3.0e-14)
+PASS rel_l2=3.082e-16 rel_max=3.353e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.292e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=3.082e-16 rel_max=3.353e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=9.993e-16 (tol 3.0e-14)
+PASS rel_l2=3.082e-16 rel_max=3.353e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.292e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=3.082e-16 rel_max=3.353e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=9.993e-16 (tol 3.0e-14)
+PASS rel_l2=3.082e-16 rel_max=3.353e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.292e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=3.082e-16 rel_max=3.353e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=9.993e-16 (tol 3.0e-14)
+PASS rel_l2=2.782e-16 rel_max=3.288e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=8.097e-08 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.782e-16 rel_max=3.288e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=7.355e-16 (tol 3.0e-14)
+PASS rel_l2=2.782e-16 rel_max=3.288e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=8.097e-08 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=2.782e-16 rel_max=3.288e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=7.355e-16 (tol 3.0e-14)
+PASS rel_l2=3.182e-16 rel_max=4.186e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.119e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=3.182e-16 rel_max=4.186e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.831e-16 (tol 3.0e-14)
+PASS rel_l2=3.182e-16 rel_max=4.186e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.119e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=3.182e-16 rel_max=4.186e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.831e-16 (tol 3.0e-14)
+PASS rel_l2=3.214e-16 rel_max=4.048e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.140e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=3.214e-16 rel_max=4.048e-16 (tol 1e-12) L=10 B=1
+PASS map-2-step: rel_l2=8.895e-16 (tol 3.0e-14)
+PASS rel_l2=3.214e-16 rel_max=4.048e-16 (tol 1e-12) L=10 B=1
+PASS map-chain m=16384: rel_l2=1.140e-07 (anchor 5.356e-08, tol 3.0e-05)
+PASS rel_l2=6.366e-16 rel_max=6.145e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=3.759e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=6.366e-16 rel_max=6.145e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=1.871e-15 (tol 3.0e-14)
+PASS rel_l2=6.366e-16 rel_max=6.145e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=3.759e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=6.366e-16 rel_max=6.145e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=1.871e-15 (tol 3.0e-14)
+PASS rel_l2=1.998e-16 rel_max=2.451e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=5.034e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=1.998e-16 rel_max=2.451e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=7.015e-16 (tol 3.0e-14)
+PASS rel_l2=1.998e-16 rel_max=2.451e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=5.034e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=1.998e-16 rel_max=2.451e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=7.015e-16 (tol 3.0e-14)
+PASS rel_l2=2.870e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=4.693e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.870e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.894e-16 (tol 3.0e-14)
+PASS rel_l2=2.870e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=4.693e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.870e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.894e-16 (tol 3.0e-14)
+PASS rel_l2=2.856e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=5.237e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.856e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.353e-16 (tol 3.0e-14)
+PASS rel_l2=2.856e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=5.237e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.856e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.353e-16 (tol 3.0e-14)
+PASS rel_l2=2.905e-16 rel_max=3.424e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=5.673e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.905e-16 rel_max=3.424e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=8.834e-16 (tol 3.0e-14)
+PASS rel_l2=2.905e-16 rel_max=3.424e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=5.673e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.905e-16 rel_max=3.424e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=8.834e-16 (tol 3.0e-14)
+PASS rel_l2=2.856e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=5.237e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.873e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.560e-16 (tol 3.0e-14)
+PASS rel_l2=2.901e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=3.292e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.856e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.353e-16 (tol 3.0e-14)
+PASS rel_l2=2.855e-16 rel_max=3.275e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=3.370e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.873e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.560e-16 (tol 3.0e-14)
+PASS rel_l2=2.873e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=5.130e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.857e-16 rel_max=3.275e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=8.607e-16 (tol 3.0e-14)
+PASS rel_l2=2.876e-16 rel_max=3.294e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=5.523e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.876e-16 rel_max=3.294e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=7.983e-16 (tol 3.0e-14)
+PASS rel_l2=2.876e-16 rel_max=3.294e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=5.523e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.876e-16 rel_max=3.294e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=7.983e-16 (tol 3.0e-14)
+PASS rel_l2=4.948e-16 rel_max=6.128e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=6.919e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=4.948e-16 rel_max=6.128e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=1.400e-15 (tol 3.0e-14)
+PASS rel_l2=4.948e-16 rel_max=6.128e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=6.919e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=4.948e-16 rel_max=6.128e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=1.400e-15 (tol 3.0e-14)
+PASS rel_l2=2.978e-16 rel_max=3.369e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=1.254e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.978e-16 rel_max=3.369e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.417e-16 (tol 3.0e-14)
+PASS rel_l2=2.978e-16 rel_max=3.369e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=1.254e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.978e-16 rel_max=3.369e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.417e-16 (tol 3.0e-14)
+PASS rel_l2=2.944e-16 rel_max=3.064e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=3.821e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.944e-16 rel_max=3.064e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.810e-16 (tol 3.0e-14)
+PASS rel_l2=2.944e-16 rel_max=3.064e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=3.821e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.944e-16 rel_max=3.064e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.810e-16 (tol 3.0e-14)
+PASS rel_l2=2.899e-16 rel_max=3.275e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=4.955e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.899e-16 rel_max=3.275e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.061e-16 (tol 3.0e-14)
+PASS rel_l2=2.899e-16 rel_max=3.275e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=4.955e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.899e-16 rel_max=3.275e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.061e-16 (tol 3.0e-14)
+PASS rel_l2=2.971e-16 rel_max=3.294e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=2.200e-09 (anchor 4.605e-10, tol 3.0e-07)
+Traceback (most recent call last):
+  File "/home/lqcd/wdetmold/fft/bench/gen/check.py", line 28, in <module>
+    got = np.fromfile(a.output, dtype=np.complex128)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'results/gen_r14/out_gen_planner_L12_B1.bin'
+PASS rel_l2=2.971e-16 rel_max=3.294e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=1.002e-15 (tol 3.0e-14)
+Traceback (most recent call last):
+  File "/home/lqcd/wdetmold/fft/bench/gen/check.py", line 28, in <module>
+    got = np.fromfile(a.output, dtype=np.complex128)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'results/gen_r14/one_gen_planner_L12_B1.bin'
+PASS rel_l2=2.971e-16 rel_max=3.294e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=1.397e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.971e-16 rel_max=3.294e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.788e-16 (tol 3.0e-14)
+PASS rel_l2=2.971e-16 rel_max=3.294e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=1.397e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.971e-16 rel_max=3.294e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.788e-16 (tol 3.0e-14)
+PASS rel_l2=2.899e-16 rel_max=3.275e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=2.042e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.899e-16 rel_max=3.275e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=8.952e-16 (tol 3.0e-14)
+PASS rel_l2=2.899e-16 rel_max=3.275e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=2.042e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.899e-16 rel_max=3.275e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=8.952e-16 (tol 3.0e-14)
+PASS rel_l2=2.905e-16 rel_max=3.424e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=5.673e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.905e-16 rel_max=3.424e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=8.834e-16 (tol 3.0e-14)
+PASS rel_l2=2.905e-16 rel_max=3.424e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=5.673e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.905e-16 rel_max=3.424e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=8.834e-16 (tol 3.0e-14)
+PASS rel_l2=2.870e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=4.693e-09 (anchor 4.605e-10, tol 3.0e-07)
+PASS rel_l2=2.870e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-2-step: rel_l2=9.894e-16 (tol 3.0e-14)
+PASS rel_l2=2.870e-16 rel_max=4.086e-16 (tol 1e-12) L=12 B=1
+PASS map-chain m=12288: rel_l2=4.693e-09 (anchor 4.605e-10, tol 3.0e-07)

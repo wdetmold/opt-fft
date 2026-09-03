@@ -1,0 +1,12 @@
+Done. All checks green on the final build (0 warnings), and I only wrote my two files: `impl/d1_rader.c` and `strategies/d1_rader.md`.
+
+**Rader → unpadded N−1 cyclic conv (65536=2^16 at 65537; 1020=[4,3,5,17] with a dense radix-17 stage at 1021) on a fused split-complex Stockham core, with a fused map chain that turns gather∘scatter into an index reversal — best wallaby: 65537 B=1 703 µs (670 µs/step chained) / B=16 734 µs; 1021 B=1 7.43 µs / B=256 ~9.2 µs; rel L2 = 2.7e-16…1.4e-15 (gate 1e-12).**
+
+Supporting detail:
+
+- **65537 (the class headline)**: unpadded Rader beats same-core, same-minute FFTW measure by 1.7–2.4x across all four regimes (703 vs 1169–1448 at B=1; chained 670 vs 1436, batched-chained 726 vs 2047), and beats d1_bluestein's own 65537 (~2300 µs, they pad to 147456). Ice Lake library best to beat is FFTW patient at 1632 µs.
+- **1021**: the survey's suggestion paid off — replacing the M=2048 pad with an unpadded 1020-point conv using a symmetric-fold dense radix-17 final stage took B=1 from 9.1 to 7.43 µs (FFTW ~8.9 same box, MKL 11.4 on the scoring node) and lifted every chained cell.
+- **The chain trick** (my own addition): since g^q = g^−(P−q), the inter-step gather∘map∘scatter composes to a pure index reversal, so chain state lives split in conv order and interior steps have zero random accesses — chain steps run *faster* than a standalone execute.
+- **What didn't work**: a transpose-free four-step 256×256 conv (correct but 1017 vs 703 µs — wallaby's L3 makes the traffic cut worthless; kept in the file, disabled, worth retrying on the scoring node's smaller caches).
+- **Borrowed with attribution**: d1_bluestein's Stockham stage kernels, ivdep + per-function 512-bit target attribute, inverse-via-plane-swap, and pruned/fused entry-exit shapes; d1_prime's symmetric fold (inside radix-17) and measurement discipline.
+- **Caveat**: the Ice Lake reservation was dead all session (as for the other implementers), so every number is wallaby with same-core FFTW A/B; the monitor's leaderboard run will give the real Ice Lake numbers. 13 B=1 stays lost to library codelets (0.073 vs 0.02 µs) — that cell is d1_prime's; my 31 and all large-prime cells look like wins.

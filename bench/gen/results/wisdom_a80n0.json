@@ -1,4 +1,10 @@
 {"host":"a80n0","format":1,"entries":{
+"gen_planner/tree/L12":{"winner":"gt(d3,d4)@w0","widx":-1,"tie":0,"us":0,"margin":0},
+"gen_planner/tree/L10":{"winner":"gt(d2,d5)@w0","widx":-1,"tie":0,"us":0,"margin":0},
+"gen_powp/chain11/L100/B1#24437de5":{"winner":"l100-wv","widx":5,"tie":0,"us":4035.05,"margin":0.0735},
+"gen_powp/exec11/L100/B1#8e82a217":{"winner":"wv-nt","widx":1,"tie":0,"us":5423.04,"margin":0.2817},
+"gen_planner/tree/L100":{"winner":"c5(gt(d4,d5))@f0@w0","widx":-1,"tie":0,"us":0,"margin":0},
+"gen_pfa_large/exec1/L100/B1#fdc02e4e":{"winner":"x1","widx":-1,"tie":0,"us":0,"margin":0},
 "gen_race/exe14/L50/B4#4c8c9b0e":{"winner":"gen_powp.49cdd712","widx":1,"tie":1,"us":1555.54,"margin":0.01997},
 "gen_race/exegate14/L50/B4/gen_pfa_large.48e0d374":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
 "gen_race/exegate14/L50/B4/gen_pfa_small.ad31dd16":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},

@@ -1,0 +1,11 @@
+Done. Final state of the round:
+
+**What shipped** (`impl/d1_composite.c` + new `strategies/d1_composite.md`):
+- **Good–Thomas PFA 60 = 4·3·5** — twiddle-free via CRT index maps (verified against numpy before writing C), DFT-4/3/5 kernels with sign-folded constants so ±i costs one in-lane shuffle.
+- **B=1**: ymm kernel paired over n1 (the one dimension stages B/C never touch, so zero repacking).
+- **Batched execute**: two transforms per ymm register (one insert/extract per operand); a zmm 4-transform variant measured a tie and is kept behind a flag.
+- **Owned `fft1d_chain`**: for B≥8 the state stays in split-complex SoA across all m steps (gather once, scatter once), each step fully in place using the fact that the stage-C output permutation is an involution on the 12 DFT-5 blocks; map fused, computed with rsqrt14/rcp14 + 2 Newton rounds (chain gate error unchanged: 6.6e-13 vs 6.3e-13 exact).
+
+**Wallaby warm-core numbers vs same-core libraries**: B=1 m=1 0.045us (MKL 0.036, FFTW 0.048); B=512 m=1 ~0.045 (parity with MKL); B=1 chained 0.105–0.112 (MKL 0.204 → ~1.9x win); B=512 chained 0.048–0.056 (MKL 0.191 → ~4x win). Dead ends documented with numbers: gather/scatter SoA execute (0.129 vs 0.061), plain scalar kernel (0.178), zmm4 (tie). All gates pass: rel L2 2.2e-16 single-call, both chain gates, edge batches 2–13, repeatability. The reservation was down all session, so timings are wallaby same-core interleaved A/Bs (methodology caveats in the record); the monitor's node will produce the official cells.
+
+One line, as requested: **Good–Thomas PFA 4·3·5 with n1-paired ymm kernels and an SoA-resident in-place fused-map chain — B=1: 0.045 us (m=1) / 0.105 us chained; batched: 0.045 us (m=1) / 0.048 us chained per transform on wallaby; rel L2 = 2.2e-16.**

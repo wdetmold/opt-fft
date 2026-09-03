@@ -1,0 +1,78 @@
+fftw1d_custom_soa: fft1d_create failed for L=13 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=13 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=13 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=31 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=31 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=31 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=32 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=32 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=32 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=60 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=60 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=60 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=64 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=64 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=64 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=128 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=128 batch=1
+fftw1d_custom_soa: fft1d_create failed for L=128 batch=1
+fftw1d_custom: does not support L=1024
+fftw1d_custom: does not support L=1024
+fftw1d_custom: does not support L=1024
+fftw1d_custom_soa: does not support L=1024
+fftw1d_custom_soa: does not support L=1024
+fftw1d_custom_soa: does not support L=1024
+fftw1d_custom: does not support L=1024
+fftw1d_custom: does not support L=1024
+fftw1d_custom: does not support L=1024
+fftw1d_custom_soa: does not support L=1024
+fftw1d_custom_soa: does not support L=1024
+fftw1d_custom_soa: does not support L=1024
+fftw1d_custom: does not support L=4096
+fftw1d_custom: does not support L=4096
+fftw1d_custom: does not support L=4096
+fftw1d_custom_soa: does not support L=4096
+fftw1d_custom_soa: does not support L=4096
+fftw1d_custom_soa: does not support L=4096
+fftw1d_custom: does not support L=4096
+fftw1d_custom: does not support L=4096
+fftw1d_custom: does not support L=4096
+fftw1d_custom_soa: does not support L=4096
+fftw1d_custom_soa: does not support L=4096
+fftw1d_custom_soa: does not support L=4096
+fftw1d_custom: does not support L=16384
+fftw1d_custom: does not support L=16384
+fftw1d_custom: does not support L=16384
+fftw1d_custom_soa: does not support L=16384
+fftw1d_custom_soa: does not support L=16384
+fftw1d_custom_soa: does not support L=16384
+fftw1d_custom: does not support L=16384
+fftw1d_custom: does not support L=16384
+fftw1d_custom: does not support L=16384
+fftw1d_custom_soa: does not support L=16384
+fftw1d_custom_soa: does not support L=16384
+fftw1d_custom_soa: does not support L=16384
+fftw1d_custom: does not support L=1021
+fftw1d_custom: does not support L=1021
+fftw1d_custom: does not support L=1021
+fftw1d_custom_soa: does not support L=1021
+fftw1d_custom_soa: does not support L=1021
+fftw1d_custom_soa: does not support L=1021
+fftw1d_custom: does not support L=1021
+fftw1d_custom: does not support L=1021
+fftw1d_custom: does not support L=1021
+fftw1d_custom_soa: does not support L=1021
+fftw1d_custom_soa: does not support L=1021
+fftw1d_custom_soa: does not support L=1021
+fftw1d_custom: does not support L=10007
+fftw1d_custom: does not support L=10007
+fftw1d_custom: does not support L=10007
+fftw1d_custom_soa: does not support L=10007
+fftw1d_custom_soa: does not support L=10007
+fftw1d_custom_soa: does not support L=10007
+fftw1d_custom: does not support L=10007
+fftw1d_custom: does not support L=10007
+fftw1d_custom: does not support L=10007
+fftw1d_custom_soa: does not support L=10007
+fftw1d_custom_soa: does not support L=10007
+fftw1d_custom_soa: does not support L=10007
