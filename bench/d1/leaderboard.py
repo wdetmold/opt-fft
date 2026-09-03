@@ -1,11 +1,23 @@
 """Aggregate a benchmark round into a leaderboard.
 
-Timing is taken as the MINIMUM over independent processes of each process's minimum
-sample: the least-disturbed measurement of the same fixed work.  The spread across
-processes is reported alongside, so a suspiciously lucky run is visible rather than
-hidden.  A backend that failed correctness is shown but never ranked.
+Each cell is measured in several independent processes; each process reports the minimum of
+its own samples.  The statistic across those processes is the MEDIAN, not the minimum.
+
+That is a deliberate change from the original min-of-mins ("the least-disturbed measurement
+of the same fixed work"), for a measured reason.  The within-process precision is excellent
+-- an m=1 cell uses ~1.2M inner repetitions and reports sd/min of 0.5% -- but the spread
+ACROSS processes, which is core placement and cache state rather than the kernel, is 9.0%
+median for single-call cells against 1.1% for chained ones.  min-of-N walks downward as N
+grows, so it is not comparable between rounds run with different run counts, and single-call
+cells are now run 3x more often than chained ones precisely because they are the noisy ones.
+The median is stable under changing N, so a round's numbers mean the same thing as the last
+round's.  The min is still printed alongside, and so is the inter-run spread.
+
+A cell whose panel-vs-library gap is smaller than the measurement spread is marked
+UNRESOLVED rather than being reported as a win or a loss -- at 9% noise, calling a 1.05x a
+victory is not a measurement.  A backend that failed correctness is shown but never ranked.
 """
-import argparse, glob, json, math, os, re
+import argparse, glob, json, math, os, re, statistics
 from collections import defaultdict
 
 # A CELL is (L, batch, m).  The chain length is part of the identity, not an attribute:
@@ -143,20 +155,22 @@ for (L, B, m) in cases:
     label += ", single call" if m == 1 else f", chain m={m}"
     working_set = 2 * 16 * volume * B / 1024**2   # in + out, MiB
     emit(f"-- L={L} ({label}), working set {working_set:.3f} MiB --")
-    emit(f"   {'backend':<24} {'per-transform':>14} {'per-call':>12} {'GF/s':>8} "
-         f"{'run spread':>11} {'setup':>9}  correctness")
+    emit(f"   {'backend':<24} {'median us/xf':>14} {'best us/xf':>12} {'GF/s':>8} "
+         f"{'spread':>9} {'runs':>4} {'setup':>8}  correctness   (? = gap inside the noise)")
     rows = []
     for (l, b, mm, name), runs in timings.items():
         if (l, b, mm) != (L, B, m):
             continue
-        best = min(runs)
-        spread = (max(runs) - best) / best if best > 0 else float("nan")
+        best = statistics.median(runs)          # stable under changing run counts
+        fastest = min(runs)
+        spread = (max(runs) - fastest) / fastest if fastest > 0 else float("nan")
         chk = checks.get((L, B, m, name))
         ok = verdict_ok(L, B, m, name)
-        rows.append((best, name, spread, ok, chk))
+        rows.append((best, name, spread, ok, chk, fastest, len(runs)))
     rows.sort()
     fastest_ok = next((r[0] for r in rows if r[3]), None)
-    for best, name, spread, ok, chk in rows:
+    best_spread = next((r[2] for r in rows if r[3]), 0.0) or 0.0
+    for best, name, spread, ok, chk, fastest, nr in rows:
         if chk and "chain_rel_l2" in chk:
             one = onestep.get((L, B, m, name))
             ostr = (" 1s=%.0e" % one["one_rel_l2"]) if one and "one_rel_l2" in one else ""
@@ -165,10 +179,16 @@ for (L, B, m) in cases:
         else:
             verdict = ("ok %.1e" % chk["rel_l2"]) if ok else (
                 "FAILED %.1e" % chk["rel_l2"] if chk else "unchecked")
-        rel = f"{best / fastest_ok:.2f}x" if (fastest_ok and ok) else "--"
-        emit(f"   {name:<24} {best/(B*m)*1e6:11.4f} us {best*1e6:9.3f} us "
-             f"{nominal/best/1e9:8.2f} {spread*100:9.1f}% "
-             f"{setups[(L,B,m,name)]:8.3f}s  {verdict:<16} {rel}")
+        if fastest_ok and ok:
+            ratio = best / fastest_ok
+            # Half the spread is a rough 1-sigma on each side; a gap inside that is noise.
+            noise = max(spread, best_spread) / 2.0
+            rel = f"{ratio:.2f}x" + ("?" if abs(ratio - 1.0) <= noise else "")
+        else:
+            rel = "--"
+        emit(f"   {name:<24} {best/(B*m)*1e6:11.4f} us {fastest/(B*m)*1e6:11.4f} us "
+             f"{nominal/best/1e9:8.2f} {spread*100:8.1f}% {nr:3d}r "
+             f"{setups[(L,B,m,name)]:7.3f}s  {verdict:<16} {rel}")
     emit()
 
 if descriptions:

@@ -24,9 +24,12 @@ p.add_argument("--cases", required=True)
 p.add_argument("--shards", type=int, required=True)
 p.add_argument("--prev-round", default=None)
 p.add_argument("--runs", type=int, default=3)
+p.add_argument("--runs-once", type=int, default=None,
+               help="runs for m=1 cells (they are measured more often; see sweep.sh)")
 p.add_argument("--samples", type=int, default=12)
 p.add_argument("--min-sample-ms", type=float, default=20.0)
 a = p.parse_args()
+RUNS_ONCE = a.runs_once or a.runs * 3
 
 root = os.path.dirname(os.path.abspath(__file__))
 measured = defaultdict(float)
@@ -42,8 +45,13 @@ if a.prev_round:
         per = d["per_execute_seconds"]["min"]
         setup = d.get("setup_seconds", 0.0) or 0.0
         # one backend's share of this cell, over all its runs
-        cost = a.runs * setup + a.runs * a.samples * max(a.min_sample_ms / 1e3, per)
-        measured[(d["L"], d["batch"], m)] += cost / a.runs   # files are per run; average in
+        nr = RUNS_ONCE if m == 1 else a.runs
+        cost = nr * setup + nr * a.samples * max(a.min_sample_ms / 1e3, per)
+        # files are per run, so divide by the count that PRODUCED them (the previous round
+        # may have used a different run count than the one we are costing for)
+        measured[(d["L"], d["batch"], m)] += cost / max(1, len(
+            glob.glob(os.path.join(root, "results", a.prev_round,
+                                   f"t_{d['name']}_L{d['L']}_B{d['batch']}_m{m}_r*.json"))))
 
 cases = []
 for line in open(a.cases):
@@ -59,7 +67,8 @@ for line in open(a.cases):
     else:
         # analytic fallback, floored the same way the driver floors a sample
         per = 5.0 * L * math.log2(max(L, 2)) * B * m / 2e10       # ~20 GFlop/s
-        cost = 15 * a.runs * a.samples * max(a.min_sample_ms / 1e3, per)
+        nr = RUNS_ONCE if m == 1 else a.runs
+        cost = 15 * nr * a.samples * max(a.min_sample_ms / 1e3, per)
     cases.append((cost, line))
 
 cases.sort(key=lambda x: -x[0])

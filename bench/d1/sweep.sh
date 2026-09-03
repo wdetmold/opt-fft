@@ -14,11 +14,18 @@ source /home/lqcd/wdetmold/fft/env.sh >/dev/null 2>&1
 
 ROUND=""; SEED=0; RUNS=3; SAMPLES=20; QUICK=0; CASEFILE=cases.txt; FRESH=0
 SHARD=""; BOARD=1
+# Single-call cells are measured 3x more often than chained ones.  The driver's WITHIN-process
+# precision is fine either way (m=1 uses ~1.2M inner reps, sd/min 0.5%), but the spread ACROSS
+# independent processes -- core placement, cache state -- is 9.0% median for m=1 against 1.1%
+# for chained, so verdicts within ~10% of parity were not resolvable at 3 runs.  Extra runs
+# only cost wall clock, which sharding across both nodes has now freed up.
+RUNS_ONCE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --round) ROUND=$2; shift 2 ;;
     --seed) SEED=$2; shift 2 ;;
     --runs) RUNS=$2; shift 2 ;;
+    --runs-once) RUNS_ONCE=$2; shift 2 ;;   # independent runs for m=1 cells
     --samples) SAMPLES=$2; shift 2 ;;
     --quick) QUICK=1; shift ;;
     --cases) CASEFILE=$2; shift 2 ;;
@@ -35,6 +42,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$ROUND" ] || { echo "sweep.sh: --round is required" >&2; exit 2; }
+# Default single-call cells to 3x the chained run count.  Defaulting rather than requiring a
+# flag means the runner needs no change, and 3x is what the noise asks for: the inter-process
+# spread is ~9% for m=1 against ~1.1% chained, and a median over 3x the processes cuts that by
+# about sqrt(3).  In r3 that would move 6 of the 26 once cells from "verdict inside the noise"
+# to resolved -- cells like L=64 B=512/once, reported as a 1.11x win with +/-18% of noise.
+RUNS_ONCE=${RUNS_ONCE:-$((RUNS * 3))}
 
 OUT=results/$ROUND
 mkdir -p "$OUT"
@@ -52,7 +65,7 @@ MANIFEST="$OUT/.manifest$SHARD"
 # The SOURCES decide the numbers, not the binaries: make clean rebuilds those every attempt,
 # so their hashes differ even when nothing changed.
 SRCFP=$(cat driver.c fft1d_api.h sota/*.c impl/*.c 2>/dev/null | md5sum | cut -d" " -f1)
-WANT="round=$ROUND seed=$SEED runs=$RUNS samples=$SAMPLES cases=$CASEFILE src=$SRCFP"
+WANT="round=$ROUND seed=$SEED runs=$RUNS/$RUNS_ONCE samples=$SAMPLES cases=$CASEFILE src=$SRCFP"
 RESUME=0
 if [ -f "$MANIFEST" ] && [ "$FRESH" = 0 ]; then
   HAVE=$(cat "$MANIFEST")
@@ -85,9 +98,9 @@ printf "%s" "$WANT" > "$MANIFEST"
 DONELIST="$OUT/.done_units$SHARD"
 : > "$DONELIST"
 if [ "$RESUME" = 1 ]; then
-  python3 - "$OUT" "$RUNS" > "$DONELIST" <<'PY'
+  python3 - "$OUT" "$RUNS" "$RUNS_ONCE" > "$DONELIST" <<'PY'
 import glob, json, os, re, sys
-out, runs = sys.argv[1], int(sys.argv[2])
+out, runs, runs_once = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 pat = re.compile(r"^t_(?P<b>.+)_L(?P<L>\d+)_B(?P<B>\d+)_m(?P<m>\d+)_r(?P<r>\d+)\.json$")
 
 def load(path):
@@ -104,10 +117,11 @@ for path in glob.glob(os.path.join(out, "t_*_r*.json")):
         units.setdefault((mo["b"], mo["L"], mo["B"], mo["m"]), set()).add(int(mo["r"]))
 
 for (b, L, B, m), have in sorted(units.items()):
-    if set(range(1, runs + 1)) - have:
+    want = runs_once if int(m) == 1 else runs      # m=1 cells are run more often
+    if set(range(1, want + 1)) - have:
         continue                                    # not every run recorded
     ds = [load(os.path.join(out, f"t_{b}_L{L}_B{B}_m{m}_r{r}.json"))
-          for r in range(1, runs + 1)]
+          for r in range(1, want + 1)]
     if any(d is None for d in ds):
         continue                                    # a partial write is NOT a result
     # An unsupported backend writes timing JSONs with supported=false and produces no
@@ -212,7 +226,8 @@ for case in $CASES; do
       echo "   skip $backend L=$L B=$B m=$M (already measured)" >> "$OUT/timing$SHARD.log"
       continue
     fi
-    for run in $(seq 1 "$RUNS"); do
+    nruns=$RUNS; [ "$M" -eq 1 ] && nruns=$RUNS_ONCE
+    for run in $(seq 1 "$nruns"); do
       # A panel entry that hangs or crashes must not take the round down with it.
       CHAINARGS=""
       [ "$M" -gt 1 ] && CHAINARGS="--chain $M --map --cin $CIN"

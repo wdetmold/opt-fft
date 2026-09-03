@@ -88,7 +88,9 @@ if [ -f RESERVATION ] && ./reserve.sh --status >/dev/null 2>&1; then
     # proxies do not work).  Sharding is only a speedup if the shards finish together.
     PREVR="${ROUND%r*}r$(( ${ROUND##*r} - 1 ))"
     [ -d "results/$PREVR" ] || PREVR=""
-    ./shard_cases.py --cases "$CF" --shards "$NSHARD" --runs 3 --samples 12 \
+    RN=$(echo "$EXTRA" | sed -n 's/.*--runs \([0-9]*\).*/\1/p'); RN=${RN:-3}
+    SM=$(echo "$EXTRA" | sed -n 's/.*--samples \([0-9]*\).*/\1/p'); SM=${SM:-12}
+    ./shard_cases.py --cases "$CF" --shards "$NSHARD" --runs "$RN" --samples "$SM" \
         ${PREVR:+--prev-round $PREVR} 2>>"results/$ROUND/sweep.out" \
       | grep -v '^#' \
       | while read -r sh c; do echo "$c" >> "results/$ROUND/.shard_$sh.cases"; done
