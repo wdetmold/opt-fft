@@ -13,9 +13,11 @@ cells are now run 3x more often than chained ones precisely because they are the
 The median is stable under changing N, so a round's numbers mean the same thing as the last
 round's.  The min is still printed alongside, and so is the inter-run spread.
 
-A cell whose panel-vs-library gap is smaller than the measurement spread is marked
-UNRESOLVED rather than being reported as a win or a loss -- at 9% noise, calling a 1.05x a
-victory is not a measurement.  A backend that failed correctness is shown but never ranked.
+A cell whose panel-vs-library gap is inside 2 standard errors of the two medians combined is
+marked "?" rather than reported as a win or a loss -- calling a 1.05x a victory when the
+statistic carries 5% of uncertainty is not a measurement.  The band is built from the standard
+error of the median, which SHRINKS as runs are added; the observed range does the opposite and
+must not be used for this.  A backend that failed correctness is shown but never ranked.
 """
 import argparse, glob, json, math, os, re, statistics
 from collections import defaultdict
@@ -164,13 +166,22 @@ for (L, B, m) in cases:
         best = statistics.median(runs)          # stable under changing run counts
         fastest = min(runs)
         spread = (max(runs) - fastest) / fastest if fastest > 0 else float("nan")
+        # Uncertainty ON THE STATISTIC, not the observed range.  The range (max-min)/min grows
+        # as you sample more of the tail, so using it as a noise band made cells measured with
+        # 9 runs look LESS resolved than the same cells at 3 runs -- the same N-dependence
+        # mistake as ranking on min-of-N, one level up.  The standard error of the median
+        # (~1.253*sd/sqrt(n) asymptotically) shrinks with n, as an uncertainty must.
+        if len(runs) >= 2 and best > 0:
+            rel_se = 1.253 * statistics.stdev(runs) / math.sqrt(len(runs)) / best
+        else:
+            rel_se = float("nan")
         chk = checks.get((L, B, m, name))
         ok = verdict_ok(L, B, m, name)
-        rows.append((best, name, spread, ok, chk, fastest, len(runs)))
+        rows.append((best, name, spread, ok, chk, fastest, len(runs), rel_se))
     rows.sort()
     fastest_ok = next((r[0] for r in rows if r[3]), None)
-    best_spread = next((r[2] for r in rows if r[3]), 0.0) or 0.0
-    for best, name, spread, ok, chk, fastest, nr in rows:
+    best_se = next((r[7] for r in rows if r[3]), 0.0) or 0.0
+    for best, name, spread, ok, chk, fastest, nr, rel_se in rows:
         if chk and "chain_rel_l2" in chk:
             one = onestep.get((L, B, m, name))
             ostr = (" 1s=%.0e" % one["one_rel_l2"]) if one and "one_rel_l2" in one else ""
@@ -181,9 +192,12 @@ for (L, B, m) in cases:
                 "FAILED %.1e" % chk["rel_l2"] if chk else "unchecked")
         if fastest_ok and ok:
             ratio = best / fastest_ok
-            # Half the spread is a rough 1-sigma on each side; a gap inside that is noise.
-            noise = max(spread, best_spread) / 2.0
-            rel = f"{ratio:.2f}x" + ("?" if abs(ratio - 1.0) <= noise else "")
+            # Combine both statistics' relative standard errors, then ask for 2 sigma before
+            # calling a difference real.  A gap inside that is not a measurement.
+            a_ = 0.0 if rel_se != rel_se else rel_se
+            b_ = 0.0 if best_se != best_se else best_se
+            band = 2.0 * math.sqrt(a_ * a_ + b_ * b_)
+            rel = f"{ratio:.2f}x" + ("?" if abs(ratio - 1.0) <= band else "")
         else:
             rel = "--"
         emit(f"   {name:<24} {best/(B*m)*1e6:11.4f} us {fastest/(B*m)*1e6:11.4f} us "
