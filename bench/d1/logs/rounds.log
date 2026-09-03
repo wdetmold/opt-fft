@@ -132,3 +132,26 @@ scoring window open: all 24 slots held
 [2026-09-02 22:20:44] promoting: d1_prime d1_pow2 d1_batchlane d1_composite d1_rader d1_bluestein d1_race
 /tmp/fft_rounds_sKHc36.sh: line 529: ./promote.sh: No such file or directory
 [2026-09-02 22:20:44] promote.sh reported a problem
+[2026-09-02 22:21:29] committed round d1_r1
+[2026-09-02 22:21:29] ---------- d1_r1 complete; next is d1_r2 of d1_r4 ----------
+[2026-09-02 22:21:29] ---------- d1_r2 begins ----------
+[2026-09-02 22:21:29] d1_r2 works in impl_2 (10 sources carried over from impl_1)
+[2026-09-02 22:21:29] context pack: 221 lines
+[2026-09-02 22:21:29] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+[2026-09-02 23:24:01] implementers finished: 9 reported
+[2026-09-02 23:24:01] submitting timing round d1_r2 (seed 20262847) to the exclusive benchmark node
+scoring d1_r2 on reserved Ice Lake node a80n0
+scoring window open: all 24 slots held
+[2026-09-03 02:30:47] sbatch submission failed; retrying once in 120s
+no live reservation -- trying to claim one
+scoring d1_r2 on reserved Ice Lake node a80n0
+scoring window open: all 24 slots held
+   fftw1d_patient           FFTW 3.3.10 plan_many_dft 1D, fftw1d_patient
+   mkl1d_dfti               oneMKL DFTI 1D, sequential, batched
+== round d1_r2 complete: results/d1_r2 ==
+[2026-09-03 02:50:37] leaderboard for d1_r2 is in
+[2026-09-03 02:50:39] served models for d1_r2:    1412 claude-fable-5 
+[2026-09-03 03:01:55] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r2/monitor.log)
+[2026-09-03 03:01:55] promoting: d1_prime d1_pow2 d1_batchlane d1_composite d1_rader d1_bluestein d1_race
+/tmp/fft_rounds_sKHc36.sh: line 529: ./promote.sh: No such file or directory
+[2026-09-03 03:01:55] promote.sh reported a problem

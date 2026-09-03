@@ -106,3 +106,122 @@ L=32/64 codelets are that idea); no other implementer had produced anything this
 - If a chained cell ever fails on the scoring node's seeds: the fallback is exact
   vsqrtpd/vdivpd in map_vec (matches driver-map quality; costs ~30% of chained-cell time
   at small L).
+
+## Round d1_r2 (2026-09-02)
+
+No Ice Lake reservation again (job 440371 gone, tryout.sh refuses), so all numbers are
+wallaby (SPR 6448Y), pinned nice'd core, min-over-runs, A/B against binaries built in the
+same session. r1's scoring-node lesson drove the round: my AoS code degraded 1.54x from
+wallaby to a80n0 while MKL stayed put and batchlane's shuffle-free kernels degraded only
+1.32x — on Ice Lake every 512-bit shuffle lands on port 5, which is also one of the two
+FMA ports. So the round's theme was removing shuffles from every hot loop.
+
+### Change 1 — across-batch SoA chain path (TAKEN FROM d1_batchlane, r1 record)
+
+For fft1d_chain with batch >= 8 and L <= 2048: groups of 8 transforms, zmm lane = batch
+index, split-complex planes, one 8x8 double transpose in/out per group per CHAIN (not per
+step), broadcast scalar twiddles, pure radix-4 ladder, map fused in split form (cheaper
+than AoS: |z|^2 needs no pair-swap dup). This is exactly batchlane's design; they beat me
+with it at 32/64 batched chained in r1 (0.0607 vs my 0.0852 on a80n0).
+  - 32 B=512 m=1000: 0.064 -> 0.032 us   (fixes the one cell where a LIBRARY beat me:
+    fftw1d_custom_soa 0.0665 on a80n0)
+  - 64 B=512 m=500: 0.116 -> 0.062       128 B=512 m=250: 0.233 -> 0.146
+  - GATED at L <= 2048: group working set is 3 x 16L doubles; at 16384 it MEASURED 2x
+    SLOWER than the per-transform path (98.0 vs 48.8 us) — streams L3 every step while
+    per-transform blocking stays L2-resident. At 4096 it fit wallaby's 2 MB L2 (4% win)
+    but not the scoring node's 1.25 MB; gated out.
+
+### Change 2 — blocked split-complex radix-8 engine for L >= 128 (execute + chain)
+
+Replaced the interleaved-AoS pipeline above the codelets. Three design points, each
+measured the hard way:
+  1. FORMAT: blocks of 8 complexes as [8 re | 8 im], NOT two big planes. Plane format
+     lost 42% at 4096 B=1 (9.6 vs 6.7 us): each radix-8 stage runs 16 read + 16 write
+     streams whose strides are 4K multiples, exhausting L1 sets/fill buffers (a 64B
+     im-plane pad did NOT fix it — it is stream count, not set conflicts). Blocks keep
+     the AoS engine's 8+8 streams; the split kernels are unchanged (im = re + 8 doubles).
+  2. FREE CONVERSION: the stride-1 first stage writes blocked-split directly — its store
+     transpose is 8 permutes per 16 complexes in EITHER output format, so AoS->split
+     costs zero. (The first attempt, a separate AoS->split stage at s=4 with deint loads
+     + ymm-half stores, was the bottleneck: 36% total loss at 1024, shrinking as more
+     clean stages diluted it.) One paired-p radix-8/4 stage covers s == 4 with vector
+     twiddles and pair-merged full-zmm stores; every later stage is pure vertical FMA,
+     ZERO shuffles, broadcast twiddles; the twiddle-free final re-interleaves on store.
+  3. BUFFERS: keep using the caller's out buffer as one ping-pong intermediate. A second
+     scratch instead MEASURED +20% at 1024 B=1 and +10% at 16384 (L1 working set 48 ->
+     64 KB at 1024). This one is subtle and worth remembering: buffer COUNT, not just
+     traffic, is a first-order effect at L1-boundary sizes.
+  Schedules (first stage radix-4 s1s, then paired s=4 stage radix 8 or 4 so the rest
+  factors as 8^a * (8|4), then SS8s, then SF8/SF4): 128 -> 3 passes, 1024 -> 4,
+  4096/16384 -> 5. Same pass counts as the AoS engine.
+
+Result on wallaby: parity to +3% on non-chained cells (even at 512-16384, -3% at 128 B=1,
+~+5% at the DRAM-bound 1024 B=512 — accepted), and the split-form fused map turned into
+real chained wins:
+  - 128 B=1 m=30000: 0.231 -> 0.173      1024 B=1 m=4000: 2.169 -> 1.716
+  - 4096 B=1 m=1000: 10.82 -> 9.16 (chain 256/400: 10.89 -> 9.23)
+  - 16384 B=1 m=250: 49.7 -> 41.7 (64/150: 48.8 -> 42.6), 16384 B=1 m=1: 29.3 -> 27.0
+The wallaby-parity bet is that the scoring node pays ~2/3 fewer port-5 shuffle uops in
+every middle stage; r1's cross-machine degradation numbers say that is where my 1.3-1.7x
+non-chained losses at 128-16384 came from.
+
+### Tooling note (record so nobody re-trusts it blindly)
+
+llvm-mca (/opt/software/llvm-22.1.8, -mcpu=icelake-server) models ONE 512-bit FMA unit:
+it piles all 512-bit FP on port 0 (aos radix-8 loop: p0=42, p5=21 per iter) and rates my
+AoS and split radix-8 stages IDENTICAL per complex. The scoring node's Gold 6326 has TWO
+FMA units, so rebalancing by hand gives split ~0.88 vs AoS ~0.98 cycles/complex. Use mca
+for uop counts and dependency chains, not for p0/p5 balance on this machine.
+
+### What did NOT work, with the number that killed it
+
+- Split-complex as two L-sized planes: 9.6 vs 6.7 us at 4096 B=1 (stream-count blowup,
+  see above). 64B im-plane pad: no change (9.56).
+- Dedicated AoS->split conversion stage at s=4 (deint loads, per-lane vector twiddles,
+  ymm-half stores): 1.24 vs 1.01 us at 1024 B=1 even after the block format fixed the
+  streams. Conversion must be fused where a transpose already exists.
+- Two private scratch buffers in run_stages: 1.19 vs 1.01 at 1024 B=1, 30.6-32.3 vs 28.1
+  at 16384 (this one masqueraded as "split kernels are slow" for an hour — the honest
+  A/B was rebuilding the AoS engine against the SAME buffer scheme).
+- SoA chain at 4096/16384 (see gate above).
+
+### Correctness
+
+All 24 graded pow2 cells PASS (rel_l2 <= 3.4e-16 single-call; chain gates worst
+4.5e-12 at 1024:1:4000 vs 1e-10 floor). Remainder paths (batch % 8 through SoA+tail,
+B=3/5/9/11/12), L=16 legacy path, and two-process repeatability all verified. The
+non-graded unlucky config 128 B=8 m=30000 reads 1.19e-10 vs r1's 1.56e-10 — same
+known-hot config, slightly better, still above the floor, still not a graded cell.
+
+### Best wallaby numbers this round (min us/transform)
+
+| L     | B=1 m=1 | batched m=1 | B=1 chained | batched chained |
+|-------|---------|-------------|-------------|-----------------|
+| 32    | 0.012   | 0.012 (512) | 0.064       | 0.032 (512)     |
+| 64    | 0.029   | 0.028 (512) | 0.116       | 0.062 (512)     |
+| 128   | 0.073   | 0.089 (512) | 0.173       | 0.146 (512)     |
+| 1024  | 1.014   | 1.49 (512)  | 1.716       | 2.093 (512)     |
+| 4096  | 6.68    | 8.91 (256)  | 9.16        | 9.23 (256)      |
+| 16384 | 27.0    | 37.1 (64)   | 41.7        | 42.6 (64)       |
+
+### Borrowed
+
+- d1_batchlane (r1 record): the entire SoA-groups-of-8 fused-chain design, including the
+  L1-residency argument and the "transpose once per chain" accounting. Named plainly:
+  change 1 is their idea, re-implemented and extended with my refined rsqrt/rcp map and
+  the L <= 2048 gate.
+- gen/tools/TOOLS.md llvm-mca recipe (and its "trust relative, not absolute" warning,
+  which this round sharpened: not even relative is safe when the unit count is wrong).
+
+### Next round
+
+- The 4096/16384 B=1 gap to MKL on the scoring node (1.57-1.70x in r1) is bigger than
+  shuffle relief alone can close if wallaby parity translates to ~1.3x on a80n0. The
+  remaining lever is four-step/six-step 64x64 and 128x128 with L1-resident sub-FFTs and
+  fused twiddle multiply — now much cheaper to build because the split kernels already
+  exist. Do that FIRST next round, measured per stage from the start.
+- 1024 B=512 m=1 (+5% this round): try the AoS schedule for large-batch execute only, or
+  software prefetch of the next transform's input inside stage_s1s.
+- If the monitor's leaderboard shows the split engine did NOT close the ICX gap: get a
+  reservation and PMU the port-5 dispatch directly (tools/pmu.sh, /tmp/perf) before
+  touching anything else. The whole round is a bet on that counter.

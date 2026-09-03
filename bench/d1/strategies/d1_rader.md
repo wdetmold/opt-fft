@@ -147,3 +147,134 @@ cell belongs to d1_prime's dense fold or a future straight-line codelet.
 5. **10007 nested-Rader A/B** (5003-1 = 2*41*61): the survey's untested
    opening; only worth it if it can beat d1_bluestein's ~110 us, so measure
    the 5003-conv cost first before building anything.
+
+## Round d1_r2 (2026-09-02) — the scoring node is a different machine: hand-vectorize everything hot
+
+**Measurement conditions: the Ice Lake reservation (icehold 440371 on a80n0 —
+the scoring node itself) was LIVE this round, so every number below is from
+tryout.sh / direct ssh runs pinned to core 2 of a80n0. Same-window A/B against
+the previous build throughout. Late in the session other implementers' tryout
+slots added visible noise to the memory-bound cells (65537 B=16 wobbled
+1489 -> 1653 across windows); the A/B deltas quoted were taken within one
+window and are trustworthy, the absolute numbers for memory-bound cells are
+whatever the scoring quiet gives.**
+
+### The r1 lesson that drove everything: wallaby numbers had lied
+
+r1's 7.43 us at 1021 B=1 (wallaby, SPR) scored as **13.92 us** on Ice Lake —
+MKL (8.28) took the cell. First diagnostic this round: skipping both dense
+radix-17 stages dropped 14.7 -> 8.17 us, i.e. **st17 was 6.5 us = 44% of the
+transform**, running at ~10% of FMA peak. gcc 11 had never vectorized ANY of
+the q-loops (3.3 GF/s = scalar FMA throughput); SPR merely tolerated the
+scalar code better than Ice Lake. Autovectorizer coaxing failed twice with
+numbers: a tiled two-pass form with `t[4][8][8]` went to 21.7 us (gcc keeps
+vector accumulator arrays in memory), a register-economized two-pass scalar
+form 15.4 us (outer-loop vectorization never triggers across nested constant
+j/k loops). Conclusion adopted for the whole file: **the hot kernels get
+explicit AVX-512 intrinsics; the autovectorizer only keeps the cases it
+provably handles.**
+
+### What the implementation now is (deltas from r1)
+
+1. **st17 rewritten with __m512d intrinsics** (st17_body/st17_vblock): masked
+   8-lane blocks, u-half computed with A_k parked in both twin output slots,
+   v-half computed second and combined by RMW — live state ~22 regs per half,
+   j/k loops unrolled by pragma, coefficients as vbroadcastsd. Three
+   compile-time mode instantiations: plain / scatter-fused exit / chain-map-
+   fused exit. NOTE: header intrinsics refuse to inline into functions
+   carrying the old `target("arch=icelake-server")` attribute when the command
+   line is `-march=native` (option-mismatch error), so the HOT attribute was
+   dropped from everything the intrinsic code touches — builds are always
+   -march=native on the target machine anyway.
+2. **Entry gather vectorized WITHOUT vgatherdpd**: 8 random complex points are
+   loaded as 128-bit pairs assembled with vinsertf64x2 (4 per zmm) + one even/
+   odd vpermt2pd per plane (GATHER8). An actual vgatherdpd version measured
+   WORSE than scalar (2.8 us vs 2.0 within a 9.56 us transform) — Ice Lake
+   gathers are microcoded and lose on L1/L2-resident data. Same story on the
+   store side: the vscatterdpd fused exit cost 2.4 us; the shipped fused exit
+   stages the vector through the stack and stores scalar (ST17_SINKSTORE),
+   and beats the unfused arrangement 7.85 vs 8.28 us. **Fusion decisions must
+   be A/B'd, not profiled**: perf attributed the stall time so misleadingly
+   that I un-fused first and lost 0.4 us.
+3. **st3 s==4 vector path** (st3_s4): two p-groups per zmm (8 contiguous
+   doubles ARE two radix-3 butterflies at s=4), twiddles pair-broadcast with
+   one vpermpd from a 128-bit load, outputs stored as 256-bit halves at
+   12p+4u. **st4_first_bhat and st5 (masked lane blocks, any s) vectorized**
+   the same way; scalar tails kept for m%8.
+4. **13/31 replaced by CRT register codelets** (the round's second big idea,
+   from the Winograd/Agarwal-Cooley corner of the survey): the Rader conv is
+   bracketed by permutations we own, so map the ring Z12 = Z4 x Z3 and
+   Z30 = Z2 x Z3 x Z5 at PLAN time (CRT maps folded into iidx/oidx, kernel
+   spectrum computed by the same codelet DFT so ordering is consistent by
+   construction). Cyclic conv becomes a twiddle-free DFT4(x)DFT3 /
+   DFT2(x)DFT3(x)DFT5, fully in registers, straight-line. TWO codegen traps,
+   each worth remembering: (a) local pointer temps (`double *r_ = re + 3*k`)
+   defeat gcc's SROA — index the arrays directly; (b) gcc's SLP vectorizer
+   turned the 12-point codelet into 47 vpermt2pd + 8 vgatherdpd and made it
+   SLOWER than the machinery it replaced (0.163 vs 0.113 us) —
+   `optimize("no-tree-vectorize,no-tree-slp-vectorize")` on the codelets
+   fixed it: 0.163 -> 0.056 us. Chain codelets keep the state in CRT order
+   (reversal permutation precomputed into p->rev); the map stays SCALAR
+   because zmm vsqrtpd/vdivpd are so slow on Ice Lake that an 8-wide map
+   measured 0.110 vs 0.099 us/step.
+
+### Measured (a80n0 = the scoring node, core 2, same-day A/B; "r1 score" = d1_r1 leaderboard)
+
+| cell | now | r1 score | best library (r1) |
+|---|---:|---:|---:|
+| 1021 B=1 | **7.85-7.99** | 13.92 | 8.28 MKL -> **WIN** |
+| 1021 B=256 | 9.06-9.28 | 13.11 | 8.75 MKL (borderline loss) |
+| 1021 B=1 chain m=2000 | **8.76** | 11.67 | 12.97 MKL |
+| 1021 B=256 chain m=400 | **7.88** | 11.62 | 12.39 MKL |
+| 65537 B=1 | **1183** | 1202 | 1465 patient |
+| 65537 B=16 | **1489** (noisy window 1653) | 1549 | 1518 patient -> **flips to WIN if quiet** |
+| 65537 chains | 985 / 1028 | 910 / 949 | 1629 / 1762 |
+| 13 B=1 / B=512 | 0.056 / 0.051 | 0.113 / 0.115 | 0.0218 / 0.0123 (still lost) |
+| 13 chains | 0.099 / 0.099 | 0.137 / 0.118 | 0.0665 / 0.051 (still lost, halved) |
+| 31 B=1 / B=512 | 0.211 / 0.210 | 0.386 / 0.391 | 0.178 / 0.090 (B=1 nearly closed) |
+| 31 chains | 0.250-0.303 / 0.251 | 0.350 / 0.350 | 0.209 / 0.209 |
+
+Accuracy: single-call rel_l2 1.6e-16 (13) … 1.4e-15 (65537), gate 1e-12; all
+chain gates pass with >= 3 decades of margin; verified at odd batches
+(1,2,3,8,16,256,512) per size; 127 (unscored) still correct at 1.77 us B=1.
+
+### What did NOT work, with the number that killed it
+
+- Tiled st17 with per-lane inner loops: 21.7 us (accumulator arrays stay in
+  memory). Two-pass scalar st17: 15.4 us (no outer-loop vectorization).
+- vgatherdpd entry: +0.8 us vs insert-assembly on L1-resident input.
+- vscatterdpd fused exit: 2.4 us vs 0.5-ish staged-scalar.
+- UN-fusing the radix-17 exit (plain st17 + separate scalar exit pass, done
+  because perf blamed the fused store): 8.28 vs 7.85 us — reverted. The
+  profiler mis-attributes stalls at this granularity; trust only A/B.
+- CRT codelet, first cut (pointer temps + autovectorizer on): 0.163 us at 13
+  — worse than the stage machinery it replaced. Both fixes above required.
+- 8-wide map in the small chain codelets: 0.110 vs 0.099 scalar (Ice Lake
+  zmm sqrt/div throughput).
+- Forcing padded M=2048 at 1021 on Ice Lake: 15.29 vs 13.93 unpadded — the
+  pad is no refuge; the pow2 stages were equally scalar.
+
+### Borrowings
+
+- The Agarwal-Cooley/Good-Thomas multidimensional-conv mapping for the small
+  codelets is straight from the survey's Winograd vein
+  (docs/literature_1d/00-SURVEY.md); nobody else on the panel has used it yet.
+- The r1 borrowings (d1_bluestein core, d1_prime fold + measurement protocol)
+  carry forward; the symmetric u/v fold now lives inside the intrinsic st17.
+
+### Next round, in priority order
+
+1. **1021 B=256 (borderline 9.1 vs 8.75 MKL)**: the batch loop is per-
+   transform; try software-pipelining two batch elements, and an NR-rsqrt map
+   (vrsqrt14pd + 2 Newton) for st17_chain / st4_last_chain — zmm sqrt+div is
+   the single ugliest per-element cost left everywhere.
+2. **31 B=1 (0.211 vs 0.178 fftw custom)**: the DFT30 codelet is pure scalar;
+   a careful SSE/AVX 2-lane schedule (NOT the SLP mess) or Winograd-style
+   reduced-multiplication DFT5/DFT3 should close 20%.
+3. **13**: concede B=1/B=512 to codelet-library territory or go across-batch
+   SoA lanes (8 transforms per zmm) for the B=512 cells; the survey says this
+   is the top untapped lever and d1_batchlane's record confirms the shape.
+4. **65537**: the one scalar stage left is st8 at s=4 (first middle stage);
+   the st3_s4 two-groups-per-vector trick generalizes to radix 8.
+5. **10007 nested-Rader A/B** (5003-1 = 2*41*61): still untried; only worth
+   it if it can beat d1_bluestein's ~110 us — measure the 5003-conv first.

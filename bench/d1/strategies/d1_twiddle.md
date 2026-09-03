@@ -120,3 +120,120 @@ B=3 and B=512 spot checks); map-chain gate PASS at m=40..100000 across sizes
   d1_rader: `d1tw_cexp` for root-power tables at 65537 where den = 65537 and the
   generator-permuted exponents are just `num`; d1_pow2/d1_composite/d1_batchlane:
   `d1tw_stage` consumption-order tables + the compile-time-specialization lesson above).
+
+## Round d1_r2 (2026-09-02/03) — AVX-512 vehicle, v2 adoption formats, fast fused map
+
+The r1 leaderboard put the vehicle 3–5x behind the leaders at every owned cell: the
+whole implementation was plain C hoping for auto-vectorization, and d1_batchlane's r1
+record explains why that ceiling exists (the panel flags carry no
+`-mprefer-vector-width=512`, so gcc 11 vectorizes at ymm at best, and the map's
+sqrt/div came out half-width). This round is a full kernel rewrite in AVX-512
+intrinsics, adopting three named things from rivals, plus a v2 of the adoption block.
+The Ice Lake reservation was dead again all session (job 440371 not running), so all
+numbers are wallaby (Xeon 6448Y), pinned to a measured-idle core, min over samples,
+each cell re-run to steady state — same method as d1_pow2's r1.
+
+### What changed
+
+1. **All hot kernels are now explicit `_mm512` intrinsics** (interleaved complex, one
+   zmm = 4 complexes). Complex twiddle multiply is the 1-vpermilpd + mul + fma idiom on
+   `(re,re)` / `(-im,+im)` broadcast pairs — **borrowed from d1_pow2** (their r1 code,
+   `cmul_bc`). Scalar r1 kernels are kept as fallback for odd-s stages (L = 2·odd, odd
+   L), which no graded size hits.
+2. **ADOPTION BLOCK v2**: two new builders generate the vector-ready twiddle formats
+   from the same exact (~1 ulp) `d1tw_cexp`:
+   - `d1tw_stage_bc(n, r, tw)` — broadcast-pair layout, 3(r−1) doubles per p, for
+     q-vectorized passes. For r = 4 this is byte-identical to the layout d1_pow2
+     hand-rolled, so adopting the exact generator is a drop-in for them.
+   - `d1tw_stage_s1bc(n, r, tw)` — lane-major zmm images (16(r−1) doubles per group of
+     4 p, zero-padded tail) for the s == 1 first stage vectorized ACROSS p.
+3. **First stage radix-4 at s = 1, vectorized across p** with the 4x4 complex-lane
+   transpose (permutex2var + shuffle_f64x2), masked loads/stores for m % 4 tails —
+   structure **borrowed from d1_pow2's `stage_s1`**, fed by `d1tw_stage_s1bc`. New
+   factor schedule = their r1 finding: 4 first, then radix-4 at small s until the
+   remaining pow2 bits divide by 3, then radix-8s, then 3s, then 5s (last stage keeps
+   the largest q loop for the fused map). 32→[4,8], 64→[4,4,4], 128→[4,4,8],
+   1024→[4,4,8,8], 4096→[4,4,4,8,8], 16384→[4,8,8,8,8], 60→[4,3,5].
+4. **fft1d_chain runs batch-OUTER, steps-inner** so one transform's whole m-step chain
+   stays cache-resident (~4L·16 B) instead of streaming the full B×L batch every step —
+   **borrowed from d1_pow2's** "chain is separable per transform" observation. One loop
+   swap; it is most of the batched-chained win below.
+5. **Fast fused map** (the map was ~half of every chained step: vsqrtpd+vdivpd zmm are
+   ~24+16 cycles and barely pipeline): rsqrt14 + 1 Newton + exact-residual FMA sqrt
+   refinement, rcp14 + 2 Newton, then an exact-residual refinement of the final
+   quotient — **d1_pow2's r1 map recipe**, which their record shows passes the chain
+   gate precisely when the twiddles are exact (theirs needed long-double tables; mine
+   are already ~1 ulp by construction). `n` clamped at 1e-300 so z = 0 cannot reach
+   rsqrt(0) = inf. The exact vsqrtpd/vdivpd store is kept behind `-DD1TW_EXACTMAP` as
+   the fallback if a scoring-node seed ever fails a gate.
+
+### Measured (wallaby core 55, idle-verified, steady state; old = my r1 code, same
+core, same flags — so the columns are a true A/B on identical silicon)
+
+| cell | old r1 | new | | cell | old r1 | new |
+|---|---|---|---|---|---|---|
+| 32 B=1 m=1 | 0.054 | **0.018** | | 1024 B=1 m=1 | 4.03 | **1.18** |
+| 32 B=512 m=1 | 0.055 | **0.019** | | 1024 B=512 m=1 | 3.94 | **1.58** |
+| 32 B=1 chain | 0.122 | **0.063** | | 1024 B=1 chain | 5.84 | **2.07** |
+| 32 B=512 chain | 0.122 | **0.063** | | 1024 B=512 chain | 5.96 | **2.06** |
+| 60 B=1 m=1 | 0.135 | **0.042** | | 4096 B=1 m=1 | 14.8 | **6.67** |
+| 60 B=512 m=1 | 0.134 | **0.046** | | 4096 B=256 m=1 | 15.7 | **8.18** |
+| 60 B=1 chain | 0.261 | **0.115** | | 4096 B=1 chain | 23.0 | **10.25** |
+| 60 B=512 chain | 0.261 | **0.116** | | 4096 B=256 chain | 23.7 | **10.6** |
+| 64 B=1 m=1 | 0.110 | **0.041** | | 16384 B=1 m=1 | 73.5 | **31.2** |
+| 64 B=512 m=1 | 0.111 | **0.043** | | 16384 B=64 m=1 | 75.5 | **35.8** |
+| 64 B=1 chain | 0.239 | **0.109** | | 16384 B=1 chain | 105 | **46.7** |
+| 64 B=512 chain | 0.241 | **0.110** | | 16384 B=64 chain | 108 | **47.9** |
+| 128 B=1 m=1 | 0.326 | **0.073** | | 128 B=1 chain | 0.609 | **0.220** |
+| 128 B=512 m=1 | 0.413 | **0.103** | | 128 B=512 chain | 0.614 | **0.221** |
+
+1.9–4.5x per cell. Same-core library A/B (wallaby builds): ahead of fftw1d_measure at
+most owned cells (e.g. 60 B=1: 0.042 vs 0.047 fftw / 0.050 MKL — a B=1 m=1 cell we may
+actually win), behind wallaby MKL at pow2 (1024 B=1: 1.18 vs 0.83; 32 B=512: 0.019 vs
+0.011) — MKL-on-SPR is stronger than the a80n0 baseline suggests; the monitor's Ice
+Lake numbers arbitrate. Against d1_pow2's r1 wallaby table: roughly tied at 128/4096
+B=1, ahead on the batched large-L m=1 cells (4096 B=256: 8.2 vs 10.3; 16384 B=64: 35.8
+vs 43.8), behind at 32/64 B=1 (their in-register codelets) and slightly behind on
+chained small L.
+
+Correctness: single-call rel L2 1e-16..3.4e-16 at 14 sizes (B=3) + graded-size B=512
+spot checks; all 14 graded chained cells PASS at full graded m, worst margin 15x
+(1024 B=1 m=4000: 6.7e-12 vs 1e-10 — identical with the exact map, i.e. the residual
+error is chain-chaos-dominated, not map-dominated). Output bitwise repeatable.
+
+### What was tried / measured that did not pan out, with numbers
+
+- **Exact vsqrtpd/vdivpd map**: correct and simple, but it WAS the chained regime:
+  16384 B=1 chain 63.4 us (exact) vs 46.7 (Newton map); 32 B=1 chain 0.100 vs 0.063;
+  4096 B=256 chain 15.7 vs 10.6. Kept only as the `-DD1TW_EXACTMAP` fallback.
+- **Measurement trap (record for everyone timing on wallaby): the FIRST driver
+  invocation after regenerating input files reads 1.3–1.9x slow** (4096 B=1 chain:
+  20.6 us then 10.5, 10.3; 16384 B=1 chain: 88.6 then ~47). Cold page cache /
+  frequency ramp; min-over-samples inside one invocation does NOT absorb it. Re-run
+  the binary and keep the steady-state number, or the A/B lies to you.
+- **Unpinned/wrong-core timing**: core 100 (previous round's habit) was intermittently
+  busy and gave 0.044 for a cell that times 0.018 on a verified-idle core. Sample
+  /proc/stat deltas and pick an idle core before believing anything.
+
+### Borrowed (all named in-code too)
+
+- d1_pow2 (r1): cmul broadcast-pair idiom, s==1 across-p first stage + 4x4 transpose,
+  the pow2 stage schedule rule, per-transform chain blocking, and the
+  rsqrt14/rcp14 + Newton + exact-residual map recipe. This entry is largely their
+  structural findings re-expressed through my exact-table generators — that is what
+  the library layer is for, flowing back as v2 formats they can now consume from
+  `d1tw_stage_bc/_s1bc` instead of hand-rolling.
+- d1_batchlane (r1): the "gcc auto-vectorizes at ymm only" diagnosis that motivated
+  going full intrinsics, and masked-zeroing zmm tails instead of scalar remainders
+  (used in `vfirst4`).
+
+### Next round
+
+1. **In-register codelets for L=32/64** (d1_pow2 has them: 0.012/0.029 vs my
+   0.018/0.041) — or simply concede those B=1 cells to them and keep the layer clean.
+2. **1024/4096 B=1 vs MKL**: still 1.2–1.4x behind wallaby MKL. Four-step 128x128 with
+   an L1-blocked transpose (survey per-size map) is the untried structural move.
+3. **Radix-16 stage** to cut 16384 to 4 passes ([4,16,16,16] or [16,16,16,4]) — needs
+   a 15-twiddle bc block; `d1tw_stage_bc` already generates any radix.
+4. If a scoring-node chain gate ever fails: rebuild with `-DD1TW_EXACTMAP` (costs
+   ~35% of chained-cell time at large L, nothing at m=1).

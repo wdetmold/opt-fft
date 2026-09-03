@@ -97,3 +97,101 @@ tryout.sh was replicated by hand on wallaby (same flags/driver/checker).
    saves a full read-write sweep per step. Biggest for the B=512 chained cells.
 5. **Cost-model honesty**: the radix weights are wallaby-measured; re-fit on Ice Lake
    PMU numbers (port pressure, l1d.replacement) once the node is back.
+
+## Round d1_r2 (2026-09-02) — the split-complex rebuild (cumulative round working as designed)
+
+### What changed
+The r1 leaderboard said it plainly: my scalar interleaved kernels were 2–10x behind at
+EVERY cell while d1_bluestein/d1_rader's split-complex core was winning cells outright.
+So this round I threw away my r1 engine and rebuilt on the proven core, keeping the
+planner's dispatch as the added value. r1's mixed-radix engine, lane machinery and cost
+model are gone; the planner logic (smooth → direct, prime with smooth L−1 → unpadded
+Rader, else Bluestein) survives on much faster legs.
+
+**Adopted from d1_bluestein (impl + record), nearly verbatim:** the split-complex
+stage kernel family st2/3/4/5/8, per-stage twiddle layout `[j-1][p]`,
+inverse-as-forward-on-swapped-planes with 1/M folded into the kernel spectrum,
+`st4_first_chirp` / `st4_first_bhat` / pruned `st{2,4}_last_chirp` Bluestein fusions,
+`choose_M` (minimal 3^a5^b2^c pad, 4|M: 10007→20480, 100003→204800 — replaces my r1
+{1,3,5,9,15}·2^k cost model), the chirp-premultiplied chain state, `#pragma GCC ivdep`
+on every hot loop, and the per-function
+`target("arch=icelake-server,prefer-vector-width=512")` attribute.
+**Adopted from d1_prime (record):** the symmetric-pair real-coefficient fold — used
+twice: as a generic split-complex stage `stg` for ANY prime radix ≤ 61 (new; extends
+"smooth" so 1020 = [4,3,5,17] runs unpadded as 1021's Rader conv, and primes ≤ 61 are
+a single dense stage), and as `dense_sym`, the interleaved B=1 fast path for those
+single-stage plans.
+**Adopted from d1_pow2 (record):** long-double twiddle/chirp/table generation
+(cosl/sinl after exact integer phase reduction — M_PI's rounding is a biased phase
+error), and the transform-outer chain (all m steps back-to-back per transform,
+cache-resident) — my exported fft1d_chain (new this round) is built on it.
+**Own additions this round:** fused deinterleave entry (`st{2,4}_first_deint`) and
+fused interleave exit (`st{2,3,4,5,8}_last_int`) for the direct path — the final
+stage has m=1/unit twiddles, so folding the interleaved store in deletes one full
+read+write pass (measured below); the Rader plan on the shared core (fused
+kernel-multiply inverse entry via st4_first_bhat when the conv leads with radix 4);
+split-state fused chains for all three kinds with interleaved output only at the
+final step; 8-lane across-batch path retained from r1 but now gated to dense plans
+only (see "did not work").
+
+### Measured (wallaby core 100, QUIET windows, tryout gcc flags, µs/transform;
+### all 52 graded cells PASS check.py, worst rel L2 1.2e-15, all chain gates ≥ 25x margin)
+
+| L | B=1 | batched | B=1 chain | batched chain | r1 scored B=1 | speedup |
+|---|---|---|---|---|---|---|
+| 13 | 0.043 | 0.036 (512) | 0.062 | 0.039 | 0.090 | 2.1x |
+| 31 | 0.134 | 0.138 | 0.264 | 0.143 | 0.532 | 4.0x |
+| 32 | 0.025 | 0.025 | 0.077 | 0.077 | 0.151 | 6.0x |
+| 60 | 0.081 | 0.080 | 0.172 | 0.159 | 0.405 | 5.0x |
+| 64 | 0.069 | 0.078 | 0.144 | 0.145 | 0.228 | 3.3x |
+| 128 | 0.123 | 0.151 | 0.274 | 0.275 | 0.540 | 4.4x |
+| 1024 | 1.66 | 2.21 (512) | 2.46 | 2.47 | 5.28 | 3.2x |
+| 4096 | 8.84 | 10.6 (256) | 14.0 | 14.1 | 22.5 | 2.5x |
+| 16384 | 37.7 | 44.7 (64) | 57.9 | 57.8 | 116.3 | 3.1x |
+| 1021 | 8.19 | 9.39 (256) | 9.76 | 9.75 | 36.7 | 4.5x |
+| 10007 | 113 | 116 (64) | 122 | 123 | 375 | 3.3x |
+| 65537 | 813 | 815 (16) | 965 | 965 | 1614 | 2.0x |
+| 100003 | 3000 | 3028 (8) | 3146 | 3152 | 6291 | 2.1x |
+
+Vs the r1 library baselines (cross-machine, monitor arbitrates): 10007 ~1.7x AHEAD of
+FFTW patient (195), 65537 ~1.8x ahead (1465), 1021 at/ahead of MKL (8.28), 31 ~2x
+ahead, 100003 near parity (patient 2690); pow2/60 B=1 still behind MKL's codelets
+(that is d1_pow2/d1_composite territory — the planner now loses those by ~1.2–2x
+instead of 4–8x). Setup ≤ 0.052 s even at 100003.
+
+The fused interleave exit alone (same core, interleaved A/B): 32 B=1 0.044→0.025,
+32 B=512 0.041→0.026, 60 0.099→0.081, 1024 1.87→1.66, 4096 10.5→8.8, 16384 43→37.7.
+
+### What did NOT work, with the numbers that killed it
+- **Lanes for multi-stage smooth plans**: the r1 lane trick (enter the same kernels at
+  stride 8 on lane-blocked data) now LOSES everywhere the plan has ≥ 2 stages, because
+  the split kernels already vectorize per-vector and the two transposes are pure cost
+  (interleaved A/B at B=512: 32: 0.049 lanes vs 0.041; 64: 0.108 vs 0.080; 128: 0.248
+  vs 0.180; 1024: 5.1 vs 2.4). Lanes stay ONLY for dense single-generic-stage plans,
+  where the per-vector path is scalar-ish (13: 0.037 vs 0.042; 31: 0.139 vs 0.160).
+- **Rader fused gather-entry / scatter-exit** (d1_rader's shape rebuilt on my core):
+  a WASH at 65537 (fused 828–831 vs unfused 795–843, interleaved A/B) — the
+  random-access fusion de-vectorizes the stage it joins, cancelling the saved pass.
+  Code kept behind `p->rentry/p->rexit = 0 &&` for a retry on the scoring node's
+  1.25 MB L2, where the saved traffic should matter more than it does on wallaby.
+- Bug caught by review before it shipped: after switching the chain to per-transform
+  state (length L, not L·B), one leftover `pre_r + b*L` index in the kind-0 branch
+  was an out-of-bounds write. The chain smoke test in PLANNER_TEST (execute+map vs
+  fft1d_chain at every self-test size, B=19) is there to catch that class.
+
+### Where it stands / for whoever lifts this
+- The planner now covers all 52 cells with ONE engine and is the only entry that
+  runs 1021 unpadded ([4,3,5,17] via the generic-17 stage) AND 65537 unpadded AND
+  the smooth-padded Bluestein sizes from the same kernel family. Lift `stg` if you
+  need an odd-prime stage; lift `st*_last_int` if your Stockham still pays a
+  separate interleave pass.
+- Honest gaps: pow2 B=1 vs MKL/d1_pow2 (their in-register codelets; a generic
+  stage loop cannot reach 0.012 µs at L=32); 100003 near-parity — the remaining gap
+  is memory traffic at M=204800, and six-step/Bailey (d1_bluestein's next-step) is
+  the known cure; the chained pow2 cells pay ~25% for the exact sqrt/div map where
+  d1_pow2 uses rsqrt+Newton (their accuracy fight documented — I did not spend the
+  margin this round).
+- Next: (1) re-A/B rentry/rexit and LANE_MAX_N on the scoring node; (2) conv-order
+  chain state for Rader (d1_rader's index-reversal trick — my 65537 chain still pays
+  gather+scatter per step: 965 vs 813 execute); (3) Bailey four-step at M ≥ 10^5;
+  (4) adopt d1_pow2's fused rsqrt map if the graded-seed margins allow.

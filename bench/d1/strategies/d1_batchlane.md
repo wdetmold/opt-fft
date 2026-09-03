@@ -119,3 +119,117 @@ all 12 graded chained cells PASS the map-chain gate at full graded m
 5. 31 B=512 chained is within noise of fftw1d_custom_soa (0.060–0.071 both ways across
    runs); dense-sym is O(H²) — a Rader-30 or Winograd-31 would drop real ops ~3× if that
    cell needs a decisive margin.
+
+## Round d1_r2 (2026-09-02)
+
+This round was cumulative by design and almost everything that moved came from
+reading the other entries' r1 records. The Ice Lake reservation was dead again
+(job 440371 not running; implementers must not submit slurm), so all numbers are
+wallaby (SPR 6448Y, core 96, interleaved same-core A/B against the r1 binary and
+a same-core MKL run as frequency canary — wallaby swings 2.7–4.1 GHz under
+schedutil and TWICE this round an apparent 2x "regression" was pure frequency;
+believe nothing that is not interleaved).
+
+### What changed, in order of impact
+
+1. **Newton map** (borrowed from d1_composite, who offered it verbatim; also
+   d1_prime). map_scale = rsqrt14 + 2 NR + one exact-residual FMA correction on
+   sqrt=h·r, then rcp14 + 2 residual-form NR; h clamped at 1e-300. Replaces the
+   unpipelined vsqrtpd+vdivpd (~34+ divider cycles/vector) with pipelined FMA
+   work. Batched chains: 13 0.020→0.012, 31 0.061→0.037, 32 0.046→0.026,
+   60 0.094→0.049, 64 0.095→0.054, 128 0.228→0.155 µs. B=1 chains ~20–30% too.
+   **TRAP that cost an hour: Newton in the masked TAIL iteration is
+   catastrophically slow** (13 B=1 chain 0.055→0.121, 60 B=1 0.146→0.178; cause
+   not fully diagnosed — junk-lane clamp arithmetic suspected). Exact sqrt/div
+   kept for the tail only; that hybrid wins everywhere (13 B=1 0.055→0.050).
+2. **Fused-AoS single-shot kernels** (borrowed from d1_prime's "prologue fuses
+   deinterleave+fold into one vpermt2pd per row"). The B=1 m=1 path no longer
+   goes deint8 → SoA kernel → inter8: fs13_aos/fs31_aos pull the symmetric fold
+   rows straight out of the interleaved input loads (one vpermt2pd per row) and
+   write AoS back through interleaving permutes; fs32/60/64/128_aos do the same
+   for the four-step kernels. Two separate effects: the removed scratch round
+   trip, and the removed **store-forward stalls** (kernel vector loads spanning
+   deint8's freshly written mixed vector+scalar stores — this is why the first
+   dsk13 rewrite REGRESSED 0.023→0.036 before the AoS fusion fixed it at 0.014).
+   B=1 m=1: 13 0.023→0.014 (mkl 0.015), 31 0.053→0.030, 32 0.063→0.026,
+   60 0.083→0.049, 64 0.054→0.031 (mkl 0.027), 128 0.090→0.074 (mkl 0.066).
+3. **k-blocked densesym** (d1_prime's "each u/v row load feeds 12 FMAs" trick):
+   the batched 13/31 kernel's k-loop now does 3 outputs per u/v row load —
+   it was load-port bound. 31:512 m=1 0.046→0.041; chains likewise.
+4. **dsk13/dsk31 rewritten** with vector permute-reversal fold + epilogue and
+   (13 only) even/odd-j split accumulators (d1_prime's dependency-depth lesson);
+   these remain the per-step kernels inside the B=1 chain. 31 B=1 chain
+   0.096→0.065.
+5. **PFA-60 CRT permutes folded into first/last stages** (fft3io reads through
+   the input map, fft5o writes through the output map; no more 2×60-vector copy
+   passes). Applies to all V instantiations, so batched + chain + remainder all
+   gain: 60:512 m=1 0.061→0.037 (mkl 0.033), 60 chains as in (1).
+6. **Masked-tr8 tails in tload8/tstore8** (no scalar column stores for the
+   kernel's vector loads to trip over): 13:512 m=1 0.013→0.011, 31:512
+   0.046→0.042.
+7. **Long-double twiddle tables** (d1_pow2's biased-M_PI lesson, applied as
+   cosl/sinl on the mod-reduced angle): chain gates improved up to 10x
+   (31:512 5.1e-12→8.1e-13, 13:512 5.2e-14→5.6e-15) at zero runtime cost —
+   margin insurance for the approximate map.
+8. L=128 batched m=1: final radix-2 combine fused into the transposing store
+   (fft128_fused). **Measured a wash on wallaby** (0.187→0.186; the cell is
+   bound by total L1 traffic of the multi-pass SoA structure, not by that one
+   round trip). Kept: it cannot lose, and ICL's cache behavior may differ.
+
+### Where the cells stand (wallaby, interleaved A/B, min µs/transform, vs same-core MKL)
+
+| cell | r1 base | now | mkl | | cell | r1 base | now | mkl |
+|---|---|---|---|---|---|---|---|---|
+| 13 B1 m1   | 0.023 | 0.014 | 0.015 | | 60 B1 m1   | 0.083 | 0.049 | 0.036 |
+| 13 B512 m1 | 0.013 | 0.011 | 0.013 | | 60 B512 m1 | 0.061 | 0.037 | 0.033 |
+| 13 B1 ch   | 0.055 | 0.051 | 0.057 | | 60 B1 ch   | 0.146 | 0.116 | 0.236 |
+| 13 B512 ch | 0.020 | 0.012 | 0.043 | | 60 B512 ch | 0.094 | 0.049 | 0.183 |
+| 31 B1 m1   | 0.053 | 0.030 | 0.166 | | 64 B1 m1   | 0.054 | 0.031 | 0.027 |
+| 31 B512 m1 | 0.046 | 0.042 | 0.161 | | 64 B512 m1 | 0.040 | 0.040 | 0.027 |
+| 31 B1 ch   | 0.096 | 0.065 | 0.232 | | 64 B1 ch   | 0.123 | 0.089 | 0.191 |
+| 31 B512 ch | 0.061 | 0.037 | 0.238 | | 64 B512 ch | 0.095 | 0.054 | 0.185 |
+| 32 B1 m1   | 0.063 | 0.026 | 0.014 | | 128 B1 m1  | 0.090 | 0.074 | 0.066 |
+| 32 B512 m1 | 0.019 | 0.019 | 0.011 | | 128 B512 m1| 0.192 | 0.185 | 0.095 |
+| 32 B1 ch   | 0.090 | 0.083 | 0.105 | | 128 B1 ch  | 0.217 | 0.149 | 0.377 |
+| 32 B512 ch | 0.046 | 0.026 | 0.091 | | 128 B512 ch| 0.228 | 0.155 | 0.431 |
+
+Correctness: single-call rel L2 1.2–4.2e-16 at every size for B in
+{1,2,3,8,9,11,512}; all 12 graded chained cells PASS at graded m, worst margin
+32:512 m=1000 at 2.3e-12 vs 1e-10; output bitwise repeatable across runs.
+
+### What did NOT work, with the number that killed it
+
+- **Newton map in the masked tail** (above): 13 B=1 chain 0.121 vs 0.055 base.
+  If you adopt the map, keep exact sqrt/div for the sub-vector tail.
+- **dsk13 fed from deint8's SoA scratch**: 0.023→0.036 µs regardless of whether
+  the broadcasts came from a store+reload or in-register vpermpd — the stall was
+  the kernel's fold loads spanning deint8's mixed vector+scalar stores. Only
+  going AoS-direct fixed it. Corollary: if your single-shot kernel reads
+  freshly-deinterleaved scratch with anything but exactly-matching aligned
+  vector loads, check for store-forward stalls first.
+- **fft128_fused as a 128-batched rescue**: a wash (0.187→0.186); the 2.17x
+  a80n0 deficit at 128:512 m=1 is the multi-pass SoA memory traffic
+  (~160 KB/group through a 48 KB L1), not any single pass.
+
+### Borrowed, explicitly
+
+- rsqrt14/rcp14+Newton map: d1_composite (offered for reuse in their r1 record);
+  residual-refinement styling and the long-double twiddles: d1_pow2.
+- k-blocking by 3, split accumulators, fused vpermt2pd deinterleave prologue:
+  d1_prime.
+- The A/B-only-under-frequency-swing discipline: d1_composite's warning,
+  re-confirmed twice here.
+
+### Next round
+
+1. 32/64/128 batched m=1 remain the losses (mkl 1.7–2x ahead): structural
+   boundary-transpose tax; the honest fix is an AoS 4-complex-per-zmm kernel
+   per transform (what d1_pow2 does; they too trail MKL at 128). Attempt only
+   with PMU evidence from the scoring node that port-5 is actually the wall.
+2. 60/32 B=1 m=1 (mkl 1.4–1.8x ahead): try composite's n1-pairing (2
+   complexes/ymm through stages B/C) instead of the 4x15 four-step; their ymm1
+   kernel does 0.045 on wallaby vs my 0.049.
+3. If a chained cell's gate ever tightens: drop the map's residual corrections
+   last (each is ~2 FMAs; the 2-NR-only variant is what composite ships).
+4. Wisdom for d1_race: my fft1d_chain now wins every chained cell on wallaby;
+   make sure the race's honest-m chain race sees the new source hash.

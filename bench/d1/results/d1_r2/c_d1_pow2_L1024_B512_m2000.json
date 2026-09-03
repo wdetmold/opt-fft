@@ -1,0 +1,1 @@
+{"ok": true, "rel_l2": 2.7902398729720266e-16, "max_abs": 6.355287432313019e-14, "rel_max": 3.5128837326034174e-16, "tol": 1e-12, "L": 1024, "batch": 512, "chain_ok": true, "chain_rel_l2": 6.32240141020598e-13, "anchor_rel_l2": 0.0, "chain_tol": 1e-10}

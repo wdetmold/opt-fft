@@ -3,12 +3,16 @@
 # cpu), generates fresh random data for the round, then measures every backend on every
 # case in several independent processes.
 #
-# usage: sweep.sh --round TAG --seed N [--runs 3] [--samples 20] [--quick]
+# usage: sweep.sh --round TAG --seed N [--runs 3] [--samples 20] [--quick] [--fresh]
+#
+# The sweep is RESUMABLE: an interrupted round can be re-run with the same arguments and
+# it will skip the cells it already measured.  See the resume block below for why that is
+# safe only when the measurement is provably identical.
 set -u
 cd "$(dirname "$0")"
 source /home/lqcd/wdetmold/fft/env.sh >/dev/null 2>&1
 
-ROUND=""; SEED=0; RUNS=3; SAMPLES=20; QUICK=0; CASEFILE=cases.txt
+ROUND=""; SEED=0; RUNS=3; SAMPLES=20; QUICK=0; CASEFILE=cases.txt; FRESH=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --round) ROUND=$2; shift 2 ;;
@@ -17,6 +21,7 @@ while [ $# -gt 0 ]; do
     --samples) SAMPLES=$2; shift 2 ;;
     --quick) QUICK=1; shift ;;
     --cases) CASEFILE=$2; shift 2 ;;
+    --fresh) FRESH=1; shift ;;      # ignore any existing results and remeasure everything
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -24,6 +29,87 @@ done
 
 OUT=results/$ROUND
 mkdir -p "$OUT"
+
+# ---- resume ------------------------------------------------------------------------------
+# A scoring sweep runs for hours inside a reservation that can expire underneath it.  d1_r1
+# lost its node 3.5 h in; the retry restarted from cell 1 and measured everything twice.
+# Every per-cell artifact is already named deterministically, so the work is resumable -- but
+# ONLY if the files on disk provably come from the same measurement.  Resuming across a
+# different seed, case list, run/sample count or a changed implementation would silently
+# splice two generations of results into one leaderboard, which is worse than redoing the
+# work.  So a manifest records what produced the directory, and a mismatch moves the old
+# artifacts aside instead of mixing them.
+MANIFEST="$OUT/.manifest"
+# The SOURCES decide the numbers, not the binaries: make clean rebuilds those every attempt,
+# so their hashes differ even when nothing changed.
+SRCFP=$(cat driver.c fft1d_api.h sota/*.c impl/*.c 2>/dev/null | md5sum | cut -d" " -f1)
+WANT="round=$ROUND seed=$SEED runs=$RUNS samples=$SAMPLES cases=$CASEFILE src=$SRCFP"
+RESUME=0
+if [ -f "$MANIFEST" ] && [ "$FRESH" = 0 ]; then
+  HAVE=$(cat "$MANIFEST")
+  if [ "$HAVE" = "$WANT" ]; then
+    RESUME=1
+  else
+    STALE="$OUT/stale_$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$STALE"
+    mv "$OUT"/t_*.json "$OUT"/c_*.json "$OUT"/o_*.json "$STALE/" 2>/dev/null
+    echo "== NOT resuming $ROUND: manifest differs, so the existing results are from a"
+    echo "   DIFFERENT measurement and must not be mixed into one leaderboard."
+    echo "     was: $HAVE"
+    echo "     now: $WANT"
+    echo "   moved the old artifacts to $STALE"
+  fi
+fi
+printf "%s" "$WANT" > "$MANIFEST"
+
+# Which (backend,L,B,m) units are already complete.  Scanned ONCE into a file rather than
+# re-tested per unit, so resume costs one python call instead of thousands.
+DONELIST="$OUT/.done_units"
+: > "$DONELIST"
+if [ "$RESUME" = 1 ]; then
+  python3 - "$OUT" "$RUNS" > "$DONELIST" <<'PY'
+import glob, json, os, re, sys
+out, runs = sys.argv[1], int(sys.argv[2])
+pat = re.compile(r"^t_(?P<b>.+)_L(?P<L>\d+)_B(?P<B>\d+)_m(?P<m>\d+)_r(?P<r>\d+)\.json$")
+
+def load(path):
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except Exception:          # missing, truncated by a kill mid-write, or unparseable
+        return None
+
+units = {}
+for path in glob.glob(os.path.join(out, "t_*_r*.json")):
+    mo = pat.match(os.path.basename(path))
+    if mo:
+        units.setdefault((mo["b"], mo["L"], mo["B"], mo["m"]), set()).add(int(mo["r"]))
+
+for (b, L, B, m), have in sorted(units.items()):
+    if set(range(1, runs + 1)) - have:
+        continue                                    # not every run recorded
+    ds = [load(os.path.join(out, f"t_{b}_L{L}_B{B}_m{m}_r{r}.json"))
+          for r in range(1, runs + 1)]
+    if any(d is None for d in ds):
+        continue                                    # a partial write is NOT a result
+    # An unsupported backend writes timing JSONs with supported=false and produces no
+    # output to check, so it is complete with no verdict files at all.
+    if all(not d.get("supported", False) for d in ds):
+        print(b, L, B, m)
+        continue
+    if load(os.path.join(out, f"c_{b}_L{L}_B{B}_m{m}.json")) is None:
+        continue                                    # correctness verdict missing/partial
+    if int(m) > 1 and load(os.path.join(out, f"o_{b}_L{L}_B{B}_m{m}.json")) is None:
+        continue                                    # one-step gate missing/partial
+    print(b, L, B, m)
+PY
+  echo "== RESUMING $ROUND: $(wc -l < "$DONELIST") complete units on disk will be skipped =="
+fi
+
+unit_done() {   # backend L B m
+  [ "$RESUME" = 1 ] || return 1
+  grep -qxF "$1 $2 $3 $4" "$DONELIST"
+}
 
 {
   echo "# round $ROUND"
@@ -59,7 +145,17 @@ else
 fi
 
 BINDIR=build/$(hostname -s)/bin
-BACKENDS=$(cd "$BINDIR" && ls)
+BACKENDS=${BACKENDS:-$(cd "$BINDIR" && ls)}
+# Refuse to produce a "leaderboard" that contains only libraries: if no panel binary was
+# built, the round measured nothing of ours and a board would read as a legitimate loss.
+# ALLOW_NO_PANEL=1 opts out, for the one legitimate library-only run: measuring the SOTA
+# baseline table itself, which by definition has no panel entries.  Do not set it for a
+# scoring round -- that is precisely the silent-zero the guard exists to catch.
+npanel=$(cd "$BINDIR" && ls | grep -vcE "^(mkl|fftw|ducc|baseline)" || true)
+if [ "${npanel:-0}" -eq 0 ] && [ "${ALLOW_NO_PANEL:-0}" != 1 ]; then
+  echo "ABORT: no PANEL BINARIES in $BINDIR -- impl/ is empty or the build failed" | tee -a "$OUT/build_errors.txt"
+  exit 4
+fi
 echo "== backends: $BACKENDS =="
 
 for case in $CASES; do
@@ -68,6 +164,19 @@ for case in $CASES; do
   B=${rest%%:*}
   # optional third field: chain length m (the graded call); absent means 1
   M=1; case "$rest" in *:*) M=${rest##*:} ;; esac
+  # Resume at CASE granularity first: if every backend for this case is already complete
+  # there is no reason to regenerate its inputs, which for L=100003 is not cheap.
+  if [ "$RESUME" = 1 ]; then
+    pending=0
+    for backend in $BACKENDS; do
+      if [ "$backend" = "baseline_dft" ] && [ $((L * L * B)) -gt 8000000 ]; then continue; fi
+      unit_done "$backend" "$L" "$B" "$M" || pending=1
+    done
+    if [ "$pending" = 0 ]; then
+      echo "   skip L=$L B=$B m=$M (already complete)"
+      continue
+    fi
+  fi
   IN=$OUT/in_L${L}_B${B}.bin
   CIN=$OUT/c_L${L}_B${B}.bin
   python3 gen_input.py --L "$L" --batch "$B" --seed $((SEED + L * 1000 + B)) --out "$IN" >/dev/null
@@ -81,13 +190,17 @@ for case in $CASES; do
         >> "$OUT/timing.log"
       continue
     fi
+    if unit_done "$backend" "$L" "$B" "$M"; then
+      echo "   skip $backend L=$L B=$B m=$M (already measured)" >> "$OUT/timing.log"
+      continue
+    fi
     for run in $(seq 1 "$RUNS"); do
       # A panel entry that hangs or crashes must not take the round down with it.
       CHAINARGS=""
       [ "$M" -gt 1 ] && CHAINARGS="--chain $M --map --cin $CIN"
       timeout 600 "$BINDIR/$backend" --L "$L" --batch "$B" $CHAINARGS --in "$IN" \
-        --out "$OUT/out_${backend}_L${L}_B${B}.bin" \
-        --json "$OUT/t_${backend}_L${L}_B${B}_r${run}.json" \
+        --out "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin" \
+        --json "$OUT/t_${backend}_L${L}_B${B}_m${M}_r${run}.json" \
         --samples "$SAMPLES" --warmup 5 --min-sample-ms 20 --run-index "$run" \
         >>"$OUT/timing.log" 2>>"$OUT/timing.err"
       rc=$?
@@ -96,29 +209,29 @@ for case in $CASES; do
       fi
     done
     # correctness on the output of the last run, against numpy
-    if [ -f "$OUT/out_${backend}_L${L}_B${B}.bin" ]; then
+    if [ -f "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin" ]; then
       CHKARGS=""
       [ "$M" -gt 1 ] && CHKARGS="--map-check $M --cin $CIN"
-      python3 check.py --input "$IN" --output "$OUT/out_${backend}_L${L}_B${B}.bin" \
-        --L "$L" --batch "$B" $CHKARGS --json "$OUT/c_${backend}_L${L}_B${B}.json" \
+      python3 check.py --input "$IN" --output "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin" \
+        --L "$L" --batch "$B" $CHKARGS --json "$OUT/c_${backend}_L${L}_B${B}_m${M}.json" \
         >>"$OUT/check.log" 2>&1
-      rm -f "$OUT/out_${backend}_L${L}_B${B}.bin" "$OUT/out_${backend}_L${L}_B${B}.bin.chain"   # outputs are large; keep the verdicts
+      rm -f "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin" "$OUT/out_${backend}_L${L}_B${B}_m${M}.bin.chain"   # outputs are large; keep the verdicts
     fi
     # ONE-STEP map gate (chained cases only): two steps of the graded map must match
     # numpy to 3e-14 (chaos cannot amplify in 2 steps; fp32-seeded maps land ~5e-12). This carries the precision contract; the chain gate above only
     # catches gross cheats, because the chain is chaotic (docs/GRADER.md).
     if [ "$M" -gt 1 ]; then
       timeout 120 "$BINDIR/$backend" --L "$L" --batch "$B" --chain 2 --map --cin "$CIN" \
-        --in "$IN" --out "$OUT/one_${backend}_L${L}_B${B}.bin" \
-        --json "$OUT/t1_${backend}_L${L}_B${B}.json" \
+        --in "$IN" --out "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin" \
+        --json "$OUT/t1_${backend}_L${L}_B${B}_m${M}.json" \
         --samples 1 --warmup 1 --min-sample-ms 1 --run-index 1 \
         >>"$OUT/timing.log" 2>>"$OUT/timing.err"
-      if [ -f "$OUT/one_${backend}_L${L}_B${B}.bin" ]; then
-        python3 check.py --input "$IN" --output "$OUT/one_${backend}_L${L}_B${B}.bin" \
+      if [ -f "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin" ]; then
+        python3 check.py --input "$IN" --output "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin" \
           --L "$L" --batch "$B" --map-check 2 --cin "$CIN" \
-          --json "$OUT/o_${backend}_L${L}_B${B}.json" >>"$OUT/check.log" 2>&1
+          --json "$OUT/o_${backend}_L${L}_B${B}_m${M}.json" >>"$OUT/check.log" 2>&1
       fi
-      rm -f "$OUT/one_${backend}_L${L}_B${B}.bin" "$OUT/one_${backend}_L${L}_B${B}.bin.chain" "$OUT/t1_${backend}_L${L}_B${B}.json"
+      rm -f "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin" "$OUT/one_${backend}_L${L}_B${B}_m${M}.bin.chain" "$OUT/t1_${backend}_L${L}_B${B}_m${M}.json"
     fi
   done
   rm -f "$IN" "$CIN"

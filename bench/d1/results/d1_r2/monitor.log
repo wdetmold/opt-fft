@@ -1,0 +1,15 @@
+Verdict written to `results/d1_r2/VERDICT.md`. Summary of what I found:
+
+**Two corrections to the brief.** The geometries are not L=6/8/17/36 — those belong to the 3D `bench/geom` campaign; this round measured thirteen 1D lengths (13, 31, 32, 60, 64, 128, 1021, 1024, 4096, 10007, 16384, 65537, 100003). And the scoring node is a Xeon Gold **6326 (Ice Lake-SP, 1.25 MB L2)**, not a Cascade Lake 5218. Dev was on wallaby (Sapphire Rapids, 2 MB L2), so the dev→score gap is SPR→ICL, and the measured MKL span across it is 1.5–1.8×, not 2.9×.
+
+**The dominant finding is a measurement defect, not a code result.** `baseline_dft` — byte-identical between rounds, same host — is *exactly* 1.2070× slower in r2 at eight separate cells. 3.5/2.9 = 1.20690 is the 6326's turbo/base ratio. The leaderboard reports min-over-3-processes, so it reports whichever run caught turbo, and the effect is uncorrelated between backends within a cell (at 13 B=1 m=1: fftw-estimate −17.4 %, fftw-patient **+20.5 %**, MKL 0.0 %). It's confined to the m=1 cells; chained cells drift ~0.1 %. **18 of 52 cells are undecided by this measurement**, including every near-MKL claim at 32/64/128/60 batched-single and all four at 10007. `environment.txt` records the governor but never the achieved clock.
+
+Scoring against that band: **27 robust wins, 7 robust losses, 18 undecided** — chained regimes won 21/26 with zero losses, m=1 regimes not won. The brief's prediction held exactly.
+
+**Adversarially:** nothing failed to build (only `-Wformat-truncation` warnings in `d1_race`), nothing crashed, all nine agents exited 0, no entry is missing versus r1, and no panel entry calls a library. The one FAILED row is `baseline_dft` at 1024:1:4000 — the harness's own floor — which also exposes that this cell's chain gate has under one decade of margin for *everyone*, so it can't discriminate. Real regressions: `d1_rader` at 65537 chains (−13 %), `d1_bluestein` at 65537 (−31 %), `d1_prime` at L=13 (ratio 0.84x→0.68x in the cell it targeted), and `d1_race` mis-picking a worse sibling in 10 of 52 cells (worst +32 %).
+
+**Claimed vs measured:** `d1_rader` is the only entry whose numbers land on the measurement (1.00× span) — and the only one that measured on the scoring node. Two claims inverted: `d1_composite` at 60 B=512 (claimed win, measured 0.63x; spans 2.14× where MKL spans 1.27×, so not just the machine) and `d1_bluestein` at 65537 (AC 8192×25 sized for wallaby's 2 MB L2, run on 1.25 MB). One thing I couldn't reconcile: `d1_rader` says reservation 440371 was live all round; every other implementer says it was dead.
+
+**Literature §4:** §4.4 advanced most — first CPU split-vs-interleaved head-to-head, with the granule measured (blocked `[8re|8im]` beats two big planes by 42 %, and it's stream count, not set conflicts). §4.8 item 6 **inverts** on this part: three independent measurements say port distribution, not instruction count, is binding — a 415-instruction zmm kernel loses to a 565-instruction ymm one — and `llvm-mca -mcpu=icelake-server` models the wrong number of FMA units here.
+
+PROMOTE: d1_prime d1_pow2 d1_batchlane d1_composite d1_rader d1_bluestein d1_race

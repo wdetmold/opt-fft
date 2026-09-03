@@ -125,3 +125,38 @@
 [2026-09-02 22:20:44] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r1/monitor.log)
 [2026-09-02 22:20:44] promoting: d1_prime d1_pow2 d1_batchlane d1_composite d1_rader d1_bluestein d1_race
 [2026-09-02 22:20:44] promote.sh reported a problem
+[2026-09-02 22:21:29] committed round d1_r1
+[2026-09-02 22:21:29] ---------- d1_r1 complete; next is d1_r2 of d1_r4 ----------
+[2026-09-02 22:21:29] ---------- d1_r2 begins ----------
+[2026-09-02 22:21:29] d1_r2 works in impl_2 (10 sources carried over from impl_1)
+[2026-09-02 22:21:29] context pack: 221 lines
+[2026-09-02 22:21:29] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+2026-09-02 22:30:01 d1 tick skipped: lock held
+2026-09-02 22:45:01 d1 tick skipped: lock held
+/tmp/fft_rounds_sKHc36.sh: line 419: [: 0
+0: integer expression expected
+2026-09-02 23:00:01 d1 tick skipped: lock held
+2026-09-02 23:15:01 d1 tick skipped: lock held
+[2026-09-02 23:24:01] implementers finished: 9 reported
+[2026-09-02 23:24:01] submitting timing round d1_r2 (seed 20262847) to the exclusive benchmark node
+2026-09-02 23:30:01 d1 tick skipped: lock held
+2026-09-02 23:45:01 d1 tick skipped: lock held
+2026-09-03 00:00:01 d1 tick skipped: lock held
+2026-09-03 00:15:01 d1 tick skipped: lock held
+2026-09-03 00:30:01 d1 tick skipped: lock held
+2026-09-03 00:45:01 d1 tick skipped: lock held
+2026-09-03 01:00:01 d1 tick skipped: lock held
+2026-09-03 01:15:01 d1 tick skipped: lock held
+2026-09-03 01:30:01 d1 tick skipped: lock held
+2026-09-03 01:45:01 d1 tick skipped: lock held
+2026-09-03 02:00:01 d1 tick skipped: lock held
+2026-09-03 02:15:01 d1 tick skipped: lock held
+2026-09-03 02:30:01 d1 tick skipped: lock held
+[2026-09-03 02:30:47] sbatch submission failed; retrying once in 120s
+2026-09-03 02:45:01 d1 tick skipped: lock held
+[2026-09-03 02:50:37] leaderboard for d1_r2 is in
+[2026-09-03 02:50:39] served models for d1_r2:    1412 claude-fable-5 
+2026-09-03 03:00:01 d1 tick skipped: lock held
+[2026-09-03 03:01:55] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r2/monitor.log)
+[2026-09-03 03:01:55] promoting: d1_prime d1_pow2 d1_batchlane d1_composite d1_rader d1_bluestein d1_race
+[2026-09-03 03:01:55] promote.sh reported a problem

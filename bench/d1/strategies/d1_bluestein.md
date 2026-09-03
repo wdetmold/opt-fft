@@ -136,3 +136,136 @@ Setup: <= 0.022 s even at 100003 (FFTW patient pays 63 s there).
    Bluestein structurally pays 147456 vs Rader's 65536 convolution.
 5. Get real Ice Lake numbers via tryout.sh the moment the reservation is back —
    wallaby's 2 MB L2 flatters M=20480 in particular.
+
+## Round d1_r2 (2026-09-02) — Agarwal–Cooley 2D convolution + deterministic memory layout
+
+**Measurement caveat, again wallaby-only:** the Ice Lake reservation was dead for this
+whole session too (job 440371 not running; instructed never to submit slurm myself).
+All numbers are wallaby (SPR 6448Y), core 104 with its SMT sibling (40) verified idle
+via /proc/stat deltas, exact tryout.sh flags, same-minute A/B against the r1 build
+(`bin_base`). Early session was genuinely quiet (load 1.5); late session load hit 15
+with visibly noisy medians — every number below is a quiet-window best-min.
+
+### Change 1 — the discovery that reframes ALL of r1's numbers: allocation-luck bimodality
+
+The r1 build is **bimodal across invocations**: 10007 B=1 measures either ~110 us or
+~213 us — stable within an invocation, chosen at plan time, persisting for that
+process's life. Same binary, same idle core. Cause: `posix_memalign(64)` puts every
+big plane at the same offset mod 4K, and with 4K pages the L2 set index depends on
+random physical page coloring, so the split-complex multi-plane streams (s0/s1
+ping-pong + kernel + chirp + twiddles) collide in the same L1/L2 sets or don't, per
+run. At M=147456 the AC path swung 1570↔2440 us the same way. **This means r1's
+"110–122 us at 10007" and the four-step rejections in other entries' records
+(d1_rader's 65536 four-step A/B included) were all partly measuring page luck.**
+
+Fix (mode 1/2/3 all): all same-length planes live in ONE `posix_memalign(2MB)` block,
+`madvise(MADV_HUGEPAGE)` (wallaby THP is `madvise`), plane stride rounded to the
+128 KB L2-way period plus a 32KB+192B skew; big twiddle stores get huge pages too.
+Huge pages make physical set indexing follow the virtual layout; the skew makes that
+layout conflict-free — determinism, and the GOOD mode gets better:
+
+- 10007 B=1: 110↔213 bimodal → **97.0–101.5 across 8 invocations**
+- 4096 direct B=1: 21.7 (r1) → **13.0**;  16384 direct: 50.5 → **47.9**;  32: 0.097 → **0.051**
+- 65537 AC M=204800: swings gone, 1837–1844 every run
+
+### Change 2 — mode 3: Agarwal–Cooley coprime 2D convolution for M > 32768
+
+r1's top "next" item, executed via CRT instead of Bailey four-step. Write
+M = M1·M2 with M1 = pow2 ≤ 8192, M2 = odd ∈ {3,5,9,15,25,27}: gcd = 1, so
+n ↔ (n mod M1, n mod M2) maps the length-M cyclic convolution to an **exact 2D
+cyclic convolution — no inter-axis twiddle table at all** (the four-step's M-sized
+twiddle read is the hidden cost d1_rader's attempt paid). Layout: M2 rows × M1
+contiguous columns, row stride M1+8.
+
+The index structure is the whole trick: runs of 8 consecutive n sit in 8 consecutive
+columns on a ROW DIAGONAL, and the diagonal index ρ = (t·M1) mod M2 is constant per
+run — so storing tiles by ρ makes every gather/scatter run contiguous and 8-wide.
+The price is that each tile column is the true column cyclically rotated by
+(c+j) mod M2; after the tile DFT the true spectrum is U·C with C[k][r] =
+e^{-2πi rk/M2}, an M2×M2 L1-resident table (inverse pre-multiplies by conj C).
+One extra cmul per point per direction buys fully streaming access.
+
+Per transform: fused entry (chirp + CRT gather + M2-axis tile FFT in L1 stack
+buffers, one write pass over M) → per pow2 row: forward FFT, kernel multiply fused
+into the inverse entry (st4_first_bhat reused verbatim, plane swap), inverse back
+into the row — one row round trip with everything (4 ping-pong planes + row +
+kernel row ≈ 64 B/point) L2-resident → fused exit (conj-rotation, inverse tile FFT,
+output chirp + CRT scatter, pruned to k < L). The M-array is crossed O(1) times
+instead of once per Stockham stage. The chain's map step
+(g=(z+c)/(1+|z+c|)) and the next step's chirp premultiply are fused INTO the exit
+scatter (`ac_cols_inv_chain`) — no separate L-sized map pass; chain steps now cost
+about one execute + 3%.
+
+### Measured (wallaby quiet-window best-min, us/transform; baseline = r1 build same minute)
+
+| cell | r1 build | now | note |
+|---|---:|---:|---|
+| 10007 B=1 | 213.6 (bad mode; good 110) | **97.0** | mode 2 + layout fix; AC tried and REVERTED (below) |
+| 10007 B=64 | 114.5 | **112.0** | |
+| 10007 chains | — | 109.6 / 114.4 | m=400 / B=64 m=80 |
+| 65537 B=1 | 2113–2526 | **1836** | AC 8192×25; deterministic |
+| 65537 B=16 | 2129 | **1915** | |
+| 65537 chains | — | 1874 / 1907 | m=60 / B=16 m=20 |
+| 100003 B=1 | 2997.8 | **1973** | AC 8192×25; −34% |
+| 100003 B=8 | 3023 | **1886** | |
+| 100003 chains | — | 2026 / 2105 | m=40 / B=8 m=15 |
+
+Correctness: 30 single-call configs PASS (every graded size/batch + odd batches +
+odd AC sizes 51199/33556; rel_l2 2e-16…1.3e-15, tol 1e-12); all graded chain gates
+PASS with ≥4 decades of margin (worst 8.5e-14 vs 1e-10). Setup ≤ 0.03 s.
+
+### What did NOT work, with the numbers
+
+- **AC at M=20480 (10007)**: stable 160–165 us vs the layout-fixed single-pass at
+  97–101. Below ~L2-size the single-pass fusions win; AC threshold set to
+  single-pass M > 32768. (First measured AC "beating" 10007 at 173 vs 213 — both
+  numbers were bad-mode baseline artifacts. Bimodality nearly cost this round a
+  wrong conclusion in EACH direction.)
+- **M1 = 16384 rows** (65537's minimal pad 147456 = 16384×9): per-row working set
+  ~1 MB is at L2 capacity — 1570–2440 us with residual luck even after the layout
+  fix, and worse than paying 39% more points at 204800 = 8192×25 (1837,
+  deterministic). On the scoring node's 1.25 MB L2 this margin only widens. Hence
+  the hard M1 ≤ 8192 cap in ac_choose_M.
+- **M2 = 45 (184320 = 4096×45 at 65537)**: 2262–3380 us, never competitive.
+- Long-double plan-time trig (cosl/sinl, 80-bit pi) adopted from d1_pow2's r1
+  record: no measurable speed change, slightly tighter rel_l2, kills the biased
+  M_PI phase error they diagnosed. Cheap insurance for the chain gates.
+
+### Borrowings
+
+- **d1_pow2**: long-double twiddle generation (their accuracy-fight lesson).
+- **d1_rader**: the negative result on √M×√M four-step at cache-resident M (their
+  1017-vs-703 A/B) steered the design to (a) only decompose above L2 and (b) prefer
+  the CRT/coprime form that has no mid twiddle table and no tile transposes.
+- Own r1 machinery reused wholesale inside AC: stage kernels with initial stride =
+  tile width, st4_first_bhat as the per-row kernel-multiply entry,
+  inverse-as-forward-on-swapped-planes end to end.
+
+### For every other implementer (read this even if you skip the rest)
+
+If your entry allocates multiple same-sized split-complex planes with
+posix_memalign and you have EVER seen an unexplained ~2x swing between identical
+runs (r1 records: d1_rader's 65537 noise, my 10007/100003 spreads, d1_pow2's ±15%
+"machine skew"), it is probably physical-page L2-set luck, not load. One hugepage
+block + 128KB-period skewed plane offsets makes it deterministic and usually equal
+to your best observed number. It also makes A/B decisions trustworthy — two of my
+r1 conclusions were luck artifacts.
+
+### Next round, in priority order
+
+1. **Ice Lake numbers.** Everything above is SPR; the AC threshold (32768) and the
+   M1 ≤ 8192 cap were tuned on a 2 MB L2 and should be re-derived on the scoring
+   node (1.25 MB L2) — likely AC wants to kick in EARLIER there (20480 is worth an
+   A/B on the real node).
+2. **Row middle fusion**: fuse forward-last-stage × kernel-multiply × inverse-first
+   into one pass over the row (saves one of ~10 row passes, ~5-8%); software
+   prefetch of the next kernel row during the forward stages.
+3. **Batched large-prime cells**: rows could batch-lane across b (8 transforms in
+   zmm lanes) instead of looping ac_one; working sets go DRAM-bound so measure on
+   the node first.
+4. **Direct pow2 path** (1024/4096/16384 cross-class cells): fuse deinterleave into
+   stage 0 and interleave into the last stage (the graded smooth sizes all start
+   radix-4); the layout fix already took 4096 from 21.7 to 13.0 without touching
+   code.
+5. 1021 stays mode 2 (M=2048): to actually win it needs Rader-1020 — d1_rader
+   already does 7.4 us there; not this entry's fight.

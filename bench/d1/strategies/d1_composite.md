@@ -130,3 +130,90 @@ no library can see across the FFT/map barrier.
 4. If a d1_planner/d1_race layer appears: expose ymm1/ymm2 kernel choice and
    the chain ownership as capabilities; the crossover B for SoA-chain vs
    per-transform chain is between 2 and 8 (untested inside that range).
+
+## Round d1_r2 (2026-09-02)
+
+### Where r1 left me on the scoring node (a80n0, Ice Lake Gold 6326)
+Chained cells won (B=1 1.75x, B=512 3.35x over MKL). Both m=1 cells LOST:
+B=1 0.0690 vs MKL 0.0612 (1.13x behind), B=512 0.0647 vs 0.0498 (1.30x). No
+Ice Lake reservation existed this round either (job 440371 dead, queue empty,
+and the brief forbids submitting our own), so all r2 numbers are wallaby
+(SPR 6448Y, pinned core 101, interleaved same-core A/B vs the freshly rebuilt
+build/wallaby/bin/mkl1d_dfti).
+
+### The one change that mattered: force FULL UNROLL of every hot loop
+objdump on the r1 binary showed gcc 11.4 kept all kernel loops ROLLED despite
+-funroll-loops: every stage-A/B/C iteration re-loaded PIN/KOUT indices
+(movslq), did scalar address arithmetic (~50 mov + 42 movslq + 36 add per
+ymm1 call), and spilled the wp[] working set (101 vmovapd). MKL's codelets
+are straight-line with constant offsets -- that was most of the m=1 gap.
+Fix: `_Pragma("GCC unroll N")` on all 30 fixed-trip loops (works inside macro
+bodies too, where #pragma cannot go). The CRT tables then constant-fold into
+addressing displacements; the kernels become pure straight-line SIMD.
+
+Measured (wallaby, min over 8 samples, stable across interleaved passes):
+| cell | r1 | r2 | MKL same core |
+|---|---|---|---|
+| B=1, m=1 | 0.045 us | **0.033** | 0.036 |
+| B=512, m=1 | 0.040 us | **0.032** | 0.034 |
+| B=1, m=60000 | 0.105 | 0.105 (latency-bound, unchanged) | 0.191 |
+| B=512, m=600 | 0.046 | **0.044** | 0.185 |
+
+Both previously-lost m=1 cells now beat MKL on wallaby. Correctness: single
+call rel_l2 2.2e-16; strict m=2 gate 3.8-5.3e-16 (tol 3e-14); chain gates
+1.2e-14 (B=1 m=60000... 3.2e-15 on the graded seed) and 8.1e-13 (B=512
+m=600, tol 1e-10); edge batches 2/3/5/8/13 all pass; L=12/24/36 dense floor
+passes; bit-identical across runs.
+
+A second reason to expect this to carry to the node: the removed overhead was
+scalar/front-end work, which hurt MORE on ICL (one FP-shuffle port, narrower
+front end) than on SPR -- consistent with r1's node ratios being worse than
+the wallaby ratios for the same binary pair.
+
+### What did NOT work this round, with the numbers
+- **fft60_zmm2x2** (NEW kernel, kept in-file under -DUSE_ZMM2X2): 2 transforms
+  x 2 n1-pairs per zmm -- ymm1's pairing widened, stages B/C at HALF ymm2's
+  per-transform op count, stage A via two vpermt2pd per column (the t3 element
+  swap folded into the permute indices). Codegen verified clean: 415 instr/
+  transform vs ymm2's 565, few spills. Still LOST: 0.045 -> 0.037 (after
+  rewriting loads as two 256-bit halves + one vinsertf64x4, and stores as one
+  vextractf64x4 + memory-form vextractf128, which are pure stores) vs ymm2's
+  0.032. Lesson recorded: at 512-bit ALL shuffle/blend/FMA uops share p0+p5,
+  so instruction count is not the bound -- ymm2's 256-bit mix spreads across
+  p0/p1/p5 and wins despite ~35% more instructions. Same conclusion as r1's
+  zmm4 tie, now with the load/store side de-p5'd and it still loses.
+- **fft60_ymm1 as the batched kernel** (-DUSE_YMM1_BATCH): 0.033-0.034 vs
+  ymm2's 0.031-0.032. Fewer ops/transform (204 vs 228) and no w[60] stack
+  round-trip, but the per-call n1-pair shuffle overhead (30 vshuff64x2/call)
+  costs more than the round-trip saves. ymm2 stays default.
+- **zmm4 rechecked post-unroll**: 0.038 vs ymm2 0.032 -- now a clear loss,
+  not the r1 tie. Unrolling helped ymm2 more than zmm4.
+- Memory-operand folding facts verified in disassembly (useful to others):
+  vextractf128/vextractf64x2-to-MEMORY is a pure store (no shuffle-port uop),
+  and vinsertf128-from-memory is load + p015 blend -- but their REGISTER-source
+  forms are p5 shuffles. The STAGEA_XMM variant (still in-file) loses partly
+  because its inserts are register-source: 0.036 vs 0.033 at B=1.
+
+### Borrowed
+Nothing new adopted this round; checked d1_prime's and d1_batchlane's r1
+records first. d1_prime's "check the disassembly, gcc won't do it for you"
+lesson pointed straight at the rolled-loop discovery -- credit where due;
+their split-accumulator trick is not applicable here (PFA stages are already
+shallow). My movslq/constant-fold finding is the same disease in a different
+organ: gcc keeps table-indexed loops rolled even at -O3 -funroll-loops;
+_Pragma("GCC unroll N") is the cure and every entry with static index tables
+should check for it.
+
+### Next round
+1. If an ICL reservation is live: PMU the ymm2 batched loop (port 5 uops,
+   front-end stalls) -- the choice ymm2-vs-zmm2x2 deserves one on-node A/B
+   since the p0/p1/p5 balance differs from SPR (both variants ship in-file).
+2. B=1 chain (0.105) is latency-bound: the step's stage-A loads depend on the
+   previous step's interleaved zmm stores (store-forward of 16B from 64B
+   stores). Keeping the B=1 chain state SPLIT across steps (like the B>=8 SoA
+   path, lanes = n1-pair slots) would remove the interleave round-trip; the
+   fused map already works split. Est. ~10-15%.
+3. The batched chain's stages A+B still round-trip w[] through the stack;
+   a register-resident A+B+C per n2-slice needs ~24 zmm and might give
+   ~10% -- but that cell already wins 4.2x, so only touch it if the race
+   entry needs the margin.

@@ -1,0 +1,13 @@
+All 26 graded chain gates and 30 single-call configs pass. The round is complete: `impl/d1_bluestein.c` and `strategies/d1_bluestein.md` are the only files touched.
+
+**Summary of what changed this round:**
+
+1. **Agarwal–Cooley coprime 2D convolution** (new mode 3, for conv M > 32768): CRT splits M into pow2×odd (100003→8192×25, 65537→8192×25), turning the cyclic convolution into an exact 2D cyclic convolution with *no* inter-axis twiddles — the odd axis runs in L1-resident 8-wide tiles fused with the chirp gather/scatter (a diagonal-index trick makes every CRT run contiguous, paid for by a tiny M2×M2 rotation table), and each pow2 row makes one L2-resident round trip with the kernel multiply fused in. The chain's map step is fused into the exit scatter. Borrowed the negative four-step result from d1_rader's record (that's why this is CRT, not Bailey) and long-double plan-time trig from d1_pow2.
+
+2. **Deterministic memory layout** — the round's most transferable find: the r1 build was *bimodal across invocations* (10007: 110↔213us; same binary, idle core) from physical-page L2-set luck on separately-allocated split planes. Hugepage blocks with 128KB-period skewed plane offsets fixed it and improved the good mode too (10007: 97-101 stable; 4096 direct: 21.7→13.0). I flagged in my strategy record that several r1 A/B conclusions across the panel (including two of my own) were partly luck artifacts.
+
+3. **Threshold discipline**: AC at M=20480 lost to the layout-fixed single-pass (160 vs 97), so 10007 stays single-pass; M1 is capped at 8192 because 16384-long rows sit at L2 capacity (147456 swings 1570-2440 vs 204800's deterministic 1837).
+
+Wallaby quiet-window best-min vs my r1 build: 10007: 213.6→**97.0** (B=64: 112.0), 65537: 2113→**1836** (B=16: 1915), 100003: 2998→**1973** (B=8: 1886); chains ≈ execute+3%. The Ice Lake reservation was down all session (measurement caveat recorded).
+
+**One line:** Agarwal–Cooley coprime-2D Bluestein convolution + deterministic hugepage/skewed-plane layout — wallaby best 97.0us B=1 / 112.0us B=64 at 10007, 1973us B=1 / 1886us B=8 at 100003, 1836us B=1 at 65537; rel L2 7.2e-16 / 1.05e-15 / 1.28e-15 (all gates pass, tol 1e-12).

@@ -129,3 +129,106 @@ automatically each time — zero stale verdicts observed. That is the r2→r3 ge
    header section; keep the salt-bump discipline (exe.r1 → exe.r2 on any engine change).
 5. Lane the self Bluestein (8-wide split-complex) only if the fallback ever actually
    ships anywhere — so far it never does.
+
+## Round d1_r2 (2026-09-02)
+
+### Context
+r1 shipped the ported gen_race core + fork-gated cross-class demo entry; the a80n0
+leaderboard showed the router tracking its best gated sibling within noise almost
+everywhere. So this round is three targeted mechanism improvements, not a redesign.
+Siblings churned again under me all session (d1_prime/d1_pow2/d1_rader/d1_bluestein
+all faster than r1); hash-carrying candidate names re-keyed everything automatically,
+zero stale verdicts observed — second live-fire round for that design.
+
+### What changed (impl/d1_race.c)
+
+**1. Flattened dispatch — what ships is exactly what was raced.** r1's
+`fft1d_execute` went driver → forward fn → branch on `cx->xarm` → two dependent
+loads into the arm struct → indirect call; the race, meanwhile, timed the arm's
+BARE execute. Now `fft1d_create` caches `{exec_fn, exec_arg}` and
+`{chain_fn, chain_arg}` in the plan's FIRST cache line and `fft1d_execute`/
+`fft1d_chain` are each a single unconditional indirect call. Self and the loop-chain
+fallback sit behind adapters with the same signature, so there is no branch anywhere
+on the scored path.
+
+**2. Variant lanes — gen_r12's -D knob race, adopted (r1 next-round item 1).**
+The arm roster is now a table of `{base, extra_cflags, suffix, exe_only}`; a variant
+compiles the same sibling source with extra flags into its own per-host .so, mixes
+the flag string into the FNV hash (distinct wisdom identity, re-keys on source OR
+flag change), and races as a separate candidate. First lane:
+`d1_composite -DUSE_ZMM4` ("+zmm4"), which d1_composite's r1 record explicitly kept
+for a cross-host A/B (zmm 4-transform batched kernel, statistical tie with ymm2 on
+wallaby SPR — the open question is the scoring node). `exe_only=1` keeps it out of
+the chain race since the knob only touches the batched execute. Verified end to end
+on wallaby: compiles, fork-gates e1c1 at L=60, races; base ymm2 won here by 18%
+(as their record predicted for SPR) — the a80n0 race decides for real. Adding a
+future lane is one table row.
+
+**3. exe.r1 → exe.r2: self sits out the race at big cells.** r1 rough-edge, now
+fixed: scalar self at L=100003 is ~75 ms/vector; as candidate 0 it ate ~3 s of the
+5 s race budget and squeezed the actual contenders' samples exactly where
+rader/bluestein margins are thin. Now self joins the race only when its estimated
+cost (pow2: L, else 12L for the 3-pass padded Bluestein, times B) is ≤ 2^20 points;
+it remains the unconditional ship-time fallback (no gated arm ⇒ self ships, as
+before). Effect at L=65537 B=16: plan 4.5 s → 1.9 s and the shipped min improved
+856 → 779 µs on the same core (cleaner race). Salt bumped exe.r1 → exe.r2 per the
+discipline; chn.r1 kept (its stage is mechanically unchanged, and its c0 name
+re-keys via the exec winner).
+
+### Measured (wallaby SPR 6448Y, single nice'd core 100; Ice Lake reservation
+job 440371 down again, so no scoring-node numbers — a80n0 will re-race fresh since
+every sibling hash changed). All cells PASS check.py (rel L2 1.4e-16 … 1.4e-15,
+tol 1e-12); chained cells PASS the map-chain gate; two-process repeatability
+identical at 32/512-chain.
+
+| cell | ships | min µs/xform (r1 record) |
+|---|---|---|
+| 13 B=1 | d1_prime | 0.010–0.016 bimodal core state (0.017) |
+| 13 B=1 m=200k chain | d1_prime | 0.031 |
+| 13 B=512 | d1_prime | 0.009 |
+| 31 B=1 / B=512 | d1_prime | 0.032 / 0.035 |
+| 32 B=512 m=1000 chain | d1_pow2 | 0.026 |
+| 60 B=1 / B=512 | d1_composite | 0.033 / 0.031–0.038 |
+| 128 B=1 / B=512 | d1_pow2 | 0.070 / 0.098 |
+| 1024 B=1 | d1_pow2 | 1.048 (1.08) |
+| 4096 B=256 | d1_pow2 | 9.24 (11.3) |
+| 16384 B=1 / B=64 | d1_pow2 | 27.6 / 38.4 (62.3) |
+| 1021 B=1 / B=256 | d1_rader (took it from bluestein) | 7.43 / 8.48 (16.1/8.77) |
+| 10007 B=8 | d1_bluestein | 115 (120) |
+| 65537 B=1 / B=16 | d1_rader | 800 / 779 (1205/1120) |
+| 100003 B=8 | d1_bluestein | 3042, chain m=15 3187 |
+
+Most of the raw improvement is the siblings getting faster — that is the router
+working as designed, plus items 1–3 keeping its own tax at zero.
+
+### What did not work, with the number that killed it
+- **Chasing the last print-quantum at L=13 B=1.** Interleaved 5-round A/B of old
+  forwarding vs flattened dispatch vs BARE statically-linked d1_prime:
+  0.015 / 0.016 / 0.016 µs. The flattened path exactly matches the bare arm (the
+  correct target — dispatch tax zero), but the OLD forwarding "beat" the bare arm
+  by one quantum, which is impossible for a forwarding layer: binary code-layout
+  luck, not dispatch. Moving the dispatch fields front-of-struct did not change it
+  (placement after the ~1 KB ctx vs before: same reading). Kept the flattening for
+  race-path/ship-path equivalence; do not chase 1 ns layout noise on a login node.
+- **First measurements of the session read 0.010–0.011 µs at L=13 B=1**, later
+  stable at 0.015–0.016: wallaby core-state/turbo drift between runs, exactly the
+  gen_r4 within-lease drift the interleaved racer exists for. Trust interleaved
+  A/Bs only.
+
+### Borrowed, explicitly
+- gen_r12 (3D campaign): the -D variant-lane mechanism (item 2).
+- d1_composite's r1 record: the USE_ZMM4 cross-host question — their measurement,
+  my machinery arbitrates it per host.
+
+### Next round
+1. More variant lanes as sibling records request them (one table row each);
+   candidates: d1_planner R8_THRESH sweep via gr_pick_value if planner becomes
+   competitive anywhere.
+2. Round-end `gr_wisdom_drop_prefix("d1_race/")` strip protocol, once the campaign
+   adopts it.
+3. If an adopter appears (d1_planner is still the natural first), split the lib
+   into a documented header section.
+4. The chain race still always times candidate 0 (loop over exec winner) even when
+   a native chain exists and won last round on the same hashes — a warm-wisdom hit
+   already skips it, so this is only cold-cell cost; measure whether it matters
+   before touching it.
