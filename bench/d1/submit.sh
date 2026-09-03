@@ -24,6 +24,10 @@ ENVPFX=""
 [ -n "${BACKENDS:-}" ] && ENVPFX="$ENVPFX BACKENDS='$BACKENDS'"
 [ -n "${ALLOW_NO_PANEL:-}" ] && ENVPFX="$ENVPFX ALLOW_NO_PANEL='$ALLOW_NO_PANEL'"
 mkdir -p "results/$ROUND"
+# sweep.out is APPENDED to across attempts: a round can now be resumed after losing its
+# node, and truncating the log would erase the record of what the earlier attempt measured.
+{ echo; echo "===== submit.sh attempt $(date -Is) round=$ROUND seed=$SEED extra=$EXTRA ====="; } \
+  >> "results/$ROUND/sweep.out"
 JOBSCRIPT=$(pwd)/.sweep_snapshot_$ROUND.sh
 cp sweep.sh "$JOBSCRIPT"; chmod +x "$JOBSCRIPT"
 
@@ -43,7 +47,7 @@ if [ -f RESERVATION ] && ./reserve.sh --status >/dev/null 2>&1; then
   if [ -x "$SRUN" ] && [ -n "${RES_JOB:-}" ]; then
     "$SRUN" --jobid="$RES_JOB" bash -lc \
       "cd '$(pwd)' && env $ENVPFX '$JOBSCRIPT' --round $ROUND --seed $SEED $EXTRA" \
-      > "results/$ROUND/sweep.out" 2>&1
+      >> "results/$ROUND/sweep.out" 2>&1
     rc=$?
     [ $rc -ne 0 ] && echo "srun path failed (rc=$rc); falling back to ssh" >> "results/$ROUND/sweep.out"
   fi

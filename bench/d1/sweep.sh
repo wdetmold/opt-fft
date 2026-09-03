@@ -3,12 +3,16 @@
 # cpu), generates fresh random data for the round, then measures every backend on every
 # case in several independent processes.
 #
-# usage: sweep.sh --round TAG --seed N [--runs 3] [--samples 20] [--quick]
+# usage: sweep.sh --round TAG --seed N [--runs 3] [--samples 20] [--quick] [--fresh]
+#
+# The sweep is RESUMABLE: an interrupted round can be re-run with the same arguments and
+# it will skip the cells it already measured.  See the resume block below for why that is
+# safe only when the measurement is provably identical.
 set -u
 cd "$(dirname "$0")"
 source /home/lqcd/wdetmold/fft/env.sh >/dev/null 2>&1
 
-ROUND=""; SEED=0; RUNS=3; SAMPLES=20; QUICK=0; CASEFILE=cases.txt
+ROUND=""; SEED=0; RUNS=3; SAMPLES=20; QUICK=0; CASEFILE=cases.txt; FRESH=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --round) ROUND=$2; shift 2 ;;
@@ -17,6 +21,7 @@ while [ $# -gt 0 ]; do
     --samples) SAMPLES=$2; shift 2 ;;
     --quick) QUICK=1; shift ;;
     --cases) CASEFILE=$2; shift 2 ;;
+    --fresh) FRESH=1; shift ;;      # ignore any existing results and remeasure everything
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -24,6 +29,87 @@ done
 
 OUT=results/$ROUND
 mkdir -p "$OUT"
+
+# ---- resume ------------------------------------------------------------------------------
+# A scoring sweep runs for hours inside a reservation that can expire underneath it.  d1_r1
+# lost its node 3.5 h in; the retry restarted from cell 1 and measured everything twice.
+# Every per-cell artifact is already named deterministically, so the work is resumable -- but
+# ONLY if the files on disk provably come from the same measurement.  Resuming across a
+# different seed, case list, run/sample count or a changed implementation would silently
+# splice two generations of results into one leaderboard, which is worse than redoing the
+# work.  So a manifest records what produced the directory, and a mismatch moves the old
+# artifacts aside instead of mixing them.
+MANIFEST="$OUT/.manifest"
+# The SOURCES decide the numbers, not the binaries: make clean rebuilds those every attempt,
+# so their hashes differ even when nothing changed.
+SRCFP=$(cat driver.c fft1d_api.h sota/*.c impl/*.c 2>/dev/null | md5sum | cut -d" " -f1)
+WANT="round=$ROUND seed=$SEED runs=$RUNS samples=$SAMPLES cases=$CASEFILE src=$SRCFP"
+RESUME=0
+if [ -f "$MANIFEST" ] && [ "$FRESH" = 0 ]; then
+  HAVE=$(cat "$MANIFEST")
+  if [ "$HAVE" = "$WANT" ]; then
+    RESUME=1
+  else
+    STALE="$OUT/stale_$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$STALE"
+    mv "$OUT"/t_*.json "$OUT"/c_*.json "$OUT"/o_*.json "$STALE/" 2>/dev/null
+    echo "== NOT resuming $ROUND: manifest differs, so the existing results are from a"
+    echo "   DIFFERENT measurement and must not be mixed into one leaderboard."
+    echo "     was: $HAVE"
+    echo "     now: $WANT"
+    echo "   moved the old artifacts to $STALE"
+  fi
+fi
+printf "%s" "$WANT" > "$MANIFEST"
+
+# Which (backend,L,B,m) units are already complete.  Scanned ONCE into a file rather than
+# re-tested per unit, so resume costs one python call instead of thousands.
+DONELIST="$OUT/.done_units"
+: > "$DONELIST"
+if [ "$RESUME" = 1 ]; then
+  python3 - "$OUT" "$RUNS" > "$DONELIST" <<'PY'
+import glob, json, os, re, sys
+out, runs = sys.argv[1], int(sys.argv[2])
+pat = re.compile(r"^t_(?P<b>.+)_L(?P<L>\d+)_B(?P<B>\d+)_m(?P<m>\d+)_r(?P<r>\d+)\.json$")
+
+def load(path):
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except Exception:          # missing, truncated by a kill mid-write, or unparseable
+        return None
+
+units = {}
+for path in glob.glob(os.path.join(out, "t_*_r*.json")):
+    mo = pat.match(os.path.basename(path))
+    if mo:
+        units.setdefault((mo["b"], mo["L"], mo["B"], mo["m"]), set()).add(int(mo["r"]))
+
+for (b, L, B, m), have in sorted(units.items()):
+    if set(range(1, runs + 1)) - have:
+        continue                                    # not every run recorded
+    ds = [load(os.path.join(out, f"t_{b}_L{L}_B{B}_m{m}_r{r}.json"))
+          for r in range(1, runs + 1)]
+    if any(d is None for d in ds):
+        continue                                    # a partial write is NOT a result
+    # An unsupported backend writes timing JSONs with supported=false and produces no
+    # output to check, so it is complete with no verdict files at all.
+    if all(not d.get("supported", False) for d in ds):
+        print(b, L, B, m)
+        continue
+    if load(os.path.join(out, f"c_{b}_L{L}_B{B}_m{m}.json")) is None:
+        continue                                    # correctness verdict missing/partial
+    if int(m) > 1 and load(os.path.join(out, f"o_{b}_L{L}_B{B}_m{m}.json")) is None:
+        continue                                    # one-step gate missing/partial
+    print(b, L, B, m)
+PY
+  echo "== RESUMING $ROUND: $(wc -l < "$DONELIST") complete units on disk will be skipped =="
+fi
+
+unit_done() {   # backend L B m
+  [ "$RESUME" = 1 ] || return 1
+  grep -qxF "$1 $2 $3 $4" "$DONELIST"
+}
 
 {
   echo "# round $ROUND"
@@ -78,6 +164,19 @@ for case in $CASES; do
   B=${rest%%:*}
   # optional third field: chain length m (the graded call); absent means 1
   M=1; case "$rest" in *:*) M=${rest##*:} ;; esac
+  # Resume at CASE granularity first: if every backend for this case is already complete
+  # there is no reason to regenerate its inputs, which for L=100003 is not cheap.
+  if [ "$RESUME" = 1 ]; then
+    pending=0
+    for backend in $BACKENDS; do
+      if [ "$backend" = "baseline_dft" ] && [ $((L * L * B)) -gt 8000000 ]; then continue; fi
+      unit_done "$backend" "$L" "$B" "$M" || pending=1
+    done
+    if [ "$pending" = 0 ]; then
+      echo "   skip L=$L B=$B m=$M (already complete)"
+      continue
+    fi
+  fi
   IN=$OUT/in_L${L}_B${B}.bin
   CIN=$OUT/c_L${L}_B${B}.bin
   python3 gen_input.py --L "$L" --batch "$B" --seed $((SEED + L * 1000 + B)) --out "$IN" >/dev/null
@@ -89,6 +188,10 @@ for case in $CASES; do
     if [ "$backend" = "baseline_dft" ] && [ $((L * L * B)) -gt 8000000 ]; then
       echo "   skipping baseline_dft at L=$L B=$B (too expensive to be informative)" \
         >> "$OUT/timing.log"
+      continue
+    fi
+    if unit_done "$backend" "$L" "$B" "$M"; then
+      echo "   skip $backend L=$L B=$B m=$M (already measured)" >> "$OUT/timing.log"
       continue
     fi
     for run in $(seq 1 "$RUNS"); do
