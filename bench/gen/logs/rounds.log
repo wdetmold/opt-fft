@@ -2338,3 +2338,54 @@ scoring window open: all 24 slots held
 [2026-09-03 03:00:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
 [2026-09-03 03:00:01]     implementers: fable    monitor: opus
 [2026-09-03 03:00:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 03:15:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 03:15:01]     implementers: fable    monitor: opus
+[2026-09-03 03:15:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 03:30:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 03:30:01]     implementers: fable    monitor: opus
+[2026-09-03 03:30:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 03:45:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 03:45:01]     implementers: fable    monitor: opus
+[2026-09-03 03:45:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 04:00:02] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 04:00:02]     implementers: fable    monitor: opus
+[2026-09-03 04:00:02] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 04:15:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 04:15:01]     implementers: fable    monitor: opus
+[2026-09-03 04:15:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 04:30:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 04:30:01]     implementers: fable    monitor: opus
+[2026-09-03 04:30:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 04:45:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 04:45:01]     implementers: fable    monitor: opus
+[2026-09-03 04:45:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 05:00:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 05:00:01]     implementers: fable    monitor: opus
+[2026-09-03 05:00:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 05:15:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 05:15:01]     implementers: fable    monitor: opus
+[2026-09-03 05:15:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 05:30:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 05:30:01]     implementers: fable    monitor: opus
+[2026-09-03 05:30:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 05:45:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 05:45:01]     implementers: fable    monitor: opus
+[2026-09-03 05:45:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 06:00:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 06:00:01]     implementers: fable    monitor: opus
+[2026-09-03 06:00:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 06:15:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 06:15:01]     implementers: fable    monitor: opus
+[2026-09-03 06:15:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 06:30:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 06:30:01]     implementers: fable    monitor: opus
+[2026-09-03 06:30:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 06:45:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 06:45:01]     implementers: fable    monitor: opus
+[2026-09-03 06:45:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 07:00:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 07:00:01]     implementers: fable    monitor: opus
+[2026-09-03 07:00:01] === series complete: rounds through gen_r14 are done ===
+[2026-09-03 07:15:01] === run_rounds[gen]: next=gen_r15 last=gen_r14 jobs=6 ===
+[2026-09-03 07:15:01]     implementers: fable    monitor: opus
+[2026-09-03 07:15:01] === series complete: rounds through gen_r14 are done ===

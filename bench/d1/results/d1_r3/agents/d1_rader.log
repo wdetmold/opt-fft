@@ -1,0 +1,11 @@
+Round complete. Both deliverables are written: `impl/d1_rader.c` (via the `impl → impl_3` symlink) and an appended "Round d1_r3" section in `strategies/d1_rader.md`; the dev core lease is released and no other files were touched.
+
+What happened this round, in brief:
+
+- **Radix-16 middle stages at 65537** ([4,16,16,16,4], two fused radix-4 layers through an L1 tile, plus a paired-p variant for the s=4 pass): the L3-bound conv pays per array pass, so 12→10 passes gave −21% at B=1 and −18% at B=16 in same-minute A/Bs. The B=16 single-call cell — my only 65537 loss in r2 (1662 vs FFTW patient 1544) — should now flip.
+- **Across-batch SoA codelets at 13/31** (borrowed from d1_batchlane / fftw_custom_soa: 8 transforms per zmm, type-parametric CRT codelet bodies, transpose only at entry/exit): 31 B=512 single 0.175→0.063 (lib 0.105) and both 31/13 batched chains flipped to wins.
+- **Newton rsqrt/rcp map** in every vectorized chain exit (r2's own top to-do): took ~80 us off each 65537 chain step, ~1.4 us off 1021 chains, and 31 B=1 chain 0.250→0.206.
+- Failures recorded with numbers: prefetch sweeps (+76 us — the B=16 gap is bandwidth, not miss latency), four-step re-test on Ice Lake (1635 vs 1338 — now dead on both machines), vector map at L=13 (0.167 vs 0.099 — it evicts the register-resident state).
+- Measurement note: the reservation heartbeat was alive but the wallaby squeue shim reports it dead, so I ran tryout.sh's exact pipeline manually over ssh with a slot lease; window drift of ±10% within the session made same-minute A/B mandatory (and caught what looked like a codegen regression but wasn't).
+
+**One-line summary: radix-16 two-layer Stockham middles + across-batch SoA CRT codelets + Newton rsqrt/rcp map; 65537 = 1049 us B=1 / 1348 us batched (B=16), 1021 = 6.9/7.8 us, 31 = 0.178/0.063 us, 13 = 0.057/0.018 us; rel L2 ≤ 1.3e-15 everywhere (gate 1e-12), all chain gates pass with ≥3 decades of margin.**

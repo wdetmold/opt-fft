@@ -1,0 +1,5 @@
+   d1_composite                  0.0489 us     0.049 us    36.25      14.0%    0.000s  ok 2.1e-16       1.03x
+   d1_composite                  0.1105 us  6629.651 us    16.04      13.7%    0.000s  ok ch=4.4e-15/1e-10 1s=4e-16 1.00x
+   d1_composite                  0.0591 us    30.250 us    29.99       6.4%    0.000s  ok 2.2e-16       1.20x
+   d1_composite                  0.0592 us 18193.546 us    29.92       0.4%    0.000s  ok ch=3.1e-13/1e-10 1s=5e-16 1.00x
+   d1_composite             Good-Thomas PFA 60=4x3x5 twiddle-free; fully-unrolled straight-line n1-paired ymm kernels (constant-folded CRT indices); SoA-resident in-place batched chain and coset-row B=1 chain, both with fused rsqrt/rcp map

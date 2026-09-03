@@ -1,0 +1,9 @@
+   d1_prime                      0.0172 us     0.017 us    14.02      37.3%    0.000s  ok 1.2e-16       1.03x
+   d1_prime                      0.0395 us  7898.147 us     6.09       0.1%    0.000s  ok ch=1.1e-15/1e-10 1s=4e-16 1.01x
+   d1_prime                      0.0107 us     5.455 us    22.58       0.1%    0.000s  ok 1.7e-16       1.00x
+   d1_prime                      0.0154 us 15777.631 us    15.61      13.7%    0.000s  ok ch=2.0e-13/1e-10 1s=4e-16 1.06x
+   d1_prime                      0.0530 us     0.053 us    14.49       2.5%    0.000s  ok 3.6e-16       1.00x
+   d1_prime                      0.0662 us  6622.649 us    11.60       0.0%    0.000s  ok ch=2.2e-15/1e-10 1s=7e-16 1.21x
+   d1_prime                      0.0501 us    25.664 us    15.32       0.0%    0.000s  ok 2.9e-16       1.14x
+   d1_prime                      0.0485 us 29805.736 us    15.83       0.1%    0.000s  ok ch=2.5e-12/3e-10 1s=7e-16 1.02x
+   d1_prime                 symmetric-pair dense prime DFT; interleaved-pair zmm kernels at 13/31 (complex per 128b lane, pair-dup tables); fused SoA map chain (rsqrt14+NR)

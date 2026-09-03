@@ -1,0 +1,5 @@
+Done. All 52 graded cells pass, the shipped file builds cleanly under the exact tryout flags, and every change is an interleaved-A/B win or parity on wallaby. I wrote only `impl/d1_planner.c` and `strategies/d1_planner.md`.
+
+Technique ended on: the planner's split-complex Stockham core plus four lifted, vectorized pieces — d1_rader's intrinsic radix-17 stage and GATHER8/staged-scatter Rader fusions with a conv-order (reversal) chain, d1_pow2's rsqrt14/rcp14+Newton divider-free map, and d1_bluestein's deterministic huge-page skewed arena.
+
+Best wallaby µs/transform (min, warmed core 12): at B=1, 0.044 (L=13) up to 5.03 (L=1021, down from 8.19) and 682 (L=65537, down from 792); batched, 0.037 (L=13, B=512) and 9.34 (L=1021, B=256, down from 13.17), with the headline chained wins 65537 B=16 chain 729 (from 1240) and 16384 B=64 execute 45.6 (from 91.0, a 2x arena win). Worst rel L2 error across all graded cells is 1.25e-15 (at 65537; single-call tol 1e-12), and every chain gate passes with ≥3 decades of margin.

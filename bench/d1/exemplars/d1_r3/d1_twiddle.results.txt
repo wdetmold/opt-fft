@@ -1,0 +1,29 @@
+   d1_twiddle                    0.0348 us     0.035 us    22.97      17.5%    0.000s  ok 1.2e-16       1.69x
+   d1_twiddle                    0.0830 us  8303.403 us     9.63      13.7%    0.000s  ok ch=2.0e-15/1e-10 1s=3e-16 1.41x
+   d1_twiddle                    0.0292 us    14.960 us    27.38      24.6%    0.000s  ok 1.4e-16       1.91x
+   d1_twiddle                    0.0413 us 21134.120 us    19.38       0.8%    0.000s  ok ch=3.2e-13/1e-10 1s=3e-16 1.08x
+   d1_twiddle                    0.0775 us     0.077 us    22.88       0.6%    0.000s  ok 1.5e-16       1.64x
+   d1_twiddle                    0.1538 us  9228.595 us    11.52       1.0%    0.000s  ok ch=2.9e-15/1e-10 1s=4e-16 1.39x
+   d1_twiddle                    0.0907 us    46.435 us    19.54       2.3%    0.000s  ok 1.7e-16       1.84x
+   d1_twiddle                    0.0876 us 26902.150 us    20.24       1.4%    0.000s  ok ch=2.8e-13/1e-10 1s=4e-16 1.48x
+   d1_twiddle                    0.0648 us     0.065 us    29.64      10.8%    0.000s  ok 1.8e-16       1.39x
+   d1_twiddle                    0.1544 us  9265.274 us    12.43      14.6%    0.000s  ok ch=5.8e-15/1e-10 1s=4e-16 1.82x
+   d1_twiddle                    0.0696 us    35.618 us    27.60      20.5%    0.000s  ok 1.8e-16       1.86x
+   d1_twiddle                    0.0904 us 23132.898 us    21.25       2.3%    0.000s  ok ch=3.8e-13/1e-10 1s=4e-16 1.15x
+   d1_twiddle                    0.1110 us     0.111 us    40.36      19.3%    0.000s  ok 2.0e-16       1.22x
+   d1_twiddle                    0.3467 us 10400.265 us    12.92       1.9%    0.000s  ok ch=4.9e-15/1e-10 1s=4e-16 1.88x
+   d1_twiddle                    0.1890 us    96.754 us    23.71       9.1%    0.000s  ok 2.1e-16       1.28x
+   d1_twiddle                    0.2053 us 26277.364 us    21.82       0.1%    0.000s  ok ch=2.6e-14/1e-10 1s=5e-16 1.10x
+   d1_twiddle                    1.8342 us     1.834 us    27.91       3.6%    0.000s  ok 2.6e-16       1.71x
+   d1_twiddle                    3.2991 us 13196.363 us    15.52       0.1%    0.000s  ok ch=6.0e-12/1e-10 1s=7e-16 1.56x
+   d1_twiddle                    2.3157 us  1185.648 us    22.11       0.8%    0.000s  ok 2.6e-16       1.40x
+   d1_twiddle                    2.8610 us 2929707.350 us    17.90       4.0%    0.000s  ok ch=7.3e-13/1e-10 1s=8e-16 1.12x
+   d1_twiddle                    8.2878 us     8.288 us    29.65      12.8%    0.000s  ok 3.0e-16       1.38x
+   d1_twiddle                   13.9552 us 13955.179 us    17.61      15.1%    0.000s  ok ch=9.5e-14/1e-10 1s=1e-15 1.26x
+   d1_twiddle                   13.1488 us  3366.104 us    18.69      30.6%    0.000s  ok 3.1e-16       1.30x
+   d1_twiddle                   15.7431 us 1612092.590 us    15.61       0.9%    0.000s  ok ch=3.8e-14/1e-10 1s=1e-15 1.41x
+   d1_twiddle                   52.8769 us    52.877 us    21.69      11.7%    0.001s  ok 3.4e-16       1.64x
+   d1_twiddle                   87.4165 us 21854.130 us    13.12      16.0%    0.001s  ok ch=2.5e-14/1e-10 1s=1e-15 1.21x
+   d1_twiddle                   87.8083 us  5619.733 us    13.06       4.5%    0.001s  ok 3.4e-16       1.84x
+   d1_twiddle                   74.2469 us 712770.118 us    15.45       1.3%    0.001s  ok ch=3.2e-14/1e-10 1s=1e-15 1.17x
+   d1_twiddle               LIBRARY LAYER (adoption-scored): exact 1D twiddle tables, consumption order (d1tw_cexp quadrant-exact ~1ulp, d1tw_chirp integer-reduced, d1tw_stage v1 + v2 broadcast-pair/lane-major AVX-512 formats; v1 doubles as the SoA-broadcast format); vehicle: mixed-radix 2/3/4/5/8 Stockham, zmm 4-complex lanes, fused-map chain per-transform at B=1 / SoA across-batch groups-of-8 at B>=8, L<=2048 (borrowed from d1_batchlane), smooth L

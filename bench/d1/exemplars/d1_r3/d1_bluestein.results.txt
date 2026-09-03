@@ -1,0 +1,54 @@
+   d1_bluestein                  0.1074 us     0.107 us     2.24       2.2%    0.000s  ok 1.3e-16       6.47x
+   d1_bluestein                  0.1458 us 29154.937 us     1.65       0.4%    0.000s  ok ch=4.5e-16/1e-10 1s=2e-16 3.72x
+   d1_bluestein                  0.1037 us    53.083 us     2.32       4.3%    0.000s  ok 1.8e-16       9.73x
+   d1_bluestein                  0.1229 us 125898.060 us     1.96       1.9%    0.000s  ok ch=6.2e-15/1e-10 1s=3e-16 8.42x
+   d1_bluestein                  0.3071 us     0.307 us     2.50       6.9%    0.002s  ok 3.1e-16       5.80x
+   d1_bluestein                  0.3045 us 30446.086 us     2.52      15.8%    0.001s  ok ch=7.6e-15/1e-10 1s=5e-16 5.58x
+   d1_bluestein                  0.3042 us   155.771 us     2.52      10.1%    0.002s  ok 3.2e-16       6.90x
+   d1_bluestein                  0.3056 us 187736.505 us     2.51       6.6%    0.001s  ok ch=2.7e-12/3e-10 1s=7e-16 6.40x
+   d1_bluestein                  0.0964 us     0.096 us     8.30      12.5%    0.001s  ok 1.1e-16       4.67x
+   d1_bluestein                  0.1847 us 18465.987 us     4.33       3.6%    0.001s  ok ch=3.5e-15/1e-10 1s=3e-16 3.13x
+   d1_bluestein                  0.0913 us    46.756 us     8.76      17.1%    0.001s  ok 1.4e-16       5.97x
+   d1_bluestein                  0.1774 us 90853.770 us     4.51       0.9%    0.001s  ok ch=2.9e-13/1e-10 1s=3e-16 4.64x
+   d1_bluestein                  0.2192 us     0.219 us     8.08       5.9%    0.001s  ok 1.4e-16       4.64x
+   d1_bluestein                  0.4147 us 24881.061 us     4.27       6.7%    0.001s  ok ch=1.7e-15/1e-10 1s=4e-16 3.75x
+   d1_bluestein                  0.2102 us   107.631 us     8.43       2.2%    0.001s  ok 1.8e-16       4.27x
+   d1_bluestein                  0.3692 us 113431.740 us     4.80       8.0%    0.001s  ok ch=2.6e-13/1e-10 1s=4e-16 6.23x
+   d1_bluestein                  0.1525 us     0.152 us    12.59      15.1%    0.000s  ok 1.6e-16       3.28x
+   d1_bluestein                  0.3412 us 20470.081 us     5.63      14.6%    0.001s  ok ch=4.9e-15/1e-10 1s=4e-16 4.02x
+   d1_bluestein                  0.1540 us    78.854 us    12.47      16.0%    0.001s  ok 1.8e-16       4.12x
+   d1_bluestein                  0.3531 us 90389.164 us     5.44       2.3%    0.001s  ok ch=1.8e-13/1e-10 1s=4e-16 4.48x
+   d1_bluestein                  0.2717 us     0.272 us    16.49       0.0%    0.001s  ok 2.0e-16       2.99x
+   d1_bluestein                  0.7510 us 22530.497 us     5.97       4.9%    0.001s  ok ch=6.9e-15/1e-10 1s=5e-16 4.07x
+   d1_bluestein                  0.3155 us   161.554 us    14.20      20.4%    0.001s  ok 2.2e-16       2.15x
+   d1_bluestein                  0.7069 us 90488.514 us     6.34       0.8%    0.001s  ok ch=2.6e-14/1e-10 1s=5e-16 3.79x
+   d1_bluestein                 10.9181 us    10.918 us     4.67      12.0%    0.002s  ok 5.8e-16       1.57x
+   d1_bluestein                 14.0632 us 28126.310 us     3.63       2.2%    0.002s  ok ch=8.9e-13/3e-10 1s=2e-15 1.92x
+   d1_bluestein                 12.7591 us  3266.335 us     4.00       8.7%    0.002s  ok 5.8e-16       1.68x
+   d1_bluestein                 12.5428 us 1284379.990 us     4.07       3.8%    0.002s  ok ch=1.1e-13/1e-10 1s=2e-15 1.71x
+   d1_bluestein                  2.4486 us     2.449 us    20.91      13.7%    0.001s  ok 2.8e-16       2.28x
+   d1_bluestein                  5.7910 us 23163.822 us     8.84      14.2%    0.001s  ok ch=5.8e-12/1e-10 1s=8e-16 2.75x
+   d1_bluestein                  3.1457 us  1610.580 us    16.28      15.8%    0.001s  ok 2.8e-16       1.90x
+   d1_bluestein                  6.2207 us 6369954.830 us     8.23       1.3%    0.001s  ok ch=8.8e-13/1e-10 1s=9e-16 2.43x
+   d1_bluestein                 15.7315 us    15.731 us    15.62      14.3%    0.002s  ok 3.0e-16       2.62x
+   d1_bluestein                 31.7666 us 31766.556 us     7.74       1.0%    0.002s  ok ch=7.9e-14/1e-10 1s=1e-15 2.87x
+   d1_bluestein                 20.7554 us  5313.379 us    11.84      30.7%    0.002s  ok 3.0e-16       2.05x
+   d1_bluestein                 33.9013 us 3471489.120 us     7.25       1.1%    0.002s  ok ch=3.6e-14/1e-10 1s=1e-15 3.04x
+   d1_bluestein                156.4212 us   156.421 us     4.25      17.7%    0.008s  ok 7.1e-16       1.00x
+   d1_bluestein                172.2483 us 68899.309 us     3.86       0.1%    0.009s  ok ch=1.0e-13/1e-10 1s=3e-15 1.00x
+   d1_bluestein                192.2121 us 12301.575 us     3.46      21.2%    0.009s  ok 7.1e-16       1.14x
+   d1_bluestein                175.9519 us 900873.795 us     3.78       1.6%    0.006s  ok ch=3.9e-14/1e-10 1s=3e-15 1.00x
+   d1_bluestein                 69.6303 us    69.630 us    16.47      13.7%    0.003s  ok 3.4e-16       2.16x
+   d1_bluestein                121.7370 us 30434.254 us     9.42      23.2%    0.003s  ok ch=3.3e-14/1e-10 1s=1e-15 1.69x
+   d1_bluestein                 87.5936 us  5605.992 us    13.09      21.8%    0.004s  ok 3.4e-16       1.84x
+   d1_bluestein                140.9601 us 1353216.780 us     8.14       0.6%    0.004s  ok ch=2.7e-14/1e-10 1s=1e-15 2.22x
+   d1_bluestein               1715.4118 us  1715.412 us     3.06      18.4%    0.022s  ok 1.1e-15       1.89x
+   d1_bluestein               1726.4082 us 103584.495 us     3.04       4.3%    0.020s  ok ch=3.9e-14/1e-10 1s=4e-15 2.20x
+   d1_bluestein               1888.7093 us 30219.348 us     2.78      37.1%    0.025s  ok 1.1e-15       1.60x
+   d1_bluestein               1961.9555 us 627825.763 us     2.67       1.4%    0.018s  ok ch=3.4e-14/1e-10 1s=4e-15 2.39x
+   d1_bluestein               2992.4760 us  2992.476 us     2.78      16.1%    0.032s  ok 1.1e-15       1.15x
+   d1_bluestein               2713.7044 us 108548.178 us     3.06       3.1%    0.029s  ok ch=2.0e-14/1e-10 1s=4e-15 1.00x
+   d1_bluestein               2754.9364 us 22039.491 us     3.01      36.7%    0.029s  ok 1.0e-15       1.00x
+   d1_bluestein               3021.9409 us 362632.909 us     2.75       0.2%    0.028s  ok ch=1.9e-14/1e-10 1s=4e-15 1.00x
+   d1_bluestein             Bluestein chirp-Z any-L: split-complex mixed-radix(2/3/4/5/8) Stockham conv core, minimal smooth pad (10007->20480); large M via Agarwal-Cooley coprime 2D conv (CRT, no inter-axis twiddles; minimal-M split over odd 3^a5^b <= 135: 65537->138240=1024x135, 100003->204800=8192x25) with chirp/CRT-fused entry+exit, per-row kernel-mul-fused fwd+inv, NT-streamed exit scatter; zero-pruned+chirp-fused entry, kernel-mul-fused inverse entry, pruned chirp-fused exit for small M; direct Stockham for smooth L; dense tiny-L floor; fused map chain; all planes in pre-faulted hugepage mmap blocks with L2-way skew (zmm conv kernels, ymm single-pass)
+   d1_rader                 Rader prime->cyclic conv sized by N-1: UNPADDED conv 65536=[4,16,16,16,4] at N=65537 (two-layer radix-16 through an L1 tile, 10 array passes not 12; paired-p s=4 variant), unpadded 1020=[4,3,5,17] at 1021 (AVX-512 two-half radix-17, scatter-fused exit), CRT codelets Z12=Z4xZ3 / Z30=Z2xZ3xZ5 at 13/31 (Agarwal-Cooley) with ACROSS-BATCH SoA: 8 transforms per zmm, transpose only at entry/exit; pad 256 at 127; split-complex Stockham core (from d1_bluestein), kernel-fused inverse entry, X[0] free from conv DC; fused map chain keeps state in conv order (gather o scatter = index reversal), Newton rsqrt/rcp map (no divider) in every vector chain exit

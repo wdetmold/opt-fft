@@ -155,3 +155,31 @@ scoring window open: all 24 slots held
 [2026-09-03 03:01:55] promoting: d1_prime d1_pow2 d1_batchlane d1_composite d1_rader d1_bluestein d1_race
 /tmp/fft_rounds_sKHc36.sh: line 529: ./promote.sh: No such file or directory
 [2026-09-03 03:01:55] promote.sh reported a problem
+[2026-09-03 03:02:05] committed round d1_r2
+[2026-09-03 03:02:05] ---------- d1_r2 complete; next is d1_r3 of d1_r4 ----------
+[2026-09-03 03:02:05] ---------- d1_r3 begins ----------
+[2026-09-03 03:02:05] d1_r3 works in impl_3 (10 sources carried over from impl_2)
+[2026-09-03 03:02:05] context pack: 222 lines
+[2026-09-03 03:02:05] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+[2026-09-03 03:54:52] implementers finished: 9 reported
+[2026-09-03 03:54:52] submitting timing round d1_r3 (seed 20263860) to the exclusive benchmark node
+scoring d1_r3 on reserved Ice Lake node a80n0
+scoring window open: all 24 slots held
+   fftw1d_patient           FFTW 3.3.10 plan_many_dft 1D, fftw1d_patient
+   mkl1d_dfti               oneMKL DFTI 1D, sequential, batched
+== round d1_r3 complete: results/d1_r3 ==
+[2026-09-03 07:13:19] leaderboard for d1_r3 is in
+[2026-09-03 07:13:21] served models for d1_r3:    1480 claude-fable-5      41 claude-opus-4-8 
+[2026-09-03 07:26:18] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r3/monitor.log)
+[2026-09-03 07:26:18] promoting: d1_prime d1_rader d1_pow2 d1_batchlane d1_composite d1_bluestein d1_twiddle d1_race
+promoted d1_prime
+promoted d1_rader
+promoted d1_pow2
+promoted d1_batchlane
+promoted d1_composite
+promoted d1_bluestein
+promoted d1_twiddle
+promoted d1_race
+wrote exemplars/d1_r3/NOTES.md skeleton -- fill it in before committing
+
+next: git add exemplars/d1_r3 strategies && git commit

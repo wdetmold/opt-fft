@@ -195,3 +195,127 @@ The fused interleave exit alone (same core, interleaved A/B): 32 B=1 0.044→0.0
   chain state for Rader (d1_rader's index-reversal trick — my 65537 chain still pays
   gather+scatter per step: 965 vs 813 execute); (3) Bailey four-step at M ≥ 10^5;
   (4) adopt d1_pow2's fused rsqrt map if the graded-seed margins allow.
+
+## Round d1_r3 (2026-09-03) — lift the rivals' vectorized kernels: st17, GATHER8/scatter Rader fusions, conv-order chain, rsqrt map, deterministic arena
+
+### The r2 leaderboard, read honestly
+r2 scored on a80n0 (Ice Lake Gold 6326). The planner was 1.2–4.6x behind the cell
+winner EVERYWHERE — never won a cell. But three of its losses were self-inflicted and
+already solved by other entries whose code I can lift (this is the cumulative round's
+whole point): (1) the generic prime-17 stage ran at scalar throughput on Ice Lake, so
+1021 was 13.96 vs MKL 8.28 — d1_rader had already rewritten exactly this stage with
+intrinsics; (2) the Rader gather/scatter fusions were left OFF (r2 measured them a wash,
+but that was the SCALAR version on wallaby's fat cache) — d1_rader shipped vectorized
+GATHER8 + staged-scalar scatter that win on the scoring node; (3) the chain map was scalar
+vsqrt/vdiv everywhere — d1_pow2's rsqrt14/rcp14+Newton map is 8–34% faster. Plus
+d1_bluestein's deterministic huge-page arena kills the allocation-luck bimodality that
+made every big-cell number partly page-coloring noise. So r3 is almost entirely adoption.
+
+### What changed (all in impl/d1_planner.c)
+1. **st17 rewritten as explicit AVX-512 8-lane blocks — ADOPTED FROM d1_rader (r2
+   st17_vblock, near-verbatim; only the coefficient tables rebound to this file's
+   per-stage gC/gS 8x8 fold layout).** Used for the radix-17 FINAL stage (m==1, unit
+   twiddles) that appears in 1021 = [4,3,5,17] and any prime whose Rader conv ends in 17.
+   Interleaved A/B, 1021 B=1: **8.19 → 5.03 us** (the old generic `stg` was ~40% of the
+   transform at scalar FMA throughput, exactly d1_rader's r2 diagnosis). Needs
+   `target("avx512f")` on the intrinsic functions so they inline both under -march=native
+   AND under the plain -O2 PLANNER_TEST build.
+2. **Vectorized Rader entry/exit, both fusions now ON — ADOPTED FROM d1_rader (r2
+   GATHER8 + interleave4_store + SINKSTORE shape).** Entry: 8 random complex points loaded
+   as 128-bit pairs assembled with vinsertf64x2 + one parity permute per plane (beats
+   vgatherdpd, microcoded on Ice Lake), feeding the radix-4 stage-0 butterfly directly; the
+   DC bin is the forward conv's bin 0 (d1_rader's "X[0] free"). Exit: the inverse's last
+   radix-4 stage computes butterflies in 8-wide stack-staged blocks, only the random-index
+   stores are scalar (vscatterdpd loses on Ice Lake). r2 kept these OFF on a wallaby wash;
+   r3 turns them on because the vectorized versions save two P-length passes (~2×1 MB
+   traffic at 65537) that matter on the scoring node's 1.25 MB L2. 65537 B=1 exec:
+   **792 → 682 us** (wallaby A/B).
+3. **Rader chain in CONV ORDER — ADOPTED FROM d1_rader (r1 index-reversal insight).**
+   Between chain steps, gather∘scatter is a pure reversal (qin[q]=g^q=qout[(P−q) mod P])
+   and the elementwise map commutes with any permutation, so the state lives split in conv
+   order for the whole chain: interior steps have NO random gather and NO random scatter
+   (r2 paid both per step). state[0] rides as a scalar pair; c is pre-permuted once per
+   transform. New `st4_first_rev` reads the reversed state as four backwards-contiguous
+   streams. 65537 B=1 m=60: **1205 → 826 us**; 65537 B=16 m=20: **1240 → 729 us**.
+4. **Divider-free chain map — ADOPTED FROM d1_pow2 (r1/r2 map_vec), re-expressed in split
+   form (no pair-swap permute needed since my state is already split).** rsqrt14+2 Newton +
+   exact-residual Heron for sqrt, rcp14+2 Newton + residual corrections for 1/t and the
+   quotient — their accuracy fight reconfirmed: this lands ~0.5–1 ulp, chain gates pass
+   with ≥3 decades of margin. `map8_split` / `map_split_n` / `map_rader_state`. Gated to
+   L≥32 (at 13 the vector latency loses, 0.081 vs 0.065 — d1_rader saw the same 0.110 vs
+   0.099 in their codelets). Chain wins: 1024 B=1 2.45→1.97, 128 B=1 0.274→0.228,
+   4096 B=1 14.1→13.0, 16384 B=1 58.2→50.7.
+5. **Deterministic huge-page arena — ADOPTED FROM d1_bluestein (r2).** All same-plan work
+   planes carved from ONE 2 MB-aligned MADV_HUGEPAGE block, plane stride rounded to the
+   128 KB L2-way period plus a 32 KB+192 B skew, so equal-length streams never share L1/L2
+   sets and physical set indexing follows the virtual layout. Kills the per-invocation
+   bimodality (their 10007 was 110-or-213 us per process). Used for every plan with a plane
+   length ≥ 512 (direct L≥512, Rader P≥512, all Bluestein). Biggest single win of the
+   round: **16384 B=64 90.95 → 45.59 us (2x)**; also 10007 B=1 chain 130→113, 100003 B=8
+   3605→3117, 4096 B=256 11.1→10.5. No regressions found (4096 B=256 first read 31 us —
+   pure neighbor-spike noise, re-ran at 10.4).
+
+### Measured (wallaby core 12, warmed, quiet-window best-min, interleaved A/B vs the r2
+### build bin_r2 in the same minutes; NOT the scoring node — monitor arbitrates)
+| cell | r3 | r2 (this box) | note |
+|---|---:|---:|---|
+| 1021 B=1 | **5.03** | 8.19 | st17 |
+| 1021 B=256 | **9.34** | 13.17 | st17 (near d1_rader 9.06 / MKL 8.75) |
+| 1021 B=1 chain | **5.77** | 9.77 | conv-order + rsqrt |
+| 1021 B=256 chain | **5.47** | 13.55 | |
+| 65537 B=1 | **682** | 792 | GATHER8 entry + block scatter exit |
+| 65537 B=16 | **1385** | 1490 | |
+| 65537 B=1 chain | **826** | 1205 | conv-order chain |
+| 65537 B=16 chain | **729** | 1240 | |
+| 10007 B=1 | **105** | 114 | arena |
+| 10007 B=1 chain | **113** | 130 | arena |
+| 100003 B=8 | **3117** | 3605 | arena |
+| 100003 B=8 chain | **3170** | 3465 | |
+| 16384 B=64 | **45.6** | 91.0 | arena (2x) |
+| 16384 B=1 chain | **50.7** | 58.2 | rsqrt map |
+| 1024 B=1 chain | **1.97** | 2.45 | rsqrt map |
+| 1024 B=512 | **2.45** | 2.72 | arena |
+| 128 B=1 chain | **0.228** | 0.274 | rsqrt map |
+| 13 B=1 / B=512 | 0.044 / 0.037 | ~same | unchanged (d1_prime/d1_rader's cell) |
+| 31 B=1 / B=512 | 0.135 / 0.139 | ~same | unchanged |
+
+Correctness: all 52 graded cells PASS check.py vs numpy (worst single-call rel_l2
+1.7e-15 at 2053; the graded set tops out ~1.25e-15 at 65537, tol 1e-12); every graded
+chain gate passes with ≥3 decades of margin (worst 1021 B=1 m=2000 at 4.20e-12 vs its
+1e-9 tol; 65537 chains ~2e-14 vs 1e-10). PLANNER_TEST self-test all-ok including odd
+batches (B=19 = 2 lane groups + 3). Setup ≤ 0.02 s even at 100003.
+
+### What did NOT work / not attempted, with the reasoning
+- **Lifting d1_prime's exec13/exec31 dense codelets for the 13/31 B=1 cells** (where I am
+  ~3x behind their 0.029/0.064): considered and DEFERRED. It is ~400 lines of size-specific
+  intrinsic kernel for 4 cells that properly belong to d1_prime / d1_rader (whose class 13/31
+  is), and the planner's adoption value is the dispatch, not re-winning their cells. Marginal
+  ROI vs the large-prime and pow2-chain wins that ARE broadly mine. Noted for a future round
+  if a rival stops covering them.
+- **Vectorizing the Bluestein chain interior map** (10007/100003): the interior step fuses
+  map + chirp-premultiply and reads the interleaved c field (stride 2), so a clean 8-wide
+  map needs a pre-split c per transform. Small cells at parity with d1_bluestein/d1_race;
+  arena already gave the 100003 chain its win. Not worth the risk this round.
+- 4096 B=256 "regression" to 31 us on the first sample was a neighbor spike; re-ran 10.4
+  vs r2 11.1. Lesson (again): one sample on a shared wallaby core is worthless — min over
+  ≥3 warmed interleaved reps only.
+
+### Borrowed (named, per the cumulative-round rule)
+- **d1_rader**: st17_vblock (radix-17 intrinsic stage), GATHER8 insert-assembled entry +
+  interleave4_store, the SINKSTORE staged-scalar-scatter shape, and the r1 conv-order
+  index-reversal chain. Four separate lifts — the single biggest source this round.
+- **d1_pow2**: the rsqrt14/rcp14 + Newton + exact-residual map (map_vec), split-form.
+- **d1_bluestein**: the deterministic huge-page + set-skewed arena (r2 change 1).
+- Prior-round borrowings (the split-complex core from d1_bluestein, the sym-fold from
+  d1_prime, long-double twiddles from d1_pow2) all carry forward.
+
+### For next round / for whoever lifts this
+1. **Bailey/Agarwal–Cooley at 100003 and 65537 batched** — d1_bluestein's r2 AC 2D-conv
+   took 100003 to 1973 us (vs my 2947); that is the remaining large-cell gap and their
+   `ac_cols_*` is liftable wholesale onto my core.
+2. **Re-A/B every r3 decision on the scoring node** — the GATHER8/scatter fusions and the
+   arena skew were tuned on wallaby's 60 MB L3; the traffic argument says they widen on
+   a80n0's 1.25 MB L2, but MEASURE (r1's 7.4→13.9 lesson).
+3. **st17-style intrinsic treatment for the other generic primes** (7/11/13 as stages) if
+   any smooth-with-large-prime-factor size joins the graded set.
+4. The 13/31 dense-codelet lift (deferred above) if those cells open up.

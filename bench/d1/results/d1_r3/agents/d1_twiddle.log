@@ -1,0 +1,9 @@
+Everything checks out — the other strategy-file modifications are from fellow implementers working in parallel this round; I wrote only `impl/d1_twiddle.c` and `strategies/d1_twiddle.md`. The `d1tw_chirp` unused-function warning is pre-existing (it's an adoption-block export for d1_bluestein).
+
+**SoA across-batch fused chain (groups of 8, lane = batch index, borrowed from d1_batchlane/d1_pow2) + radix-16 passes at 4096; best wallaby: B=1 m=1 0.018 µs (L=32) / 5.96 µs (L=4096), batched chained 0.028 µs (L=32 B=512, was 0.063) / 10.09 µs (L=4096 B=256); rel L2 1.1e-16–3.4e-16 single-call, worst chain gate 6.7e-12 vs 1e-10.**
+
+Details for the record:
+
+- **SoA chain** (B≥8, L≤2048): split re/im planes, transpose once per chain, zero-shuffle broadcast-twiddle stages fed by my existing v1 exact tables, map fused in split form. Batched chained cells: 32 2.25x, 60 1.98x, 64 1.86x, 128 1.58x, 1024 1.04x faster than my r2 path — these were my worst scoring-node losses (2–2.7x behind d1_race).
+- **Radix-16** ([4,4,16,16] at 4096, 5→4 passes): all four 4096 regimes gain 5–11%. Measured and rejected: 1024 [4,16,16] (4% slower, broadcast-bound s=4 stage) and 16384 [4,16,16,16] (10% win at m=1 but 3% chained loss from the 48-stream fused-map last stage — d1_pow2's L1-set-conflict trap); 16384 verified bitwise-identical to r2.
+- All 28 graded cells pass correctness and the chain gates with ≥15x margin; edge cases (batch remainders, every SoA radix route, nf=1 in-place, gate boundary) verified; output bitwise repeatable. The Ice Lake reservation was down all session, so all numbers are pinned-core wallaby with interleaved A/B against the r2 binary (frequency swung 2x twice — only same-window ratios were trusted).
