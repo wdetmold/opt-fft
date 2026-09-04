@@ -1,0 +1,7 @@
+# models that actually served d1_r6's workers (from worker transcripts)
+# transcript dir: /home/lqcd/wdetmold/.claude/projects/-home-lqcd-wdetmold-fft-bench-d1
+# round start (log): 2026-09-03 18:13:20
+# transcripts newer than the round anchor: 9
+   1289 claude-fable-5
+     84 claude-opus-4-8
+# --- fallback/flag notices (real events, not doc text) ---

@@ -243,3 +243,35 @@ promoted d1_race
 wrote exemplars/d1_r5/NOTES.md skeleton -- fill it in before committing
 
 next: git add exemplars/d1_r5 strategies && git commit
+[2026-09-03 18:13:20] committed round d1_r5
+[2026-09-03 18:13:20] ---------- d1_r5 complete; next is d1_r6 of d1_r6 ----------
+[2026-09-03 18:13:20] ---------- d1_r6 begins ----------
+[2026-09-03 18:13:20] d1_r6 works in impl_6 (10 sources carried over from impl_5)
+[2026-09-03 18:13:20] context pack: 263 lines
+[2026-09-03 18:13:20] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+[2026-09-03 19:14:13] implementers finished: 9 reported
+[2026-09-03 19:14:13] submitting timing round d1_r6 (seed 20266899) to the exclusive benchmark node
+   extra grading node: reservation live: job 440424 on a80n0 with 64 GPUs (rc=0)
+scoring d1_r6 across 2 node(s): a80n0 a81n2
+scoring window open: all 24 slots held
+   shard 1 -> a80n0 (25 cells)
+   shard 2 -> a81n2 (27 cells)
+   done L=13 B=1
+== shard_2 done; leaderboard deferred to submit.sh ==
+== round d1_r6 complete: results/d1_r6 ==
+[2026-09-03 21:27:16] leaderboard for d1_r6 is in
+[2026-09-03 21:27:19] served models for d1_r6:    1289 claude-fable-5      84 claude-opus-4-8 
+[2026-09-03 21:38:07] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r6/monitor.log)
+[2026-09-03 21:38:07] promoting: d1_prime d1_rader d1_pow2 d1_composite d1_batchlane d1_bluestein d1_twiddle d1_planner d1_race
+promoted d1_prime
+promoted d1_rader
+promoted d1_pow2
+promoted d1_composite
+promoted d1_batchlane
+promoted d1_bluestein
+promoted d1_twiddle
+promoted d1_planner
+promoted d1_race
+wrote exemplars/d1_r6/NOTES.md skeleton -- fill it in before committing
+
+next: git add exemplars/d1_r6 strategies && git commit

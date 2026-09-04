@@ -1,0 +1,28 @@
+   d1_twiddle                    0.0192 us      0.0171 us    41.59     23.1%   9r   0.000s  ok 2.0e-16       1.00x?
+   d1_twiddle                    0.0647 us      0.0647 us    12.36      0.0%   3r   0.000s  ok ch=1.1e-15/1e-10 1s=4e-16 1.13x
+   d1_twiddle                    0.0174 us      0.0173 us    46.09      0.5%   9r   0.000s  ok 1.4e-16       1.13x
+   d1_twiddle                    0.0341 us      0.0341 us    23.47     13.6%   3r   0.000s  ok ch=2.6e-13/1e-10 1s=4e-16 1.03x?
+   d1_twiddle                    0.0801 us      0.0764 us    22.12     15.3%   9r   0.000s  ok 1.9e-16       1.90x
+   d1_twiddle                    0.1615 us      0.1600 us    10.97      9.6%   3r   0.000s  ok ch=2.9e-15/1e-10 1s=5e-16 1.95x
+   d1_twiddle                    0.0829 us      0.0726 us    21.39     17.7%   9r   0.000s  ok 1.7e-16       1.90x
+   d1_twiddle                    0.0843 us      0.0739 us    21.02     14.4%   3r   0.000s  ok ch=6.5e-13/3e-10 1s=4e-16 1.54x
+   d1_twiddle                    0.0446 us      0.0437 us    43.03     12.4%   9r   0.000s  ok 1.8e-16       1.01x?
+   d1_twiddle                    0.1293 us      0.1136 us    14.85     13.8%   3r   0.000s  ok ch=1.2e-14/1e-10 1s=4e-16 1.62x
+   d1_twiddle                    0.0431 us      0.0377 us    44.56     39.4%   9r   0.000s  ok 1.8e-16       1.17x
+   d1_twiddle                    0.0881 us      0.0868 us    21.78      4.9%   3r   0.000s  ok ch=5.0e-13/1e-10 1s=5e-16 1.36x
+   d1_twiddle                    0.1113 us      0.1088 us    40.24     14.9%   9r   0.000s  ok 2.1e-16       1.07x?
+   d1_twiddle                    0.2887 us      0.2878 us    15.52      1.2%   3r   0.000s  ok ch=8.7e-15/1e-10 1s=5e-16 1.88x
+   d1_twiddle                    0.1814 us      0.1641 us    24.70     19.6%   9r   0.000s  ok 2.1e-16       1.26x
+   d1_twiddle                    0.1975 us      0.1804 us    22.68     10.8%   3r   0.000s  ok ch=1.9e-14/1e-10 1s=5e-16 1.05x?
+   d1_twiddle                    1.2769 us      1.1226 us    40.10     16.1%   9r   0.000s  ok 2.6e-16       1.18x
+   d1_twiddle                    1.7819 us      1.7625 us    28.73     28.8%   9r   0.000s  ok 2.6e-16       1.00x?
+   d1_twiddle                    2.6086 us      2.5621 us    19.63      3.6%   3r   0.000s  ok ch=6.2e-13/1e-10 1s=9e-16 1.11x
+   d1_twiddle                    7.0649 us      6.9926 us    34.79     14.7%   9r   0.000s  ok 3.1e-16       1.18x
+   d1_twiddle                   12.1929 us     10.7521 us    20.16     15.5%   3r   0.000s  ok ch=6.1e-14/1e-10 1s=1e-15 1.25x
+   d1_twiddle                    9.9046 us      9.0002 us    24.81     30.1%   9r   0.000s  ok 3.1e-16       1.02x?
+   d1_twiddle                   10.7756 us     10.7643 us    22.81      0.1%   3r   0.000s  ok ch=4.2e-14/1e-10 1s=1e-15 1.06x
+   d1_twiddle                   34.8342 us     32.9727 us    32.92     47.8%   9r   0.001s  ok 3.4e-16       1.06x?
+   d1_twiddle                   54.9514 us     54.1046 us    20.87     12.6%   3r   0.001s  ok ch=2.6e-14/1e-10 1s=2e-15 1.12x?
+   d1_twiddle                   50.6375 us     45.9218 us    22.65     30.6%   9r   0.001s  ok 3.4e-16       1.15x?
+   d1_twiddle                   54.0932 us     53.8629 us    21.20      3.1%   3r   0.001s  ok ch=2.3e-14/1e-10 1s=1e-15 1.10x
+   d1_twiddle               LIBRARY LAYER (adoption-scored): exact 1D twiddle tables, consumption order (d1tw_cexp quadrant-exact ~1ulp, d1tw_chirp integer-reduced, d1tw_stage v1 + v2 broadcast-pair/lane-major AVX-512 formats + v3 COMPACT: v1 consumed via fmaddsub IS the compact q-vectorized format, s1cs halves the first-stage table); vehicle: mixed-radix 2/3/4/5/8/16 Stockham, zmm 4-complex lanes, compact tables at L>=1024 (d1_pow2 r4's L2-capacity fix), single-scratch ping-pong through caller's out, in-register 32/64 codelets + register chains (d1_pow2), SoA across-batch chain at B>=8 L<=2048 (d1_batchlane), NT final stores >=25MB, latency-shaped Goldschmidt map (d1_prime r5), deterministic huge-page arena for buffers+tables (d1_bluestein via d1_pow2 r5), smooth L

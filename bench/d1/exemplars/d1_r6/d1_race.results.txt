@@ -1,0 +1,52 @@
+   d1_race                       0.0175 us      0.0140 us    13.77     32.2%   9r   0.009s  ok 1.6e-16       1.07x?
+   d1_race                       0.0387 us      0.0340 us     6.21     13.8%   3r   0.005s  ok ch=7.8e-16/1e-10 1s=4e-16 1.15x?
+   d1_race                       0.0098 us      0.0095 us    24.60     13.7%   9r   0.008s  ok 1.4e-16       1.03x?
+   d1_race                       0.0141 us      0.0141 us    17.02      1.1%   3r   1.396s  ok ch=3.3e-14/1e-10 1s=3e-16 1.03x?
+   d1_race                       0.0533 us      0.0470 us    14.40     24.7%   9r   0.006s  ok 2.1e-16       1.12x
+   d1_race                       0.0541 us      0.0509 us    14.20     13.6%   3r   0.009s  ok ch=1.2e-14/1e-10 1s=6e-16 1.04x?
+   d1_race                       0.0489 us      0.0427 us    15.69     15.5%   9r   0.008s  ok 2.9e-16       1.02x?
+   d1_race                       0.0453 us      0.0451 us    16.93      1.0%   3r   2.255s  ok ch=1.1e-11/1e-10 1s=7e-16 1.00x?
+   d1_race                       0.0212 us      0.0211 us    37.82     26.8%   9r   0.059s  ok 1.9e-16       1.10x?
+   d1_race                       0.0573 us      0.0572 us    13.97      0.2%   3r   0.006s  ok ch=2.5e-15/1e-10 1s=3e-16 1.00x?
+   d1_race                       0.0176 us      0.0176 us    45.49      0.1%   9r   0.011s  ok 1.4e-16       1.15x
+   d1_race                       0.0331 us      0.0328 us    24.15     14.5%   3r   0.008s  ok ch=1.8e-13/1e-10 1s=3e-16 1.00x?
+   d1_race                       0.0489 us      0.0470 us    36.25     12.0%   9r   0.009s  ok 2.4e-16       1.16x
+   d1_race                       0.0942 us      0.0942 us    18.81      0.1%   3r   0.058s  ok ch=1.8e-15/1e-10 1s=5e-16 1.14x
+   d1_race                       0.0511 us      0.0444 us    34.69     22.6%   9r   0.006s  ok 2.2e-16       1.17x
+   d1_race                       0.0548 us      0.0544 us    32.32     14.2%   3r   0.009s  ok ch=2.5e-12/3e-10 1s=5e-16 1.00x?
+   d1_race                       0.0442 us      0.0411 us    43.45     16.9%   9r   0.008s  ok 1.8e-16       1.00x?
+   d1_race                       0.0801 us      0.0801 us    23.98      0.0%   3r   0.007s  ok ch=7.1e-15/1e-10 1s=4e-16 1.00x?
+   d1_race                       0.0381 us      0.0374 us    50.34      5.1%   9r   0.008s  ok 1.8e-16       1.03x?
+   d1_race                       0.0650 us      0.0650 us    29.54      2.5%   3r   2.804s  ok ch=2.7e-13/1e-10 1s=4e-16 1.00x?
+   d1_race                       0.1112 us      0.0983 us    40.29     15.7%   9r   0.008s  ok 2.3e-16       1.07x
+   d1_race                       0.1719 us      0.1715 us    26.07      3.3%   3r   0.092s  ok ch=8.8e-15/1e-10 1s=6e-16 1.12x?
+   d1_race                       0.1521 us      0.1479 us    29.46     16.0%   9r   0.008s  ok 2.1e-16       1.06x
+   d1_race                       0.1961 us      0.1733 us    22.85     15.8%   3r   0.011s  ok ch=1.9e-14/1e-10 1s=5e-16 1.05x?
+   d1_race                       7.4001 us      6.5069 us     6.90     15.9%   9r   0.006s  ok 1.0e-15       1.10x
+   d1_race                       7.1282 us      6.8220 us     7.16      9.9%   3r   0.455s  ok ch=8.5e-13/3e-10 1s=2e-15 1.00x?
+   d1_race                       9.0361 us      7.2717 us     5.65     33.4%   9r   0.014s  ok 9.9e-16       1.03x?
+   d1_race                       6.6614 us      6.6537 us     7.66      0.9%   3r   1.628s  ok ch=9.4e-14/1e-10 1s=2e-15 1.01x?
+   d1_race                       1.2875 us      1.1338 us    39.77     16.4%   9r   0.008s  ok 2.6e-16       1.19x
+   d1_race                       2.0230 us      1.7856 us    25.31     25.4%   9r   0.015s  ok 2.8e-16       1.14x
+   d1_race                       2.3733 us      2.3475 us    21.57      1.2%   3r   0.016s  ok ch=8.3e-13/1e-10 1s=9e-16 1.01x?
+   d1_race                       7.0062 us      6.9575 us    35.08     17.8%   9r   0.007s  ok 3.1e-16       1.17x
+   d1_race                       9.7705 us      9.7295 us    25.15     13.8%   3r   1.002s  ok ch=6.9e-14/1e-10 1s=1e-15 1.00x?
+   d1_race                       9.7449 us      9.1777 us    25.22      9.2%   9r   0.013s  ok 3.1e-16       1.00x?
+   d1_race                      10.7861 us     10.7683 us    22.78      0.3%   3r   0.007s  ok ch=4.2e-14/1e-10 1s=1e-15 1.07x
+   d1_race                     138.3885 us    109.2477 us     4.80     43.9%   9r   0.015s  ok 7.1e-16       1.28x
+   d1_race                     122.3880 us    121.4114 us     5.43      1.8%   3r   0.015s  ok ch=9.5e-14/1e-10 1s=3e-15 1.00x?
+   d1_race                     135.2160 us    109.7606 us     4.92     36.0%   9r   0.021s  ok 7.1e-16       1.00x?
+   d1_race                     126.0493 us    125.6500 us     5.27      1.3%   3r   2.474s  ok ch=3.5e-14/1e-10 1s=3e-15 1.01x?
+   d1_race                      34.6130 us     31.3360 us    33.13     34.1%   9r   0.013s  ok 3.4e-16       1.05x?
+   d1_race                      49.5932 us     49.2676 us    23.13     25.7%   3r   0.011s  ok ch=3.4e-14/1e-10 1s=2e-15 1.01x?
+   d1_race                      50.0769 us     39.9962 us    22.90     62.5%   9r   0.016s  ok 3.4e-16       1.13x?
+   d1_race                      49.1347 us     49.0667 us    23.34      0.9%   3r   0.011s  ok ch=2.3e-14/1e-10 1s=1e-15 1.00x?
+   d1_race                     753.0351 us    733.4580 us     6.96      2.8%   9r   0.011s  ok 1.4e-15       1.00x?
+   d1_race                     692.6906 us    682.3061 us     7.57      7.2%   3r   0.018s  ok ch=4.7e-14/1e-10 1s=5e-15 1.02x?
+   d1_race                    1023.8320 us    897.2318 us     5.12     37.3%   9r   0.018s  ok 1.4e-15       1.00x?
+   d1_race                    2222.4141 us   2215.4072 us     3.74      2.5%   9r   0.029s  ok 1.0e-15       1.00x?
+   d1_race                    2360.2210 us   2357.4025 us     3.52      0.3%   3r   0.032s  ok ch=3.2e-14/1e-10 1s=4e-15 1.02x
+   d1_race                    2399.2499 us   2385.9564 us     3.46      1.8%   9r   0.029s  ok 1.0e-15       1.00x?
+   d1_race                    2784.6229 us   2783.3332 us     2.98      1.0%   3r   0.043s  ok ch=1.5e-14/1e-10 1s=4e-15 1.01x?
+   d1_prime                 symmetric-pair dense prime DFT; interleaved-pair zmm kernels at 13/31 (pair-dup tables, 2-transform tiling); register-resident B=1 chains + SoA batched chains, c-field folded into accumulator seeds (Goldschmidt-sqrt + early-seeded-rcp map); first-call placement probe over byte-identical kernel copies + stack shifts (idea from d1_race)
+   d1_race                  LIBRARY LAYER (adoption-scored): plan-time race + per-host wisdom (gen_race generalized to 1D); demo entry fork-gates and races the sibling class entries per (L,B), ships the winner by vtable, re-rolls the shipped instance's data/text placement on first call toward a per-cell wisdom reference, and re-arbitrates tie/thin verdicts against the persisted runner-up on the real driver buffers under driver-metric medians

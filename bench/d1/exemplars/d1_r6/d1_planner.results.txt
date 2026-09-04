@@ -1,0 +1,51 @@
+   d1_planner                    0.0169 us      0.0148 us    14.26     34.1%   9r   0.000s  ok 9.0e-17       1.04x?
+   d1_planner                    0.0394 us      0.0393 us     6.10     13.3%   3r   0.000s  ok ch=6.7e-16/1e-10 1s=3e-16 1.17x
+   d1_planner                    0.0108 us      0.0095 us    22.28     14.0%   9r   0.000s  ok 1.4e-16       1.14x
+   d1_planner                    0.0155 us      0.0154 us    15.54      0.4%   3r   0.000s  ok ch=2.6e-14/1e-10 1s=3e-16 1.13x
+   d1_planner                    0.0504 us      0.0497 us    15.24     13.9%   9r   0.000s  ok 2.1e-16       1.05x?
+   d1_planner                    0.0614 us      0.0583 us    12.50     13.7%   3r   0.000s  ok ch=4.1e-15/1e-10 1s=5e-16 1.18x
+   d1_planner                    0.0502 us      0.0441 us    15.29     13.9%   9r   0.000s  ok 2.1e-16       1.05x?
+   d1_planner                    0.0553 us      0.0494 us    13.90     12.2%   3r   0.000s  ok ch=3.1e-12/1e-10 1s=4e-16 1.22x
+   d1_planner                    0.0210 us      0.0209 us    38.17     25.2%   9r   0.000s  ok 1.9e-16       1.09x?
+   d1_planner                    0.0791 us      0.0791 us    10.11      0.0%   3r   0.000s  ok ch=1.9e-15/1e-10 1s=4e-16 1.38x
+   d1_planner                    0.0175 us      0.0153 us    45.79     13.9%   9r   0.000s  ok 1.4e-16       1.14x
+   d1_planner                    0.0680 us      0.0680 us    11.76      1.5%   3r   0.000s  ok ch=1.3e-13/1e-10 1s=3e-16 2.05x
+   d1_planner                    0.0507 us      0.0488 us    34.98      9.4%   9r   0.000s  ok 2.4e-16       1.20x
+   d1_planner                    0.1290 us      0.1289 us    13.74     13.8%   3r   0.000s  ok ch=1.8e-15/1e-10 1s=6e-16 1.56x
+   d1_planner                    0.0504 us      0.0442 us    35.19     20.3%   9r   0.000s  ok 2.2e-16       1.15x
+   d1_planner                    0.1472 us      0.1293 us    12.04     13.9%   3r   0.000s  ok ch=2.5e-12/3e-10 1s=5e-16 2.68x
+   d1_planner                    0.0612 us      0.0578 us    31.39     17.6%   9r   0.000s  ok 1.6e-16       1.38x
+   d1_planner                    0.1173 us      0.1173 us    16.37      0.0%   3r   0.000s  ok ch=7.8e-15/1e-10 1s=4e-16 1.47x
+   d1_planner                    0.0434 us      0.0369 us    44.24     33.4%   9r   0.000s  ok 1.8e-16       1.17x
+   d1_planner                    0.1174 us      0.1174 us    16.35      0.0%   3r   0.000s  ok ch=2.8e-13/1e-10 1s=4e-16 1.81x
+   d1_planner                    0.1456 us      0.1420 us    30.78      8.1%   9r   0.000s  ok 2.3e-16       1.40x
+   d1_planner                    0.3280 us      0.3228 us    13.66      2.3%   3r   0.000s  ok ch=8.7e-15/1e-10 1s=7e-16 2.13x
+   d1_planner                    0.2101 us      0.1939 us    21.33     18.8%   9r   0.000s  ok 2.2e-16       1.46x
+   d1_planner                    0.2853 us      0.2833 us    15.70      3.7%   3r   0.000s  ok ch=2.1e-14/1e-10 1s=5e-16 1.52x
+   d1_planner                    6.7068 us      6.6035 us     7.61      5.1%   9r   0.000s  ok 6.2e-16       1.00x?
+   d1_planner                    7.5158 us      6.6233 us     6.79     16.1%   3r   0.000s  ok ch=8.5e-13/3e-10 1s=2e-15 1.05x?
+   d1_planner                    9.9744 us      8.7137 us     5.12     21.6%   9r   0.001s  ok 6.3e-16       1.14x
+   d1_planner                    6.6273 us      6.6213 us     7.70      0.1%   3r   0.000s  ok ch=9.4e-14/1e-10 1s=2e-15 1.00x?
+   d1_planner                    1.8203 us      1.6065 us    28.13     35.3%   9r   0.000s  ok 2.8e-16       1.68x
+   d1_planner                    2.3859 us      2.1324 us    21.46     49.7%   9r   0.000s  ok 2.8e-16       1.34x
+   d1_planner                    2.3522 us      2.3491 us    21.77      0.7%   3r   0.000s  ok ch=8.3e-13/1e-10 1s=9e-16 1.00x?
+   d1_planner                    8.0851 us      7.9772 us    30.40     15.8%   9r   0.001s  ok 3.0e-16       1.35x
+   d1_planner                   13.7284 us     12.0766 us    17.90     14.0%   3r   0.001s  ok ch=7.7e-14/1e-10 1s=1e-15 1.41x
+   d1_planner                   12.9560 us     12.2356 us    18.97     25.6%   9r   0.001s  ok 3.0e-16       1.33x
+   d1_planner                   12.1416 us     12.1208 us    20.24      2.5%   3r   0.001s  ok ch=4.1e-14/1e-10 1s=1e-15 1.20x
+   d1_planner                  107.7550 us    107.4309 us     6.17     15.6%   9r   0.005s  ok 7.1e-16       1.00x?
+   d1_planner                  124.1591 us    124.1344 us     5.36      1.0%   3r   0.005s  ok ch=9.3e-14/1e-10 1s=3e-15 1.01x?
+   d1_planner                  138.9416 us    110.0614 us     4.79     41.4%   9r   0.007s  ok 7.1e-16       1.03x?
+   d1_planner                  125.3961 us    123.8728 us     5.30      1.7%   3r   0.006s  ok ch=3.5e-14/1e-10 1s=3e-15 1.00x?
+   d1_planner                   51.6255 us     41.6937 us    22.22     49.5%   9r   0.004s  ok 3.4e-16       1.57x
+   d1_planner                   62.9069 us     53.1762 us    18.23     20.4%   3r   0.003s  ok ch=2.7e-14/1e-10 1s=2e-15 1.28x
+   d1_planner                   62.5010 us     47.7614 us    18.35     52.5%   9r   0.003s  ok 3.4e-16       1.41x
+   d1_planner                   54.3054 us     54.0966 us    21.12      2.0%   3r   0.003s  ok ch=2.1e-14/1e-10 1s=1e-15 1.11x
+   d1_planner                  792.4432 us    785.7969 us     6.62     17.1%   9r   0.023s  ok 1.2e-15       1.05x
+   d1_planner                  815.6168 us    771.5403 us     6.43      6.5%   3r   0.025s  ok ch=3.0e-14/1e-10 1s=4e-15 1.20x
+   d1_planner                 1019.9697 us    936.5163 us     5.14     50.3%   9r   0.026s  ok 1.2e-15       1.00x?
+   d1_planner                 2815.5456 us   2629.1574 us     2.95     13.1%   9r   0.061s  ok 1.0e-15       1.27x
+   d1_planner                 3211.3604 us   2850.8281 us     2.59     12.7%   3r   0.051s  ok ch=3.0e-14/1e-10 1s=4e-15 1.38x
+   d1_planner                 2931.6791 us   2744.3728 us     2.83     12.6%   9r   0.059s  ok 1.0e-15       1.22x
+   d1_planner                 2868.2111 us   2840.6599 us     2.90      1.0%   3r   0.047s  ok ch=1.8e-14/1e-10 1s=5e-15 1.04x
+   d1_planner               LIBRARY LAYER (adoption-scored): factorization planner on a split-complex Stockham core (true-zmm noinline kernels; 2/3/4/5/8 + radix-16/64 L1-tile stages + generic prime<=61 stage; paired-p zmm s=4 kernels at 3/8/16/64) -- direct smooth / unpadded Rader (smooth L-1) / smooth-padded Bluestein, both with the fused fwd-last x kernel x inv-entry mid pass; hand-picked tile schedules (65536=[4,64,64,4], 20480=[4,16,16,5,4], 204800=[4,64,16,5,5,2], pow2 direct) with radix-4/2 tails so entry/mid/exit fusions apply; Rader gather T0 (batch>=2) + scatter ET0 prefetch; adopted codelets: d1_prime 13/31, d1_pow2 32/64, d1_composite PFA-60 + fused PFA chain; NT fused exits above L3; fused split/lane/register map chains

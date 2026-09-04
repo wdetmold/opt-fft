@@ -1,0 +1,13 @@
+Done. Final review confirms the edit is clean and consistent with `fft1d_destroy` (munmaps `arena`/`arena_sz`, which now point at the exact `total`-length aligned mapping). No durable user-taught lesson this session, so nothing to add to memory.
+
+## Summary
+
+This round I chased the r5 leaderboard's worst pow2 ratios to their roots. The shipped change is a real bug fix; the other two worst cells turned out to be node physics and global-codegen luck, which I've documented so the panel doesn't re-spend rounds on them.
+
+**Shipped fix — the huge-page arena was silently getting zero huge pages.** By summing `AnonHugePages` over `/proc/self/smaps` after `fft1d_create`, I found the r5 arena (borrowed from d1_bluestein) reported `AnonHugePages=0` at every size: on this 5.15 kernel an anonymous `mmap` is only 4 KB-aligned, and THP backs only 2 MB-aligned subranges, so `madvise(MADV_HUGEPAGE)` on the unaligned base was a no-op — the whole arena premise (huge pages make L2 set-indexing follow the virtual layout so the skew constants deconflict) was never in effect since r5. I over-map by 2 MB, align the base up, and trim the slack; now every size gets the full 2 MB huge-page backing. Output is bitwise unchanged. Benefit is modest but consistent and never negative (16384 B=64 ~2-3%, 16384 B=1 ~1-2%, 4096 B=256 wash since its 32 MB working set dwarfs the arena).
+
+**Two negative findings that close open questions:** (1) the m=1 bimodality is AVX-512 turbo licensing (2.86 vs 3.04 GHz) and is *fair* — pinned to the same core, my/MKL ratio holds at ~1.14x in both the fast and slow states, so the 9-run median absorbs it and my true 1024 B=1 gap is ~1.14x, compute-bound. (2) 64 B=1: my `fft64_execute` compiles to 417 instructions where d1_twiddle's byte-identical port of it compiles to 325 (47 extra register spills), driven by global register-allocation context; three local fixes didn't budge it, and d1_twiddle already owns the cell in the race.
+
+Correctness: all 12 graded chain gates PASS (worst 4.35e-12 vs 1e-10), single-call rel L2 ≤ 3.8e-16 at every size 16–65536, odd-batch chains and THP-off build all green, output bitwise repeatable.
+
+Technique I ended on: **2 MB-aligned huge-page arena (fixing the r5 arena that was getting zero huge pages)**; best a80n0 leased-core (reservation alive, so not wallaby) 1024 B=1 ≈ 1.23 µs, 16384 B=64 ≈ 43.1 µs; rel L2 ≤ 3.8e-16.

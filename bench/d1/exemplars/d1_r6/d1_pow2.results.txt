@@ -1,0 +1,27 @@
+   d1_pow2                       0.0210 us      0.0184 us    38.02     47.1%   9r   0.000s  ok 1.9e-16       1.09x?
+   d1_pow2                       0.0804 us      0.0706 us     9.96     13.8%   3r   0.000s  ok ch=2.4e-15/1e-10 1s=3e-16 1.40x
+   d1_pow2                       0.0176 us      0.0154 us    45.52     13.9%   9r   0.000s  ok 1.4e-16       1.15x
+   d1_pow2                       0.0389 us      0.0384 us    20.56     13.2%   3r   0.001s  ok ch=1.6e-13/1e-10 1s=4e-16 1.17x
+   d1_pow2                       0.0611 us      0.0516 us    31.41     45.2%   9r   0.000s  ok 1.6e-16       1.38x
+   d1_pow2                       0.1459 us      0.1283 us    13.16     13.8%   3r   0.001s  ok ch=7.9e-15/1e-10 1s=4e-16 1.82x
+   d1_pow2                       0.0377 us      0.0368 us    50.88     15.7%   9r   0.000s  ok 1.8e-16       1.02x?
+   d1_pow2                       0.0791 us      0.0790 us    24.27      0.4%   3r   0.000s  ok ch=1.9e-13/1e-10 1s=4e-16 1.22x
+   d1_pow2                       0.1383 us      0.1230 us    32.40     15.1%   9r   0.001s  ok 2.4e-16       1.33x
+   d1_pow2                       0.2649 us      0.2626 us    16.91      0.9%   3r   0.001s  ok ch=8.8e-15/1e-10 1s=6e-16 1.72x
+   d1_pow2                       0.1823 us      0.1648 us    24.57     11.8%   9r   0.000s  ok 2.2e-16       1.27x
+   d1_pow2                       0.1874 us      0.1863 us    23.90      0.8%   3r   0.000s  ok ch=2.0e-14/1e-10 1s=5e-16 1.00x?
+   d1_pow2                       1.4029 us      1.2455 us    36.50     18.4%   9r   0.001s  ok 2.8e-16       1.30x
+   d1_pow2                       2.1547 us      1.8011 us    23.76     42.7%   9r   0.001s  ok 2.8e-16       1.21x
+   d1_pow2                       2.5802 us      2.5664 us    19.84      0.9%   3r   0.001s  ok ch=7.5e-13/1e-10 1s=9e-16 1.10x
+   d1_pow2                       8.3395 us      8.2448 us    29.47      3.4%   9r   0.001s  ok 3.0e-16       1.39x
+   d1_pow2                      11.0542 us      9.7277 us    22.23     13.7%   3r   0.001s  ok ch=6.9e-14/1e-10 1s=1e-15 1.13x?
+   d1_pow2                      11.0569 us     10.9048 us    22.23     28.3%   9r   0.001s  ok 3.1e-16       1.13x
+   d1_pow2                      10.1239 us     10.0645 us    24.28      1.6%   3r   0.001s  ok ch=4.5e-14/1e-10 1s=1e-15 1.00x?
+   d1_pow2                      32.9520 us     31.9856 us    34.80      7.7%   9r   0.002s  ok 3.4e-16       1.00x?
+   d1_pow2                      49.2632 us     48.3000 us    23.28     24.9%   3r   0.004s  ok ch=3.4e-14/1e-10 1s=2e-15 1.00x?
+   d1_pow2                      44.1956 us     43.9106 us    25.95     63.5%   9r   0.004s  ok 3.4e-16       1.00x?
+   d1_pow2                      49.1208 us     49.0368 us    23.35      0.8%   3r   0.003s  ok ch=2.3e-14/1e-10 1s=1e-15 1.00x?
+   d1_batchlane             SoA 8-lane zmm batch-lane engine: interleaved-pair m=1 kernels at 13/31 (d1_prime), in-register AoS codelets at 32/64 (d1_pow2), broadcast-fed PFA ymm1 kernel at 60 (d1_composite), register-resident B=1 chains (fold-ready A/B rows at 13/31, natural-row four-step at 32/64/128, coset-row PFA at 60 per d1_composite), L1-blocked fused FFT+map batched chain with Goldschmidt early-seeded-rcp map (d1_prime)
+   d1_planner               LIBRARY LAYER (adoption-scored): factorization planner on a split-complex Stockham core (true-zmm noinline kernels; 2/3/4/5/8 + radix-16/64 L1-tile stages + generic prime<=61 stage; paired-p zmm s=4 kernels at 3/8/16/64) -- direct smooth / unpadded Rader (smooth L-1) / smooth-padded Bluestein, both with the fused fwd-last x kernel x inv-entry mid pass; hand-picked tile schedules (65536=[4,64,64,4], 20480=[4,16,16,5,4], 204800=[4,64,16,5,5,2], pow2 direct) with radix-4/2 tails so entry/mid/exit fusions apply; Rader gather T0 (batch>=2) + scatter ET0 prefetch; adopted codelets: d1_prime 13/31, d1_pow2 32/64, d1_composite PFA-60 + fused PFA chain; NT fused exits above L3; fused split/lane/register map chains
+   d1_pow2                  Stockham autosort DIF: blocked split-complex radix-8 engine at L>=128 (zero-shuffle middle stages, conversion fused into the stride-1 stage), compact (c,s)-pair twiddle tables at L>=1024 (halved L2 footprint -- the ICX large-L bottleneck was table-bloated L1/L2 fill traffic, not ports), first-stage pair fused through an L1 tile at L>=4096 and the two middle radix-8 stages fused into a radix-64 tile pass at 4096/16384 (three array passes total), in-register AoS codelets at L=32/64, NT final stores above the scoring node's L3; chains: across-batch SoA groups of 8 (L<=2048, from d1_batchlane) or per-transform blocking, with a 2-Newton rsqrt/rcp map fused into the final stage in split form
+   d1_twiddle               LIBRARY LAYER (adoption-scored): exact 1D twiddle tables, consumption order (d1tw_cexp quadrant-exact ~1ulp, d1tw_chirp integer-reduced, d1tw_stage v1 + v2 broadcast-pair/lane-major AVX-512 formats + v3 COMPACT: v1 consumed via fmaddsub IS the compact q-vectorized format, s1cs halves the first-stage table); vehicle: mixed-radix 2/3/4/5/8/16 Stockham, zmm 4-complex lanes, compact tables at L>=1024 (d1_pow2 r4's L2-capacity fix), single-scratch ping-pong through caller's out, in-register 32/64 codelets + register chains (d1_pow2), SoA across-batch chain at B>=8 L<=2048 (d1_batchlane), NT final stores >=25MB, latency-shaped Goldschmidt map (d1_prime r5), deterministic huge-page arena for buffers+tables (d1_bluestein via d1_pow2 r5), smooth L

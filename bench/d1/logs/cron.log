@@ -262,3 +262,31 @@
 2026-09-03 18:00:01 d1 tick skipped: lock held
 [2026-09-03 18:13:04] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r5/monitor.log)
 [2026-09-03 18:13:04] promoting: d1_prime d1_composite d1_pow2 d1_rader d1_bluestein d1_twiddle d1_batchlane d1_planner d1_race
+[2026-09-03 18:13:20] committed round d1_r5
+[2026-09-03 18:13:20] ---------- d1_r5 complete; next is d1_r6 of d1_r6 ----------
+[2026-09-03 18:13:20] ---------- d1_r6 begins ----------
+[2026-09-03 18:13:20] d1_r6 works in impl_6 (10 sources carried over from impl_5)
+[2026-09-03 18:13:20] context pack: 263 lines
+[2026-09-03 18:13:20] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+2026-09-03 18:15:01 d1 tick skipped: lock held
+2026-09-03 18:30:01 d1 tick skipped: lock held
+/tmp/fft_rounds_sKHc36.sh: line 419: [: 0
+0: integer expression expected
+2026-09-03 18:45:01 d1 tick skipped: lock held
+2026-09-03 19:00:01 d1 tick skipped: lock held
+[2026-09-03 19:14:13] implementers finished: 9 reported
+[2026-09-03 19:14:13] submitting timing round d1_r6 (seed 20266899) to the exclusive benchmark node
+2026-09-03 19:15:01 d1 tick skipped: lock held
+2026-09-03 19:30:01 d1 tick skipped: lock held
+2026-09-03 19:45:01 d1 tick skipped: lock held
+2026-09-03 20:00:01 d1 tick skipped: lock held
+2026-09-03 20:15:01 d1 tick skipped: lock held
+2026-09-03 20:30:01 d1 tick skipped: lock held
+2026-09-03 20:45:01 d1 tick skipped: lock held
+2026-09-03 21:00:01 d1 tick skipped: lock held
+2026-09-03 21:15:01 d1 tick skipped: lock held
+[2026-09-03 21:27:16] leaderboard for d1_r6 is in
+[2026-09-03 21:27:19] served models for d1_r6:    1289 claude-fable-5      84 claude-opus-4-8 
+2026-09-03 21:30:01 d1 tick skipped: lock held
+[2026-09-03 21:38:07] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r6/monitor.log)
+[2026-09-03 21:38:07] promoting: d1_prime d1_rader d1_pow2 d1_composite d1_batchlane d1_bluestein d1_twiddle d1_planner d1_race

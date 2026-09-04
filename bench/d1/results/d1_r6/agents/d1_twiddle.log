@@ -1,0 +1,12 @@
+Round d1_r6 complete. Both deliverables written: `impl/d1_twiddle.c` and a new "Round d1_r6" section in `strategies/d1_twiddle.md`. Summary of what happened:
+
+**Shipped changes**
+1. **Latency-shaped chain map** (adopted from d1_prime r5, transfer confirmed by d1_batchlane r6): early-seeded reciprocal + Goldschmidt sqrt + additive 1e-100 floor, in all three of my map forms (AoS store, register-chain vmap, SoA split). Every one of my 14 graded chained cells improved **−3 to −10%** in interleaved node A/B (e.g. 4096 B=1 chain 11.45→10.73 µs, 16384 B=64 chain 57.8→54.3 µs, 32 B=512 chain 0.037→0.034 µs).
+2. **Register-fused first stage pair extended to L=128** with pow2's batch-working-set gate: 128 B=1 m=1 0.113–0.126→0.105–0.110 µs (−6..−10%, now at/under MKL's r5 board 0.1044); B=512 correctly stays on the old path (fused lost 9% there).
+3. **The huge-page arena (pow2 r5 / bluestein) was built, measured, and gated OFF**: on my engine it was a pure loss — +8–9% at 16384 B=1 m=1 in every variant (THP off, tables-out, skew shift), wash everywhere else. It ships behind `-DD1TW_ARENA=1` with the negative result recorded so nobody re-derives it.
+
+**Correctness**: single-call rel L2 ≤ 3.9e-16 at 17 sizes + all graded batch shapes; all 14 graded chain gates PASS (worst 1.17e-11 vs 1e-10 tolerance, statistically unchanged from r5); 8 edge-path chains pass; output bitwise repeatable; official tryout.sh green. Slot lease released.
+
+One-line close-out as requested:
+
+**Technique ended on:** prime's latency-shaped Goldschmidt map in all three map forms + vsx44 fused-pair extended to L=128 (arena tried, measured a loss, gated off) — best a80n0 leased-core numbers (wallaby not used for timing this round): 128 B=1 m=1 0.105 µs / B=512 0.162 µs, 1024 B=1 1.12 µs / B=512 1.74 µs, 16384 B=1 33.5 µs / B=64 39.3 µs, chains 32 B=512 0.034 µs and 16384 B=1 54.0 µs; rel L2 ≤ 3.9e-16 single-call, worst chain gate 1.2e-11 vs 1e-10.

@@ -1,0 +1,3 @@
+Round complete — implementation and record shipped, all 35 single-call configs and 14 chain gates pass, official tryout green, and I wrote only my two files (`impl/d1_bluestein.c`, `strategies/d1_bluestein.md`).
+
+Ended on: hugepage-skewed CRT rotation table (killed the last per-process placement lottery — 65537 went bimodal 1545/1950 → deterministic 1485) + tiled Good-Thomas radix-15 `[9,15]` tiles + d1_rader's radix-64 `[4,64,4]` rows; on the scoring node (a80n0, best window) B=1: 10007 ≈ 112 µs, 65537 ≈ 1485 µs, 100003 ≈ 2219 µs; batched: 10007 B=64 ≈ 112 µs, 65537 B=16 ≈ 1609 µs, 100003 B=8 ≈ 2379 µs (now ±0.4% across processes vs the r5 board's 3249 median); rel L2 ≤ 1.1e-15.

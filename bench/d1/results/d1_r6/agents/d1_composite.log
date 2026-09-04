@@ -1,0 +1,3 @@
+Done. Both deliverables are written: `impl/d1_composite.c` (group-outer L1-resident batched chain + zmm-paired B=1 chain step v5, old paths kept under flags) and a full "Round d1_r6" section appended to `strategies/d1_composite.md`. All 28 correctness checks pass on the node, outputs bit-identical to r5, node wins: B=1 chain 0.110→0.083 µs, B=512 chain 0.059→0.055 µs; slot lease released.
+
+Ended on: group-outer L1-resident SoA batched chain (borrowed from d1_batchlane/d1_prime) + zmm-paired coset-row B=1 chain step (r3 idea unblocked by my r4 broadcast trick) — wallaby best 0.029 µs/transform at B=1 and 0.032 µs at B=512 (chains 0.064 / 0.041 µs), rel L2 = 2.2e-16 (chain gates 3.1e-15 / 6.6e-13 vs tol 1e-10).
