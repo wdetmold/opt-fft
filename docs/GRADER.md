@@ -183,3 +183,23 @@ NUMBER_OF_TRANSFORMS), so both sides answer the same question through the API bu
 the batch-lane layout is a better implementation, not a structural asymmetry.  Batched
 unchained cells therefore belong in the headline kernel metric (d1_r8: 1.297x geomean over
 13 cells, 11 wins).
+
+
+## DESIGN RULING (2026-09-04): the chain is a correctness metric, not a performance one
+
+Will's decision, closing the metric question this campaign kept circling:
+**"chain should remain in the design as a metric of correctness, not as a metric of
+performance."**
+
+* **Performance is scored on UNCHAINED single-transform calls only** -- batched (fair: the
+  library baselines run their native plan_many / DFTI_NUMBER_OF_TRANSFORMS interfaces) and
+  non-batched.  A chained "gain" conflates FFT speed with a structural advantage libraries
+  cannot access (map fused into the transform store, plus a fast approximate map and no
+  buffer ping-pong), so it is a system-on-workload number, never a kernel speedup.
+* **The chain is executed for its GATE and nothing else.**  Its value is that the map is
+  weakly chaotic -- precision errors amplify over the m steps -- so the chain-end check
+  (the 300x-anchor tolerance above) detects subtle fp cheats a single-transform check would
+  miss.  Its per-transform TIME is never quoted as performance.
+* This governs every dimension and every future campaign, not just d1.  Do not decompose a
+  chained gain into "FFT-only x fusion" to rescue it as a performance figure -- the ruling
+  is that it is not a performance figure at all.
