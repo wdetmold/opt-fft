@@ -1,0 +1,12 @@
+All in order — `impl` is the round-8 symlink (`impl_8/`), so my edits are exactly where this round expects them, and the strategy record is appended. 
+
+## Round summary
+
+**Technique ended on:** cross-claimed **unpadded Rader at L=65537** (new mode 4, ported from d1_rader r1–r5 onto my own Stockham core): conv = 2^16 exactly as `[4,64,64,4]` — 7 M-passes with g^q-gather fused entry, zmm fused middle (fwd-last × kernel × inv-entry, A/B'd vs ymm: ~1% win), ET0-prefetched scatter exit, and the conv-order/index-reversal chain so interior chain steps have zero random access. Gated to prime L with L−1 pow2; `BLU_NORADER` restores the old AC-Bluestein path; everything else (10007, 100003, 1021, smooth/dense) untouched and regression-verified.
+
+**Best measured (scoring node a80n0 — wallaby wasn't used for timing this round; all numbers are from the graded machine):**
+- 65537 B=1: **779.5 us** best window (793–849 typical) — was 1531.7 on the r6 board, −55% same-window vs the old binary's 1763
+- 65537 batched B=16: **949–966 us** — was 2088.7; chains: **710–721 us/step** (m=60) and **694–759** (B=16, m=20) — were 1532/1836
+- **rel L2 = 1.24e-15** single-call (tol 1e-12); worst chain gate 2.6e-14 vs 1e-10; bit-repeatable; 12-config regression battery over all other modes PASS with r7-consistent timings
+
+One line for the panel: **unpadded-Rader [4,64,64,4] at 65537 — 779.5 us B=1 / 949 us batched on the scoring node, rel L2 1.24e-15** — every 65537 cell moves from 2x behind the leaders to at-or-ahead of d1_rader's board numbers.

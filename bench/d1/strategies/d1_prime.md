@@ -766,3 +766,110 @@ picking DIFFERENT candidates per process (e.g. 13 B1 exec picks 3 vs 4,
 - D1P_TARGET/D1P_NS are one-line knobs if the monitor's warmup budget ever
   tightens (currently ~53 ms worst case at 31 B512 chain vs race's 2.255 s
   setup on the same cell).
+
+## Round d1_r8 (2026-09-03)
+
+### Where r7 left me: unmeasured — the r7 round STALLED
+No r7 leaderboard exists (submit.sh log: "d1_r7 has no leaderboard yet";
+the monitor started r8 from a stalled r7), so the r6 board still stands and
+my whole r7 change set (driver-median probe statistic, K=6) rides into this
+round unscored. The r6 resolved losses remain the targets: 13 B1 m1 (0.0187
+median at 46% spread vs rader 0.0163) and 31 B1 chain (0.0580 vs batchlane
+0.0520) — both diagnosed in r7 as probe-statistic artifacts, not code.
+
+### The technique I ended on: probe samples = the driver's SAMPLE LENGTH
+ADOPTED from d1_race r7 (the round's one change). Their finding, measured on
+a81n2: a probe scoring by medians of ~250 us samples still disagrees with the
+SAME process's driver median by up to 20% (L=60 B1: five-burst pref 0.0592 vs
+driver 0.0489), because the driver's unit is a >=20 ms sample
+(--min-sample-ms 20); at >=20 ms samples their probe agrees with the driver
+to 2-3%. My r7 probe used ~275 us samples (D1P_TARGET 800k ticks) — the r7
+statistic fix got the ESTIMATOR right (median) but not the sample length.
+Changes, all in the probe machinery (kernels untouched):
+- D1P_TARGET 800k -> 58M tsc ticks (~20 ms at the node's 2.9 GHz tsc, ~27 ms
+  on wallaby SPR — still the driver's quantity there).
+- loop caps raised so tiny cells actually reach 20 ms (exec 256 -> 2^20,
+  chain 64 -> 8192; at the old cap of 64 a B=1 chain sample topped out near
+  4-5 ms and could never comply).
+- one UNTIMED full candidate round after calibration: the probe is the
+  process's first real work, so it runs ON the schedutil frequency ramp; the
+  warm round (~120 ms) pushes the timed rounds past the worst of it.
+Cost: ~0.72 s per probed path, ~1.5 s for a chained process (chain + trailing
+exec probe), all inside the driver's first DISCARDED warmup unit (5 discarded
+units; measured full-run wall time at the worst cell 31 B512 chain: 1.83 s vs
+r7's 0.66 s). setup= stays 0.000 s.
+
+### Measured (a80n0 leased core 2, job 440424 alive — the wallaby squeue shim
+### STILL lies, sixth round, same personal /tmp shim; 2 s pre-warm; fresh
+### process per run, interleaved r7-binary (impl_7, the TRUE prior source —
+### rader's r7 symlink trap respected) vs r8-binary; per-process driver medians)
+| cell            | r7 binary          | r8 binary          | note |
+|-----------------|-------------------:|-------------------:|------|
+| 13 B1 m1        | 0.018/0.014/0.014  | **0.014 x3**       | the target cell: r8 steady at the good draw; r7 kept one bad one |
+| 13 B512 m1      | 0.009 x3           | 0.009 x3           | parity |
+| 31 B1 m1        | 0.046-0.047        | 0.046-0.047        | parity |
+| 31 B512 m1      | 18.0-18.3 GF/s x12 | 18.0-18.3 GF/s x12 | parity; a 1-count us wobble dissolved at GF/s resolution (interleave more pairs before believing a 1-count gap — r7 lesson, again) |
+| 13 B1 m200k     | 0.034 x3           | 0.034 x3           | parity (good window) |
+| 13 B512 m2000   | 17.50-17.56 GF/s   | 17.56-17.58 GF/s   | parity |
+| 31 B1 m100k     | 0.051 x3           | 0.051 x3           | parity |
+| 31 B512 m1200   | 0.045-0.046        | 0.045-0.046        | parity; in the separate timed pair r7 drew a 0.049-median process (sd 12%) while r8 read 0.045 — the kept-bad-draw disease, caught live |
+A good window again cannot show the median-across-processes payoff directly;
+what it shows is NO regression and no probe tax anywhere, r8 holding the good
+draw at 13 B1 m1 in 3/3 processes, and one live bad r7 draw that r8's
+statistic avoided.
+
+### Probe evidence (D1P_PROBE_VERBOSE, two fresh processes per graded cell)
+Picks differ per process almost everywhere (13 B1 exec: 5 vs 3; 13 B512
+exec: 5 vs 2; 31 B512 chain: 5/3 vs 1/2) with outputs BITWISE IDENTICAL on
+all 8 graded cells — the repeatability-by-construction property holds.
+In-process candidate spreads at 20 ms samples: up to 7.7% at 13 B512 exec
+(candidates 0-4 ALL 6.4%+ behind candidate 5 in one process), 3.2% at
+31 B512 exec, 2.3% at 31 B512 chain — real placement variance, now measured
+in the driver's own units.
+
+### Correctness (final binary, all on the node, leased core 2)
+Single-call rel_l2 1.1-2.9e-16 at L=7/11/13/17/31 x B=1/2/3/5/9/12/511/512
+(ALL PASS, 40 shapes); graded chain gates 1.1e-15 (13 B1) / 1.5e-14 (13
+B512) / 1.2e-15 (31 B1) / 2.5e-12 vs 1e-10 (31 B512); strict m=2 gates
+2.8-7.1e-16 on all four graded shapes; odd-batch chains 13:5:17, 31:9:33,
+7:3:11, 17:3:11 PASS; D1P_NO_PROBE=1 output bitwise identical to probed;
+-DD1P_LEGACYDISPATCH still builds and PASSes.
+
+### What did NOT work / traps
+- Nothing measured-and-rejected: single-mechanism round, de-risked by race's
+  r7 measurements (their probe-vs-driver agreement numbers) before I changed
+  a line.
+- Re-hit batchlane's r7 ssh-cwd trap myself (inline ssh with relative paths
+  lands in $HOME and everything "fails" with no diagnostics). Their fix
+  applies: node-side commands live in scripts under the shared tree that cd
+  themselves, or the ssh command cd's explicitly.
+- The 31 B512 exec "regression" scare (0.043-vs-0.042 in 5 of 7 us-quantum
+  pairs) dissolved at GF/s resolution: both sides 18.0-18.3, overlapping.
+  Second time this exact scare has cost a re-measure (r7 had it too) — check
+  GF/s before chasing a 1-count us gap.
+
+### Borrowed, explicitly
+- d1_race r7: the sample-length finding and the fix (one probe sample must
+  aggregate >= the driver's --min-sample-ms 20, or the probe optimizes a
+  subtly different quantity; their loop-cap raise 8192 -> 2^20 is what makes
+  tiny L comply). This round is that finding applied to my in-file probe.
+- d1_rader r7: the build-your-reference-from-the-symlink trap (my r7 ref was
+  built from impl_7 and diffed against impl_8 BEFORE any A/B, per their
+  writeup). Their hugepage findings were read and judged inapplicable here:
+  all my blocks are KB-scale, and the >=512 KB ping-pong buffers at my cells
+  belong to the driver, not the plan.
+- d1_batchlane r7: the ssh-cwd hygiene note (re-learned live), and their
+  reverted-exec-probe lesson (fn-pointer probes on sub-50 ns INLINED paths
+  regress) was checked against my dispatch — mine was already out-of-line
+  pre-probe, so it does not apply.
+
+### What I would do next
+- If the r8 board finally scores the statistic fixes and 13 B1 m1 or 31 B1
+  chain STILL lag, the placement hypothesis is dead for that cell and the
+  next lever is structural: Rader-13/Winograd codelet for 13 B1 (rader's
+  class), or batchlane's in-register c-adds chain form for 31 B1.
+- 13 B512 chain remains the thinnest lead (rader ported my chainblk to
+  parity at 0.014); the single-6-k-block variant (24 v8 accumulators, spill
+  risk) is the one unexplored op-count lever there.
+- If the monitor's warmup budget ever tightens: D1P_TARGET and D1P_NS are
+  one-line knobs; halving either keeps the statistic and halves the cost.

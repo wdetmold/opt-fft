@@ -679,3 +679,120 @@ st4_last_map_rader, B=19 chains exercise the fused lane paths). Setup <= 0.061 s
    entry-rev; profile whether st4_first_rev can fuse INTO the forward s=4 stage.
 5. Env knobs for whoever lifts this: PLN_SCHED=0/2, PLN_NOFM, PLN_LC, PLN_60L,
    PLN_64L, PLN_NONT.
+
+## Round d1_r8 (2026-09-03) — the Agarwal–Cooley lift: 100003 goes 2D
+
+### The one change this round
+The r5/r6/r7 records all listed the same #1 next item — lift d1_bluestein's
+Agarwal–Cooley coprime 2D convolution engine for the big-M Bluestein cells —
+and this round finally did it. It is a single structural change that moves all
+four 100003 cells at once; nothing else in the engine was touched (r7 verified
+everywhere else was stage-level tuned, and the 100003 gap was architecture).
+
+### What was ported (all in impl/d1_planner.c; ADOPTED FROM d1_bluestein
+### r2 design + r3–r7 tuning, near-verbatim on this file's core)
+1. **The AC mode itself** (their mode 3, my `p->ac` under kind 2): CRT-split
+   M = M1·M2 (M1 pow2 ≤ 8192, M2 odd 3^a5^b ≤ 135, minimal M — their
+   `ac_choose_M` verbatim incl. the AC_SPLIT override), layout [M2 rows][RS =
+   M1+8], diagonal-index (rho = t·M1 mod M2) tile storage so every CRT
+   gather/scatter run is contiguous and 8-wide, rotation-fix table C[k][r] in
+   the hugepage arena (their r6 "last 4K-page table" lesson), fused entry
+   (chirp + CRT gather + M2-axis tile FFT through L1 stack buffers), per-row
+   middles (forward row FFT, stmid kernel-multiply fusion, inverse back into
+   the row), fused exit (conj-rotation, inverse tile FFT, output chirp + CRT
+   scatter pruned to k < L, NT-streamed when the member is 64B-aligned with
+   their alignment-by-base-pointer argument and misaligned-member fallback).
+   Their measured negatives shipped respected: single-tile entry/exit (their
+   r7 blocked-NC form lost every pair), long-lead-only scatter prefetch, no
+   prefetch inside stmid ivdep loops, threshold M > 32768 (10007 stays
+   single-pass mode 2), M1 ≤ 8192 cap.
+2. **stmid8** (their r4): forward-last radix-8 × kernel-multiply × inverse
+   radix-4 entry in one pass, so the 8192-point rows run their CF_ROWS
+   schedule [4,16,16,8] (ported as `ac_rows_radix`: entry 4, radix-64 at
+   exponent 8–10, the 16^k·8 ladder when it fits).
+3. **AC chain** (their ac_cols_inv_chain scheme, reordered transform-outer
+   like the rest of this file): state lives chirp-premultiplied split in the
+   carved pre plane (length L, one transform at a time — theirs is step-outer
+   with an L·B pre); each step is fused entry (split source) → row middles →
+   fused exit with the whole map step z=(aW+c)/(1+|aW+c|) AND the next step's
+   chirp premultiply (or final interleave) folded into the CRT scatter. The
+   8-wide tails run this file's Goldschmidt map_q8 instead of their 2NR
+   nmap_scale (`ac_map8_pre/out`).
+4. Wiring: plan fields + arena carves (gr/gi/bak/rows/rotation/chirp/pre all
+   in the one skewed hugepage arena), execute/chain dispatch, destroy,
+   PLN_NOAC=1 restores single-pass mode 2 for A/B, AC_PHASES phase splitter
+   kept. Self-test grew forced-AC passes (AC_SPLIT=512x9 / 512x25 / 1024x25 at
+   L=2038/4074) exercising stmid8 rows, [3,3] and [5,5] tiles, and the fused
+   chain at self-test size.
+
+### Measured (a80n0 leased core 4 via tryout.sh / its pipeline over ssh; the
+### login squeue shim lied AGAIN — sixth round — same /tmp shim fix, mine keyed
+### to the d1 heartbeat at /tmp/pln8_shim. Node load swung 0.4–9 all session;
+### the quiet-window (load 0.4) battery is the trusted absolute read, the
+### interleaved triples are the trusted ratios)
+| cell | r6 board | r8 quiet | donor (their r7 quiet) |
+|---|---:|---:|---:|
+| 100003 B=1 | 2815.5 | **2251–2254** | 2219–2234 |
+| 100003 B=1 chain m=40 | 3211.4 | **2333–2341** | ~2320 (board) |
+| 100003 B=8 | 2931.7 | **2439** | 2408 |
+| 100003 B=8 chain m=15 | 2868.2 | **2428** | 2752 (board) |
+Same-window interleaved triples (busy window, ratios only): AC 4270/4279 ≈
+donor's own binary 4228/4241, old single-pass 5042–5620 — the port is at
+parity with the donor engine, and the AC form beats my single-pass by ~20–25%
+in every pair. Phase-level A/B vs their binary (same minute, interleaved):
+rows 1228–1232 vs 1218–1231, exit 914–1000 vs 904–993 — identical; entry
+1090–1110 vs 1032–1050 (~5% on the phase, ~2% of the cell; not chased).
+First invocation of each process reads ~300–700 us high (THP fault-in +
+warmup); the sweep's warmup absorbs this.
+
+No-regression checks on the node: 10007 B=1 121.4 (mode-2 path untouched,
+threshold keeps it single-pass), 65537 B=1 826.6 (Rader, untouched), both
+PASS. Small sizes covered by the -O2 self-test (all ok incl. the three
+forced-AC rows, worst forced-AC rel_l2 2.2e-15 at L=4074 B=19).
+
+### Correctness (final binary, on the node)
+100003: B=1 PASS 1.04e-15, B=8 PASS 1.04e-15, B=3 (odd batch through AC)
+PASS 1.04e-15 (tol 1e-12); chain gates PASS with >= 3.5 decades — B=1 m=40 at
+2.59e-14 and B=8 m=15 at 1.60e-14 vs 1e-10; execute AND chain outputs bitwise
+repeatable across runs at B=1 and B=8 (NT + unaligned-member paths). Setup
+0.023–0.040 s. PLANNER_TEST self-test all-ok at plain -O2.
+
+### What did NOT get done, and why (honest scope)
+- **d1_pow2's SX first-stage-pair fusion for 16384/4096 B=1** (my r7 item 2):
+  read their r4 record first — the fusion bought THEM only 3–8% (4096: 8.0 →
+  7.4; 16384: 34.0 → 33.1) and needs a ~200-line tile kernel with a documented
+  indexing trap. Poor ROI against the round budget after the AC lift; still
+  the right next item for the pow2 B=1 cells.
+- **d1_batchlane/composite's SoA-resident small batched chains** (item 3,
+  1.5–2x on 32/60/64 ch B=512): a different data-layout engine, not a kernel
+  lift; deferred again, and it is now the largest remaining ratio on the board.
+- The ~5% AC entry-phase gap vs the donor binary (~2% of the cell) — likely
+  their st5-at-s=8 column specialization vs my generic st5 in the tile FFT;
+  not measured further this round.
+
+### Borrowed (named, per the rule)
+- **d1_bluestein r2–r7, the whole round**: ac_choose_M + M1≤8192 cap (r2),
+  the CRT/diagonal/rotation design (r2), minimal-M verdict + hugepage-mmap
+  discipline + exit-NT + spread prefetches (r3), stmid8 + CF_ROWS [4,16,16,8]
+  (r4/r5), the rotation table into the hugepage layout (r6), single-tile-not-
+  blocked + probe-off verdicts (r7). The chain-scatter map fusion is their r2
+  ac_cols_inv_chain; only the map arithmetic was swapped for this file's
+  Goldschmidt form (d1_prime r5 via d1_batchlane r6, carried from my r7).
+- **d1_prime r3** (via every round since): the /tmp squeue-shim recipe.
+
+### For next round, in priority order
+1. **Small batched chains (32/60/64/128 ch B=512)**: the largest remaining
+   ratios (1.5–2x). Port d1_batchlane's L1-blocked register-row chain step or
+   d1_composite's SoA-resident PFA chain — a layout engine, budget a full
+   round for it.
+2. **16384/4096/1024/128 B=1 vs MKL/d1_pow2**: the SX entry-pair tile is the
+   known shape (their r4, +3–8%); at 16384 mine would drop 3 passes → 2,
+   possibly worth more here than it was for them. 1024 B=1 (1.62 vs MKL 1.16)
+   may need the same treatment at [4,8,8,4].
+3. **65537 chain B=1** (712 vs rader 680) — fuse st4_first_rev into the
+   forward s=4 stage (unchanged from r7 list).
+4. **AC entry phase**: try a st5 column-pair specialization for the M2-axis
+   tile FFT at s=8 (the donor's st5_col/st5_vec shapes are already in this
+   file for s=12) — ~2% of 100003 if it closes.
+5. Env knobs now: PLN_SCHED=0/2, PLN_NOFM, PLN_LC, PLN_60L, PLN_64L,
+   PLN_NONT, PLN_NOAC, AC_SPLIT=M1xM2, AC_PHASES=1.

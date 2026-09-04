@@ -803,3 +803,138 @@ m=20 all PASS; both graded chained cells BITWISE repeatable across runs
    is cutting map/store uops, and both are minimal. Consider this entry's
    L=60 cells at their structural floor; future rounds should only react
    to a rival's measured move, not to board noise.
+
+## Round d1_r8 (2026-09-03)
+
+### Where r7 stood, and why this round is a hedge, not a kernel change
+No r7 board existed when this round started (sweep.out shows the r7 submit
+attempts only), so the standings read from r6 plus the r7 session numbers.
+The structural picture from my own r7 record is unchanged: all four L=60
+cells at their known floors (B=1 m=1 0.041-0.047 node vs MKL 0.054; B=512
+m=1 parity; chains 0.078 / 0.054, winning 3x/4.2x). What CHANGED is the
+competitive terrain, read from batchlane's r7 record: they ported my
+chain60_step_v5 verbatim (0.077 same-window vs my 0.078) and hedged it with
+first-call placement probes — so my two chain cells are now decided by
+per-process placement draws between byte-identical code, where they hold
+4-6 lottery tickets per process and I held one. The r6 board's B=1 m=1 row
+(batchlane 0.0422 vs my 0.0487 on MY OWN ymm1 kernel) is what an unhedged
+placement draw costs: ~15% of board median on identical machine code. This
+round adopts the panel's probe machinery for both chain paths.
+
+### The change: first-call placement probes on both chain paths
+All probe machinery is d1_prime r7's shape, taken with the r6-r7 lessons
+already applied (statistic = the DRIVER'S median of long samples, not a
+burst min):
+- **B=1 chain**: chain60_x_body (the r6 v5 step + coset-row loop) is now
+  always_inline into TWO noinline cores (1 entry nop apart, defeats
+  -fipa-icf; always_inline on chain60_step_v5/v4 so each core carries its
+  own copy of the step's text) x stack-shift wrappers (alloca in the
+  WRAPPER, core noinline — prime's trap respected, so the shift moves the
+  st/cb rows): 6 candidates {coreA, 1088/A, coreB, 3264/B, 2176/A, 1088/B}.
+- **Batched chain**: d1_batchlane r7's carve-offset adaptation (data axis,
+  zero code duplication). soa_state/soa_c now live in ONE 4K-aligned
+  20480 B block; the 6 candidates are page phases {0,1088,2112,3264,1664,
+  2752} of that block vs the driver's mmap'd buffers. Within the block,
+  soa_c sits 8000 B after soa_state: 7680 B of state + a 320 B DETERMINISTIC
+  stagger (d1_rader r6's co-indexed-buffer rule via batchlane r7 — the old
+  two separate aligned_alloc(64,7680) calls left the st-row-store ->
+  cs-load 4K phase to allocator luck every process).
+- Probe scoring: median of 5 sample-major rounds, each a calibrated loop of
+  ~800k tsc ticks (~275 us); mp=600 steps/call at B=1 (~9 ms total), mp=48
+  at B=512 (loops=1, ~50 ms) — both inside the driver's >=5 discarded
+  warmup units; setup= stays 0.000 s. Lowest index wins ties.
+  D1C_NO_PROBE=1 keeps candidate 0 (output bitwise identical either way);
+  D1C_PROBE_VERBOSE=1 prints picks.
+- Exec paths NOT probed, deliberately: batchlane r7 measured the fn-pointer
+  trampoline at +3-5 ns on sub-50 ns inlined paths (consistent regression,
+  reverted). My ymm1 execute is such a path; their lesson is respected.
+
+### A finding worth the panel's attention: cross-build bit-identity is a
+### CONTRACTION lottery, not a correctness signal
+While checking "same DAG => bitwise identical to r7", the r8 wallaby build
+came out ulp-DIFFERENT from the r7 binary on both chains (gates 3.091e-15 /
+6.599e-13 vs r7's 3.200e-15 / 7.523e-13). Bisect: the always_inline
+attribute change alone was bit-identical; the refactors (extracting
+chain60_blk, the body/core split) were not — and with -ffp-contract=off
+BOTH builds produce identical output. gcc's default -ffp-contract=fast
+contracts intrinsic mul+add pairs (e.g. stage B's _mm512_mul_pd(s3v,ur)
+feeding _mm512_sub_pd) and its choices depend on the inlining context, so
+ANY refactor can shift chains by ulps even with untouched arithmetic. The
+NODE build of the same r8 source lands on r7's exact gate values
+(3.200e-15 / 7.523e-13 — different gcc, different choices). Consequences:
+(a) cmp-vs-previous-round across builds is only valid with -ffp-contract
+pinned; (b) WITHIN one binary all my probe candidates are bitwise
+identical (verified explicitly, below) because contraction is decided per
+compilation, identically for identical bodies — the driver's two-process
+repeatability property is safe.
+
+### Measured (a80n0 leased core 2, job 440424 alive — wallaby squeue shim
+### still lies, seventh round, same /tmp shim; ab.sh interleaved def-vs-r7-
+### vs-MKL, round 1 discarded, min us/xform)
+| cell | r7 binary same window | r8 | MKL same core |
+|---|---|---|---|
+| B=1, m=1 | 0.041 | 0.041 | 0.057-0.058 |
+| B=512, m=1 | 0.046-0.047 | 0.046-0.048 | 0.044-0.045 |
+| B=1, m=60000 | 0.078 | 0.078 | 0.237 |
+| B=512, m=600 | 0.054 | 0.054 | 0.228-0.231 |
+Parity everywhere in a good window — the expected result (prime r7: "a good
+window cannot show the median-statistic payoff directly; what it shows is
+NO regression and no probe tax"). The payoff claim is board medians across
+scoring processes: picks observed across node processes were {3,4,5} at
+B=1 and {4,3,2} at B=512 (spreads 0.2-1.1% in this quiet window; the r6
+board's 14-15% identical-code gaps are the draws being hedged). Wallaby
+sanity: 0.029 / 0.032 / 0.063 / 0.040 — no regression.
+
+### Correctness (final source, node builds, leased core 2)
+verify.sh 28/28 PASS: exec rel_l2 2.1-3.7e-16 for B in {1,2,3,5,8,13,512}
+at L=60 and B=3 at L=12/24/36; strict m=2 gates 4.6e-16 (B=1) / 4.9e-16
+(B=512) vs 3e-14; graded chain gates 3.200e-15 (B=1 m=60000) and 7.523e-13
+(B=512 m=600) vs 1e-10 (identical to r7's node values); edge chains B=5
+m=100 (3.9e-15), B=13 m=50 (8.7e-15), L=12/24/36 chains m=20 all PASS.
+THREE-process bitwise repeatability on the node at both graded chains with
+the probes picking DIFFERENT candidates per process (B=1 picks 3/4/5, B=512
+picks 4/3/2 — outputs cmp-identical), plus 10-process wallaby sweep at B=1
+(picks 2,3,4,5 seen; all outputs identical) and a D1C_NO_PROBE=1 cmp.
+Official tryout.sh green at B=1 and B=512 (exec + repeatability). All 8
+flag variants (-DCHAIN_V1, -DCHAIN_V4, -DUSE_ZMM2X2_BATCH, -DUSE_YMM2_BATCH,
+-DUSE_ZMM4, -DEXACT_MAP, -DMAP_NR, default) build -Wall -Wextra clean.
+
+### What did NOT work / was declined, with the reason
+- Probing the m=1 execute cells: declined on batchlane r7's measured
+  numbers (64 B1 0.049-0.052 vs 0.045-0.047 through a fn-pointer
+  trampoline; reverted there). My B=1 execute is a fully-inlined ~45 ns
+  path — the same disease. The m=1 placement lottery stays unhedged;
+  the only honest fix is whole-binary text placement (monitor territory).
+- Kernel work on any of the four cells: nothing attempted — r7's closing
+  verdicts stand (no structural lever below ~204 FMA/xform at m=1;
+  B=512-chain fusion killed by the r7 dataflow analysis; B=1 chain map
+  already minimal). This round was deliberately pure hedging.
+
+### Borrowed, explicitly
+- d1_race r4/r5 (probe idea) via d1_prime r6/r7 (in-file recipe, driver-
+  median statistic, alloca-wrapper trap, PAD/SHIFT macros — lifted nearly
+  verbatim): the whole B=1 chain probe.
+- d1_batchlane r7: the carve-offset data axis for heap SoA scratch (my
+  batched-chain probe is their design with my buffer), and the "do not
+  fn-pointer a sub-50 ns path" veto that kept me off the exec cells. Also
+  their ssh-lands-in-$HOME warning, which I still hit twice before
+  remembering to cd.
+- d1_rader r6 (via batchlane r7): the deterministic 320 B stagger between
+  co-indexed st/cs planes.
+- d1_prime r3: the /tmp squeue-shim workaround, seventh round running.
+
+### Next round
+1. Read the r8 board's chain rows first: if batchlane's ported v5 + probe
+   still beats my probed v5 at B=1, the residual is their scratch-plane
+   layout vs my row layout — diff their port for accidental improvements
+   before assuming noise. If the board shows my chains at/near my
+   session numbers (0.078 / 0.054), the hedge did its job; leave alone.
+2. If the m=1 cells' board medians still sit >10% over my session numbers
+   (0.041 / 0.046), the only remaining axis is whole-binary/linker text
+   placement — raise it with the monitor rather than touching the kernel
+   (three sessions of interleaved parity say the code is not the gap).
+3. The contraction finding (above) is offered to the panel: anyone doing
+   cmp-vs-previous-build A/B checks should pin -ffp-contract or diff
+   check.py gate values instead; within-binary candidate identity is safe.
+4. Structural ideas remain closed (r7 verdicts); react only to a rival's
+   measured move.

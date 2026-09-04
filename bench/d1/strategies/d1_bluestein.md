@@ -950,3 +950,131 @@ m=400; worst 9.4e-14 vs 1e-10), all bit-repeatable. Setup <= 0.03 s.
 4. Accept that on the quiet score node this engine is deterministic and near the
    router's own number at every cell it owns; further gains are structural
    (65537) or in the still-untried 2-row row pipeline, not in placement tricks.
+
+## Round d1_r8 (2026-09-03) — cross-claim executed: unpadded Rader at 65537, ported home from d1_rader
+
+Numbers are from the scoring node (a80n0, job 440424) via tryout.sh and its exact
+pipeline over ssh (slot leases, cores 3-6). The login-side squeue was dead again
+(sixth round) — same /tmp/blustn_shim fix. Sessions overlapped with other
+implementers early (my own concurrent regression battery polluted two chain
+medians, flagged below); the final battery ran on a single leased slot with
+sd <= 0.2% per invocation.
+
+### The one-line summary
+
+65537 — my only 2x-behind size (r6 board: 1531.7 median vs d1_race 753.0, FFTW
+patient 1468.5) — now runs the class-correct algorithm instead of a structurally
+handicapped one: **B=1 779.5-849 us (was 1531.7/1499.7), B=16 949-966 (was
+2088.7/1629.0), chain m=60 at 710-721 us/step (was 1532.4), chain B=16 m=20 at
+694-759 (was 1835.7)**. Every cell lands at or ahead of d1_rader's r6 board
+numbers (813.3/1022.5/680.8) and 1.5-2x ahead of FFTW patient. All 15 configs
+this session PASS (worst single rel_l2 1.24e-15 vs tol 1e-12; worst chain
+2.64e-14 vs 1e-10), chains bit-repeatable across runs; 12-config regression
+battery over modes 0/1/2/3 unchanged vs r7. Setup 0.021-0.027 s.
+
+### What changed: mode 4, an unpadded Rader path (the r7 record's item #1)
+
+The r7 conclusion was that the 65537 gap is STRUCTURAL: Bluestein must convolve
+at M >= 2L-1 (best AC split 138240 = 1024x135), while Rader's convolution for a
+prime L is exactly L-1 = 2^16 points — 2.1x fewer, no chirp multiplies, and a
+pure pow2 schedule. The brief assigns 65537 to "d1_rader AND d1_bluestein
+owners", so this round I took the cross-claim: plan mode 4 fires when L is
+prime, L-1 is a power of two, and L > 4096 (in practice exactly 65537 — the
+next Fermat prime is past int range), BLU_NORADER=1 restores mode 3 for A/B.
+
+Ported from d1_rader (r1 gather/scatter fusions, r4 mid fusion + free DC bin,
+r5 [4,64,64,4] schedule and both prefetch results, r1 conv-order chain), onto
+my own core — their kernels were built on this file's r1 Stockham conventions,
+so the port is their engine coming home a third time (st16 r5, st64 r6, now
+the Rader bracket):
+
+1. **Conv = 65536 = [4,64,64,4] via a new CF_RCONV flavor** (radix-64 middles
+   while a 2/4 tail survives): 7 M-length passes total — g^q-gather entry
+   fused into the stage-0 radix-4 butterfly (their GATHER8: 128-bit pair loads
+   + one parity permute per plane, beats microcoded vgatherdpd), st64 x2,
+   fused mid (fwd-last x kernel-multiply x inv-entry, my existing stmid4),
+   st64 x2, exit = last inverse butterfly + unswap + x0-add + y[oidx[k]]
+   scatter with staged-scalar stores and ET0 write prefetch 16 points ahead
+   (their r5 result: the output lines are cold even at B=1, evicted by the
+   transform's own ~2 MB of ping-pong traffic). Entry gather prefetch is
+   gated batch >= 2 (their r5 A/B: -26 us at B=16, +16 at B=1). X[0] = x[0] +
+   spectrum DC, taken for free from the fused-mid input's four partial sums
+   (their r4) — wired into bl_middle as optional sum-out args so modes 2/3
+   are untouched.
+2. **Conv-order chain state (their r1 structural trick)**: iidx[q] = g^q =
+   oidx[(P-q) mod P], so gather-map-scatter across a step boundary is a pure
+   sequential index REVERSAL — interior chain steps have no random access at
+   all. Exit stage applies the Newton map (my nmap_scale) + the once-per-
+   element permuted c-field as it stores split conv-order state; state[0]
+   rides as a scalar pair; one final M-pass materializes the interleaved
+   output. The chain block is deliberately NOT hugepage-backed (their r7 A/B:
+   a 2MB-aligned cd block base-congruent with the huge s-planes regressed the
+   chain 660 -> 678-694; 4K pages read 644); the six M-sized conv/kernel
+   planes DO come from my planes_alloc hugepage+skew machinery (my r2/r3/r6
+   layout work — the one place my port is structurally better than their
+   allocation story, which still hand-staggers posix_memalign blocks).
+3. **The fused mid runs zmm in mode 4 (stmid4_z)**: interleaved same-window
+   A/B vs stmid4_y, three pairs, MIDZ/MIDY: 839.0/845.4, 838.4/844.3,
+   792.8/801.7 — consistent ~1%. My r3 "zmm hurts the L3-bound single-pass"
+   lesson does NOT extend to this pass (matches d1_rader's intrinsic zmm mid
+   measuring well); BLU_MIDY=1 restores ymm for A/B.
+
+### Measured (a80n0, leased cores; r6 board = the scored median/best)
+
+| cell | r6 board | this session | d1_rader r6 board | lib best |
+|---|---:|---:|---:|---:|
+| 65537 B=1 | 1531.7 / 1499.7 | 779.5 best window; 793-849 over 5 procs | 813.3 / 734.4 | 1468.5 patient |
+| 65537 B=16 | 2088.7 / 1629.0 | 949.4-966.3 (sd 0.1-0.2%) | 1022.5 / 999.8 | 1539.4 patient |
+| 65537 ch 1:60 | 1532.4 | 709.7-721.1 us/step | 680.8 / 680.0 | 1629.6 patient |
+| 65537 ch 16:20 | 1835.7 | 693.7-758.8 us/step | (not on r6 board) | — |
+| 65537 B=3 (odd) | — | 735.3 | — | — |
+
+Same-session baseline before the change: 1763 us B=1 (old binary, same
+machine state) — the port is a -55% same-window move at B=1.
+
+Regression battery (all PASS, consistent with r7): 10007 126.1/127.3 B=1/64,
+chain 135.9; 100003 2571 B=1 (loaded window), chains 2325/2696; 1021 10.5 /
+chain 8.7; 32 B=512 0.082; 13 0.093; 60 0.198; odd AC sizes 51199 B=2 1096,
+33556 B=3 731. Worst chain gate 9.4e-14 vs 1e-10 (10007 m=400).
+
+### What did not work / open residue
+
+- **Nothing measured as a loss this round** — the port went in clean on the
+  first correct build (the shared Stockham conventions are why; every kernel
+  matched by construction). The one measured decision was MIDZ-vs-MIDY above.
+- **B=1 invocation spread is now ~6% (793-849 over 5 back-to-back procs,
+  medians = mins within each)** — larger than mode 3's r7 determinism (+-0.3%).
+  The suspect is the exit scatter's interaction with the DRIVER's 4K-page
+  output buffer (mode 3's exit is streaming/NT, mode 4's is random 16B pairs
+  over 1 MB — page-coloring-sensitive in exactly the way my own planes no
+  longer are). d1_rader lives with the same wobble (their r5-r7 windows).
+  Next-round candidates: their first-call probe DOES have something to escape
+  here (unlike r7's mode-3 verdict), or an NT bounce-line variant of the
+  scatter.
+
+### Borrowings (the whole round is one)
+
+- **d1_rader**: the entire mode-4 bracket — find_generator, iidx/oidx tables,
+  b[r] = W_L^(g^-r) kernel via forward conv FFT with 1/M folded,
+  st4_gather_full + GATHER8, st4_last_scatter with ET0 prefetch + staged
+  scalar stores (their r2 vscatterdpd lesson), the batch>=2 gather-prefetch
+  gate, the r4 free-DC trick, the [4,64,64,4] schedule (their r5), the
+  conv-order/index-reversal chain (their r1), and the r7 "4K pages for the
+  chain block" negative result. Named at every block in the code.
+- Retained from my own record: hugepage+skew planes (r2/r3/r6), Newton
+  rsqrt/rcp+2NR map with the 1e-100 clamp (r4/r5, via d1_batchlane), stmid4
+  (my r4 fused middle, which their r4 mid and this port both instantiate).
+
+### Next round, in priority order
+
+1. **65537 B=1 spread**: bounce-buffer or probe the exit scatter (above) —
+   the ~50 us between my best window (779) and typical (838) is the gap to
+   d1_race's routed 753, and it is placement, not passes.
+2. **65537 chain step (710-721) vs d1_rader (680)**: the remaining delta is
+   likely their st4_rev_full running under my ymm walker entry vs... profile
+   the reversal entry pass; a zmm rev variant is a 20-line experiment.
+3. **100003 rows (unchanged, still ~41% of that cell)**: the 2-row software
+   pipeline from r7's list remains the one untried structural lever this
+   entry owns.
+4. If anyone ships a faster 65536 pow2 core (radix-128/256 two-layer), mode 4
+   inherits it through CF_RCONV for free.

@@ -925,3 +925,110 @@ persisted and run 2 consistent.
    variants on one shard; mention it.
 4. Wisdom-strip protocol and stale build/race1d .so cleanup: still open,
    now also bloating every read-modify-write of the wisdom file.
+
+## Round d1_r8 (2026-09-04)
+
+### Context: r7 was never scored, and the rivals all grew first-call probes
+Two structural facts shaped the round.  (1) The r7 sweep never ran — no r7
+leaderboard exists, the node wisdom still ends at exe.r6, and the rounds
+machinery moved on ("d1_r7 looks stalled... starting d1_r8 anyway"), so my
+whole r7 stack (fair arbitration, driver-statistic probes, mmap-mode draws)
+reaches its first scored round together with r8's changes.  (2) Every rival's
+r7 record ships an IN-FILE ONE-SHOT FIRST-CALL PROBE adopted from this entry
+(prime/rader/batchlane in full, twiddle's carve probe), and those fire inside
+MY timed windows.  Measured on wallaby core 100 (dlopen the cached .so, time
+call 1 vs call 2): d1_prime at 13 B=1 first call 237 ms vs 0.1 us steady;
+13 B=512 360 ms vs 4 us; d1_rader at 65537 B=16 286 ms vs 9.4 ms; batchlane
+55 us (cheap).  Two places that bites: (a) a cold race's warmups pay ~0.05-
+0.36 s per arm INSIDE gr_race's 5 s deadline — 3-5 arms of that starves the
+later candidates' samples (the d1_r5 gate-starves-the-race incident, back in
+probe form); (b) my placement probe CALIBRATED reps off the plan's first
+call, so a fresh sibling plan read as ~0.3 s/call, reps clamped to 1, and
+every timed sample collapsed to a single call — the d1_r6 short-sample
+disease back through a side door, plus ~0.3 s per draw of pure sibling-probe
+re-runs inside the 6 s probe deadline.
+
+### What changed (impl/d1_race.c, 217 diff lines vs impl_7)
+**1. Sibling one-shot probes absorbed outside every timed window.**  The
+pre-gate loops (both stages, cold path only) now make one untimed
+execute / chain-at-m_race call per gated arm right after materialization —
+their probe fires there, outside gr_race's deadline, and their placement
+pick is made at the same m the race then times.  d1r_probe calibrates reps
+off the plan's SECOND call (first contact absorbed untimed); the probe-time
+warm loop already absorbed re-created draws' probes by construction.
+**2. Wisdom GC (the strip protocol, open since d1_r2, finally shipped).**
+Once per process, with the current roster names in hand: drop every
+d1_race/ key from a dead tag generation, and every gate/ref/verdict whose
+key or stored winner names a roster label at a stale source hash.  Keys not
+under d1_race/ are never touched (adopters' keys are theirs).  a80n0's file:
+131 KB / ~1100 entries (688 stale-hash gate verdicts, ~330 dead-salt) ->
+12.9 KB; wallaby dropped 355 entries.  Every gr_wisdom lookup reads the
+whole file and every store rewrites it under flock, so this was a per-cell
+tax — and unbounded growth would eventually have hit gr__read_all's 16 MB
+cap and silently disabled wisdom.
+**3. Salts** exe.r7->exe.r8, chn.r6->chn.r7, refs pref/cref/crefL .r3->.r4
+(the calibration fix changes the sample sizing wherever a sibling probe
+inflated it, so old refs are wrong-statistic bars), now single-site
+#defines (D1R_TAG_*/D1R_REF_*) with the GC's live-list built from them.
+Op count: unchanged — this entry ships whatever the fastest gated sibling
+ships.
+
+### Measured ON THE NODE (a80n0, leased core 3 — first time in this entry's
+### history; the 440424 hold was alive; the stock squeue shim still lies, so
+### /tmp/d1race_shim_r8 per prime's r3 recipe)
+| cell | node r8 | note |
+|---|---|---|
+| 13 B=1 | 0.014-0.015 us, sd 0-3% | r6 board best 0.0163; warm setup 8-9 ms |
+| 13 B=1 chain m=200k | 0.034 | bitwise repeatable x2 procs |
+| 16384 B=64 | 37.5, sd 0.03% | r6 board best 44.2 (pow2); ships the r7 siblings' gains |
+| 10007 B=1 | 108.9, sd 0.07% | r6 shipped median was ~138 over a 111.8 ref |
+| 100003 B=8 | 2388, sd 0.34% | setup 4.3 s cold |
+| 100003 B=8 chain m=15 | 2424 | planner native chain raced fresh (5.7% over loop:bluestein), fair arbitration keep, setup 7.8 s cold, repeatable |
+First-ever cold create on the node (compile all 8 sibling .so's + races +
+GC) was 31 s at 13 B=1 — inside the 60 s cold budget; warm setups 8 ms-7.8 s
+depending on cell cost.  Wallaby checks: 60 B=8 0.027-0.028 with a live
+exec-TIE arbitration (batchlane kept over planner, probed medians 1.7%
+apart, under the 5% hysteresis); 32 B=512 chain min 0.022 = r7's number,
+two-process bitwise repeatable, D1_RACE_NO_PROBE output bitwise identical.
+All cells PASS check.py (rel L2 1.4e-16 … 1.04e-15, tol 1e-12); chained
+cells PASS the map-chain gate (worst 2.6e-12 vs 1e-10 at 32:512:1000).
+
+### Live-fire notes / what did not work
+- Sibling churn re-keyed the 13 B=1 chain sig mid-session (two sigs, each
+  with its own /r2 + /xc, each arbitrated independently, outputs bitwise
+  identical across the flip boundary) — seventh live-fire round for
+  hash-carrying names, zero stale verdicts.
+- Hit batchlane's r7 ssh-cwd trap exactly once (relative path over ssh lands
+  in $HOME); their fix applies — cd explicitly in the ssh command.
+- tryout.sh's chain detection is still broken for multi-row cases.txt
+  (mangles L/B/m vars); chains were driven manually over ssh, as every
+  sibling has done since r4.
+- r7's next-round item 1 (read the r7 board against the r7 wisdom) was
+  unactionable: no r7 board exists.  The r8 board is the first scored test
+  of BOTH rounds' mechanisms — read it with that in mind.
+
+### Borrowed, explicitly
+- The absorption diagnosis exists because prime/rader/batchlane/twiddle's r7
+  records document their probes' shape and cost precisely (their adoption of
+  my probe came back as my round's main hazard — cumulative rounds cut both
+  ways); the ssh-cwd hygiene is batchlane r7; the build-your-reference-from-
+  the-impl-symlink trap (rader/twiddle r7) was read BEFORE building anything
+  — my A/Bs this round compare against persisted refs and board numbers, not
+  an impl_7 rebuild.
+
+### Next round
+1. Read the r8 board + BOTH node wisdom files (a80n0/a81n2): (a) did the
+   fair arbitration + absorption land the close cells (60 B=1, 16384 B=64,
+   10007 B=1, 32/64 B=512) at ~1.0x of the best arm's standalone median?
+   (b) count /xc flips and check each against the standalone arm.  The
+   chain-only-shard exec-arbitration hole (r7 context) is still only
+   fixable by the monitor co-locating a cell's variants on one shard.
+2. If sibling first-call probes get heavier still, make the probe's draw
+   budget adaptive on measured per-draw cost (currently only the >150 ms
+   create brake and the 6 s deadline bound it).
+3. Stale build/race1d .so cleanup (dozens of dead-hash .so files per host
+   dir) — same shape as the wisdom GC, keyed on current hashes; low stakes
+   but the dirs grow every churn.
+4. The steady .so-vs-binary chain gap (r7 item 2) may have dissolved with
+   planner/batchlane's r7 chain rewrites — re-check on the r8 board before
+   proposing the static-link A/B to the monitor.

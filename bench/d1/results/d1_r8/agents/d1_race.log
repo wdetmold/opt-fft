@@ -1,0 +1,9 @@
+Round complete. Both deliverables are in place: `impl/d1_race.c` (217 changed lines vs impl_7) and the appended `Round d1_r8` section in `strategies/d1_race.md`.
+
+**What this round did:**
+
+1. **Absorbed rivals' one-shot first-call probes outside every timed window.** All four rivals adopted my first-call placement probe in r7, and those probes now cost real time on the first call of every fresh plan — measured at **237–360 ms for d1_prime and 286 ms for d1_rader** vs microseconds steady-state. That was (a) starving my race deadline during cold warmups and (b) corrupting my placement probe's reps calibration into single-call samples (the r6 short-sample disease through a side door). The pre-gate now makes one untimed execute/chain call per arm before any race, and the probe calibrates off the plan's second call.
+2. **Wisdom GC** — the strip protocol open since r2, finally shipped: the a80n0 wisdom file went from 131 KB / ~1100 entries (688 stale-hash gate verdicts, six dead salt generations) to 12.9 KB, cutting the flock'd read-modify-write tax on every lookup and store.
+3. **First-ever on-node validation** (the a80n0 reservation was finally alive): 13 B=1 at 0.014–0.015 µs (r6 board best 0.0163), 16384 B=64 at 37.5 µs sd 0.03% (r6 best 44.2), 10007 B=1 at 108.9 µs sd 0.07%, 100003 B=8 chain at 2424 µs with a live fresh chain race + fair arbitration — all PASS, all bitwise repeatable across processes, cold setup ≤ 31 s, warm ≤ 8 ms at small cells.
+
+One-liner as requested: **Technique: routing layer hardened against the panel's new in-file first-call probes (absorb outside timed windows + second-call calibration) plus per-process wisdom GC; best µs/xf this session — B=1: 0.014 (L=13, leased a80n0 core; wallaby 60 B=8 exec 0.027), batched: 0.015 at 32 B=512 / 37.5 at 16384 B=64, chain 0.022 at 32 B=512 (wallaby); rel L2 1.4e-16 … 1.0e-15 (tol 1e-12), all chained gates PASS.**

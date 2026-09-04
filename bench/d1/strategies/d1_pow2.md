@@ -841,3 +841,126 @@ outputs bitwise repeatable at every cell tried; official tryout.sh green at
 4. If a scoring seed fails a chain gate: -DD1_FASTMAP_MAX_L=0 (unchanged), and note the
    1024:1:4000 margin is now 8.1x (was 16x in r6); D1_S44_1024=0 also restores the old
    margin there.
+
+## Round d1_r8 (2026-09-04)
+
+The a80n0 reservation (job 440424) was alive; the r7 sweep had not been scored yet, so the
+r6 board still framed the targets: 1024 B=1 (1.30x board), 4096 B=1 (1.39x), 128 all cells,
+and the batched small-L margins.  All decision numbers below are interleaved same-window
+A/Bs on a leased node core against the true impl_7 build (heeding d1_twiddle r7's
+impl-is-a-symlink warning — `impl` points at impl_8, the r7 reference is impl_7/).
+OPS LESSON, recorded because I got it wrong for half the session: my ad-hoc node scripts
+hardcoded core 2, which is SLOT 0 of the slot-lease protocol — I was trampling another
+implementer's leased core (and a stale binary of mine sat at 100% on it confusing their
+numbers too).  tryout.sh acquires a lease automatically; hand-rolled ssh scripts must call
+slot_lease.sh themselves (I hold slot 2 -> core = slot + 2 = 4).  Every number kept below
+was measured after moving to the leased core.
+
+### The PMU diagnosis that set the round (and closed the split-radix question for good)
+
+perf on the node, per transform, min-mode windows, me vs MKL at the two worst cells:
+  - 1024 B=1: me 8008 instructions / 2925 cycles / port5 2486 (85% occupied, the binding
+    resource) / l1d.replacement 561.  MKL: 6517 / 2673 / 2177 / 657.  MKL retires 19%
+    FEWER INSTRUCTIONS and takes MORE l1d fills — at 1024 the gap is instruction count,
+    not traffic.
+  - 4096 B=1: me 35.9k instr / 5762 fills; MKL 29.1k / 4168.  Both currencies there.
+Working the instruction budget by bucket (the record is the point):
+  - Per-stage instr/complex/level: fused first pair 0.945, SS8 0.64, SF8 0.54.  The
+    stride-1 stage was the pig, and the reason is FORMAT: its three twiddle cmuls ran on
+    AoS vectors = 4 complexes per zmm (half density), 5 instructions + 3 port-5 shuffles
+    each in compact form.
+  - SPLIT-RADIX IS NOT A LEVER HERE — do not spend a round on it.  Counting the
+    s-multiplicity correctly, my 1024 schedule [4,4,8,8f] does 2432 scalar twiddle cmuls;
+    conjugate-pair split-radix M(N) = M(N/2)+2M(N/4)+N/2-2 gives ~2504 at 1024.  The
+    classical split-radix advantage is cheap +-i/W8 rotations in a 3mul+3add cmul world;
+    with FMA-vector SCMULs (4 instr regardless) it evaporates.  This closes the item my
+    r5/r6/r7 records kept deferring, by arithmetic instead of a rewrite.
+
+### Change 1 (the round's ship): transpose-first stride-1 stage, block-lane full-width
+### twiddles — gated to cache-resident working sets
+
+s1s_quad_v reordered: raw radix-4 butterfly outputs go through the 8-permute store
+transpose FIRST, into blocked-split block vectors; the twiddles then apply as TWO
+full-width split SCMULs over the block lanes (8 complexes per vector), with exact 1.0/0.0
+twiddle lanes for the r0 slots (mul by 1 / fnmadd of 0 are exact — those lanes pass
+through bitwise).  Same scalar math per complex, same values; per quad it is 33
+instructions and 9 p5-shuffles where compact took 39 and 18.  New table: 32 dbl/quad
+(8/p), lanes prearranged in block order (block layout is c = 4p + r; my first fill
+assumed r-pair-major and FAILED 5.9e-1 — read TRE/BL0 before assuming, the lanes
+interleave r WITHIN p).
+  UNGATED it lost where stage 1 is fill-bound (the table is 8 dbl/p vs compact's 6):
+  16384 B=1 33.3 -> 34.1, 16384 B=64 43.9 -> 45.1, 1024 B=512 +0.7-1.3% (4/4 each).
+  GATE (both plan-time): s1blc = (L <= 2048) && (32*L*batch <= 2 MB) — same working-set
+  condition as the SX fusion.  Loop specialization matters: with a runtime `blc` branch
+  inside the fused SXR4 loop even the compact sizes regressed ~1%; if/else-cloned loops
+  (branch hoisted) fixed it and 4096 B=1 now reads -0.7% vs r7 (4/4, bitwise-identical
+  math — codegen luck, taken).
+Node A/B vs impl_7 (leased core 4, min us/xf, 3 reps m=1 / 2 reps chains):
+    1024 B=1: 1.209-1.216 -> 1.186-1.198 (-2%, both turbo modes; slow-mode window
+      1.386 -> 1.348)   *** now FASTER than MKL same-core (1.225-1.232) ***
+    128 B=512: 0.165-0.166 -> 0.157-0.158 (-5%, 7/7 pairs across two scripts)
+    1024 B=512: 1.707-1.718 -> 1.683-1.720 (small win, 2/3)
+    4096 B=1: 6.96-7.00 -> 6.94-6.95 (-0.7%, 4/4; vs MKL 6.05 -> gap now ~1.15x)
+    1024 B=1 chain m=4000: 1.928-1.932 -> 1.880-1.886 (-2.5%)
+    32/64 all cells, 128 B=1, 4096 B=256, 16384 all: wash (16384 window-drifty both ways)
+Wallaby (nice'd core 96, load 0.1, min-over-3): B=1 m=1 0.012/0.030/0.077/0.789/5.26/24.9
+for 32..16384 (1024 was 0.845 in r7, -6.6% — the win transfers to SPR); batched
+0.012/0.028/0.095/1.43/6.84/32.0 (128 B512 was 0.102); chains 1024:1 1.289 (r7 1.36),
+128:1 0.138, 1024:512 1.88, 16384:1 31.2.
+
+### What did NOT work, with the number that killed it
+
+- Dup-format tables everywhere at L >= 1024 (the "port-5 relief" bet straight off the
+  PMU): 1024 B=1 1.38 -> 1.47, 4096 B=1 6.99 -> 7.33 (every interleaved pair).  Table
+  fills beat p5 dups; r4's compact verdict survives even with today's smaller s44 tables.
+  (Knob D1_CMPT_MIN_L added and kept — documents the A/B.)
+- s44 dup alone (s1s decoupled): 1024 B=512 +4-6% (3/3), B=1 net loss.  CSPAIR stays.
+- fft32 two-transforms-per-iteration ILP interleave for 32 B=512: exact wash (0.015 both,
+  4 reps) — the cell is not latency-bound, and my leased-core 0.015 already ties MKL's
+  board 0.0153; the r6 board's 0.0176 was process luck.  REVERTED (no win, no ship).
+- A 64 B=1 "regression" scare (0.052-0.058 -> 0.062-0.065, 3/3): objdump showed the fft64
+  body byte-identical except rip-relative rodata addresses.  A D1_TWS1_PAD arena-offset
+  probe (0/320/1088/2112/3264) showed NO pad effect, and more samples showed BOTH binaries
+  wobbling 0.052-0.065 per process — the known turbo/latency noise of this cell, not a
+  binary property.  Knob kept at 0.  Lesson: before chasing a small-L "regression",
+  objdump the kernel AND take >= 3 windows; 3 consecutive pairs can lie at 64 B=1.
+- 2-pass structures at 4096 (the remaining fill gap, 5778 vs MKL 4406): every variant I
+  sketched — radix-64 first pass ([4,4,4] tile-fused, 64 interleaved 128 B read bursts)
+  and fusing the final stage into SS64 (whole-array dependency) — reruns the r3 16384
+  stream-length disease or the r4 four-step verdict on paper.  Not attempted; wrote the
+  reasoning down instead so the next round doesn't have to re-derive it.
+
+### Correctness (final source, node)
+
+Single-call rel_l2 <= 3.9e-16 at all 13 sizes 16..65536 x B in {1,3,8} (39 combos); ALL
+12 graded chain gates PASS at graded (L,B,m) — worst 7.11e-12 at 1024:1:4000 vs 1e-10
+(14x margin, better than r7's 1.23e-11: the blc rounding path helps there); odd-batch
+chains (1024:3, 4096:3, 16384:3, 128:9, 64:11) PASS; strict m=2 gates <= 1.6e-15 vs 3e-14
+at 8 shapes; official tryout.sh green at 1024 B=1, 128 B=512, 16384 B=64 with bitwise
+repeatability.  Note the blc form rounds the other product first in the stage-1 cmuls
+(same <= 0.5 ulp class, r4 precedent), so outputs differ bitwise from r7 at L <= 2048 —
+all gates re-verified, margins equal or better.  The fft128 codelet (D1_CODELET128,
+gated off since r5) reads the OLD dup s1s table; enabling it now #errors deliberately.
+
+### Borrowed, explicitly
+
+- d1_twiddle r7: the impl-symlink warning (reference = impl_7, checked before any A/B).
+- d1_prime r3: /tmp squeue shim, seventh round running.
+- d1_race r7 (read): grading is SHARDED across a80n0 + a81n2 — my r7 open question about
+  the 4096 B=1 board-vs-leased delta may simply be the other shard node; check which node
+  graded that cell before diagnosing anything deeper.
+- The PMU-first discipline (my r4) and the interleave-under-drift rule (composite r2).
+
+### Next round
+
+1. 1024 B=1 now beats MKL on a leased core; 4096 B=1 (~1.15x) is the last real large-L
+   deficit and it is a FILL gap (5.8k vs 4.4k l1d fills) — the only untried shapes are
+   the risky 2-pass structures argued against above.  Re-read the r8 board first: if the
+   board median sits near 7.0 vs MKL 6.05, consider whether ~1.15x is simply this
+   engine's floor at 4096.
+2. 64 B=1 (~1.2-1.3x): unchanged concession (codegen + turbo noise; d1_twiddle owns the
+   cell in the race).  128 B=1 (~1.2x): 2-pass already; remaining gap is latency-shaped.
+3. If a chain gate fails on new seeds: -DD1_FASTMAP_MAX_L=0 (unchanged), D1_S44_1024=0
+   restores the old 1024 margin shape, and s1blc can be forced off with
+   -DD1_S1BLC_MAX_L=0 (restores r7 bitwise at L <= 2048).
+4. Ops: hand-rolled node scripts MUST slot_lease.sh; heartbeat shim still needed.

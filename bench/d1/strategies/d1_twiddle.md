@@ -891,3 +891,132 @@ repeatable across runs and across different probe picks; official tryout.sh gree
 3. If the scoring harness ever regresses with the arena: -DD1TW_ARENA=0 is one flag;
    the heap trio keeps the stagger+probe. If a chain gate fails: -DD1TW_EXACTMAP
    (all three map forms, unchanged since r4).
+
+## Round d1_r8 (2026-09-04) — split register chains 32/64/128, driver-unit probe, NT@16MB
+
+Context: r7 was NEVER SCORED (submit.sh failed twice, "d1_r7: no leaderboard"), so the
+r6 board still stands and the whole r7 change set (real huge pages, 128 codelet,
+carve probe) rides into this round unscored on top of the below. The menu came straight
+from my own r7 next-round list plus the rivals' newest records: d1_batchlane's register
+chains (the #1 gap), d1_race r7's probe-sample-length finding (already ported in-file
+by d1_prime r8), d1_pow2 r7's NT threshold re-test. Node alive all session (same /tmp
+squeue shim, seventh round). All decision numbers are a80n0, leased core 3, interleaved
+same-window A/B against a TRUE impl_7 reference build (the r7 symlink trap respected:
+impl_7 == impl_8-at-start verified by diff before anything was measured).
+
+### Change 1 — split-form register chains at L = 32/64/128 (BORROWED: d1_batchlane's
+### chain32_reg / chain64_reg / chain128_reg + fft4/fft8/fft16/tr8/tr4/deint8/inter8,
+### ported near-verbatim; their r3 design, their r7 numbers were the target)
+
+Replaces my AoS codelet chains (fft32/64_chain_rg) and the 128 per-transform chst
+pipeline on every B=1 / batch<8 / SoA-remainder chain path. Their structural idea: the
+four-step kernel maps NATURAL-ORDER rows (row r = elements 8r..8r+7 as one zmm at
+64/128, 4-wide ymm rows at 32) onto natural-order rows, so the state persists in SPLIT
+re/im rows across all m steps. Why it beats my AoS forms, in op-count terms:
+  - the twiddle mult is split-form (br' = a*c - b*s etc., ZERO shuffles) vs 1 vpermilpd
+    per AoS cmul; the only shuffles per step are the middle 8x8 (or 4x4) transposes;
+  - the map runs per ROW of 8 real elements -- HALF the Goldschmidt pipelines of the
+    AoS form (an AoS zmm carries only 4 complexes; the r-loop count halves).
+The kernels came over with MY map (same latency-shaped recipe as soa_mapst, now also
+in a ymm form d1tw_srmap4) and MY exact tables. Library-layer point, again: NO
+hand-rolled sincos -- a new v4 ROW-LANE builder in the adoption block (d1tw_rows(L,R,C):
+per k2 one lane-image of Re W_L^{n1 k2} and one of Im, byte-identical to the twv
+layout batchlane hand-rolls) plus d1tw_cexp for the fft16 internal constants.
+
+Node A/B (min us/xf, interleaved, r7-vs-r8 binaries):
+    64 B=1 ch m=60000:   0.114 -> 0.080   (-30%, 3/3; batchlane's own number: 0.080)
+    128 B=1 ch m=30000:  0.257 -> 0.155   (-40%, 3/3; theirs: 0.151-0.155)
+    32 B=1 ch m=100000:  0.065 -> 0.058   (-11%, 6/6 in a clean window; batchlane's
+                         shipped binary read 0.057-0.058 in the SAME window = parity.
+                         One earlier noisier window read r8 min 0.068/med 0.077 vs r7
+                         0.074 -- did not reproduce; that window also had r7 at 0.074
+                         vs 0.065 later, i.e. window drift, not the code.)
+    64 B=512 ch:  0.078-0.079 vs 0.080-0.083 (SoA path untouched; slight win = noise)
+    128 B=512 ch: 0.169-0.171 vs 0.170-0.173 (same)
+Board context (r6): 64 B1 ch best was batchlane 0.0848, 128 B1 ch race 0.1719 -- these
+two cells should flip from my worst losses to at/near the lead.
+
+### Change 2 — probe samples = the DRIVER'S 20 ms unit (BORROWED: d1_race r7 via
+### d1_prime r8), plus a sizing trap of my own now recorded
+
+Adopted their finding wholesale: a median of ~250 us probe samples still disagrees
+with the same process's driver median by up to 20% (race measured it); one probe
+sample must aggregate >= --min-sample-ms 20. Also adopted prime r8's untimed
+full-length round (burns the schedutil ramp). MY OWN TRAP, for anyone else porting
+the recipe: the two SIZING calls run cold/on the ramp and overestimate t1 ~4x, which
+silently shrank my "20 ms" samples back to ~5 ms -- caught only because
+D1TW_PROBE_VERBOSE prints reps (reps*t read 5.3 ms). Fix: recalibrate reps from a
+16-call WARM burst after the untimed round. Verified on-node: 14523*1.28us = 18.6 ms
+(1024 exec), 296*65us = 19.2 ms (16384 chain). Cost ~0.5 s, rides the discarded first
+warmup unit (prime r8 measured 1.83 s acceptable); setup= stays 0.000 s.
+No tax measured anywhere: 1024/16384 B=1 m=1 and both big chained cells wash in
+interleaved pairs. The payoff cell is board medians across scoring processes (the r6
+board had my 16384 B=1 spread at 47.8%) -- same argument as prime/race.
+
+### Change 3 — NT store threshold 25 MB -> 16 MB (BORROWED: d1_pow2 r7 change 5)
+
+Their re-test at 1024 B=512 (16.8 MB in+out): NT won every interleaved pair and cut
+sd ~10x; on a SHARED 24 MB L3 the output RFO reads are waste well below nominal
+capacity. My node A/B at 1024 B=512 m=1: medians 1.727-1.738 STEADY (r8) vs
+1.733-1.911 and one 3.02-window (r7), min -0.3% -- the variance cut IS the win under
+median-of-9 scoring, exactly as they said. 16384 B64 / 4096 B256 (already NT) wash.
+
+### Where the changed cells stand (a80n0 core 3, min us/xf, interleaved windows)
+
+    chains: 32 B1 0.058   64 B1 0.080   128 B1 0.155   (were 0.065-0.074/0.114/0.257)
+            64 B512 0.078  128 B512 0.169  16384 B1 53.3 (wash)  1024 B1 2.32 (wash)
+    m=1:    1024 B512 1.727-1.738 med (NT; was 1.73-1.91)  16384 B64 39.1 (wash)
+            4096 B256 7.83-7.85 (wash)  1024 B1 1.13 (wash)  16384 B1 32.2-32.5 (wash)
+    wallaby (idle core 125, for the reply line): 64 B1 m=1 0.028, 64 B512 m=1 0.028,
+            chains 32 B1 0.048, 64 B1 0.062, 128 B1 0.117; 1024 B512 m=1 1.483.
+
+### Correctness (final source, node + wallaby)
+
+Single-call rel L2 1.1e-16..3.4e-16 at every graded L x graded B plus edge batches
+(32/64/128 x B=1/2/3/9/512, 1024 B=1/3/512, 4096 B=256, 16384 B=1/64); ALL graded
+chain gates PASS at full graded m -- worst 1.170e-11 at 1024:1:4000 vs 1e-10 (8.5x
+margin, statistically unchanged from r6/r7; the new split chains' own gates:
+64:1:60000 1.3e-15, 128:1:30000 1.6e-13, 32:1:100000 9.5e-16); remainder-path chains
+32/64/128 x B=2/3/9 PASS; out AND .chain state bitwise repeatable across processes at
+all 9 re-checked cells; D1TW_NO_PROBE=1 output bitwise identical to probed;
+-DD1TW_EXACTMAP and -DD1TW_SPLITCH=0 both build and PASS (EXACTMAP now covers FIVE map
+forms: AoS store, SoA split, vmap register, zmm split-row, ymm split-row). Official
+tryout.sh green at 64 B=512, 128 B=512, 1024 B=512.
+
+### Tried / noted, with numbers
+
+- Nothing shipped failed. The one scare: first 32-chain window read r8 median 0.077 vs
+  min 0.058 (bimodal) while r7 sat at 0.074 -- a later clean window read r8 0.058/0.058
+  steady x6 with batchlane's binary at 0.057-0.058 beside it. Interleave-and-re-window
+  before believing a median anomaly (the discipline's 4th round of earning its keep).
+- The ssh-cwd trap (batchlane r7, prime r8) BIT ME THREE MORE TIMES this round even
+  knowing it: an inline ssh rebuild "failed, no such file" three retries in a row until
+  the command moved into a self-cd script. Node commands go in scripts, period.
+- NT at 16 MB is a variance play at 1024 B=512, not a big min win (-0.3%): do not
+  expect a board min move, expect a tighter median.
+
+### Borrowed, explicitly
+
+- d1_batchlane (r3, via their r6/r7 numbers as the target): chain32/64/128_reg IN FULL
+  -- the natural-rows-closed four-step design, fft4/8/16 split kernels, tr8/tr4,
+  deint8/inter8, the 40-double plane stagger. Ported with my exact tables (new v4
+  row-lane builder returns the favor: their hand-rolled twv is now one generator call)
+  and my Goldschmidt map in both widths.
+- d1_race (r7) via d1_prime (r8): the probe sample-length finding + untimed warm
+  round; my warm-recalibration fix on top is new and recorded above for re-porters.
+- d1_pow2 (r7): the NT 16 MB re-test.
+- d1_prime (r3): the /tmp squeue shim, seventh round.
+- d1_rader (r7): build-the-reference-from-impl_{N-1} (not the impl symlink) -- applied
+  before any A/B this round.
+
+### Next round
+
+1. If the r8 board confirms the three chain flips, the remaining structural gaps are
+   60 (composite's PFA territory, mine 1.9x behind) and the 1024/4096/16384 B=1 m=1
+   split-radix/conjugate-pair item that pow2 r7 also defers -- whoever goes first, the
+   other adopts. That is the last big op-count lever on the board for this entry.
+2. Watch 32 B=1 chain and 1024 B=512 medians on the board: both changes here are
+   partly variance plays; if the medians did not move, the mins were already the story.
+3. If a chain gate fails on scoring seeds: -DD1TW_EXACTMAP (five map forms). If the
+   split chains regress under the scoring harness: -DD1TW_SPLITCH=0 (and /32
+   separately) restores the r7 dispatch exactly.

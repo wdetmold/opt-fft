@@ -1,0 +1,11 @@
+Round d1_r8 complete. Summary of what was done:
+
+**Three adoptions, all measured interleaved same-window on the scoring node (a80n0 leased core) against the true r7 binary and the donors' own r7 binaries:**
+
+1. **13/31 batched chains** rebuilt on d1_prime's chainblk (stack-local group state across all m steps + c folded into per-k accumulator seeds): 13:512 chain 0.016→**0.013 µs** (ahead of prime's 0.014), 31:512 chain 0.048→**0.044-0.045 µs** (parity with prime, from 21% behind on the r6 board). One trap found and recorded: P/H must be compile-time literals in the shells — runtime values cost +7% at L=13 by blocking loop unrolling.
+2. **60 batched chain** rebuilt on d1_composite's in-place soa8 step (one 60-row state buffer instead of my two-plane round trip): 0.072→**0.061 µs** / 0.063→**0.053 µs** across two windows — parity-to-ahead of composite, from 15% behind.
+3. **Probe statistic fixed** everywhere: min-of-short-bursts → median of 5 calibrated ≥250 µs sample-major rounds (race r6's finding via prime r7), so the probes now optimize what the leaderboard scores.
+
+All 12 graded chained cells + odd-batch tails PASS (worst gate 2.6e-12 vs 1e-10), strict m=2 gates 3.3-4.9e-16, single-call rel L2 ≤3.2e-16, output bitwise repeatable across processes and identical under BL_NO_PROBE; m=1 paths verified untouched at parity; legacy-flag builds reproduce the old numbers. Strategy record appended.
+
+**One line:** Ended on prime's stack-local c-folded chainblk (13/31) + composite's in-place soa8 step (60) + median-statistic probes; best node (a80n0 — wallaby unused this round) µs/transform: B=1 m=1 0.010–0.098 across sizes (13: 0.014), batched B=512 m=1 0.010 at 13 (chains: 0.013/0.045/0.053 at 13/31/60); rel L2 1.1–3.2e-16 single-call, all chain gates ≥2 decades of margin.

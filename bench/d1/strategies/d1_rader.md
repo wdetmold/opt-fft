@@ -960,3 +960,143 @@ picking different candidates per process; setup <= 0.005 s at 65537.
    idea remains unexplored panel-wide.
 4. **10007 nested-Rader A/B** (5003-1 = 2*41*61): still untried; only worth
    it if it can beat d1_bluestein's ~110 us — measure the 5003-conv first.
+
+## Round d1_r8 (2026-09-04) — the mid-fusion idea hits its cache floor: a correct, well-built 1021 tile fusion measured SLOWER and ships disabled; the Goldschmidt map lands small
+
+**Measurement conditions: the a80n0 hold (440424) again read "not running"
+through the wallaby squeue shim while ssh worked and the node answered — sixth
+round, same workaround (tryout.sh's exact pipeline manually over ssh,
+slot_lease slot 0 = core 2, released at session end).  The node was quiet
+(load 0.24) for the decision A/Bs and turned busy (load 5.6) for the final
+one-pass table, so the final table's noisy cells are labeled; every decision
+below is a same-minute interleaved r7-vs-r8 pair with the r7 reference built
+from impl_7/d1_rader.c (NOT from the impl symlink — the r7 trap, not
+repeated).  Wallaby numbers from idle core 100, load ~0.5.**
+
+### What changed (ships)
+
+1. **chain_map8 rewritten in d1_prime's r5 latency shape (ADOPTED via
+   d1_batchlane r6 map_scale_fast / d1_planner r7 map_q8)**: additive 1e-100
+   floor folded into the |z|^2 FMA (max off the critical path), Goldschmidt
+   sqrt (fnmadd + two independent FMAs per iteration, second iteration drops
+   the h update), and the reciprocal seeded EARLY off the raw rsqrt14
+   estimate (q0 = rcp14(1 + m*y0)) so the rcp NR chain overlaps the sqrt
+   refinement.  Users: st17_chain (1021), st4/st2_last_chain (65537/127),
+   the undispatched SoA chains.  Same-minute triples on core 2:
+   1021 B=1 chain 7.22/7.03/7.01 -> 6.87/6.86/6.98 (~ -2%); 65537 B=16 chain
+   751.8/753.9 -> 748.6/747.7 (-0.5%, memory-bound so the map is not the
+   bottleneck); 1021 B=256 chain wash-to-+0.5% (within window noise); all
+   exec cells and all 13/31 cells exact parity (their kernels carry their
+   own prime-r5 maps since r6/r7).  Chain-gate errors unchanged to the
+   printed digit (1021 m=2000: 8.690e-12 before and after; 65537 m=60:
+   4.079e-14).  Smaller than pow2/planner's -4..-8% because my exits were
+   already Newton-without-divider since r3 — the win here is only the
+   latency shaping, not the divider removal.
+2. **fft1d_description updated** to name the Goldschmidt map.
+
+### What was BUILT, MEASURED SLOWER, and ships DISABLED (the round's real result)
+
+**st17_mid_bhat — the 1021 mid fusion (my r7 next-round item 2, designed
+there): forward-last st17 + kernel-spectrum multiply + plane swap +
+inverse-first radix-4 in ONE pass over a 68-slot tile.**  The stencils close
+exactly as the r7 note predicted: with T = M/68 = 15, the index set
+{t0 + 15k, k=0..67} contains 4 complete st17 groups (q = t0+15j, points at
+slots j+4k) and 17 complete st4 groups (p = t0+15i, points at slots i+17v);
+lanes = t0, so every load — inputs, bhat, stage-0 twiddles — and the
+interleave4 output store is a contiguous vector op (two lane blocks, 8+7).
+Correct on the first run (rel_l2 9.996e-16, bitwise identical to the
+unfused path), saves 1 of 8 M-passes.  **And it LOSES, consistently, on
+every 1021 cell** (same-minute triples, quiet core 2):
+B=1 6.47/6.46/6.51 -> 6.98/6.96/6.98 (+7.7%); B=256 7.53/7.53/7.57 ->
+7.93/7.93/7.96 (+5.3%); B=1 chain 6.94/7.09/6.95 -> 7.38/7.43/7.41 (+6.5%);
+B=256 chain 6.98/7.03/6.89 -> 7.50/7.37/7.40 (+6.4%).
+Why, in one sentence: at M=1020 the two 16 KB planes are L1-RESIDENT, so the
+"saved" write+read pass costs almost nothing, while the fusion pays ~7%
+masked-lane waste on BOTH fused stages (15 lanes = 8+7 vs the plain stages'
+60 = 7x8+4 and 255 = 31x8+7 blocking) plus the runtime-indexed 68-slot
+__m512d tile living in stack memory (the spectrum round-trips through L1
+anyway, just at tile granularity).  This is the r1 four-step lesson and the
+r4 mid-fusion corollary in one package: **pass-count cuts pay pro rata to
+the MEMORY LEVEL of the killed pass — DRAM-resident 65537 paid ~5%,
+L2-resident paid ~2.5%, L1-resident 1021 pays ~0 and the fusion overhead
+shows naked.**  The code stays in the file, gated OFF (D1R_MID17=1
+re-enables), with the killing numbers at the gate site: it is the correct
+shape for a hypothetical size whose conv planes exceed L2 with a last-radix
+that is not 4 — no graded size qualifies.
+
+### Measured (a80n0 core 2, final binary; decision pairs quiet-window,
+### final one-pass table under load 5.6 — mins quoted, noisy medians flagged)
+
+| cell | r7 same-window pair | r8 final min | note |
+|---|---:|---:|---|
+| 1021 B=1 / B=256 | 6.46-7.66 / 7.22-7.57 | 6.60 / 7.24 | exec parity (bimodal window) |
+| 1021 chain B=1 / B=256 | 7.01-7.22 / 6.96-7.03 | **6.90 / 6.92** | B=1 -2% (map) |
+| 65537 B=1 / B=16 | 793.2-796.3 / — | 791.9 / 949.9 | parity |
+| 65537 chain B=1 / B=16 | 712.3-713.8 / 751.8-753.9 | 710.3 / **748-752** | B=16 -0.5% (map) |
+| 13 B=1 / B=512 | 0.015 / 0.010-0.011 | 0.015 / 0.011 | parity |
+| 13 chains B=1 / B=512 | 0.034 / 0.014 | 0.038* / 0.016* | (*) loaded window; pairs read parity |
+| 31 all four | 0.045 / 0.044 / 0.051 / 0.046 | 0.052* / 0.050* / 0.051 / 0.046 | (*) loaded window; pairs read parity |
+
+Wallaby (SPR, idle core 100, final binary): 65537 B=1 **576**, B=16 588,
+chains 522 / 538; 1021 B=1 4.27, B=256 4.87, chains 4.37 / 4.43; 13 B=1
+0.016, B=512 0.014, chains 0.052 / 0.011; 31 B=1 0.024, B=512 0.022,
+chains 0.044 / 0.032.
+
+Accuracy (final binary, all on the node): single-call rel_l2 1.7e-16 (13) …
+1.37e-15 (65537), gate 1e-12; all eight graded chain gates PASS with >= 2.5
+decades (13 m=200000: 1.69e-15; 31 m=1200: 3.55e-12 vs 1e-9; 1021 m=2000:
+8.69e-12 vs 1e-9; 65537 m=60: 4.08e-14); odd batches 13 B5 m17, 31 B9 m33,
+1021 B3 m11, 127 B8 m25 PASS; D1R_MID17=1 build PASSES everything it
+touches with output bitwise equal to the default path; every cell above
+bitwise repeatable across runs; setup <= 0.005 s at 65537.
+
+### What did NOT work / was deliberately not attempted, with reasons
+
+- **The 1021 mid fusion** — see above; the numbers are the section.
+- **65537 "bad mode" attacks (my r7 item 1) deliberately dropped**:
+  d1_bluestein's r7 batteries showed their r6 "per-process lottery" at
+  memory-bound cells was busy-SIBLING contention and thermal drift, not page
+  coloring — on a quiet leased core their engine is deterministic over 8-10
+  invocations.  My residual exec pad=0 mode is worth ~60 us in a draw the
+  scoring node's quiet battery may never produce; the staged-input variant
+  costs a certain ~40 us copy against that maybe.  Not built.  The
+  madvise-the-driver-buffers idea is dead on arrival on this kernel (5.15:
+  advisory-only, already-faulted 4K pages collapse only via khugepaged,
+  which cannot fire within a scored run).
+- **13 B=512 vs prime (0.011 vs 0.0093 in my r7 notes)**: read their r7
+  impl — their batched-13 loop is my exec13p_b2 loop, structurally
+  identical; the r6 BOARD medians were 0.0095 (me) vs 0.0096 (prime), i.e.
+  the gap was a window artifact, and their r7 round was the probe statistic
+  I already carry.  No code change warranted.
+- **1020 = [4,15,17] recount** (r5 item 2): the mid17 loss is direct
+  evidence an L1-resident pass is worth <2% here, below the new tile's
+  overhead.  Now measured-dead, not just estimated-dead.
+
+### Borrowings (named plainly)
+
+- **d1_prime r5** (via d1_batchlane r6 / d1_planner r7, whose transfer
+  numbers de-risked it): the Goldschmidt + early-seeded-rcp + additive-floor
+  map, ported into chain_map8.
+- **d1_bluestein r7**: the contention-not-coloring diagnosis at memory-bound
+  cells, which killed my r7 item 1 before it burned a session.
+- Carried forward: d1_bluestein's Stockham core (r1), d1_prime's pair/chain
+  kernels + probe form (r6/r7), d1_race's probe concept and statistic
+  (r6/r7), my own r4/r5 fusions, r7 hugepage split.
+
+### Next round, in priority order
+
+1. **If the r7/r8 boards show a 1021 or 65537 cell behind a sibling**
+   (planner's r7 record reads 6.31 at 1021 B=1 chain where I read ~6.9):
+   diff their 1020 engine against mine — they run a Rader engine with the
+   map fused into the inverse's LAST stage (st4_last_map_rader), which
+   suggests their conv schedule ends radix-4 ([17,...,4]-ish), i.e. the
+   dense 17 sits at an interior stage with twiddles.  Worth reading their
+   impl before building anything.
+2. **65537 B=16 exec (950 vs chain 752)**: the gap is the mandatory 32 MB
+   in+out streaming; r3/r5 prefetch results say the remaining overlap is
+   marginal.  Only revisit with a PMU session that shows stall cycles NOT
+   already hidden.
+3. **The mid-fusion tile shape is on the shelf** (st17_mid_bhat,
+   D1R_MID17=1): re-test only for a target whose conv planes exceed L2.
+4. **10007 nested-Rader A/B** (5003-1 = 2*41*61): still untried; only worth
+   it if it can beat d1_bluestein's ~110 us — measure the 5003-conv first.

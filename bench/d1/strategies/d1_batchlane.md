@@ -862,3 +862,135 @@ bitwise identical to probed. Official tryout.sh green (60 B=8, 32 B=512,
 4. Do NOT retry a probed/fn-pointer dispatch on the m=1 exec paths (see the
    reverted-exec-probe numbers above); the only honest lever there is
    whole-binary text placement, which is the monitor's/linker's territory.
+
+## Round d1_r8 (2026-09-04)
+
+The a80n0 reservation (440424) was alive; the wallaby squeue shim still lies
+about it (SEVENTH round) — same personal /tmp shim (prime r3 recipe).
+tryout.sh's chain detection is still broken (r4 note); chained cells ran via a
+self-cd'ing script under build/tryout/d1_batchlane/ (my own r7 ssh-cwd lesson,
+applied). EVERY decision number is an interleaved same-window A/B on a leased
+core against the TRUE r7 binary built from impl_7/d1_batchlane.c (rader's and
+twiddle's r7 records both burned hours on the impl-symlink self-A/B trap —
+avoided by building the reference from impl_7 explicitly), plus same-window
+builds of the donors' r7 binaries (impl_7/d1_prime.c, impl_7/d1_composite.c)
+as the honest bars.
+
+### Pure adoption round, third in a row: three changes, all from rivals
+
+1. **13/31 batched chains rebuilt on d1_prime's chainblk design** (their
+   r4/r5 chainblk_body, ported with my tload8/tstore8 vector transposes and
+   my [j][k] C/S tables; d1_rader's r7 port had independently confirmed ~20%
+   on exactly these cells). Two structural changes vs my r4-r7
+   chain_dsym_grp_step: the group state lives in STACK-LOCAL v8 rows for the
+   whole m-loop (provably non-aliasing, probe-shiftable) instead of heap SoA
+   planes read through the plan pointer; and c is folded into per-k
+   accumulator seeds once per group (Pr seeded (cr[k]+cr[P-k])/2, Si
+   (cr[k]-cr[P-k])/2, imag rows likewise with Rr sign-flipped), so every
+   per-step per-row c-add vanishes. Same-window interleaved:
+     13:512 ch 0.016 -> 0.013 (prime r7 same window 0.014 — now AHEAD;
+       r6 board had me 0.0161 vs their 0.0137)
+     31:512 ch 0.048 -> 0.044-0.045 (prime 0.045-0.046 — parity/ahead;
+       r6 board 0.0550 vs 0.0454)
+     31:9 ch 0.050 -> 0.047; 13:11 ch parity. Old path: -DBL_DSYM_SOA.
+   **THE TRAP THAT COST THE FIRST ATTEMPT 7%: pass P and H as LITERALS.**
+   My first version read P/H from p->L at runtime — gcc cannot unroll
+   constant-trip fold/k loops, and 13:512 ch read 0.015 vs prime's 0.014.
+   Per-L shells with literal (13,6)/(31,15) (prime's chainblk_L13 shape)
+   dropped it to 0.013. If you port chainblk, specialize the shells.
+2. **60 batched chain rebuilt on d1_composite's chain60_soa8_step** (their
+   r3-r7 step: stages_AB_soa + STAGE_C_BLOCK + the SROW involution-pair
+   in-place stage C, ported near-verbatim; their PIN/KOUT tables are
+   byte-identical to my P60/K60 from the r5 kernel port, so only SROW/CPAIR
+   came over; map rewired to map_scale_fast/BL_M2). Why it wins over my
+   fft3io/fft4/fft5om group step: the whole step runs IN PLACE on one 60-row
+   state buffer where mine round-tripped a second 60-row w plane set every
+   step (~120 vs ~180 v8 rows of L1 traffic). State + c are stack-local
+   (change 1's convention); the batched path gets its own probed slot
+   (p->grp_fn — one_fn belongs to the 60 B=1/remainder one-path).
+     60:512 ch: 0.072 -> 0.061 and 0.063 -> 0.053 across two windows
+     (composite r7 same window 0.054-0.062 — parity/slightly ahead; r6
+     board 0.0637 vs their 0.0555); 60:9 ch 0.068 -> 0.065-0.066.
+     Old path: -DBL60_GRP_SOA.
+3. **Probe statistic fixed: min-of-bursts -> MEDIAN of 5 sample-major rounds
+   of >=250 us calibrated loops** (TAKEN FROM d1_race r6 — probe medians
+   built this way match the driver's scored median to 0.3-1.6%; via
+   d1_prime r7, whose r6 31-B1-chain board regression was the confirming
+   symptom; rader/twiddle r7 adopted the same). Applied to the one-path
+   probe (now bl_probe_fn, writing any caller slot), the new blk probes,
+   and the 64/128 carve-offset probe bl_probe_grp. bl_blk_mp sizes the
+   blk probe call to ~250-900 us (groups*L*mp ~ 6e4 rows); total probe cost
+   stays inside the driver's discarded first call (~5-20 ms per cell).
+   A good window cannot show the payoff directly (prime's r7 note); the
+   target is board medians at the probed cells.
+
+### Where the cells stand (a80n0 leased core, same-window interleaved vs true
+### r7 binary, min us/transform; unmarked = parity with r7)
+
+| cell | m=1 | chain | | cell | m=1 | chain |
+|---|---|---|---|---|---|---|
+| 13 B1   | 0.014-0.015 | 0.036-0.041 | | 60 B1   | 0.042 | 0.077 |
+| 13 B512 | 0.010 | **0.013** (was 0.014-0.016) | | 60 B512 | 0.045-0.046 | **0.053-0.061** (was 0.063-0.072) |
+| 31 B1   | 0.048-0.050 | 0.052 | | 64 B1   | 0.047-0.048 | 0.080 |
+| 31 B512 | 0.044 | **0.044-0.045** (was 0.048) | | 64 B512 | 0.037-0.039 | 0.068 |
+| 32 B1   | 0.019 | 0.057-0.058 | | 128 B1  | 0.098 | 0.151 |
+| 32 B512 | 0.015 | 0.034 | | 128 B512| 0.167-0.170 | 0.176-0.178 |
+
+m=1 paths are untouched code and measured at parity (2 interleaved pairs per
+cell, 12 cells; 13/64 B=1 showed only the known placement lottery, one draw
+each). The -DBL_DSYM_SOA/-DBL60_GRP_SOA build reproduces the old numbers
+(0.016/0.048/0.063) — the wins are the new paths, not the window.
+
+### Correctness (final source, all on the node, leased core)
+
+All 12 graded chained cells PASS at graded m: worst 2.591e-12 at 32:512:1000
+vs 1e-10 (unchanged); the rewritten cells read 1.865e-14 (13:512:2000, was
+3.3e-14 — the c-fold reassociation is slightly KINDER), 1.386e-12 vs 1e-9
+(31:512:1200), 7.523e-13 (60:512:600, was 1.37e-13 — one decade spent on the
+in-place stage order, 2+ decades of margin kept). Strict m=2 gates 3.3-4.9e-16
+vs 3e-14 on the three rebuilt cells (plus the r7 set unchanged). Single-call
+rel L2 1.1-3.2e-16 at all sizes x B in {1,3,8,9,11,512}. Odd-batch chains
+13:11, 31:9, 60:9, 128:3 PASS through blk+reg/one-path tails. Output bitwise
+repeatable across two processes at every graded chained cell AND bitwise
+identical under BL_NO_PROBE=1 (all probe candidates share one FP DAG).
+Official tryout.sh green (13:512, 60:8, 31:512): PASS + repeatable.
+
+### What did NOT work / traps, with the number
+
+- **Runtime P/H in the chainblk body: +7% at 13:512** (0.015 vs 0.013 with
+  literal-constant shells). Constant trip counts are not a nicety at H=6;
+  they are the unroll. Recorded above; do not re-derive.
+- Nothing else shipped failed. Third consecutive round where donors' precise
+  records made the ports essentially first-try (prime's seed-fold algebra and
+  composite's SROW/CPAIR involution both transferred exactly as documented;
+  the only original debugging this round was the literals trap).
+
+### Borrowed, explicitly
+
+- d1_prime (r4/r5): chainblk_body IN FULL — the stack-local group state, the
+  c-fold seed algebra, the k-blocked loop; (r7): the median probe statistic
+  and its motivation.
+- d1_composite (r3-r7): chain60_soa8_step + stages_AB_soa + SROW/CPAIR IN
+  FULL; their r7 record's dataflow analysis (fusion dead, store/reload IS the
+  cheap transpose) saved me from re-deriving a dead end at 60.
+- d1_race (r6): the probe-the-driver's-statistic finding underlying change 3.
+- d1_rader (r7): the independent chainblk-port confirmation that de-risked
+  change 1 before I wrote a line; the impl_7-not-impl symlink warning
+  (with d1_twiddle r7).
+- d1_prime (r3): the /tmp squeue-shim workaround, seventh round running.
+
+### Next round
+
+1. The chained column is now at or ahead of every rival number I can measure
+   (13/31/60/64/128 batched + all B=1 chains). If the r8 board disagrees
+   anywhere, believe it over this window and look at PLACEMENT first (the
+   median probes are new — check their picks with BL_PROBE_VERBOSE).
+2. 128 B512 m=1 (0.167-0.170 vs MKL board 0.1440) is the last plausible
+   library loss; pow2 killed the AoS-codelet direction, twiddle ships my
+   codelet at 0.174-0.177. Structural ideas exhausted — only react to board
+   evidence.
+3. d1_twiddle r7 plans to port my chain64_reg/chain128_reg; if their port
+   lands and beats mine (text placement), consider re-borrowing their copy's
+   layout tricks.
+4. The 13 B1 m=1 lottery stays unhedged (r7 exec-probe revert stands: do NOT
+   route sub-50 ns inlined paths through fn pointers).

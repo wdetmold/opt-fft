@@ -286,3 +286,16 @@ next: git add exemplars/d1_r6 strategies && git commit
 [2026-09-03 22:45:33] sbatch submission failed; retrying once in 120s
 [2026-09-03 22:47:34] submission failed twice -- skipping the timing pass for d1_r7
 [2026-09-03 22:47:34] d1_r7: no leaderboard, skipping the monitor verdict
+[2026-09-03 22:47:37] committed round d1_r7
+[2026-09-03 22:47:37] ---------- d1_r7 complete; next is d1_r8 of d1_r8 ----------
+[2026-09-03 22:47:37] ---------- d1_r8 begins ----------
+[2026-09-03 22:47:37] d1_r7 has no leaderboard yet -- waiting (will proceed if the panel goes quiet)
+[2026-09-03 23:27:37] d1_r7 looks stalled (impl/ untouched for 2728s, no job in flight) -- starting d1_r8 anyway
+[2026-09-03 23:27:37] d1_r8 works in impl_8 (10 sources carried over from impl_7)
+[2026-09-03 23:27:37] context pack: 277 lines
+[2026-09-03 23:27:37] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+[2026-09-04 00:21:39] implementers finished: 9 reported
+[2026-09-04 00:21:39] submitting timing round d1_r8 (seed 20268925) to the exclusive benchmark node
+[2026-09-04 00:21:40] sbatch submission failed; retrying once in 120s
+[2026-09-04 00:23:40] submission failed twice -- skipping the timing pass for d1_r8
+[2026-09-04 00:23:40] d1_r8: no leaderboard, skipping the monitor verdict
