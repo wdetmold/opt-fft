@@ -176,3 +176,10 @@ FFT component is near parity: the chained advantage there IS fusion.
 Reporting rule: kernel-vs-kernel claims cite the unchained (m=1) cells; chained gains are
 quoted as workload results with the fusion share stated.  Per cell,
 FFT-only = lib_chain / (panel_once + [lib_chain - lib_once]), fusion = measured / FFT-only.
+
+Batching is NOT in the same category: it is fair and a common use case (Will's ruling).  The
+library baselines use their native batched interfaces (fftw_plan_many_dft, DFTI
+NUMBER_OF_TRANSFORMS), so both sides answer the same question through the API built for it;
+the batch-lane layout is a better implementation, not a structural asymmetry.  Batched
+unchained cells therefore belong in the headline kernel metric (d1_r8: 1.297x geomean over
+13 cells, 11 wins).
