@@ -67,6 +67,22 @@ else
          17:1 17:8 17:256 17:2048 36:1 36:4 36:32 36:256"
 fi
 
+# ---- guard: this harness cannot distinguish two cases that share (L,B) --------------------
+# Result files here are named t_<backend>_L<L>_B<B>_r<run>.json with NO chain tag, so two
+# cases differing only in chain length write the SAME filenames and the later one silently
+# overwrites the earlier.  That is not hypothetical: a comparison run with both "6:64:4856"
+# and "6:64" in one case list lost the entire chained half -- 624 surviving files all read
+# chain=1 and not one of 134 correctness verdicts carried a chain result.  d1/sweep.sh carries
+# the _m fix; these harnesses do not, so refuse the input rather than produce a mixed round.
+_dups=$(printf '%s\n' $CASES | awk -F: '{print $1":"$2}' | sort | uniq -d)
+if [ -n "$_dups" ]; then
+  echo "ABORT: case list has (L,B) pairs appearing more than once:" >&2
+  printf '   %s\n' $_dups >&2
+  echo "   This harness's filenames carry no chain tag, so these cases would overwrite each" >&2
+  echo "   other.  Split them into separate rounds, or port the _m naming from d1/sweep.sh." >&2
+  exit 5
+fi
+
 BINDIR=build/$(hostname -s)/bin
 BACKENDS=$(cd "$BINDIR" && ls)
 echo "== backends: $BACKENDS =="
