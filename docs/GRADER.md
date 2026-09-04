@@ -163,3 +163,16 @@ All of this exists and is verified: `driver.c --chain M --unitary` (the scale is
 driver-side), `check.py --chain-check M`, and the graded case list in
 `bench/geom/cases_graded.txt`. Verified end to end at the L=6 point: 4,856-step chain,
 closed-form check passing at 2.9e-13, MKL 0.716 µs/xform vs `L6_pfa` 0.446.
+
+## What the chained metric does and does not measure (recorded 2026-09-04)
+
+The chained cells compare SYSTEMS on a workload, not FFT kernels.  A panel entry may fuse
+the pointwise map into its transform (the weak `fft*_chain` symbol); a library cannot — no
+per-element hook exists in FFTW's or MKL's API — so it pays a separate vectorized map pass,
+supplied identically to every backend by the driver.  Decomposed on d1_r8, the 2.270x
+chained geomean factorizes as 1.205x FFT arithmetic x 1.884x fusion, and at smooth sizes the
+FFT component is near parity: the chained advantage there IS fusion.
+
+Reporting rule: kernel-vs-kernel claims cite the unchained (m=1) cells; chained gains are
+quoted as workload results with the fusion share stated.  Per cell,
+FFT-only = lib_chain / (panel_once + [lib_chain - lib_once]), fusion = measured / FFT-only.
