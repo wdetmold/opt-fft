@@ -45,7 +45,10 @@ if [ -f RESERVATION ] && ./reserve.sh --status >/dev/null 2>&1; then
     # Say out loud whether the extra grading node was obtained.  The first version swallowed
     # reserve.sh's output and its exit code, so a failure to claim looked identical to a
     # cluster with no spare node -- grading quietly ran on one node and nothing recorded why.
-    xout=$(./reserve.sh --extra 2>&1); xrc=$?
+    # set -e aborts on a failing command substitution in an assignment, so xrc=$? never
+    # ran and a "no spare node" answer killed the whole scoring pass instead of falling
+    # back to one node.  Disable it just for the capture.
+    set +e; xout=$(./reserve.sh --extra 2>&1); xrc=$?; set -e
     echo "   extra grading node: $(echo "$xout" | tail -1) (rc=$xrc)"
     if [ $xrc -eq 0 ]; then
       for _ in $(seq 1 20); do          # a just-submitted hold needs a moment to start

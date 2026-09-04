@@ -90,19 +90,25 @@ release)
 extra)
   # Only claim what is actually free: an extra grading node is a convenience, and queueing
   # for one would hold up scoring rather than speed it up.
+  # ORDER MATTERS.  Check for an extra we ALREADY hold before looking for an idle node:
+  # once one is held, no axxxl node is idle by definition, so the other order reported "no
+  # idle node" and exited 1 for a request that was already satisfied.  submit.sh then died
+  # on that status under set -e, which silently cost rounds r7 and r8 their timing pass.
+  for x in "$GPU"/RESERVATION.extra.*; do
+    case "$x" in *'*'*) continue ;; esac
+    [ -f "$x" ] || continue
+    xj=$(sed -n 's/^RES_JOB=//p' "$x")
+    if squeue -h -j "$xj" -o '%t' 2>/dev/null | grep -q '^R$'; then
+      echo "extra grading node already held: job $xj on $(sed -n 's/^RES_NODE=//p' "$x")"
+      exit 0
+    fi
+    rm -f "$x"                      # stale record for a job that is gone
+  done
   free=$(sinfo -h -p "$PARTITION" -o "%T %n" | awk '$1=="idle"{print $2}' | head -1)
   if [ -z "$free" ]; then
     echo "no idle node in $PARTITION -- grading will use the nodes it already has"
     exit 1
   fi
-  for x in "$GPU"/RESERVATION.extra.*; do
-    [ -f "$x" ] || continue
-    xj=$(sed -n 's/^RES_JOB=//p' "$x")
-    if squeue -h -j "$xj" -o '%t' 2>/dev/null | grep -q '^R$'; then
-      echo "extra grading node already held: job $xj"; exit 0
-    fi
-    rm -f "$x"                      # stale record for a job that is gone
-  done
   ;;
 esac
 
