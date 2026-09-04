@@ -812,3 +812,141 @@ all chained outputs bitwise repeatable across processes. Setup <= 0.03 s.
    unmeasured (r5 #2), analysis says break-even; only worth a quiet window.
 4. If st64 ever looks suspect at M1=2048/4096 odd sizes, BLU_NO64 A/Bs it in
    one invocation; graded sizes only exercise M1=1024/8192.
+
+## Round d1_r7 (2026-09-03) — two well-measured NEGATIVES: blocked entry/exit, and the placement probe; the r6 "lottery" was contention, not page luck
+
+Numbers are from the scoring node (a80n0, job 440424) over ssh on a leased core,
+tryout.sh's exact build. The login-side squeue was dead again (fifth round) — the
+same /tmp/blustn_shim heartbeat fix as r3–r6. The node was mostly QUIET this
+session (load 0.2–1.9, one window with a sibling python3 at 334% CPU), which is
+itself the round's headline finding (below). Both changes this round measured as
+losses/neutral and ship DISABLED behind env flags; the engine that ships is
+functionally the r6 engine, re-confirmed at every graded cell with zero
+regression.
+
+### The one-line summary
+
+Nothing got faster, but two plausible ideas were killed with numbers and one r6
+diagnosis was overturned: the "10007 B=64 150-vs-112 per-process lottery" and the
+"100003 median 2554 vs best 2269" spread that r6/the r6 board attributed to
+driver-buffer page coloring are NOT placement luck — on a quiet leased core the
+engine is DETERMINISTIC (10007 B=64: 111–113 over 8 invocations; 100003 B=1:
+2219–2234 over 10). The r6 bad modes were busy-SIBLING contention and thermal
+drift across a loaded 9-run battery (my own r3 thermal lesson). A first-contact
+placement probe (adopted from d1_race r4) therefore has nothing to escape and
+ships OFF. All 12 single-call + 6 chain gates re-checked PASS (worst single
+1.16e-15, worst chain 9.4e-14 vs 1e-10), bit-repeatable.
+
+### What was tried, and the numbers that killed each (both reverted, env-gated)
+
+1. **Blocked entry/exit: NC 8-column tiles per gather/scatter pass (AC_NC=n,
+   default OFF via acnc=1).** The r6 phase data said entry/exit are
+   gather/scatter-bound, not tile-FFT-bound: the single-tile loops switch
+   streams every 128 B, and at M1=8192 the x gather strides exactly the 128 KB
+   L2-way period (every run in the SAME sets). The idea: process NC tiles per
+   pass so every x run is NC*128 B contiguous, every g/y run NC-wide, NC× fewer
+   stream switches and NC× more L2 sets touched per strided visit. Built the full
+   thing (ac_entry_blk_x / ac_exit_blk_y / ac_scatter_blk[_nt], NC live tile
+   stacks, long-lead prefetch of the next run outside the vectorized loops).
+   MEASURED SLOWER in every clean interleaved pair on the node:
+   - 65537 B=1 (M2=135, NC=2): BLK 1632/2258/2288 vs single-tile 1487/2145/1714.
+   - 100003 B=8 (M1=8192, M2=25, NC=8): BLK8 2592/3685/3700, NC4 2580/3461/2598
+     vs single-tile 2391/3258/3258 — old wins every pair.
+   Why: the NC live tile buffers (2*NC*M2 lane-vectors on the stack) plus the
+   wider gather working set evict the M1-sized row-FFT ping-pong planes from L2,
+   and that costs more than the stream-switch reduction saves. The single-tile
+   form was already well-tuned. AC_NC=n left in for whoever wants a streaming
+   software-pipeline variant (compute tile q while gathering q+1), which is the
+   only version that might pay — the naive all-tiles-live form does not.
+
+2. **First-contact placement probe (BLU_PROBE=1, default OFF).** Mechanism from
+   d1_race r4, moved in-plan: the driver allocates in/out on 4K pages BEFORE
+   fft1d_create and runs discarded warmups, so the first (untimed) execute/chain
+   call carries the REAL scored buffers. fft1d_execute/fft1d_chain now call a
+   one-shot placement_probe on first contact that times the current plan on the
+   actual buffers (1 warm + min of 3), rebuilds behind a bumped skew up to 3×,
+   and keeps the fastest bitwise-identical draw (2% hysteresis; output is
+   layout-invariant so the two-process cmp stays safe). Refactored
+   fft1d_execute into exec_body + a probe wrapper, fft1d_create into plan_build
+   + a wrapper, added a `probed` flag and a swap-innards path.
+   THE KILL — probe on/off batteries on a quiet leased core:
+   - 10007 B=64: OFF = 112.3/113.4/113.8/… (deterministic ~112–114 over 8);
+     ON = mostly 111–113 but TWO draws at 125–126. Probe is neutral-to-harmful.
+   - 65537 B=16: ON and OFF both center ~1635 with one outlier each side
+     (ON 1871, OFF 1724) — a wash.
+   - 100003 B=1: OFF = 2219–2234 across ALL 10 invocations (rock solid);
+     ON = 3018/3065 on the first two (probe's own churn) then 2219–2227.
+   So on a quiet core the mode-2/3 engine is ALREADY deterministic (r2/r3/r6's
+   hugepage + 128KB-skew work did this), and re-rolling my own already-fixed
+   planes cannot move a mode that a busy sibling or thermal droop sets. The
+   probe only adds swap/measurement risk. Kept behind BLU_PROBE for a genuinely
+   CONTENDED node, where the escape might finally pay — but the scoring node's
+   monitor runs a quiet exclusive battery, so it would only hurt there.
+
+### The r6 diagnosis this round overturns (the real result)
+
+r6's "Diagnosed but NOT fixed" section called 10007 B=64 "a per-process lottery:
+4 invocations at ~150, one at 112.3, same binary, same core" and the r6 board's
+100003 d1_bluestein "median 2554 vs best 2269 (35.6% spread)" evidence of
+driver-buffer page-coloring luck that "my side cannot re-color at plan time."
+This round's quiet-core batteries show BOTH are deterministic without any probe:
+10007 B=64 is 111–114 over 8 runs, 100003 B=1 is 2219–2234 over 10. The r6 ~150
+draws coincided with a load-1.9 window (a sibling python3 at 334% CPU); the r6
+board's wide median-vs-best gap is thermal drift across a loaded 9-run battery
+(my own r3 lesson: back-to-back node runs drift monotonically slower). The
+practical consequence: the r6 board number (median 2554) UNDERSTATES this engine
+— d1_race, routing to this exact engine, already reads a tight median 2222 at
+100003 B=1, which equals this round's probe-off 2224. The engine is at parity
+with the best router because the best router IS this engine; the remaining gap to
+d1_race/d1_rader at 65537 (733 vs my 1495) is structural (Rader's conv is a clean
+2^16; Bluestein pays M=138240) and not a placement or tuning problem.
+
+### Measured standing (a80n0, quiet leased core, tryout build; probe OFF)
+
+| cell | r7 (probe off) | r6 best-window | lib best |
+|---|---:|---:|---:|
+| 10007 B=1 | 110.4 | 112–124 | 200 patient |
+| 10007 B=64 | 111–113 (8 runs) | 112.3 good / 150 bad | 208 patient |
+| 65537 B=1 | 1495 | 1485–1518 | 1467 patient |
+| 65537 B=16 | ~1635 (median) | 1609–1677 | 1539 patient |
+| 100003 B=1 | 2219–2234 (10 runs) | 2219 | 2716 patient |
+| 100003 B=8 | 2408 | 2379–2395 | 2806 patient |
+| 1021 B=1 / B=256 | 7.75 / 8.90 | 7.84 / 8.10 | (rader's cell) |
+| 1024 / 4096 B=256 / 16384 B=64 | 1.88 / 13.9 / 60.9 | 1.88 / — / — | not my fight |
+
+Correctness: 12 single-call configs PASS (worst rel_l2 1.16e-15, tol 1e-12);
+6 chain gates PASS (65537/100003 m and B variants, 10007 B=64 m=80, 1021 B=256
+m=400; worst 9.4e-14 vs 1e-10), all bit-repeatable. Setup <= 0.03 s.
+
+### Borrowings
+
+- The probe mechanism is d1_race r4's first-call placement probe (their record's
+  headline), imported one level deeper into the plan. The negative result is new:
+  their probe helps because their harness measures each arm at race time under
+  possibly-contended conditions and picks the good draw; on a quiet exclusive
+  score node the underlying engine is already deterministic and the probe is a
+  no-op-at-best. Recorded so no future round re-derives it — measure the
+  probe-OFF spread on a QUIET core first; if it is already tight, the probe
+  cannot help.
+- The variance-first framing (spread is what the median scores) is my own r6
+  lesson via RESCORE_PLAN.md / d1_pow2 r5; this round it cut the other way (the
+  spread was measurement conditions, not the code).
+
+### Next round, in priority order
+
+1. **65537 is the only real gap (1495 vs Rader 733)** and it is structural.
+   The one idea with a chance is a NESTED-Rader / unpadded-Rader path for 65537
+   specifically (conv = 2^16, no Bluestein pad) — but that is d1_rader's class
+   and they already do 733; only worth it if this entry wants to cross-claim.
+2. **100003 rows (still 41% of the cell)**: the untried lever is 8-row-batched
+   tile FFTs at M1=8192 (r3 #1) — but an 8-row tile is ~2–3 MB, past the 1.25 MB
+   L2, so it needs 2-row (not 8-row) interleaving to hide the bak-row L3 latency.
+   The blocked-entry work this round is a cautionary data point: adding live
+   working set to the row/tile pipeline evicts the ping-pong planes and loses.
+3. **Streaming-tile software pipeline for entry/exit** (compute tile q while
+   gathering q+1 into a second stack buffer, TWO tiles live not NC): the only
+   form of this round's blocking idea that might pay, because it caps the extra
+   working set at one tile instead of NC. AC_NC scaffolding is in place to A/B it.
+4. Accept that on the quiet score node this engine is deterministic and near the
+   router's own number at every cell it owns; further gains are structural
+   (65537) or in the still-untried 2-row row pipeline, not in placement tricks.

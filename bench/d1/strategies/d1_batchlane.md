@@ -728,3 +728,137 @@ is ~2-3 ulp like the old 2NR form.
    per-n2-slice idea (r3 item 3) is the remaining lever; watch their record.
 4. If a scoring seed fails a chain gate: the old NR map is one revert away
    (git); margins currently have 2+ decades everywhere.
+
+## Round d1_r7 (2026-09-03)
+
+The a80n0 reservation (440424) was alive; the wallaby squeue shim still lies
+about it (SIXTH round — monitor, please fix reserve.sh's heartbeat path); same
+personal /tmp shim (prime r3 recipe). tryout.sh's chain detection is still
+broken (r4 note), so chained cells ran manually over ssh on leased core 2.
+EVERY decision number below is an interleaved same-window A/B on that core
+against the rebuilt r6 binary (build/a80n0/bin/d1_batchlane), min over >= 3
+reps with the cold first rep discarded. One process hygiene note for other
+implementers: I lost four ssh round trips this round to the same silly bug —
+an inline ssh command whose relative paths assumed the d1 cwd (ssh lands in
+$HOME, everything "fails" with no diagnostics). Put node-session commands in a
+script under the shared tree that cd's itself, and run `ssh node bash /abs/
+path.sh`.
+
+### What changed, in order of impact (a80n0 core 2, min us/xform, interleaved)
+
+1. **60 B=1 chain: d1_composite's r6 chain60_step_v5, ported near-verbatim**
+   (they offered it to this entry by name in their r6 record; map calls
+   rewired to my map_scale_fast/BL_M2 exactly as in my r6 v4 port). Their
+   design: v4's wp[2][15] ymm working set PAIRED into 15 zmm via
+   vbroadcastf64x2 stage-A broadcasts + a per-256-half sign constant (E4PM),
+   so the pair costs ZERO cross-lane shuffles, stages B/C run 512-bit at half
+   the instruction count (latency-bound cell — the ICX 512-bit p0+p5 tax does
+   not bite), the ~30-ymm spill barrier disappears, and v4's 15 vinsertf64x4
+   on the critical path before every map are deleted. Same FP DAG, so v5
+   output is BITWISE IDENTICAL to v4 (verified: cmp at 60:1:60000 — the
+   strongest check available, and it caught nothing because their record was
+   again precise). v4 kept under -DBLCH60_V4 and as the non-AVX512DQ fallback.
+     60 B1 ch: 0.077 vs 0.102 r6 binary, same window (-25%); r6 board had me
+     at 0.1169 vs composite 0.0828 — this should now tie or flip the cell.
+     Also serves the odd-batch tail (60:9 ch: 0.065 vs 0.068).
+2. **Scratch plane stagger, TAKEN FROM d1_rader r6** ("stagger every
+   co-indexed buffer pair"): my SoA carve was 8 planes of exactly L*64 B, so
+   at L=64 (4096 B) and L=128 (8192 B) ALL EIGHT planes were 4K-phase
+   identical — every co-indexed xr[j]/xi[j]/../ci[j] access in the batched
+   chain steps mapped to ONE L1 set, eight lines deep in an 8-way cache.
+   bl_carve now pads planes by BL_STAG=320 B (rader's 40 doubles). Free,
+   deterministic, applies to every group-chain and SoA path.
+3. **First-call placement probes on the chain paths, TAKEN FROM d1_race
+   (r4/r5) via d1_prime (r6, the in-file recipe offered to the panel).** All
+   candidates are arithmetic-identical, so any pick is bitwise-identical
+   output (prime's repeatability-by-construction argument); the probe rides
+   inside the driver's first discarded warmup unit (driver.c runs >= 5).
+   BL_NO_PROBE=1 disables, BL_PROBE_VERBOSE=1 prints picks.
+   - Batched group chains (13/31/32/60/64/128): 4 CARVE OFFSETS of the whole
+     scratch block {0,1088,2112,3264} (distinct mod 4K) — a data-placement
+     re-roll of scratch vs the driver's page-random mmap'd buffers, the axis
+     the deterministic stagger cannot fix. No code duplication at all;
+     4x(tload8 x2 + 48 steps) per candidate, min over 3 rounds after a warm
+     lead-in. Together with (2), warm interleaved: 128 B512 ch 0.177 vs 0.187
+     (-5%, 4 reps); other batched chains parity-to-slightly-better in-window
+     (their value, if any, is across the board's process draws).
+   - B=1 chains at 32 and 60: 2 nop-padded CODE COPIES (always_inline body
+     into two noinline shells; nops defeat -fipa-icf) x 2 STACK SHIFTS via an
+     alloca-wrapper trampoline (prime's trap respected: the alloca lives in a
+     wrapper that calls the noinline copy, because gcc puts fixed locals above
+     a same-function dynamic area). Chosen because these two cells had the
+     worst spread-vs-best gaps on the r6 board (32 B1 ch median 0.0674 /
+     best 0.0572 vs race 0.0573; my code at parity, my draws not).
+     In-window: parity (0.057-0.058 at 32 B1 ch) — again, the payoff claim is
+     board medians, exactly as prime's r6 argued.
+
+### What did NOT work, with the number that killed it — exec probe REVERTED
+
+The same probed dispatch applied to the B=1 m=1 execute paths (13/31/64,
+via a fn-pointer trampoline where the kernels used to be ALWAYS_INLINE into
+fft1d_execute) was a consistent regression: 64 B1 0.049-0.052 vs 0.045-0.047,
+31 B1 0.049-0.057 vs 0.046-0.048, 3 interleaved reps — the trampoline +
+indirect call is ~3-5 ns on a 15-45 ns fully-inlined critical path, more than
+any placement variance it recovers. Reverted to the inline dispatch (parity
+re-confirmed after revert). LESSON, recorded so nobody re-spends it: prime's
+probe is safe on paths that are already out-of-line calls (their kernels are;
+my chains are); do NOT route a sub-50 ns inlined path through fn pointers.
+The m=1 lottery at 13/31 stays unhedged for me this round.
+
+### Where the cells stand (a80n0 core 2 this session, warm interleaved, min us)
+
+| cell | m=1 | chain | | cell | m=1 | chain |
+|---|---|---|---|---|---|---|
+| 13 B1   | 0.014-0.018 | 0.035-0.041 | | 60 B1   | 0.042-0.047 | **0.077** (was 0.102) |
+| 13 B512 | 0.009-0.011 | 0.014 | | 60 B512 | 0.044-0.048 | 0.063 |
+| 31 B1   | 0.049-0.052 | 0.052 | | 64 B1   | 0.045-0.049 | 0.080 |
+| 31 B512 | 0.044 | 0.048-0.049 | | 64 B512 | 0.038-0.041 | 0.068 |
+| 32 B1   | 0.019-0.024 | 0.057-0.058 | | 128 B1  | 0.098 | 0.151-0.153 |
+| 32 B512 | 0.015 | 0.034-0.039 | | 128 B512| 0.165-0.168 | **0.177** (was 0.187) |
+
+m=1 paths are untouched (parity vs r6 binary at every size/batch, 3 reps).
+
+### Correctness (final source, all on the node)
+
+All 12 graded chained cells PASS at graded m (worst 2.591e-12 at 32:512:1000
+vs 1e-10, statistically unchanged since r2) plus odd-batch chains 13:11,
+31:9, 60:9, 128:3; strict m=2 gates 2.7-5.6e-16 vs 3e-14 (B=1 all sizes +
+60:512); single-call rel L2 1.1-3.2e-16 at all sizes x B in {1,3,9,11,512};
+output bitwise repeatable across two fresh processes at every probed cell
+(60:1 / 32:1 / 32:512 / 128:512 chains AND 13/31/64 B=1 m=1) — with the
+probes free to pick different candidates per process, the property that
+matters; chain60_step_v5 output bitwise identical to v4; BL_NO_PROBE=1 output
+bitwise identical to probed. Official tryout.sh green (60 B=8, 32 B=512,
+13 B=512): PASS + "repeatable: identical output across runs".
+
+### Borrowed, explicitly
+
+- d1_composite (r6): chain60_step_v5 IN FULL — their explicit offer to this
+  entry; the port was again first-try because their record documents the
+  E4PM/broadcast trick and the unchanged emission schedule precisely.
+- d1_rader (r6): the co-indexed-plane 4K-aliasing diagnosis and the
+  deterministic stagger, applied to my SoA carve.
+- d1_race (r4/r5) via d1_prime (r6): the first-call placement probe design —
+  discarded-warmup timing on real buffers, arithmetic-identical candidates,
+  nop-pad anti-ICF, the alloca-wrapper/noinline-core stack shift, min-of-K
+  draws. The carve-offset variant for heap-state group chains is my
+  adaptation of the same idea (data axis instead of prime's stack axis).
+- d1_prime (r3): the /tmp squeue-shim workaround, sixth round running.
+
+### Next round
+
+1. 60 B512 chain (0.063 vs composite 0.055): the real remaining code gap.
+   Composite's r6 item 2 (register-resident A+B+C fusion) is the lever —
+   watch their r7 record; a port of their step is a budget-most-of-a-round
+   job.
+2. 13 B512 chain (0.014 vs prime 0.0137 / rader's Rader-13 step 0.0146
+   history): fewer real ops per step (Rader-12-conv or Winograd-13) is the
+   only lever left; port from rader if the board still shows a gap.
+3. If the r7 board shows the probed cells' MEDIANS at their best-of-runs
+   (32 B1 ch ~0.057, 128 B512 ch ~0.18), extend the one-path probe to the
+   13/64/128 B=1 chains (mechanical: convert body to always_inline + 2
+   shells each). If it shows no movement, the probes are free to keep but
+   not worth extending.
+4. Do NOT retry a probed/fn-pointer dispatch on the m=1 exec paths (see the
+   reverted-exec-probe numbers above); the only honest lever there is
+   whole-binary text placement, which is the monitor's/linker's territory.

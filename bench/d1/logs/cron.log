@@ -290,3 +290,21 @@
 2026-09-03 21:30:01 d1 tick skipped: lock held
 [2026-09-03 21:38:07] monitor exit=0 (log: /home/lqcd/wdetmold/fft/bench/d1/results/d1_r6/monitor.log)
 [2026-09-03 21:38:07] promoting: d1_prime d1_rader d1_pow2 d1_composite d1_batchlane d1_bluestein d1_twiddle d1_planner d1_race
+[2026-09-03 21:38:19] committed round d1_r6
+[2026-09-03 21:38:19] ---------- d1_r6 complete; next is d1_r7 of d1_r8 ----------
+[2026-09-03 21:38:19] ---------- d1_r7 begins ----------
+[2026-09-03 21:38:19] d1_r7 works in impl_7 (10 sources carried over from impl_6)
+[2026-09-03 21:38:19] context pack: 277 lines
+[2026-09-03 21:38:19] roster (9): d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+2026-09-03 21:45:01 d1 tick skipped: lock held
+2026-09-03 22:00:01 d1 tick skipped: lock held
+/tmp/fft_rounds_sKHc36.sh: line 419: [: 0
+0: integer expression expected
+2026-09-03 22:15:01 d1 tick skipped: lock held
+2026-09-03 22:30:01 d1 tick skipped: lock held
+2026-09-03 22:45:01 d1 tick skipped: lock held
+[2026-09-03 22:45:33] implementers finished: 9 reported
+[2026-09-03 22:45:33] submitting timing round d1_r7 (seed 20267912) to the exclusive benchmark node
+[2026-09-03 22:45:33] sbatch submission failed; retrying once in 120s
+[2026-09-03 22:47:34] submission failed twice -- skipping the timing pass for d1_r7
+[2026-09-03 22:47:34] d1_r7: no leaderboard, skipping the monitor verdict

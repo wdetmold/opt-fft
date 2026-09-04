@@ -693,3 +693,113 @@ build -Wall -Wextra clean.
 3. B=512 m=1: closed at parity unless MKL's number moves on the board.
 4. Housekeeping for the race owner: base flag map unchanged from r5 (ymm1
    loop default); new -DCHAIN_V4 selects the r3 B=1 step for A/B.
+
+## Round d1_r7 (2026-09-03)
+
+### Where r6 landed on the board, and the forensics that shaped the round
+Chains still mine: B=1 chain WON at 0.0828 (race 0.0942, MKL 0.2371); B=512
+chain 0.0555 vs race 0.0548 — race ships my chain, so that is a tie of my own
+code with itself. Both m=1 cells read as losses and BOTH are placement, not
+code: (a) B=1 m=1 0.0487 vs d1_batchlane 0.0422 — but batchlane's L=60 m=1
+path is my own r4 fft60_ymm1 ported verbatim (their r5 record, confirmed
+r6), so the 15% board gap is code-layout luck on identical kernels; prime's
+r5 record already showed aligned(64) is a re-roll of that dice, not a fix.
+(b) B=512 m=1 0.0546 vs MKL 0.0437 — re-measured this round interleaved on
+the leased node core: mine 0.044-0.047 vs MKL 0.044 warm, i.e. parity, same
+as the r5/r6 sessions; the board number was a window draw. Neither cell has
+a known structural lever (r5 verdict stands), so the round went to the one
+real serial-path item left: the chain map.
+
+### The change: latency-shaped map (BORROWED: d1_prime r5, via d1_batchlane
+### r6's proven port)
+map_scale_q rewritten from the r1 form (rsqrt14 + 2 serial sqrt-NR, THEN
+rcp14 + 2 serial rcp-NR, with a max() clamp in front) to prime's shape —
+same op count, ~12-15 cy less serial latency per map:
+  - Goldschmidt sqrt: iterations are fnmadd->fma (8 cy) instead of NR's
+    mul->fnmadd->mul (12 cy); 2 rounds from the 2^-14 seed land 2-3 ulp.
+  - EARLY-SEEDED reciprocal: s0 = rcp14(1 + q*y0) off the RAW rsqrt14
+    estimate y0 (~20 cy before the refined sqrt exists); reciprocal-NR
+    self-corrects against the true d = 1+|z| (1e-4 -> 1e-8 -> ~1e-16), so
+    the rcp chain overlaps the sqrt refinement instead of trailing it.
+  - The clamp is now ADDITIVE and off the critical path: callers fold a
+    1e-100 floor into their m2 FMA (map_scale8: fmadd(zi,zi,1e-100);
+    EMIT4Z: fmadd(z,z,5e-101) so the lane-pair sum carries 1e-100). The
+    max() is gone; rsqrt14 never sees 0 (prime r3's FP-assist lesson).
+Old NR form kept under -DMAP_NR for A/B. Applied everywhere the map runs:
+chain60_step_v5/v4 (EMIT8Z/EMIT4Z), chain60_soa8_step, CHAIN_V1 step.
+
+### Measured (a80n0 leased core 2, interleaved same-window A/B def-vs-MAP_NR,
+### warm rounds only — round 1 always discarded)
+| cell | r6 code | r7 (new map) | MKL same core |
+|---|---|---|---|
+| B=1, m=1 | 0.047 (untouched) | 0.047 | ~0.054 |
+| B=512, m=1 | 0.044-0.047 (untouched) | 0.044-0.047 | 0.044 |
+| B=1, m=60000 | 0.081 | **0.078** (-4%) | 0.237 (r6 board) |
+| B=512, m=600 | 0.054 | 0.054 (no change) | 0.229 (r6 board) |
+Wallaby sanity (SPR, pinned core 101, interleaved): B=1 chain 0.060 vs
+0.062 old (-3%); B=512 chain 0.040 both. The B=512 chain is throughput-
+bound (~295 p0+p5 uops/step vs a ~147-cy two-port floor) and the new map
+has the SAME op count, so a latency-only reshape moving nothing there is
+the expected result — batchlane's r6 port saw -4.5% on their 60 B512 chain
+because their step had more latency exposure, not because the map differs.
+
+### Correctness (final binary, on the node)
+verify.sh 28/28 PASS: exec rel_l2 2.1-3.7e-16 for B in {1,2,3,5,8,13,512}
+at L=60 and B=3 at L=12/24/36; strict m=2 gates 4.6e-16 (B=1) / 4.9e-16
+(B=512) vs tol 3e-14; graded chain gates 3.2e-15 (B=1 m=60000) and 7.5e-13
+(B=512 m=600) vs 1e-10 — same decade as r6's 3.1e-15 / 6.6e-13, i.e. the
+Goldschmidt+early-seed map is 2-3 ulp honest exactly as prime advertised;
+edge chains B=5 m=100 (3.9e-15), B=13 m=50 (8.7e-15), L=12/24/36 chains
+m=20 all PASS; both graded chained cells BITWISE repeatable across runs
+(cmp). All 8 flag variants (-DMAP_NR, -DEXACT_MAP, -DCHAIN_V1, -DCHAIN_V4,
+-DUSE_ZMM2X2_BATCH, -DUSE_YMM2_BATCH, -DUSE_ZMM4, default) build
+-Wall -Wextra clean.
+
+### What did NOT work / was killed by analysis, with the numbers
+- **1-round reciprocal NR even with the early seed**: seed error ~2^-13
+  (rcp14's 2^-14 plus the raw-estimate d0 error), one NR leaves ~1.5e-8
+  relative per step. The B=512 gate history (6.6e-13 at m=600 from ~1e-16
+  per-step noise) shows ~linear-in-m accumulation — no contraction headroom
+  hides a 1e-8 injection at m=600, let alone m=60000. r5's shallow-Newton
+  verdict re-confirmed for the early-seed variant; 2 NR stays. CLOSED.
+- **Starting the map's q computation from the INTERLEAVED zA/zB in EMIT8Z**
+  (to launch rsqrt before the deinterleave permutes): counted on paper —
+  q-from-interleaved is mul+permil+add+permutex2var ≈ 12 cy, current
+  deinterleave-then-two-FMA path is ≈ 11 cy, and the deinterleave is needed
+  for the final scale multiply anyway. No gain available; not built.
+- **Register-resident A+B+C fusion for the batched chain (r3 item 3,
+  parked since)**: killed by dataflow analysis, recording it so nobody
+  re-derives it. Stage B produces rows over n2 for fixed (n1,n3); stage C
+  consumes rows over n3 for fixed (n1,n2) — the B->C boundary is a 60-row
+  transpose-in-time, so full residency needs 120 zmm (impossible), and the
+  recompute-per-n1 alternative quadruples stage-A loads (480 zmm loads/step
+  vs the current 240 total). The store/reload through L1 IS the cheap
+  implementation of that transpose. DEAD.
+
+### Borrowed, explicitly
+- d1_prime r5: the entire latency-shaped map (Goldschmidt sqrt, early-seeded
+  reciprocal, additive clamp) — offered to the panel in their record;
+  adopted verbatim in my map_scale_q. d1_batchlane r6 (and d1_twiddle r6)
+  had already proven the port transfers cleanly; their measured -3..-6%
+  on chained cells matches my -3..-4% on the latency-bound cell exactly.
+- d1_prime r3 squeue-shim workaround, verbatim again (fifth round: the
+  reservation reads dead from wallaby without it; heartbeat was 10 s old).
+- d1_race r6 / batchlane r5-r6 records: the evidence that both m=1 board
+  gaps are placement on identical/parity code, which is what kept this
+  round from wasting itself on those cells.
+
+### Next round
+1. B=1 chain now 0.078; per-step budget is ~257 cy against a ~147-cy
+   two-port uop floor and a ~110-cy naive latency path — the cell is
+   mixed latency/port bound. The map is 120 of ~295 p0+p5 uops/step and is
+   already minimal (15 uops per 8 lanes, 7.5 invocations for 60 outputs).
+   Software-pipelining the step split (r6 item 1) is still the only idea
+   and OoO already spans ~1.5 steps; treat as closed unless batchlane
+   ports v5 and closes within ~10%.
+2. Both m=1 cells: closed (placement/parity). If the r7 board again shows
+   B=512 m=1 behind MKL by >10%, do NOT touch the kernel — the interleaved
+   same-core numbers have said parity three sessions running.
+3. B=512 chain 0.054: fusion is dead (above); the only remaining direction
+   is cutting map/store uops, and both are minimal. Consider this entry's
+   L=60 cells at their structural floor; future rounds should only react
+   to a rival's measured move, not to board noise.

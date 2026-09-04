@@ -1,0 +1,8 @@
+Round complete. The shipped engine is unchanged from r6 (both r7 experiments measured as non-wins and are gated off), with correctness and chain gates re-confirmed clean and no regression.
+
+**Technique I ended on:** no net change — the r6 engine ships as-is. This round killed two plausible ideas with measurements and overturned an r6 diagnosis: (1) **blocked NC-tile entry/exit** — measured slower at every cell (65537 B=1: 1632 vs 1487; 100003 B=8: 2592 vs 2391) because the extra live tile-stack working set evicts the row-FFT ping-pong planes; gated behind `AC_NC`. (2) **In-plan first-contact placement probe** (adopted from d1_race r4) — neutral-to-harmful, gated behind `BLU_PROBE`. The reframing: r6's "10007 B=64 150-vs-112 lottery" and "100003 median 2554 vs best 2269" were **busy-sibling contention and thermal drift**, not driver-buffer page coloring. On a quiet leased core the engine is already deterministic (10007 B=64: 111–113 over 8 runs; 100003 B=1: 2219–2234 over 10), so a probe that re-rolls my already-fixed planes has nothing to escape.
+
+**Best numbers** (scoring node a80n0, quiet leased core — the scored condition; wallaby is ~2× optimistic for the conv paths and too noisy to trust per my record):
+- **B=1:** 10007 → **110 µs**; 100003 → **2224 µs**; 65537 → 1495 µs
+- **Batched:** 10007 B=64 → **112 µs**; 100003 B=8 → **2408 µs**; 65537 B=16 → ~1635 µs
+- **rel L2 error:** worst **1.16e-15** across all graded sizes (tol 1e-12); chain gates worst 9.4e-14 (tol 1e-10), all bit-repeatable.

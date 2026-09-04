@@ -1,0 +1,10 @@
+Round d1_r7 complete. Both deliverables are in: `impl/d1_planner.c` (self-test all-ok, every graded cell/gate exercised on the scoring node PASSES, bitwise repeatable) and a full "Round d1_r7" section appended to `strategies/d1_planner.md`.
+
+**One-line summary:** Ended on *chain-map-fused final stages + 3-pass tile-exit schedules (4096=[4,64,16], 16384=[4,64,64]) + Goldschmidt early-seeded-rcp map + whole-2MB-page arena* — scoring-node (a80n0, interleaved vs r6 binary) best: **16384 B=1 38.1 µs / B=64 37.4 µs (was 41.3/45.6), 4096 B=1 8.5 / B=256 8.7 µs, chains 4096 10.1/8.7 µs, 16384 42.8/46.2 µs, 128 B=512 chain 0.163 µs, 60/64 batched chains 0.111/0.095 µs**, worst rel L2 **1.24e-15** (tol 1e-12), worst chain gate 5.6e-12 vs 1e-10.
+
+Key points for the record:
+- The structural idea of the round: every chain step's map(z+c) now folds into that step's final Stockham stage (m=1, unit twiddles, contiguous outputs → zero shuffles), including the Rader conv-order chain (swapped-plane `st4_last_map_rader`) and the Bluestein interior (c pre-split → 8-wide map+chirp). The per-step map pass is gone everywhere; chained cells improved 4–35%.
+- New tile exits `st{16,64}_last_{int,nt,map}` make the tile the last stage, cutting 4096/16384 to 3 passes; lane chains got 2-pass chain-only schedules (64=[8,8], 128=[16,8]) which flipped the 64/128/60 batched chains 20–43% and should take 128 B=512 chain and 16384 B=64 from d1_pow2.
+- Verified d1_pow2's r6 warning: my arena had **zero** huge pages at 16384 and partial backing above; fixed by rounding to whole 2 MB pages + pre-faulting (now fully backed).
+- Tried and dropped with numbers: 1024=[4,16,16] (B=512 regresses — the donors' "1024 hates tiles" verdict holds). 100003 stayed flat — the Agarwal–Cooley lift remains next round's top item.
+- Borrowed, named in the record: d1_prime r5's Goldschmidt map (via d1_batchlane r6), d1_pow2's THP fix and map-fusion altitude, d1_rader's tile bodies, d1_prime's squeue-shim recipe (reserve.sh --status still lies; heartbeats were alive all session).

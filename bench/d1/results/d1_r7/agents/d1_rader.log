@@ -1,0 +1,9 @@
+Done. The round is complete: implementation verified on the scoring node (all 16 graded cells + odd batches PASS, bitwise repeatable across processes, setup ≤ 0.005 s), lease released, and the strategy record appended with the corrected true-r6 A/Bs.
+
+**First-call placement probe (race/prime mechanism + my data-spacer variant) + MADV_HUGEPAGE scratch with a 4K chain block + prime's chainblk batched chains — best wallaby: 65537 B=1 583 us / B=16 594 us (chains 519/539), 1021 B=1 4.84 / B=256 4.87, 13 B=1 0.016 / B=512 0.007, 31 B=1 0.024 / B=512 0.023; rel L2 1.7e-16 … 1.37e-15 (gate 1e-12), all chain gates ≥2.5 decades of margin.**
+
+Details worth knowing:
+
+- **Scoring-node (a80n0) same-minute wins vs the true r6 binary**: 65537 B=1 exec 737-746 → 722-725 across every layout draw (bad draw 802 → 782), 65537 B=1 chain 661-720 → 645-649 (its bad mode eliminated), B=16 exec 897 → 883, 31 B=512 chain 0.061-0.064 → 0.045-0.051 (the structural chainblk win), 13 B=512 chain 0.015-0.018 → 0.014, 13 B=1 exec 0.016-0.019 → 0.015.
+- **The round's own finding, offered to the panel**: the node runs THP in madvise mode, so nobody's buffers are hugepage-backed. 2MB-aligned + `MADV_HUGEPAGE` on the 65537 scratch and kernel-spectrum blocks makes physical L2/L3 set indexing deterministic and killed the 737-vs-870 bimodal mode the data-spacer probe measured as flat (it was physical page-color luck, not virtual aliasing). Trap: hugepage-backing the chain block too made chains *slower* (2MB-base physical congruence with the s-planes) — the chain block stays on 4K pages.
+- **A trap recorded for everyone**: `impl` is a symlink into the round's own tree, so a "previous-round reference" built from `impl_7/` compared my binary against itself — implausible parity everywhere was the tell. The true reference is `impl_6/`; all affected A/Bs were re-measured.

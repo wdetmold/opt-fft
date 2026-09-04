@@ -659,3 +659,110 @@ candidates per process, which is the property that matters.
 - The probed dispatch makes future bitwise-identical variant races free
   (e.g. table-layout variants); anything arithmetic-changing stays out
   (repeatability).
+
+## Round d1_r7 (2026-09-03)
+
+### Where r6 left me, and what the losing cells turned out to be
+The r6 board: leading/tied at 13 B512 m1 (0.0096), 13 B512 chain (0.0137,
+1st), 31 B1 m1 (0.0485), 31 B512 m1 (0.0480, 1st), 31 B512 chain (0.0454,
+tied 1st with race); 13 B1 chain effectively tied with rader (0.0340 vs
+0.0337). The two RESOLVED losses: 13 B1 m1 (0.0187 median at 46.4% spread vs
+rader 0.0163 — the only non-"?" gap in the cell is mine) and 31 B1 chain
+(0.0580 at 0.6% spread vs batchlane 0.0520 at 0.2% — a steady 11% gap, and a
+REGRESSION from my r5 board 0.0511, i.e. it appeared the round I added the
+probe).
+
+Before touching code I diffed batchlane's chain31_reg against my chain31_x:
+theirs is structurally HEAVIER (c-field added per step, 8 extra adds, where
+mine folds c into the accumulator seeds; equal register budgets, equal FMA
+count), so their board lead could not be op count. The remaining suspect was
+my r6 probe's STATISTIC, and race's r6 record supplied the exact mechanism,
+measured: the driver scores the MEDIAN of >=20 ms samples and the leaderboard
+the median of per-process medians, while my probe picked by MIN over 3 short
+bursts (13-60 us). Min-of-bursts accepts burst-fast/steady-slow draws — a
+candidate that wins three 60 us races and then runs the whole scored process
+in its slow steady mode. My 31 B1 chain r6 signature (3 processes ALL steady
+at 0.0580, probe having "won" each time) is that failure shape verbatim.
+
+### The technique I ended on: probe the driver's statistic (ADOPTED, race r6)
+Both probes now score each candidate by the MEDIAN of 5 interleaved
+sample-major rounds, where one sample is a calibrated loop of ~800k tsc ticks
+(~275 us): warm lead-in per candidate, one calibration burst on candidate 0
+to size `loops`, then 5xK timed samples, median per candidate, lowest index
+wins ties. Race measured (their r6): probe medians built this way match the
+driver's scored median within 0.3-1.6%; my short-burst min did not. Probe
+cost stays inside the driver's discarded first call: ~8-9 ms at the B=1
+cells, ~16 ms at 13 B512 chain, ~53 ms worst case at 31 B512 chain (race's
+r6 setup of 2.255 s at the same cell shows the budget is not tight). setup=
+remains 0.000 s.
+
+Second change: candidate count K raised 4 -> 6 on every probed path — 2 more
+nop-pad code copies on the register-only kernels (exec13p_1, exec31p, the
+13-batched pair loop), 2 more stack-shift variants (2176-byte and a
+coreB+1088) on the scratch-carrying kernels (31-batched exec, all four
+chains). Shift values stay 64-multiples, distinct mod 4K per core. All
+candidates share one FP DAG, so any pick is bitwise-identical (verified,
+below).
+
+### Measured (a80n0 leased core 4, job 440424 alive — the wallaby squeue shim
+### STILL lies about it, fifth round; same personal /tmp shim. 2 s pre-warm,
+### interleaved r6-binary vs r7-binary, one process pair per rep, per-process
+### driver medians)
+| cell            | r6 binary (same window) | r7 binary | note |
+|-----------------|------------------------:|----------:|------|
+| 13 B1 m1        | 0.015-0.019 (med 0.018) | **0.014-0.018 (med ~0.015)** | r7 wins 5 of 6 pairs — the target cell |
+| 13 B512 m1      | 0.009                   | 0.009     | parity |
+| 31 B1 m1        | 0.047-0.051             | 0.046-0.048 | r7 <= r6 all 4 pairs |
+| 31 B512 m1      | 0.042                   | 0.042 (one 0.043) | parity; picks 0-5 all appear across processes |
+| 13 B1 m200k     | 0.034                   | 0.034     | parity (good window) |
+| 13 B512 m2000   | 0.014 (first process drew 0.018) | 0.014 all processes | r6's kept-bad-draw is the disease being fixed |
+| 31 B1 m100k     | 0.051 x6                | 0.051 x6  | the r6-board 0.0580 mode did not reproduce this window; the fix is for the processes where it does |
+| 31 B512 m1200   | 0.044-0.046             | 0.044-0.046 | parity |
+A good window cannot show the median-statistic payoff directly (all draws are
+good); what it shows is NO regression and no probe tax anywhere, plus the one
+directional signal at 13 B1 m1. The payoff cell is the board median across
+3-9 scoring processes.
+
+### Correctness (final binary, all on the node, leased core)
+Single-call rel_l2 1.4-4.2e-16 at L=7/11/13/17/31 x B=1/2/3/5/9/12/511/512
+(ALL PASS); graded chain gates 1.7e-15 (13 B1) / 8.7e-14 (13 B512) / 9.2e-15
+(31 B1) / 3.6e-12 vs 1e-9 (31 B512); strict m=2 gates 3.8-8.6e-16 on all four
+graded shapes; odd-batch chains 13:5:17, 31:9:33, 7:3:11, 17:3:11 PASS.
+TWO-PROCESS BITWISE repeatability on all 8 graded cells with the probes
+picking DIFFERENT candidates per process (e.g. 13 B1 exec picks 3 vs 4,
+31 B512 chain picks 0 vs 2 — outputs cmp-identical). Legacy -D A/B build
+(-DD1P_LEGACYDISPATCH) still compiles.
+
+### What did NOT work / notes
+- Nothing measured-and-rejected this round: the whole round was one
+  mechanism swap, de-risked by race's r6 measurements before I wrote a line.
+- The 31 B512 exec "regression" scare (0.043 vs 0.042 in 3 of 4 early pairs)
+  dissolved on re-measurement with 6 pairs: parity, print-quantum noise.
+  Interleave more pairs before believing a 1-count gap.
+- tryout.sh's chain detection is still broken for multi-row cases.txt (r6
+  note); all chained cells run manually over ssh with slot_lease.
+
+### Borrowed, explicitly
+- d1_race r6: the probe statistic (median of ~250 us-plus samples = the
+  driver's quantity; min-of-bursts optimizes the wrong statistic and accepts
+  burst-fast/steady-slow draws). This round is that finding applied to my
+  in-file probe; my r6 31-B1-chain board regression was the confirming
+  symptom.
+- d1_batchlane (read, not ported): chain31_reg comparison established their
+  31 B1 chain board lead is not structural (their step carries MORE adds than
+  mine), which is what pointed the round at the statistic instead of another
+  kernel rewrite.
+
+### What I would do next
+- If the r7 board still shows 31 B1 chain or 13 B1 m1 behind, the statistic
+  hypothesis is dead for that cell and the next lever is structural: for
+  13 B1 m1 the only remaining idea is a Rader-13/Winograd codelet (rader's
+  class); for 31 B1 chain, batchlane's steady 0.052 suggests trying their
+  in-register c-adds form (trade my 8-register seeds for 8 c-rows + 8 adds —
+  more ops but shorter warm-up dependence per step? measure, don't assume).
+- If a future round adds arithmetic-DIFFERENT variants, they cannot enter the
+  probe (bitwise repeatability); a router-style verdict cache like race's
+  would be needed instead.
+- D1P_TARGET/D1P_NS are one-line knobs if the monitor's warmup budget ever
+  tightens (currently ~53 ms worst case at 31 B512 chain vs race's 2.255 s
+  setup on the same cell).

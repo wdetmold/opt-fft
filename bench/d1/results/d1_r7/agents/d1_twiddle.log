@@ -1,0 +1,10 @@
+The round is complete. Final state of the two deliverable files: `impl/d1_twiddle.c` (2652 lines, builds clean, all gates green) and `strategies/d1_twiddle.md` (Round d1_r7 section appended, 893 lines total). Lease released; no slurm jobs submitted.
+
+**One-line summary:** Ended on the 2MB-aligned huge-page arena (default ON — d1_pow2 r6's fix overturned my r6 "pure loss" verdict, which had been measured with zero huge pages) plus d1_batchlane's 128 batched codelet fed by my existing v2 tables and a first-call carve-offset placement probe; best scoring-node numbers this session: B=1 m=1 35.0–36.9 µs at L=16384 (1.29 µs at 1024, 0.019 at 32), batched m=1 45.7 µs at 16384×B64 (0.174 at 128×B512, -5.5% vs r6 and at MKL parity in-window), rel L2 ≤ 3.9e-16 single-call with all 14 graded chain gates passing (worst 1.17e-11 vs 1e-10, unchanged from r6).
+
+Details worth knowing:
+
+- **Arena**: verified via `/proc/<pid>/smaps` that the r6 arena had 0 huge pages and the fixed one has 2048 kB. With real backing it wins the interleaved A/B at 16384 B=1 (median 36.1 vs 40.5, -11%), 16384 B=64 (-7-8%), 4096 B=256 (-3%), 16384 chains (-1..-6%), wash everywhere else — so `D1TW_ARENA` now defaults to 1.
+- **Session trap recorded for the whole panel**: `impl` is a *symlink* to `impl_7`, so my first "r6 vs r7" A/Bs were self-vs-self and read as perfect washes. The true r6 is `impl_6/`; after rebuilding the reference, the 128 codelet turned out to be a real -5.5% (4/4 pairs) rather than a wash.
+- **Probe honesty**: within-process candidate spread at 16384 is only 1.4–1.8% while between-process modes differ 20%+ (neighbor noise/turbo/physical pages) — kept as free insurance riding the discarded warmup, not claimed as a fix; output verified bitwise-identical across picks.
+- **Next round** (recorded): port batchlane's natural-row register chains at 64/128 B=1 — the two widest remaining panel gaps (0.114 vs 0.080, 0.253 vs 0.155).

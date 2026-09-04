@@ -705,3 +705,139 @@ runs; official tryout.sh green at 32/64/128/1024/4096/16384.
    reduction or a fewer-shuffle 64 structure would move my standalone number, and MKL's
    ~0.042 bounds the prize.
 4. If a scoring seed ever fails a chain gate: -DD1_FASTMAP_MAX_L=0 (unchanged).
+
+## Round d1_r7 (2026-09-03)
+
+First cumulative round for me in practice: three of the four shipped changes trace to other
+entries' records, and the round's biggest single win is an idea of mine that d1_twiddle
+improved and I took back. The a80n0 reservation (job 440424) was alive throughout; every
+decision is an interleaved same-window A/B on a leased core against the r6 exemplar binary
+(impl_6). The wallaby squeue shim still points at the gen heartbeat — same personal /tmp
+shim as r4-r6. tryout.sh's awk chokes on the four-regime cases.txt (multiple rows per L),
+silently falling back to m=1; chains were driven by hand with the driver's --chain/--map.
+
+### Change 1 — latency-shaped chain map (ADOPTED from d1_prime r5)
+
+Both map forms (map_vec_p AoS, soa_map_p split) rewritten with prime's three moves, whose
+transfer d1_batchlane r6 and d1_twiddle r6 had already proven on their engines: (a) the
+junk-lane floor made ADDITIVE and folded into the |z|^2 FMA (max leaves the critical
+path); (b) Goldschmidt sqrt (fnmadd + 2 independent fma per iteration) instead of Newton;
+(c) the round's real idea, prime's early-seeded reciprocal: q0 = rcp14(1 + s*y0) off the
+RAW rsqrt14 estimate, then 2 reciprocal-NR steps against the true 1 + sqrt(s), so the rcp
+chain overlaps the sqrt refinement. The `precise` variants keep their exact-residual
+refinements on top (Heron now uses the Goldschmidt h ~ 0.5/sqrt directly).
+Node A/B (min us/xf, old -> new), every graded chained cell:
+    32 B1   0.071 -> 0.065 (-8.5%)   32 B512   0.043 -> 0.040 (-7%)
+    64 B1   0.146 -> 0.136 (-7%)     64 B512   0.090 -> 0.085 (-6%)
+    128 B1  0.265 -> 0.246 (-7%)     128 B512  0.212 -> 0.201 (-5%; one 0.176 window)
+    1024 B1 2.01  -> 1.97  (-2%)     1024 B512 2.58  -> 2.47  (-4%)
+    4096 B1 11.07 -> 10.66 (-4%)     4096 B256 10.16 -> 9.79  (-4%)
+    16384 B1 wash (window drift)     16384 B64 49.7  -> 47.8  (-4%)
+Exactly prime's advertised range. Gate margins statistically unchanged (see correctness).
+
+### Change 2 — register-resident fused first pair, ST_SXR4 (TAKEN BACK from d1_twiddle r5)
+
+Twiddle's r5 record re-derived my r4 tile fusion in a register-resident form and reported
+it beat their tile gate. Ported into the split engine: when the second stage is radix-4,
+the four feeder s1s quads' outputs (16 zmm) stay live and both second-stage pairs consume
+them directly — no 32-store + 32-load tile round-trip per 64 complexes. s1s_quad split
+into a vector-returning core (s1s_quad_v) plus a store wrapper; s44_pair_v reads legs from
+the register block. Output BITWISE identical to the tile path (cmp-verified at 4096 B=256).
+Node A/B (tile SX44 vs SXR4): 4096 B=1 7.32-7.51 -> 6.97-7.02 (-5%); 4096 B=256
+9.19-9.23 -> 8.93-8.97 (-3%); chains 4096 B=1 9.70-9.92 -> 9.04-9.11 (-7%, map included).
+16384 keeps the tile SX48 (radix-8 second level = 32 live zmm of legs, would spill).
+D1_SXR=0 restores the tile form.
+
+### Change 3 — 1024 rescheduled 4*4*8*8f when the batch is cache-resident
+
+The default 1024 schedule takes radix-8 at s=4 ([4,8,8,4f]), so SXR4 never fired there.
+The residue also factors [4,4,8,8f] — same pass count, radix-4 second stage, register
+fusion applies. Node A/B: B=1 m=1 1.40-1.46 -> 1.38-1.39 (-1.5%; one fast-turbo window
+1.21 vs 1.25); B=1 chain wash. At B=512 the same schedule measured +3.5% (1.75-1.77 ->
+1.81-1.85; the 8-leg SF8 final streams worse than SF4 from L3) — so it is batch-gated by
+the same 2 MB working-set condition as the SX fusion. TRADEOFF RECORDED: the SF8-final
+rounding path halves the 1024:1:4000 gate margin, 5.95e-12 -> 1.229e-11 vs the 1e-10
+floor (8.1x margin — same one d1_twiddle ships at this cell). D1_S44_1024=0 reverts.
+
+### Change 4 — two-pass 128 ([4,4,8f] + SXR4), twiddle's gate borrowed
+
+Same reschedule at L=128 makes the whole transform TWO passes: [SXR4(4*4), SF8]. Gate is
+d1_twiddle r6's, borrowed with their number (fused at B=512 lost them 9%): only when
+32*L*batch <= 256 KB. Node A/B: 128 B=1 m=1 0.138-0.140 -> 0.126-0.129 (-8%; fast-mode
+sample 0.111); B=8 0.129-0.134 -> 0.112-0.117 (-13%); B=1 chain 0.259-0.265 -> 0.223-0.235
+(-12% incl. map); B=512 correctly untouched (wash). Board mkl at this cell is 0.1042 —
+this closes about a third of my worst small-L m=1 gap. The r5 AoS fft128 codelet stays
+gated off; this got the pass-count win WITHOUT the 32-zmm spill barrier that killed it.
+
+### Change 5 — NT threshold 25 MB -> 16 MB (r5's open question closed)
+
+r5 measured NT at 1024 B=512 (16.8 MB in+out) as a wash in one window and left the
+threshold at 25 MB with a "re-test in a cleaner window" note. Re-tested twice this round:
+NT won EVERY interleaved pair across both windows (window 1: 1.72-1.92 vs 1.78-2.27, up
+to -15%; window 2, busier: 1.85-2.02 vs 1.88-2.05, -0.5..-1.5%) and cuts the sd tenfold
+(0.03-0.13% vs 0.11-7.9%). Under median-of-9 scoring the variance cut is itself score.
+Mechanism: on a shared 24 MB L3 the output RFO reads are waste well below nominal capacity.
+
+### What did NOT work, with the number that killed it
+
+- Software prefetch of the next transform's input in execute (my own r4 next-round item):
+  T1-prefetch the full 16L bytes up front per transform. LOSS everywhere it fires:
+  1024 B=512 2.03 -> 2.29 (+13%), 4096 B=256 11.0 -> 13.3 (+20%), 16384 B=64 50 -> 56
+  (+12%), 128 B=512 wash. The burst competes with the current transform's demand misses
+  and evicts its working set. Ships behind D1_PFNEXT default 0; do not re-derive.
+- 1024 [4,4,8,8f] at B=512: +3.5%, gated out (change 3).
+- (Cross-check of r6's conclusions: 64 B=1 m=1 stands at 0.058-0.060, the codegen story
+  unchanged; not re-attempted per the r6 record.)
+
+### Where the graded cells stand (a80n0 leased core, min us/xf, final binary; old = r6)
+
+    m=1:  32 B1 0.021 (=)      32 B512 0.018 (=)      64 B1 0.058 (=)   64 B512 0.046-0.050 (=)
+          128 B1 0.126-0.129 (0.138)  128 B512 0.163-0.167 (=)
+          1024 B1 1.38 (1.40; fast window 1.21)       1024 B512 1.72-2.02 NT (1.75-2.27)
+          4096 B1 6.97-7.02 (7.32-7.51)               4096 B256 8.93-8.97 (9.19-9.23)
+          16384 B1 34.8-34.9 (wash)                   16384 B64 43.7-43.9 (44.2)
+    ch:   32 B1 0.065  32 B512 0.040  64 B1 0.136  64 B512 0.085  128 B1 0.223-0.235
+          128 B512 0.176-0.201  1024 B1 2.20-2.22  1024 B512 2.47-2.49  4096 B1 9.04-9.11
+          4096 B256 9.79-10.03  16384 B1 59.5-61.2 (window-drifty, wash)  16384 B64 47.6
+
+Wallaby (contended login, min-over-runs, quiet samples): B=1 m=1
+0.024/0.029/0.077/0.845/5.33/25.2 for 32..16384; batched m=1 0.012/0.029/0.102/1.42/
+6.90/32.1; chains B=1 0.062/0.087/0.141/1.36/6.51/31.9; chains batched 0.023/0.047/
+0.111/1.89/6.57/31.8.
+
+### Correctness (final source, all on a80n0)
+
+Single-call rel_l2 <= 3.8e-16 at every supported size 16..65536 x B in {1,3,8} (39
+combos); all 12 graded chain gates PASS at graded (L,B,m) — worst 1.229e-11 at
+1024:1:4000 vs 1e-10 (8.1x margin; the S44-schedule rounding change, see change 3 — all
+other cells' margins statistically identical to r6); odd-batch chains (64:11, 128:9,
+1024:3/12, 4096:3, 16384:3, 32:5) PASS; strict m=2 gates <= 1.6e-15 vs 3e-14 at all 12
+graded shapes; SXR4 output cmp-verified bitwise identical to the tile path; two-run
+outputs bitwise repeatable at every cell tried; official tryout.sh green at
+32/128/1024/16384.
+
+### Borrowed, explicitly
+
+- d1_prime r5: the entire latency-shaped map (change 1), with d1_batchlane r6 and
+  d1_twiddle r6 as the transfer evidence that made it a low-risk first move.
+- d1_twiddle r5: the register-resident fused-pair idea (change 2) — my r4 tile fusion,
+  returned improved, now taken back into the split engine — and their r6 batch-resident
+  gate for fusing at 128 (change 4).
+- d1_prime r3: the /tmp squeue shim, fifth round running.
+
+### Next round
+
+1. The one structural lever left for 1024/4096 B=1 m=1 (~1.15-1.2x real vs MKL) is still
+   split-radix/conjugate-pair butterflies in the radix-8 core — unchanged from r5/r6
+   notes, still a whole-round, gate-risky job. All three pass-count/fusion levers at
+   these sizes are now exhausted (3 passes at 1024/4096, register-fused first pair).
+2. Check the board's 4096 B=1: my binary reads consistently ~12% slower under the scoring
+   harness (8.34 board vs 7.3-7.5 leased in r6) while d1_twiddle's matches its leased
+   numbers. If that persists after this round's SXR4 (-5%), diagnose the harness delta
+   (allocation? core? 512-license residence from the preceding backend's runs?) before
+   spending more structure on it.
+3. 1024 B=512 sits on NT now; if the board still shows >1.1x there, the remaining idea is
+   twiddle's 2-3-pass batched schedule shape (they run [4,16,16] fused at 1.74).
+4. If a scoring seed fails a chain gate: -DD1_FASTMAP_MAX_L=0 (unchanged), and note the
+   1024:1:4000 margin is now 8.1x (was 16x in r6); D1_S44_1024=0 also restores the old
+   margin there.

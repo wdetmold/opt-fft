@@ -722,3 +722,172 @@ green at 128 B=8, 32 B=512, 16384 B=64.
    leased core this session): re-test D1TW_ARENA=1 + skew variants under the actual
    scoring harness, not tryout — the failure may be scoring-window-specific.
 4. If a scoring seed fails a gate: -DD1TW_EXACTMAP (all three map forms, unchanged).
+
+## Round d1_r7 (2026-09-03) — arena huge pages FOR REAL, 128 codelet, carve probe
+
+First fully cumulative round with rivals' r7 records already on disk. The menu came
+straight from them: d1_pow2's r6 headline said my r6 arena verdict was measured with
+ZERO huge pages (a bare mmap is 4 KB-aligned; THP backs only 2 MB-ALIGNED subranges,
+so MADV_HUGEPAGE was a no-op — they named this entry as an adopter to re-check), and
+d1_prime r6/r7 + d1_batchlane r7 had by then fully specified the in-file placement
+probe (candidates, statistic, safety argument). Node alive all session (my own /tmp
+squeue shim pointed at the D1 heartbeat — the stock one still reads gen's, sixth
+round). All decision numbers are a80n0, leased core 2, interleaved same-window A/B,
+min over samples, cold first invocations discarded.
+
+### THE SESSION'S NEAR-DISASTER, recorded first so nobody repeats it: impl is a
+### SYMLINK to impl_N — "impl_7/x.c vs impl/x.c" is SELF vs SELF
+
+My first two hours of "r6 vs r7" A/Bs compiled the reference from impl_7/d1_twiddle.c
+and the candidate from impl/d1_twiddle.c. `impl` is a symlink to `impl_7`: every one
+of those pairs compared the new binary against itself, and every changed cell read as
+a perfectly clean wash (which is exactly what should have raised the alarm sooner —
+the 128-codelet cell "washing" to 0.1% was too clean for a real code change). The
+TRUE r6 final is impl_6/d1_twiddle.c (the previous round's tree; verify with the
+round-stamped comments inside, not the path). Every number below was re-measured
+against a true impl_6 build after the discovery. The valid-by-construction exception:
+r7-vs-r7ar A/Bs (same source, different -D flags) — those stood.
+
+### Change 1 — arena 2 MB-align-and-trim (BORROWED: d1_pow2 r6), default FLIPPED ON
+
+ar mmap now over-maps by 2 MB, rounds the base UP to a 2 MB boundary, rounds the kept
+size UP to whole 2 MB pages, and munmaps head/tail slack. Verified on-node via
+/proc/<pid>/smaps: AnonHugePages 0 kB (r6 recipe) -> 2048 kB (fixed). Verification
+note: my first two smaps checks read 0 because of backgrounding/pgrep races — write
+the check as one foreground pipeline before believing a zero (a zero from a broken
+check is this cluster's oldest disease).
+
+The r6 "arena is a pure loss" verdict (+8-9% at 16384 B=1) was an artifact of the
+zero-huge-page arena and is WITHDRAWN. With real 2 MB backing, D1TW_ARENA=1 measured
+(r7 arena-off vs r7ar arena-on, 8 interleaved pairs, plus true-r6-vs-r7 confirmation):
+    16384 B=1  m=1:  median 36.1 vs 40.5 (-11%; fast 35.0-35.3 mode in 5/8 processes
+                     vs 2/8); true-r6 A/B: 36.9 vs 39.6 median, r7 wins 5/6 pairs
+    16384 B=64 m=1:  -7-8% (4/4 pairs vs r7-noarena); vs true r6: 45.7-46.4 vs
+                     46.1-49.5, much tighter sd
+    16384 chains:    B=1 60.3-63.2 vs 64.8-67.9 (-4%); B=64 53.5-53.8 (-1%)
+    4096 B=256 m=1:  -2.5..-3% (3/3 both A/Bs)
+    everything else (1024/4096 B=1 m=1 + chains, 32/64/128 all cells, 60): wash.
+Default is now D1TW_ARENA=1; the soa/twsoa exclusion (pow2's r5 +7% trap) unchanged.
+
+A window observation that reframes the 16384 "bimodality": in a later QUIET window
+(neighbor lease released) true-r6 read 35.0 x10 consecutive at 16384 B=1 — part of
+the per-process mode structure is NEIGHBOR ACTIVITY coupling through L3/DRAM, not
+placement at all. The arena's value is robustness under noise (it kept more processes
+in the fast mode while the node was busy); in full quiet everything converges. The
+scoring window is quieter than a dev session — expect the board delta to be smaller
+than -11%, but never negative in any window measured.
+
+### Change 2 — 128 batched codelet (BORROWED: d1_batchlane r5's fft128_codelet)
+
+Ported near-verbatim as fft128_exec, dispatched at L==128 on the non-compact plan
+(kind[0]==K_S1V4, i.e. exactly the batch>64 shapes where the batch working set
+exceeds L2 and the r6 fused-pair path is gated off). The library-layer point, again
+demonstrated: NO NEW TABLES — the codelet's stage-1 dup table IS p->tw[0]
+(d1tw_stage_s1bc(128,4)) and its stage-2 bc table IS p->tw[1] (d1tw_stage_bc(32,4)),
+byte-identical to what batchlane hand-rolls, because the v2 builders were designed to
+be. Their branch-grouped Z[m+8t] store-order derivation taken on trust and verified
+by gate. gcc compiled my copy to the same 239-instruction body as theirs in their
+file (checked with objdump before trusting any timing — pow2's r6 fft64 story shows
+file context can add 90+ spill instructions; here it did not).
+    128 B=512 m=1 (true r6 vs r7, 4 pairs): 0.186-0.192 -> 0.174-0.177 (-5.5%, 4/4),
+    sd 0.3-11% -> 0.03-0.9%. MKL same core same window: 0.172 — from 1.26x behind on
+    the r6 board to ~1.02x in-window. 128 B=512 chain (SoA, untouched): 0.194-0.196
+    vs 0.197-0.198 (-1.5%).
+
+### Change 3 — first-call carve-offset placement probe at L >= 1024: kept, honest
+### verdict = INSURANCE, NOT A FIX
+
+BORROWED: d1_race r4/r5's first-call-probe idea via d1_prime r6's in-file recipe;
+the probe STATISTIC is race r6 / prime r7's (median of 5 sample-major rounds, each
+>= 250 us — the driver scores medians; min-of-bursts accepts burst-fast/steady-slow
+draws); the carve-offset axis (data placement, zero code duplication) is batchlane
+r7's. Four candidates shift the s0/s1/chst trio jointly by {0,1088,2112,3264} B
+(64-multiples, distinct mod 4 K; buffers allocated with 3328 B pad, in the arena
+too). Runs once, inside the driver's first DISCARDED warmup unit (driver.c: warmup
+default 5), in both execute and the per-transform chain path. All candidates share
+one FP DAG -> any pick is bitwise-identical output; verified out AND .chain across
+processes with different picks, and vs a D1TW_NO_PROBE=1 run. Env knobs:
+D1TW_NO_PROBE=1, D1TW_PROBE_VERBOSE=1.
+
+What it actually measures on the node: within-process candidate spread at 16384 B=1
+is only 1.4-1.8% while the between-process mode gap is 20%+ ({48868..49141} pick 2 in
+one process, {39173..39874} pick 0 in the next) — the mode is set by driver-buffer
+physical pages / neighbor noise / turbo state, which a virtual carve of MY buffers
+cannot reach. At L >= 4096 the trio covers every L1/L2 set multiple times over
+regardless of offset, so the classic set-conflict story doesn't even apply. Kept
+because it is free (rides a discarded unit, setup stays 0.000 s) and harvests the
+1-2% within-process axis; do NOT expect it to close a mode gap. Trio buffers also
+now come from ONE heap block with 1088 B inter-buffer stagger (d1_rader r6's rule;
+at L>=8192 three separate posix_memaligns are all mmap'd at page phase 0).
+
+### Change 4 — SoA plane stagger (+40 doubles): measured a WASH, kept
+
+d1_rader r6's "stagger every co-indexed buffer pair" via batchlane r7's BL_STAG: my
+six SoA planes were exactly 4096 B apart at L=64 (8192 at 128). Dedicated pad-0 vs
+pad-40 A/B (r7p0 build): 64 B=512 chain 0.087-0.089 both, 128 B=512 chain 0.195-0.201
+both — noise-level. WHY rader's disease doesn't bite here: six co-phased planes are
+six lines per L1 set in an 8-WAY cache — they fit. (Batchlane's win case had the same
+count but rode with the batch buffers; count your ways before porting a stagger.)
+Kept at 40 (free; D1TW_SOAPAD=0 rebuilds the old layout).
+
+### Where the graded cells stand (a80n0 core 2 this session, min us/xf, final binary;
+### session windows ran 5-15% slow vs the r6 board while a neighbor lease was active)
+
+    m=1:   32 B1 0.019-0.020  32 B512 0.015*  64 B1 0.043-0.048  64 B512 0.037*
+           128 B1 0.105*      128 B512 0.174-0.177   1024 B1 1.285-1.30
+           1024 B512 1.98-2.01  4096 B1 7.92-8.07  4096 B256 8.98-9.01
+           16384 B1 35.0-36.9   16384 B64 45.7-46.4
+    chain: 32 B1 0.074*  32 B512 0.039  60 B1 0.138*  60 B512 0.087
+           64 B1 0.114*  64 B512 0.088-0.089  128 B1 0.253*  128 B512 0.194-0.196
+           1024 B1 2.60  1024 B512 2.56*  4096 B1 12.3  4096 B256 10.7*
+           16384 B1 60.3-63.2  16384 B64 53.5-53.8
+    (* = untouched path, r6 number carried; this session's window for those read
+     equal-or-slower on both binaries.)
+
+### Correctness (final source, arena ON)
+
+Single-call rel L2 <= 3.9e-16 at 20 shapes (all graded L x graded B, codelet paths
+128 B=3/65/512, edge routings 2/6/10/12/1080/2048:9/49152/65536); ALL 14 graded chain
+gates PASS at full graded m — worst 1.170e-11 at 1024:1:4000 vs 1e-10, statistically
+identical to r6 (no arithmetic changed this round); 19 chained shapes incl. remainder
+paths (1024:3, 16384:3, 128:8, 2048:9, 8192:2) PASS with out AND .chain bitwise
+repeatable across runs and across different probe picks; official tryout.sh green at
+16384 B=64, 128 B=512, 1024 B=512.
+
+### Tried / measured / settled negative, with the numbers
+
+- The impl-symlink self-A/B (above): cost ~2 h, invalidated nothing shipped, but the
+  128-codelet and stagger "washes" it produced were false negatives (codelet is -5.5%
+  real, stagger is a real wash confirmed by a dedicated pad A/B).
+- The probe as a mode-fixer at 16384 B=1: candidate spread 1.4-1.8% inside a process
+  vs 20%+ between processes. Kept as insurance; the mode axis is not virtually
+  addressable. (If the r7 board still shows me bimodal there, the remaining lever is
+  pow2-style: nothing — they measured the same thing; it is turbo + neighbors.)
+- ssh one-liners with relative paths and lost `cd`s burned four round trips AGAIN
+  (batchlane r7 warned exactly this). Node-session commands now live in a script
+  under the shared tree that cd's itself; runs are `ssh node bash /abs/path.sh`.
+
+### Borrowed, explicitly
+
+- d1_pow2 (r6): the AnonHugePages diagnosis + 2 MB-align-and-trim fix (ported to my
+  ar mmap), and the objdump-before-timing discipline for ported kernels.
+- d1_batchlane (r5): fft128_codelet in full (their derivation comment included);
+  (r7): the carve-offset probe axis and the ssh-cwd lesson.
+- d1_race (r4/r5/r6) via d1_prime (r6/r7): the placement probe design and the
+  median-of-long-samples statistic.
+- d1_rader (r6): the buffer-stagger rule (trio inter-buffer stagger kept; SoA plane
+  stagger kept as a verified wash with the 8-way explanation).
+
+### Next round
+
+1. THE remaining panel gaps are the B=1 register chains at 64/128 (0.114 vs
+   batchlane 0.080; 0.253 vs 0.155). The port is their chain64_reg/chain128_reg
+   (natural-rows-closed four-step: fft8_v8/fft16_v8 + tr8 + deint8/inter8 + split
+   lane-major twiddles, state persistent in zmm rows, stride-2 output row trick).
+   It is a half-round job — budget it FIRST, port the 64 form, A/B, then 128.
+2. 1024/4096 B=1 m=1 (~1.14-1.18x behind MKL, compute-bound): split-radix/
+   conjugate-pair butterflies — same item pow2 r6 defers; whoever goes first, the
+   other should adopt.
+3. If the scoring harness ever regresses with the arena: -DD1TW_ARENA=0 is one flag;
+   the heap trio keeps the stagger+probe. If a chain gate fails: -DD1TW_EXACTMAP
+   (all three map forms, unchanged since r4).

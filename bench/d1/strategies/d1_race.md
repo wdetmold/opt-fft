@@ -788,3 +788,140 @@ path.
    the (L,B) exec verdict today; the loop-c0 chain already re-keys, exec does
    not).
 4. Wisdom-strip protocol and stale build/race1d .so cleanup: still open.
+
+## Round d1_r7 (2026-09-03)
+
+### Context: grading is SHARDED across two nodes, and the arbitration was unfair
+r6 next-round item 1, done first — and it needed BOTH wisdom files, because the
+round taught me something structural I had missed: sweep.sh shards the cases
+across two grading nodes (a80n0 + a81n2, per-host wisdom each), so a cell's
+single and chained variants can land on different nodes.  Six a80n0 exec
+verdicts had a stored /r2 runner and NO /xc marker — not a bug: their single
+variants were graded on a81n2, where the /xc exists.  (Corollary that stays
+true: a node that only ever grades the CHAINED variant of an (L,B) can never
+arbitrate its exec verdict, because exec arbitration in chain-first processes
+is forbidden by the repeatability design.  Shard-dependent, not fixable from
+inside my binary; noted for the monitor.)
+
+With the a81n2 file in hand, the r6 leaderboard decomposed into three real
+failure modes:
+1. **The arbitration was UNFAIR to the runner.**  The winner gets a full
+   wisdom-referenced placement probe; r6 gave the runner one blind redraw.
+   a81n2 L=60 B=1: xc=keep composite — driver medians had batchlane (the
+   stored runner, race margin 3.4%) at 0.0422 vs shipped 0.0489, 14% lost.
+   Same shape at 16384 B=64 (kept twiddle 50.1, pow2 44.2) and 10007 B=1
+   (kept bluestein, planner 20% faster standalone).  And the one r6 chain
+   FLIP (a81n2 4096 B=256) went the WRONG way — flipped to the arm whose
+   single instance drew lucky (driver medians 6% the other way).  r6
+   next-round item 1 predicted exactly this repair.
+2. **The probe statistic still wasn't the driver's.**  My 250 us samples vs
+   the driver's --min-sample-ms 20: on a81n2 the L=60 B=1 pref (0.0592, five
+   250 us early-process bursts) and the driver's median from the SAME
+   process (0.0489) disagree by 20%.  Every close verdict inherited that
+   error bar.
+3. **Instance recovery failed in most processes at memory-bound cells.**
+   10007 B=1 shipped a 138 us MEDIAN over a proven-reachable 111 us ref
+   (best run 109); 16384 B=64 median 50 vs ref 40 us/xf.  Eight draws per
+   process, all in the same allocator mode, all missing a bar another
+   process had reached — the draws were re-rolling ADDRESSES, never the
+   allocation MODE.
+
+### What changed (impl/d1_race.c)
+**1. Fair arbitration (fixes #1).**  d1r_xcheck_measure is now a full
+d1r_probe of the runner toward the runner's OWN per-cell ref (pref.r3 /
+cref.r3.m<mp> / crefL.r3.m<mp>) — data draws, allocator modes, alt text
+mappings, identical statistic — instead of one measurement plus one blind
+redraw.  Best-instance vs best-instance is the only comparison that predicts
+the driver's cross-backend medians.  The probe also persists the runner's
+ref, so a later flip-back starts from a proven bar.  Flip hysteresis stays
+5%; cost is bounded by the probe's own 6 s deadline and the >150 ms
+expensive-create brake, paid once per (cell, roster).
+**2. Probe samples are the driver's samples (fixes #2).**  One timed probe
+sample now aggregates >= 20 ms (D1R_PROBE_SAMPLE_US = the driver's
+--min-sample-ms 20; reps cap raised 8192 -> 2^20 so tiny L actually reaches
+it), median of 5.  Measured on wallaby: probe median vs the same process's
+driver median now agrees to ~2-3% at 10007 B=1 (64.4-65.6 vs 65.2-67.7) and
+16384 B=64 (29.0 vs 30.0 us/xf), where r6's own refs sat 20% off at small L.
+**3. Allocation-MODE draws (fixes #3).**  Probe draws now cycle glibc
+M_MMAP_THRESHOLD through {32M, 128K, 2M, 8M} before each re-create (restored
+after), so an arm's mid-sized scratch re-rolls between the sbrk arena and
+dedicated mmaps — page-table locality, THP eligibility and conflict phase vs
+the driver's pre-allocated buffers all differ, and heap spacers can never
+cross that boundary.  Draw budget raised: 8 data draws under a ref (was 6),
+3 alt text mappings (was 2); dl_extra parking 6 -> 10 (alt-open degrades
+safely to "stop drawing" when full).
+**4. Salts** exe.r6->exe.r7, chn.r5->chn.r6, refs pref.r2->pref.r3,
+cref.r2->cref.r3, crefL.r2->crefL.r3 (the statistic changed, so r6 refs are
+not comparable bars).  Op count: unchanged — this entry ships whatever the
+fastest gated sibling ships.
+
+### Measured (wallaby SPR 6448Y, nice'd core 100, load ~0.3; Ice Lake
+reservation job 440424 dead again — machinery checks only, the node re-races
+fresh).  All tested cells PASS check.py (rel L2 1.2e-16 … 1.4e-15, tol
+1e-12); chained cells PASS the map-chain gate; bitwise repeatability at
+13 / 60 / 32-chain / 16384 B=64 / 65537 B=16 / 100003-chain.
+
+| cell | r7 wallaby | r6 wallaby | notes |
+|---|---|---|---|
+| 13 B=1 | 0.009 | 0.009-0.016 | probe cost at tiny L: 0.58 s whole run |
+| 32 B=512 m=1000 chain | 0.022 | 0.022 | chain xcheck ran fair, keep |
+| 60 B=1 | 0.028-0.030 | — | live FLIP composite->planner on run 1 (9%); run 2 re-raced under churned sig, arbitrated fresh, outputs bitwise identical |
+| 10007 B=1 | 65.2-67.7 x3 procs, sd <=0.7% | 66.9-67.6 | ref hit or 1 replace every proc |
+| 16384 B=64 | 29.5-30.0 x3 | 32.06 | probe median = driver median +-3% |
+| 65537 B=16 | 587-590 | 584-592 | probe -3% replace, ref hit run 2 |
+| 100003 B=8 m=15 chain | 1675-1683 | 1667 | chain probe -17% replace run 1 |
+
+The headline live-fire result: at L=60 B=1 the cold race picked composite by
+4.3% and the FAIR arbitration flipped to planner (0.0298 vs 0.0326 probed
+medians) — the exact r6-failure shape (thin-margin verdict, runner better on
+the score statistic), caught by the mechanism built for it, with the flip
+persisted and run 2 consistent.
+
+### What did not work / lessons, with the number
+- **Two attempts at a forced chain-flip test were orphaned by sibling churn
+  before the binary could read the doctored key** (pow2's hash changed twice
+  in ~3 minutes; each new exec winner re-keys the chain sig via the loop-c0
+  name).  And the chosen cell was doomed anyway: batchlane-vs-twiddle at
+  32 B=512 probe 2.2% apart, below the 5% flip hysteresis.  Accepted
+  coverage: the flip DECISION code is r6's (verified by r6's forced test and
+  a81n2's live 4096 B=256 flip); this round changed only the measurement
+  feeding it, which every keep-path run exercised; and the exec flip fired
+  live at L=60.  Lesson: under live churn, doctored-wisdom tests must target
+  wide-margin cells and run within seconds of the doctoring.
+- **A NO_PROBE run read 0.043 us/xf where the probed path ships 0.022** at
+  the 32 B=512 chain — that is the un-recovered create-time instance plus my
+  doctored verdict, i.e. exactly what disabling the probe means; not a bug.
+- gr_wisdom files now carry six generations of dead salts (chn.r1.* etc.,
+  ~60% of the file); harmless but the strip protocol (open since r2) is
+  overdue.
+
+### Borrowed, explicitly
+- The whole round continues the r3-r6 program: import the driver's scoring
+  protocol one level deeper.  r7 completes it — SAME statistic (20 ms-sample
+  medians), SAME treatment for both arms of every arbitration.
+- The sharding discovery came from reading BOTH nodes' wisdom files against
+  the leaderboard (extending my own r3 recommendation: read the scoring
+  node's wisdom — plural, now).
+- M_MMAP_THRESHOLD cycling is new here; the diagnosis (same-mode draws
+  cannot reach another process's ref) is r6's median-vs-ref gap data.
+
+### Next round
+1. Read both nodes' pref.r3/xc entries vs the r7 leaderboard: (a) did the
+   fair arbitration flip L=60 B=1 / 16384 B=64 / 10007 B=1 to the arms the
+   driver medians favor, and did the flips land at ~1.0x of the new arm's
+   standalone median?  (b) did the mmap-mode draws close the median-over-ref
+   gaps (10007 B=1 was 138-over-111)?  If medians still sit over reachable
+   refs, the next lever is madvise(MADV_HUGEPAGE)-style hints, which need
+   the arm's cooperation — talk to owners.
+2. The steady L=128 B=1 chain gap (shipped batchlane native chain 0.1719 vs
+   its standalone 0.1537, 3% spread — steady, so not placement) is the last
+   .so-vs-binary structural suspect.  Propose to the monitor a one-off A/B:
+   my binary vs a static-link harness of the same arm source on the node.
+   -fno-semantic-interposition (r6) did not close it.
+3. Exec verdicts on a chain-only shard never arbitrate (see context).  If
+   the r7 shard split leaves a lagging exec cell in that state, consider
+   letting the SINGLE-cell process of the OTHER node's shard... it cannot —
+   different wisdom file.  Only the monitor can co-locate a cell's two
+   variants on one shard; mention it.
+4. Wisdom-strip protocol and stale build/race1d .so cleanup: still open,
+   now also bloating every read-modify-write of the wisdom file.

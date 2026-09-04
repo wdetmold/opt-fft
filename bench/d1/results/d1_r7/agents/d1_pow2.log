@@ -1,0 +1,13 @@
+Round d1_r7 complete. Both leases in the directory belong to other active implementers (d1_rader, d1_planner) — mine released cleanly. Only my two permitted files were modified.
+
+**Summary of what shipped this round** (all A/B'd on the a80n0 scoring node, leased core, interleaved same-window):
+
+1. **d1_prime r5's latency-shaped map** adopted in both my map forms (early-seeded reciprocal, Goldschmidt sqrt, additive floor): −4…−9% on every graded chained cell, gate margins unchanged.
+2. **Register-resident fused first pair (ST_SXR4)** — d1_twiddle r5's improvement of my own r4 tile fusion, taken back: 4096 B=1 7.4→6.97 µs (−5%), 4096 B=256 −3%, bitwise-identical output.
+3. **1024 and 128 rescheduled 4·4·8ᵃ·8-final** when the batch is cache-resident so the register fusion applies there too: two-pass 128 (B=1 m=1 0.138→0.127, chain −12%), 1024 B=1 −1.5%. Batch-gated (the same schedule lost 3.5% at B=512).
+4. **NT-store threshold 25→16 MB**, closing r5's open question: 1024 B=512 NT won all 8 interleaved pairs across two windows (up to −15%) with 10× lower spread.
+5. **Negative result recorded**: next-transform input prefetch (my r4 idea) is a loss everywhere it fires (+12…+20% on big batched cells); ships default-off.
+
+Correctness: 39 size/batch single-call combos, all 12 graded chain gates, 12 strict m=2 gates, and 7 odd-batch chains all pass; worst gate 1.23e-11 vs the 1e-10 floor (a knowingly accepted margin halving at 1024:1:4000 from the schedule change, documented with the revert flag).
+
+**Final line:** Latency-shaped map (d1_prime) + register-fused first-stage pair (ST_SXR4, via d1_twiddle) + two-pass 128 + NT at ≥16 MB — wallaby B=1: 0.024/0.029/0.077/0.85/5.33/25.2 µs for L=32/64/128/1024/4096/16384, batched: 0.012/0.029/0.102/1.42/6.90/32.1 µs — rel L2 ≤ 3.8e-16 (worst chain gate 1.2e-11 vs 1e-10).

@@ -552,3 +552,130 @@ self-test all-ok at plain -O2 (including 1020/1021/1024/2048/2053). Setup <= 0.0
    conv, or bluestein's next-round row ideas.
 5. 1024 B=512 (2.4 vs d1_twiddle 1.74) — SoA execute; and 1021 st17 rework stays
    closed (d1_rader's r5 op-count verdict).
+
+## Round d1_r7 (2026-09-03) — fuse the chain map into the final stage; tile exits make 4096/16384 3-pass; Goldschmidt map; the arena finally gets huge pages
+
+### Where r6 stood, read off the leaderboard
+Wins/ties at 1021 B=1, 1021 B=256 chain, 1024 B=512 chain, 10007 B=1, 10007 B=64
+chain, 65537 B=16. Biggest losses: the small batched chains (60 B=512 chain 2.68x,
+128 B=1 chain 2.13x, 32 B=512 chain 2.05x, 64 B=512 chain 1.81x), the pow2 block
+(16384 B=1 1.57x, 128 cells 1.4-1.5x, 4096 1.33-1.41x, 1024 B=1 1.68x), 100003
+(1.22-1.38x, d1_bluestein/race's AC engine), 65537 chain B=1 1.20x. The common
+structural waste in every chain cell was ONE full read+write pass per step: the
+elementwise map ran as its own pass over the state. d1_pow2's chains had already
+shown the altitude ("map fused into the final stage in split form"); this round
+builds that into the shared core, plus the r6 next-item tile exits.
+
+### What changed (all in impl/d1_planner.c)
+1. **Chain map fused into every step's FINAL stage.** The last Stockham stage has
+   m=1, unit twiddles, and contiguous outputs at y[q + s*j] — exactly where the
+   elementwise map wants them — so map(z+c) folds into the butterfly store with
+   ZERO shuffles. New kernels st{2,4,5,8}_last_map (split->split) and, for the
+   final chain step, map_int_out (map + ILO/IHI interleave, replacing the scalar
+   sqrt/div output loop). Wired into: the per-vector direct chain (interior steps
+   run stages 0..n-1 + fused last; the final step runs the full FFT + map_int_out
+   — one extra pass on 1 of m steps), the lane chain (all steps fused), the
+   RADER conv-order chain via **st4_last_map_rader** (the inverse's last radix-4
+   butterfly on the engine's swapped planes + x0 + c + map in one pass; the
+   map_rader_state pass is gone), and the BLUESTEIN chain via **map_chirp_split**
+   (c pre-split once per transform — the r3 "needs a pre-split c" deferral — so
+   map + chirp-premultiply runs 8-wide divider-free). PLN_NOFM=1 restores r6.
+2. **Tile exits st{16,64}_last_int(+NT flag)/(_map for chains): 4096=[4,64,16] and
+   16384=[4,64,64] now run THREE passes** (fused deint entry, paired-p s=4 tile,
+   tile exit with interleave/NT/map folded in). r6's radix-4 tails existed only to
+   host the old fused exits; the conv rows (65536/20480/204800) keep their 2/4
+   tails because the Rader/Bluestein mid+exit fusions require them. PLN_SCHED=2
+   restores the r6 rows.
+3. **Lane chains get 2-pass chain-only schedules**: a second core_plan (lcore)
+   with 64=[8,8], 128=[16,8] used ONLY by the lane chain (execute keeps radix-4
+   entry for the fused deinterleave, which the chain never needs; st16 at s=8
+   runs the full-lane tile block). The 60 and 64 batched chains now go through
+   the fused lane path (60 needed the new st5_last_map; PFA fft60_chain keeps
+   B<8 and odd tails). PLN_LC=0 / PLN_60L=0 / PLN_64L=0 for A/B.
+4. **Goldschmidt + early-seeded-rcp map — ADOPTED FROM d1_prime (r5, offered to
+   the panel) via d1_batchlane (r6 map_scale_fast, near-verbatim)** as the shared
+   map_q8: Goldschmidt sqrt (fnmadd->fma, 8 cy/iter), reciprocal seed off the RAW
+   rsqrt14 estimate so the rcp Newton chain overlaps the sqrt refinement,
+   ADDITIVE 1e-100 floor inside the m2 FMA. Replaces the r3 2NR+residual form in
+   map8_split/map_sc8/pw_map_vec/fft60_chain (residuals re-confirmed noise:
+   worst gate 1024:1:4000 reads 4.4-5.6e-12 vs r6's 6.2e-12 — statistically the
+   same).
+5. **Arena rounded to whole 2MB pages + pre-faulted — d1_pow2's r6 THP finding,
+   verified here**: the r3-r6 arena got AnonHugePages = 0 kB at 16384 (whole
+   arena < 2MB) and only partial backing at 65537/100003; after the fix every
+   arena is fully huge-page-backed (16384: 2048 kB, 100003: 26 MB). The set-skew
+   constants finally act on physical set indexing, as the arena's own comment
+   always claimed. Setup unchanged (<= 0.061 s at 100003).
+
+### Measured (a80n0 leased core 4, same-window INTERLEAVED A/B vs the r6 binary
+### (bin_r6); min over 3-4 samples x 2-3 reps; window drifted, ratios trusted)
+| cell | r6 bin | r7 | | cell | r6 bin | r7 |
+|---|---:|---:|---|---|---:|---:|
+| 4096 B=1 | 9.1-9.3 | **8.5-8.9** | | 4096 B=256 | 10.1-10.9 | **8.7-9.5** |
+| 4096 ch B=1 | 13.7 | **10.1-10.3** | | 4096 ch B=256 | 12.2-12.4 | **8.7-9.0** |
+| 16384 B=1 | 41.3-42.5 | **38.1-40.6** | | 16384 B=64 | 45.6-50.3 | **37.4-38.7** |
+| 16384 ch B=1 | 54.2-54.5 | **42.8-43.4** | | 16384 ch B=64 | 55.0-57.6 | **46.2-47.6** |
+| 1024 ch B=1 | 2.68-2.69 | **1.98-2.35** | | 1024 B=512 | 2.10-2.16 | 2.11-2.12 |
+| 32 ch B=1 | 0.070 | **0.066** | | 32 ch B=512 | 0.077-0.078 | **0.050-0.052** |
+| 60 ch B=1 | 0.129 | **0.124** | | 60 ch B=512 | 0.147 | **0.111-0.113** |
+| 64 ch B=1 | 0.117 | **0.113** | | 64 ch B=512 | 0.134 | **0.095-0.105** |
+| 128 ch B=1 | 0.292 | **0.197-0.199** | | 128 ch B=512 | 0.287-0.310 | **0.163-0.175** |
+| 13 ch B=512 | 0.016 | **0.015** | | 31 ch B=512 | 0.048-0.049 | **0.046** |
+| 1021 ch B=1 | 6.59-6.62 | **6.31-6.32** | | 1021 ch B=256 | 6.63-6.66 | **6.30-6.45** |
+| 10007 ch B=1 | 123.5-125.4 | **119.7-120.5** | | 10007 ch B=64 | 123.7-125.3 | **120.8-121.1** |
+| 65537 ch B=1 | 717-763 | **712-714** | | 65537 ch B=16 | 748-755 | **697-699** |
+| 100003 (all 4) | -- | flat | | 65537/1021/1024 B=1 m=1 | -- | wash |
+Chain-cell breakdown of the 60/64/128 batched wins: fused lane path beat the new
+Goldschmidt-only baselines too (60: lane 0.111-0.113 vs PFA-chain 0.123-0.140;
+64: lcore [8,8] 0.095-0.105 vs 3-pass lane 0.117 vs codelet 0.134 — r2's "64
+stays on the codelet" verdict was about the UNFUSED lane loop; 128: lcore [16,8]
+0.163-0.175 vs 3-pass 0.207-0.228). If the window's numbers hold on the board,
+128 B=512 chain (pow2 won r6 at 0.187) and 16384 B=64 (pow2 44.2) should flip.
+
+### Correctness (final binary, on the node)
+Every graded cell exercised PASSES check.py vs numpy (worst single-call rel_l2
+1.24e-15 at 65537, tol 1e-12); every graded chain gate PASSES with >= 1.3 decades
+(worst 1024:1:4000 at 4.4-5.6e-12 vs 1e-10, statistically unchanged from r6);
+odd-batch chains 60:9, 64:11, 128:3, 32:19, 1024:3, 16384:3 PASS through the new
+lane/tail/fused paths; outputs bitwise repeatable across runs at every cell
+checked; PLANNER_TEST self-test all-ok at plain -O2 (n=1153 exercises
+st4_last_map_rader, B=19 chains exercise the fused lane paths). Setup <= 0.061 s.
+
+### What did NOT work, with the numbers that killed it
+- **1024 = [4,16,16]** (3-pass with tile exit): B=1 wash-to-slightly-better
+  (1.57-1.62 vs 1.62-1.65), B=512 REGRESSES (2.12-2.63 vs 2.12-2.36), chain wash.
+  Dropped — d1_bluestein's "L2-resident 1024 gains nothing from a tile stage"
+  verdict holds for the 16-tile as much as r6 found for the 64-tile.
+- 100003 chains are FLAT under all of this: the M=204800 conv is DRAM-bound and
+  the map pass was never its bottleneck. The 1.2-1.4x gap to d1_bluestein/race
+  remains their Agarwal-Cooley 2D architecture, unchanged since r5.
+- Honest scope note: 65537 B=1 m=1 execute read ~1000 us in the final window vs
+  one stray r6 read of 771 — that is the known AVX-512 turbo bimodality
+  (d1_pow2 r6), not a regression; interleaved reps read wash all session.
+
+### Borrowed (named, per the rule)
+- **d1_prime r5 via d1_batchlane r6**: the Goldschmidt + early-seeded-rcp +
+  additive-floor map, near-verbatim (their map_scale_fast -> my map_q8).
+- **d1_pow2 r6**: the THP 2MB-alignment/size finding (their "check your own
+  AnonHugePages" was aimed at this file — measured 0, fixed as they prescribed);
+  the fuse-map-into-final-stage altitude comes from their chain design (r1-r5).
+- **d1_rader r3/r5** (carried): the tile layer bodies reused verbatim inside
+  st{16,64}_last_*; d1_prime r3: the /tmp squeue-shim recipe, again (the wallaby
+  shim still reads bench/gen's heartbeat; reserve.sh --status still lies).
+- Everything in the r2-r6 lists carries forward.
+
+### For next round, in priority order
+1. **100003 / 65537 batched: d1_bluestein's Agarwal-Cooley 2D engine** — the one
+   structural gap left (their 2219 B=1 vs my ~2660); their ac_* runs these same
+   split kernels and remains liftable wholesale. Two rounds deferred; it is the
+   largest single remaining prize.
+2. **16384/4096 B=1 vs d1_pow2 (33.9/7.3)**: I am 3-pass now; the rest of their
+   lead is the SX fused first-stage PAIR (entry+s4 through an L1 tile = 2
+   passes). A st4+st64_s4 fused entry tile is the natural next kernel.
+3. **Small batched chains vs d1_batchlane** (32: 0.050 vs 0.033; 64: 0.095 vs
+   0.065; 60: 0.111 vs ~0.055): my lane steps are now 2 passes + transposes;
+   their L1-blocked register-row steps are 1-ish. Port their row engine or stop.
+4. 65537 chain B=1 (712 vs rader 680): their 7-pass mid-fused chain vs my 7 +
+   entry-rev; profile whether st4_first_rev can fuse INTO the forward s=4 stage.
+5. Env knobs for whoever lifts this: PLN_SCHED=0/2, PLN_NOFM, PLN_LC, PLN_60L,
+   PLN_64L, PLN_NONT.

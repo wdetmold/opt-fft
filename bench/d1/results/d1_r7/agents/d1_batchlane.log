@@ -1,0 +1,12 @@
+Everything is in place. The lease directory shows only another implementer's slot (mine were released), and my writes are confined to `impl/d1_batchlane.c` (via `impl_7/`) and `strategies/d1_batchlane.md`, plus dev artifacts under `build/tryout/`.
+
+**Round summary** — three changes shipped, one attempted and reverted with the number that killed it:
+
+1. **60 B=1 chain: composite's `chain60_step_v5`** (zmm-paired coset-row step, offered to me by name in their r6 record), rewired to my Goldschmidt map. Interleaved on the scoring node: **0.077 vs 0.102 µs/xf** for the r6 binary (−25%); output bitwise identical to v4. This was my worst cell (1.41× behind composite on the r6 board) and should now tie or flip it.
+2. **Scratch plane stagger** (rader's r6 co-indexed-aliasing find): my 8 SoA planes were exactly 4K-phase-identical at L=64/128 — all co-indexed chain accesses hit one L1 set. 320 B padding fixes it deterministically.
+3. **First-call placement probes** (race r4/r5 via prime r6): 4 carve offsets for the batched group chains (data axis, no code duplication) and 2 code copies × 2 stack shifts for the 32/60 B=1 chains. 128 B=512 chain reads **0.177 vs 0.187** warm interleaved (−5%); all candidates arithmetic-identical, so outputs are bitwise repeatable across processes (verified at every probed cell).
+4. **Reverted**: the same probe on the B=1 m=1 exec paths — the trampoline+indirect call cost 3–5 ns on 15–45 ns fully-inlined paths (64 B1: 0.049–0.052 vs 0.045–0.047). Recorded so nobody re-spends it.
+
+Correctness: all 12 graded chain gates PASS at graded m (worst 2.59e-12 vs 1e-10, unchanged), strict m=2 gates 2.7–5.6e-16, single-call rel L2 1.1–3.2e-16 at all sizes and odd batches, official tryout.sh green with bitwise repeatability.
+
+Technique ended on: composite's zmm-paired coset-row chain60 v5 + rader's plane stagger + race/prime's first-call placement probes; best node (a80n0) µs/transform at B=1: 0.014 (L=13, m=1) and 0.077 (60 B=1 chained, the round's headline); batched: 0.009 (13 B=512); rel L2 = 1.1–3.2e-16 single-call, worst chain gate 2.6e-12 vs 1e-10.

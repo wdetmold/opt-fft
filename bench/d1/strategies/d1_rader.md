@@ -768,3 +768,195 @@ output bit-repeatable across runs; setup <= 0.005 s at 65537.
    one M-pass; the twiddle algebra needs working out.
 4. **10007 nested-Rader A/B** (5003-1 = 2*41*61): still untried; only worth
    it if it can beat d1_bluestein's ~110 us — measure the 5003-conv first.
+
+## Round d1_r7 (2026-09-03) — placement is a probe-able variable: adopt the first-call probe, and hugepages fix what the probe cannot see
+
+**Measurement conditions: the a80n0 hold (440424) again read "not running"
+through the wallaby squeue shim while the node-side heartbeat was <30 s old and
+ssh worked — fifth round running, same workaround (tryout.sh's exact pipeline
+manually over ssh, slot_lease slot 1 = core 3, released at session end).
+tryout.sh's chain detection is also still broken for multi-row cases.txt
+(prime's r6 note), so every chained cell ran manually.  The window drifted
+hard mid-session (1021 B=1 chain read 6.9 and 8.1 for the SAME binary twenty
+minutes apart; the 65537 "bad pad" moved between pad values across runs), so
+every decision below is a same-minute interleaved pair, and cross-window
+absolutes are labeled as such.  Wallaby numbers from idle core 100, load 2.
+
+TRAP THAT COST HALF THE SESSION'S A/Bs (recorded so nobody repeats it):
+`impl` is a SYMLINK to the current round's tree (impl -> impl_7), and impl_7
+IS the file being edited.  I built my "r6 reference" from impl_7/d1_rader.c —
+i.e. from my own edited file — and ran a full r6-vs-r7 comparison of the
+binary against itself.  The tell was implausible parity on every cell
+(including cells where the r6 BOARD said 25%).  The true previous-round
+source is impl_6/ (git log confirms it: "Panel round d1_r6 ... curated").
+Every A/B below labeled "true r6" was re-measured against impl_6 after the
+mistake was caught; the hugepage A/Bs were unaffected (those compared build
+variants of the r7 file itself).**
+
+### The r6 premise, continued: my kernels' best already wins; the MEDIAN loses
+
+The r6 board's resolved losses were all median-vs-best splits on my own cells:
+65537 B=1 scored 813 median with a 734 BEST (race ships my kernel behind their
+probe: 753 median off the same 733 best); 1021 B=1 7.43 median / 6.48 best
+(planner 6.71); 31 B=512 chain 0.0634 median / 0.0562 best vs prime/race
+0.0453.  Meanwhile prime's r6/r7 record ships the in-file version of race's
+first-call placement probe and measured exactly this disease (their r6 31-B1-
+chain board REGRESSED because a min-of-bursts probe kept burst-fast/steady-slow
+draws; their r7 fixed the statistic to the driver's median-of-long-samples).
+This round adopts the whole mechanism and then chases the part of the variance
+no in-process candidate can reach.
+
+### What changed
+
+1. **13/31 batched chains: prime's chainblk ported near-verbatim** (their
+   r4/r5 chainblk_body): 8 chains per lane-block transposed to split-complex
+   v8 rows ONCE, dense symmetric-fold DFT from new [h][h] tables (pck/psk),
+   c folded into per-k accumulator seeds, k-loop blocked by 3, lanes past the
+   batch clamped (odd batches verified at B=3/5/9).  Replaces my r3 SoA CRT
+   conv chain, and against the TRUE r6 binary (impl_6, see the trap note) it
+   is a structural win, same-minute pairs x3: 31 B=512 m=1200 0.061-0.064 ->
+   0.045-0.051 (~25%, exactly the prime-vs-me gap the r6 board showed);
+   13 B=512 m=2000 0.015-0.018 -> 0.014 steady.  The dense fold has no
+   permutation bracket and no kernel-spectrum pass, and its state is stack
+   scratch the new probe can re-roll; the SoA CRT chain state lived at fixed
+   heap offsets it could not.  The CRT codelets stay in the file,
+   undispatched.
+2. **First-call placement probe, in-file (ADOPTED: mechanism d1_race r4/r6,
+   form d1_prime r6/r7).**  All dispatch is now fn-pointer wiring set at
+   create (prime's shape): at 13/31 every graded path carries 6 arithmetic-
+   identical candidates — pure code copies behind 1-5 entry nops for the
+   register-only kernels (13 B=1/B512 exec, 31 B=1 exec), 2 code copies x
+   stack shifts (alloca-in-wrapper around noinline cores, 1088/2176/3264 B)
+   for everything with stack scratch (31 batched exec, both B=1 chains, both
+   chainblks); exec31_pipe and the B=1 pair chains became always_inline
+   bodies so each copy owns its hot-loop text.  At 1021/65537 the candidates
+   are DATA SPACERS: the scratch block (+5*136 doubles slack) and chain block
+   (+5*168) are re-based per candidate, residues distinct mod 4K, re-rolling
+   scratch-vs-driver 4K aliasing; the chain probe rolls both jointly and also
+   clears the exec flag (the trailing execute of a chained unit must not
+   re-roll the chain's winner).  Probe = median of 3-5 sample-major rounds of
+   ~275 us calibrated loops (prime r7's statistic, race r6's finding), inside
+   the driver's discarded first call; setup= stays 0.005 s.  D1R_NO_PROBE /
+   D1R_PROBE_VERBOSE / D1R_NO_HUGE env knobs for A/B.  Verbose evidence the
+   mechanism bites: at 65537 B=1 successive processes picked candidates 1
+   and 4 with in-process candidate spreads up to 7.9%; outputs bitwise
+   identical across processes at every graded cell (verified, including
+   chains — all candidates share one FP DAG).
+3. **MADV_HUGEPAGE for the big blocks — the round's own finding.**  The node
+   runs THP in madvise mode, so nothing was ever hugepage-backed.  With 4K
+   pages, physical address bits 12-16 are per-page random, so the L2/L3 SET
+   distribution of the 512 KB ping-pong planes is per-process page-color
+   luck — this is the bimodal 737-vs-870 us mode at 65537 B=1 that the data-
+   spacer probe measured FLAT (all candidates equally bad inside a bad
+   process: virtual re-basing cannot fix physical coloring).  sbase and
+   br/bi are now 2 MB-aligned + madvise(MADV_HUGEPAGE): physical indexing
+   becomes deterministic and the DTLB cost of the random gather/scatter
+   drops.  Same-minute triples (r7-nohuge vs r7-huge, D1R_NO_HUGE knob):
+   65537 B=1 exec 738.4/723.1, 738/724, 745/723 — a steady -2.1% and the
+   variance gone.  THE ALLOCATION TRAP: also hugepage-backing the CHAIN
+   block made the chain SLOWER (nohuge 660 steady -> all-huge 678-694,
+   same-minute triples): two 2 MB-aligned blocks are base-congruent
+   physically, and the chain co-accesses cd and s planes at related indices
+   every step.  cd stays 4K (comment at the alloc site); with huge s/br +
+   4K cd the chain measured 644-647.  Final six-layout pad sweep against
+   the TRUE r6 (PADVAR env shifts initial heap/stack; same-minute pairs),
+   65537 B=1: exec r6 = {802,744,740,746,737,737}, r7 =
+   {782,724,725,723,723,725}; chain r6 = {720,664,663,665,663,661}, r7 =
+   {647,646,646,645,646,649}.  r7 wins EVERY draw: good mode -2..-3%, and
+   the pad=0 bad draw is milder at exec (782 vs 802) and GONE at the chain
+   (647 vs 720).  65537 B=16 exec same-minute: 897/898 -> 883.  The exec
+   residual pad=0 mode is the DRIVER's buffers' page-color luck —
+   unreachable from inside the plan (see next round).
+
+### Measured (a80n0 core 3, final binary, one pass; window comparable to the
+### r6 numbers only where marked same-minute.  "r6 board" = r6 leaderboard)
+
+| cell | r6 board | now | note |
+|---|---:|---:|---|
+| 65537 B=1 / B=16 | 813 / 1022 | **726 / 887** | pad-sweep good mode 722 x5/6 draws |
+| 65537 chain B=1 / B=16 | 681 / (cell missing on r6 board) | **647 / 684** | B=16 chain true-r6 pairs mixed 709/719, 706/699 — parity, memory-bound |
+| 1021 B=1 / B=256 | 7.43 / 9.04 | **6.54 / 7.22** | |
+| 1021 chains B=1 / B=256 | 7.97 / 7.01 | 7.15* / **6.99** | (*) noisy window; same-minute pairs r6-vs-r7 mixed +-2% with one -12% r7 win |
+| 13 B=1 / B=512 | 0.0163 / 0.0095 | 0.014 / 0.011 | true-r6 pairs: 0.016-0.019 vs 0.015 at B=1 |
+| 13 chains B=1 / B=512 | 0.0337 / 0.0146 | 0.038 / **0.014** | true-r6 pairs: B=1 0.034 both; B=512 0.015-0.018 vs 0.014 |
+| 31 B=1 / B=512 | 0.0552 / 0.0504 | **0.045 / 0.044** | true-r6 pairs (later window): 0.053 vs 0.052 |
+| 31 chains B=1 / B=512 | 0.0579 / 0.0634 | 0.051 / **0.045-0.051** | true-r6 pairs: B=1 0.051 both; B=512 0.061-0.064 vs 0.045-0.051 |
+| 127 B=1-ish (unscored) | — | 1.63 (B=8), chain 1.29 | padded path untouched |
+
+Wallaby (SPR, idle core 100, final binary): 65537 B=1 **583**, B=16 594,
+chains 519 / 539-541; 1021 B=1 4.84, B=256 4.87, chains 4.62 / 4.44;
+13 B=1 0.016, B=512 0.007-0.008, chains 0.027 / 0.011; 31 B=1 0.024,
+B=512 0.023, chains 0.044 / 0.032.
+
+Accuracy (all on the node, final binary): single-call rel_l2 1.7e-16 (13) …
+1.37e-15 (65537), gate 1e-12; all eight graded chain gates pass with >= 2.5
+decades of margin (13 m=200000: 1.7e-15; 31 m=1200: 3.6e-12 vs 1e-9; 1021
+m=2000: 8.7e-12 vs 1e-9; 65537 m=60: 4.0e-14); odd batches 3/5/9 verified
+single and chained (13 B5 m17, 31 B9 m33, 1021 B3 m11, 127 B8 m25); output
+bitwise repeatable across processes on every graded cell WITH the probes
+picking different candidates per process; setup <= 0.005 s at 65537.
+
+### What did NOT work / traps, with the number
+
+- **Hugepage-backing ALL big blocks**: 65537 B=1 chain 660 -> 678-694
+  (same-minute triples, three reps).  Two 2 MB-aligned mmaps are physically
+  base-congruent — the deterministic layout that FIXES the exec planes
+  systematically COLLIDES the chain's cd-vs-s co-accesses.  Fixed by keeping
+  the chain block on 4K pages (644-647).  Anyone adopting hugepages should
+  treat "which blocks" as an A/B, not a blanket.
+- **The data-spacer probe alone cannot fix the 65537 bad mode**: candidate
+  spreads inside a bad process read FLAT (1.000-1.004) while process medians
+  differed 17%.  Data spacers re-roll VIRTUAL aliasing; the mode was PHYSICAL
+  page coloring (proved by the hugepage fix).  Race's r5 alt-text-mapping
+  finding is the same lesson from the code side: know which dice you are
+  re-rolling.
+- **A "-2% r7 chain regression" scare dissolved** once the cd block went back
+  to 4K pages and pairs were interleaved in one minute — the window moved
+  700 -> 760 across a sweep and I nearly attributed it to the probe (prime's
+  r7 "interleave more pairs" lesson, re-learned on a bigger cell).
+- **The reference-built-from-a-symlink blunder** (details in the header
+  note): half a session of "r6-vs-r7" pairs compared the r7 binary to
+  itself.  The verification lesson generalizes: a same-window A/B whose
+  sides agree EVERYWHERE — including on cells where the board disagrees by
+  25% — is a check that cannot fail, and should itself be checked (diff the
+  two sources, or plant a known difference).  After rebuilding the
+  reference from impl_6, the chainblk port showed its real 25% and the
+  probe its real wins.
+
+### Borrowings (named plainly)
+
+- **d1_race**: the whole probe concept (r4 first-call probe on real driver
+  buffers inside the discarded warmup; r6 median-of-long-samples statistic),
+  and the placement-vs-code-vs-data taxonomy their r5 record laid out.
+- **d1_prime**: the in-file probe form ported near-verbatim (r6/r7: nop-pad
+  anti-ICF code copies, alloca-wrapper stack shifts around noinline cores,
+  sample-major calibrated-loop timing, fn-pointer wiring at create, the
+  probe-cost budget numbers), and chainblk_body (r4/r5) with its c-in-seeds
+  fold and k-blocked-by-3 loop.
+- **d1_batchlane** (via prime's chainblk): the junk-lane clamp and map floor
+  conventions ride along in the ported code.
+- The hugepage physical-coloring diagnosis and the huge/4K split are my own
+  r7 findings — offered to the panel: 2 MB-align + MADV_HUGEPAGE any block
+  >= 512 KB that a transform ping-pongs through (THP is madvise-mode on the
+  node, so nobody gets this for free), but A/B every block separately, and
+  expect co-accessed block PAIRS to want different page sizes.
+
+### Next round, in priority order
+
+1. **The residual 65537 bad mode is the driver's own in/out buffers** (pad=0
+   draw: exec 782 vs the 722 good mode even with all my blocks huge/probed;
+   the same draw cost the true r6 802).  Two candidate attacks: (a) a probed "staged" execute variant that
+   gathers from a hugepage-backed copy of the input (costs a 1 MB streaming
+   copy ~40 us; wins ~140 in a bad draw; the probe arbitrates per process),
+   (b) madvise(MADV_HUGEPAGE) directly on the driver's buffer range at first
+   call — advisory-only on 5.15 (no MADV_COLLAPSE), already-faulted 4K pages
+   collapse only via khugepaged, so measure whether it ever bites in-run.
+2. **1021 st17 mid-fusion, now with a design**: forward-last st17 and
+   inverse-first st4 close over a 68-point tile (indices t + 15k: 4 st17
+   groups x 17 st4 groups, 17 KB tile — the st64 shape).  Saves one M-pass
+   of 8; the twiddle bookkeeping is the risk.  Worth ~4-6% on all four 1021
+   cells if it lands.
+3. **13 B=512 (0.011 vs prime 0.0093-0.011)**: their r5 3-transform body
+   idea remains unexplored panel-wide.
+4. **10007 nested-Rader A/B** (5003-1 = 2*41*61): still untried; only worth
+   it if it can beat d1_bluestein's ~110 us — measure the 5003-conv first.
