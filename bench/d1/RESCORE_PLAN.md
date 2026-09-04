@@ -1,6 +1,15 @@
 # Deferred: re-score r1–r4 so the whole campaign is scored one way
 
-**Status:** waiting on d1_r6 to finish scoring. Do not start before then — see "Why not now".
+**Status:** RUNNING (2026-09-04, chained behind the r7 recovery scoring).
+
+**Deviation from the plan below, deliberate:** no top-up mode was implemented. The 26
+once-cells are remeasured **fresh at 9 runs** from each round's own `impl_N`, at ~40 min per
+round sharded instead of ~26 — bought with zero new harness mechanism, after three sharding /
+resume code paths introduced this week each cost a round or a cell before being fixed. A
+fresh remeasure also puts all nine runs in one session instead of splicing 3 old + 6 new.
+Chained cells are untouched (the case file is m=1 only; filenames carry _m). The impl
+symlink is swapped per round and restored to impl_8 afterwards — the campaign is over, so
+the Makefile IMPL parameterization in step 1 is no longer needed and was not done.
 
 ## Why this exists
 
