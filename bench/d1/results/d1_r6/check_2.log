@@ -594,3 +594,43 @@ PASS rel_l2=1.955e-16 rel_max=1.842e-16 (tol 1e-12) L=13 B=1
 PASS map-chain m=200000: rel_l2=9.091e-16 (anchor 3.120e-16, tol 1.0e-10)
 PASS rel_l2=1.955e-16 rel_max=1.842e-16 (tol 1e-12) L=13 B=1
 PASS map-2-step: rel_l2=5.002e-16 (tol 3.0e-14)
+PASS rel_l2=1.115e-15 rel_max=1.401e-15 (tol 1e-12) L=1024 B=1
+PASS map-chain m=4000: rel_l2=9.767e-12 (anchor 0.000e+00, tol 1.0e-10)
+PASS rel_l2=1.115e-15 rel_max=1.401e-15 (tol 1e-12) L=1024 B=1
+PASS map-2-step: rel_l2=1.845e-15 (tol 3.0e-14)
+PASS rel_l2=2.774e-16 rel_max=3.505e-16 (tol 1e-12) L=1024 B=1
+PASS map-chain m=4000: rel_l2=1.722e-12 (anchor 0.000e+00, tol 1.0e-10)
+PASS rel_l2=2.774e-16 rel_max=3.505e-16 (tol 1e-12) L=1024 B=1
+PASS map-2-step: rel_l2=8.157e-16 (tol 3.0e-14)
+PASS rel_l2=2.774e-16 rel_max=3.505e-16 (tol 1e-12) L=1024 B=1
+PASS map-chain m=4000: rel_l2=1.661e-12 (anchor 0.000e+00, tol 1.0e-10)
+PASS rel_l2=2.774e-16 rel_max=3.505e-16 (tol 1e-12) L=1024 B=1
+PASS map-2-step: rel_l2=7.661e-16 (tol 3.0e-14)
+PASS rel_l2=2.839e-16 rel_max=2.931e-16 (tol 1e-12) L=1024 B=1
+PASS map-chain m=4000: rel_l2=1.865e-12 (anchor 0.000e+00, tol 1.0e-10)
+PASS rel_l2=2.839e-16 rel_max=2.931e-16 (tol 1e-12) L=1024 B=1
+PASS map-2-step: rel_l2=8.747e-16 (tol 3.0e-14)
+PASS rel_l2=2.609e-16 rel_max=2.899e-16 (tol 1e-12) L=1024 B=1
+PASS map-chain m=4000: rel_l2=1.865e-12 (anchor 0.000e+00, tol 1.0e-10)
+PASS rel_l2=2.609e-16 rel_max=2.899e-16 (tol 1e-12) L=1024 B=1
+PASS map-2-step: rel_l2=8.747e-16 (tol 3.0e-14)
+PASS rel_l2=2.609e-16 rel_max=2.899e-16 (tol 1e-12) L=1024 B=1
+PASS map-chain m=4000: rel_l2=6.709e-13 (anchor 0.000e+00, tol 1.0e-10)
+PASS rel_l2=2.609e-16 rel_max=2.899e-16 (tol 1e-12) L=1024 B=1
+PASS map-2-step: rel_l2=7.985e-16 (tol 3.0e-14)
+PASS rel_l2=2.883e-16 rel_max=3.096e-16 (tol 1e-12) L=1024 B=1
+PASS map-chain m=4000: rel_l2=1.553e-12 (anchor 0.000e+00, tol 1.0e-10)
+PASS rel_l2=2.883e-16 rel_max=3.096e-16 (tol 1e-12) L=1024 B=1
+PASS map-2-step: rel_l2=6.961e-16 (tol 3.0e-14)
+PASS rel_l2=2.700e-16 rel_max=3.889e-16 (tol 1e-12) L=1024 B=1
+PASS map-chain m=4000: rel_l2=1.187e-12 (anchor 0.000e+00, tol 1.0e-10)
+PASS rel_l2=2.777e-16 rel_max=2.784e-16 (tol 1e-12) L=1024 B=1
+PASS map-2-step: rel_l2=6.742e-16 (tol 3.0e-14)
+PASS rel_l2=2.661e-16 rel_max=3.380e-16 (tol 1e-12) L=1024 B=1
+PASS map-chain m=4000: rel_l2=1.122e-12 (anchor 0.000e+00, tol 1.0e-10)
+PASS rel_l2=2.700e-16 rel_max=3.889e-16 (tol 1e-12) L=1024 B=1
+PASS map-2-step: rel_l2=6.957e-16 (tol 3.0e-14)
+PASS rel_l2=2.776e-16 rel_max=2.750e-16 (tol 1e-12) L=1024 B=1
+PASS map-chain m=4000: rel_l2=1.459e-12 (anchor 0.000e+00, tol 1.0e-10)
+PASS rel_l2=2.776e-16 rel_max=2.750e-16 (tol 1e-12) L=1024 B=1
+PASS map-2-step: rel_l2=7.430e-16 (tol 3.0e-14)

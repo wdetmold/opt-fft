@@ -807,3 +807,1767 @@ backends:
    fftw1d_patient           FFTW 3.3.10 plan_many_dft 1D, fftw1d_patient
    mkl1d_dfti               oneMKL DFTI 1D, sequential, batched
 == round d1_r4 complete: results/d1_r4 ==
+
+===== submit.sh attempt 2026-09-04T13:35:42-04:00 round=d1_r4 seed=20264873 extra= --samples 12 --runs 3 --cases cases_once.txt =====
+# estimated shard wall times (s): 1:2337  2:2346   imbalance 1.00x   [from measured d1_r3]
+=== round d1_r4 ===
+# round d1_r4
+host: a80n0.lqcd.mit   date: 2026-09-03T08:56:37-04:00   slurm_job: 440424
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512_vbmi avx512_vnni avx512_vpopcntdq avx512bw avx512cd avx512dq avx512f avx512ifma avx512vbmi avx512vl fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+
+-- L=13 (non-batched, single call), working set 0.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_batchlane                  0.0161 us      0.0160 us    14.99     22.8%   9r   0.000s  ok 1.4e-16       1.00x?
+   d1_race                       0.0166 us      0.0141 us    14.47     56.4%   9r   0.006s  ok 1.6e-16       1.04x?
+   d1_prime                      0.0182 us      0.0156 us    13.19     63.4%   9r   0.000s  ok 1.6e-16       1.14x?
+   d1_planner                    0.0206 us      0.0169 us    11.69     32.3%   9r   0.000s  ok 1.4e-16       1.28x
+   fftw1d_patient                0.0229 us      0.0218 us    10.50     35.9%   9r   0.001s  ok 2.1e-16       1.43x
+   mkl1d_dfti                    0.0262 us      0.0248 us     9.17      8.4%   9r   0.014s  ok 1.7e-16       1.63x
+   fftw1d_estimate               0.0264 us      0.0219 us     9.12     25.0%   9r   0.001s  ok 2.1e-16       1.64x
+   fftw1d_measure                0.0264 us      0.0219 us     9.11     29.8%   9r   0.001s  ok 2.1e-16       1.64x
+   fftw1d_custom                 0.0568 us      0.0567 us     4.24      5.1%   9r   0.000s  ok 2.3e-16       3.54x
+   d1_rader                      0.0569 us      0.0568 us     4.23      2.6%   9r   0.000s  ok 3.2e-16       3.54x
+   d1_bluestein                  0.1083 us      0.1069 us     2.22      2.1%   9r   0.000s  ok 1.4e-16       6.75x
+   baseline_dft                  0.3533 us      0.3533 us     0.68      0.8%   9r   0.000s  ok 4.0e-16       22.01x
+
+-- L=13 (non-batched, chain m=200000), working set 0.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_planner                    0.0394 us      0.0393 us     6.10     13.9%   3r   0.000s  ok ch=2.3e-15/1e-10 1s=5e-16 1.00x?
+   d1_prime                      0.0422 us      0.0421 us     5.70      0.5%   3r   0.000s  ok ch=1.6e-15/1e-10 1s=5e-16 1.07x?
+   d1_race                       0.0425 us      0.0423 us     5.66      0.4%   3r   0.005s  ok ch=1.6e-15/1e-10 1s=5e-16 1.08x?
+   d1_batchlane                  0.0451 us      0.0451 us     5.33      0.1%   3r   0.000s  ok ch=2.5e-15/1e-10 1s=5e-16 1.14x
+   fftw1d_measure                0.0674 us      0.0674 us     3.57      0.0%   3r   0.001s  ok ch=2.3e-15/1e-10 1s=8e-16 1.71x
+   fftw1d_estimate               0.0674 us      0.0674 us     3.57      0.0%   3r   0.001s  ok ch=2.3e-15/1e-10 1s=8e-16 1.71x
+   fftw1d_custom                 0.0756 us      0.0756 us     3.18      0.8%   3r   0.000s  ok ch=1.7e-15/1e-10 1s=9e-16 1.92x
+   d1_rader                      0.0801 us      0.0801 us     3.00     20.7%   3r   0.000s  ok ch=3.4e-15/1e-10 1s=1e-15 2.03x
+   mkl1d_dfti                    0.0803 us      0.0803 us     2.99      0.1%   3r   0.034s  ok ch=1.8e-15/1e-10 1s=4e-16 2.04x
+   fftw1d_patient                0.0814 us      0.0814 us     2.96      0.0%   3r   0.001s  ok ch=2.3e-15/1e-10 1s=8e-16 2.06x
+   d1_bluestein                  0.1205 us      0.1201 us     2.00     21.9%   3r   0.000s  ok ch=2.1e-15/1e-10 1s=5e-16 3.06x
+   baseline_dft                  0.3930 us      0.3256 us     0.61     20.7%   3r   0.000s  ok ch=8.9e-15/1e-10 1s=1e-15 9.97x
+
+-- L=13 (batched B=512, single call), working set 0.203 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_prime                      0.0106 us      0.0106 us    22.59      1.9%   9r   0.000s  ok 1.7e-16       1.00x?
+   d1_planner                    0.0107 us      0.0107 us    22.53      2.0%   9r   0.000s  ok 1.4e-16       1.00x?
+   d1_race                       0.0107 us      0.0094 us    22.39     14.6%   9r   0.008s  ok 1.4e-16       1.01x?
+   d1_batchlane                  0.0108 us      0.0106 us    22.32      3.1%   9r   0.000s  ok 1.4e-16       1.01x
+   fftw1d_measure                0.0139 us      0.0122 us    17.32     15.1%   9r   0.002s  ok 1.8e-16       1.30x
+   fftw1d_patient                0.0143 us      0.0139 us    16.82      5.9%   9r   0.002s  ok 1.9e-16       1.34x
+   mkl1d_dfti                    0.0160 us      0.0159 us    15.01     22.7%   9r   0.013s  ok 1.7e-16       1.50x
+   d1_rader                      0.0166 us      0.0157 us    14.46     21.0%   9r   0.000s  ok 2.8e-16       1.56x
+   fftw1d_custom_soa             0.0325 us      0.0322 us     7.41     14.0%   9r   0.000s  ok 1.8e-16       3.05x
+   fftw1d_estimate               0.0399 us      0.0350 us     6.03     15.0%   9r   0.001s  ok 1.8e-16       3.74x
+   fftw1d_custom                 0.0487 us      0.0404 us     4.94     21.5%   9r   0.000s  ok 1.8e-16       4.57x
+   d1_bluestein                  0.1039 us      0.1036 us     2.31      4.8%   9r   0.000s  ok 1.8e-16       9.76x
+   baseline_dft                  0.3499 us      0.2899 us     0.69     20.7%   9r   0.000s  ok 4.1e-16       32.85x
+
+-- L=13 (batched B=512, chain m=2000), working set 0.203 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0146 us      0.0146 us    16.46      0.0%   3r   0.006s  ok ch=4.1e-13/1e-10 1s=5e-16 1.00x?
+   d1_rader                      0.0146 us      0.0146 us    16.43      0.1%   3r   0.000s  ok ch=4.1e-13/1e-10 1s=5e-16 1.00x
+   d1_planner                    0.0155 us      0.0155 us    15.56     13.9%   3r   0.000s  ok ch=1.6e-14/1e-10 1s=3e-16 1.06x?
+   d1_prime                      0.0171 us      0.0171 us    14.04      1.5%   3r   0.000s  ok ch=1.5e-13/1e-10 1s=4e-16 1.17x
+   d1_batchlane                  0.0176 us      0.0176 us    13.64      0.2%   3r   0.000s  ok ch=1.3e-14/1e-10 1s=3e-16 1.21x
+   fftw1d_custom_soa             0.0299 us      0.0298 us     8.05      1.2%   3r   0.000s  ok ch=4.2e-14/1e-10 1s=3e-16 2.05x
+   fftw1d_custom                 0.0476 us      0.0474 us     5.05     21.1%   3r   0.000s  ok ch=4.2e-14/1e-10 1s=3e-16 3.26x
+   fftw1d_measure                0.0514 us      0.0511 us     4.68      1.3%   3r   0.002s  ok ch=3.4e-14/1e-10 1s=3e-16 3.51x
+   fftw1d_patient                0.0515 us      0.0513 us     4.67     14.3%   3r   0.003s  ok ch=3.4e-14/1e-10 1s=3e-16 3.52x
+   mkl1d_dfti                    0.0530 us      0.0530 us     4.54      0.1%   3r   0.050s  ok ch=1.4e-13/1e-10 1s=3e-16 3.63x
+   fftw1d_estimate               0.0746 us      0.0745 us     3.22     11.3%   3r   0.001s  ok ch=3.4e-14/1e-10 1s=3e-16 5.11x
+   d1_bluestein                  0.1231 us      0.1229 us     1.95      1.3%   3r   0.000s  ok ch=1.2e-14/1e-10 1s=3e-16 8.42x
+   baseline_dft                  0.3270 us      0.3270 us     0.74      0.0%   3r   0.000s  ok ch=2.6e-13/1e-10 1s=8e-16 22.38x
+
+-- L=31 (non-batched, single call), working set 0.001 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_batchlane                  0.0475 us      0.0463 us    16.17     16.7%   9r   0.000s  ok 2.5e-16       1.00x?
+   d1_prime                      0.0483 us      0.0470 us    15.89     15.9%   9r   0.000s  ok 3.3e-16       1.02x?
+   d1_planner                    0.0503 us      0.0497 us    15.28     18.5%   9r   0.000s  ok 2.5e-16       1.06x?
+   d1_race                       0.0538 us      0.0465 us    14.26     29.2%   9r   0.007s  ok 2.5e-16       1.13x
+   d1_rader                      0.1802 us      0.1750 us     4.26     20.8%   9r   0.000s  ok 3.2e-16       3.79x
+   d1_bluestein                  0.1826 us      0.1815 us     4.21      8.4%   9r   0.001s  ok 3.4e-16       3.84x
+   fftw1d_custom                 0.2155 us      0.1761 us     3.56     25.3%   9r   0.000s  ok 3.2e-16       4.54x
+   fftw1d_patient                0.2617 us      0.2595 us     2.93      2.5%   9r   0.120s  ok 2.0e-16       5.51x
+   fftw1d_measure                0.2670 us      0.2600 us     2.88     27.5%   9r   0.042s  ok 2.0e-16       5.62x
+   mkl1d_dfti                    0.2795 us      0.2315 us     2.75     28.5%   9r   0.028s  ok 2.1e-16       5.88x
+   fftw1d_estimate               0.3177 us      0.2601 us     2.42     27.1%   9r   0.001s  ok 2.0e-16       6.69x
+   baseline_dft                  1.6555 us      1.6553 us     0.46     20.7%   9r   0.000s  ok 3.6e-16       34.86x
+
+-- L=31 (non-batched, chain m=100000), working set 0.001 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_prime                      0.0534 us      0.0533 us    14.39     13.9%   3r   0.000s  ok ch=4.2e-15/1e-10 1s=8e-16 1.00x?
+   d1_batchlane                  0.0549 us      0.0548 us    14.00      0.1%   3r   0.000s  ok ch=2.9e-15/1e-10 1s=5e-16 1.03x?
+   d1_planner                    0.0582 us      0.0582 us    13.19      0.0%   3r   0.000s  ok ch=2.4e-15/1e-10 1s=5e-16 1.09x?
+   d1_race                       0.0604 us      0.0534 us    12.70     13.4%   3r   0.008s  ok ch=4.2e-15/1e-10 1s=8e-16 1.13x?
+   d1_rader                      0.2064 us      0.2063 us     3.72      0.1%   3r   0.000s  ok ch=1.1e-14/1e-10 1s=7e-16 3.87x
+   fftw1d_custom                 0.2095 us      0.2084 us     3.67      0.6%   3r   0.000s  ok ch=3.5e-15/1e-10 1s=5e-16 3.93x
+   d1_bluestein                  0.2149 us      0.2082 us     3.57      4.7%   3r   0.001s  ok ch=2.6e-15/1e-10 1s=8e-16 4.03x
+   fftw1d_patient                0.3489 us      0.3477 us     2.20      0.5%   3r   0.119s  ok ch=8.1e-16/1e-10 1s=4e-16 6.54x
+   fftw1d_estimate               0.3498 us      0.3497 us     2.20      0.1%   3r   0.001s  ok ch=8.1e-16/1e-10 1s=4e-16 6.55x
+   mkl1d_dfti                    0.3855 us      0.3848 us     1.99      0.2%   3r   0.049s  ok ch=1.8e-15/1e-10 1s=5e-16 7.22x
+   fftw1d_measure                0.4132 us      0.3497 us     1.86     20.2%   3r   0.043s  ok ch=8.1e-16/1e-10 1s=4e-16 7.74x
+   baseline_dft                  1.7390 us      1.7390 us     0.44      0.0%   3r   0.000s  ok ch=1.8e-14/1e-10 1s=7e-16 32.59x
+
+-- L=31 (batched B=512, single call), working set 0.484 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_prime                      0.0431 us      0.0425 us    17.81     14.5%   9r   0.000s  ok 2.9e-16       1.00x?
+   d1_planner                    0.0441 us      0.0441 us    17.40     13.9%   9r   0.000s  ok 2.1e-16       1.02x?
+   d1_race                       0.0487 us      0.0431 us    15.78     13.9%   9r   1.033s  ok 2.9e-16       1.13x
+   d1_batchlane                  0.0502 us      0.0441 us    15.29     13.8%   9r   0.000s  ok 2.1e-16       1.16x
+   d1_rader                      0.0633 us      0.0630 us    12.13     14.5%   9r   0.000s  ok 3.6e-16       1.47x
+   fftw1d_custom_soa             0.1047 us      0.1009 us     7.33      5.1%   9r   0.000s  ok 2.6e-16       2.43x
+   fftw1d_custom                 0.1612 us      0.1605 us     4.76     22.4%   9r   0.000s  ok 2.6e-16       3.74x
+   d1_bluestein                  0.1934 us      0.1822 us     3.97     17.7%   9r   0.001s  ok 3.3e-16       4.49x
+   fftw1d_patient                0.2636 us      0.2631 us     2.91     20.8%   9r   0.118s  ok 2.1e-16       6.12x
+   mkl1d_dfti                    0.2726 us      0.2267 us     2.82     21.0%   9r   0.012s  ok 2.3e-16       6.32x
+   fftw1d_measure                0.3180 us      0.3176 us     2.42      0.4%   9r   0.050s  ok 2.1e-16       7.38x
+   fftw1d_estimate               0.3181 us      0.3176 us     2.41      1.2%   9r   0.001s  ok 2.1e-16       7.38x
+   baseline_dft                  1.6522 us      1.6519 us     0.46     20.7%   9r   0.000s  ok 4.2e-16       38.33x
+
+-- L=31 (batched B=512, chain m=1200), working set 0.484 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0465 us      0.0462 us    16.50      4.7%   3r   0.006s  ok ch=5.1e-12/3e-10 1s=7e-16 1.00x?
+   d1_prime                      0.0476 us      0.0467 us    16.15      3.8%   3r   0.000s  ok ch=5.1e-12/3e-10 1s=7e-16 1.02x?
+   d1_planner                    0.0552 us      0.0547 us    13.90      1.2%   3r   0.000s  ok ch=1.7e-12/3e-10 1s=5e-16 1.19x
+   d1_rader                      0.0555 us      0.0553 us    13.83     16.0%   3r   0.000s  ok ch=2.7e-12/3e-10 1s=8e-16 1.19x
+   d1_batchlane                  0.0560 us      0.0553 us    13.72      1.7%   3r   0.000s  ok ch=1.3e-12/3e-10 1s=4e-16 1.20x
+   fftw1d_custom_soa             0.0780 us      0.0772 us     9.85      1.1%   3r   0.000s  ok ch=1.1e-12/3e-10 1s=5e-16 1.68x
+   fftw1d_custom                 0.1770 us      0.1769 us     4.34      0.2%   3r   0.000s  ok ch=1.1e-12/3e-10 1s=5e-16 3.80x
+   d1_bluestein                  0.2266 us      0.2101 us     3.39      8.4%   3r   0.001s  ok ch=4.0e-12/3e-10 1s=7e-16 4.87x
+   mkl1d_dfti                    0.3153 us      0.3153 us     2.44      0.0%   3r   0.049s  ok ch=3.9e-12/3e-10 1s=5e-16 6.78x
+   fftw1d_patient                0.3536 us      0.3534 us     2.17      0.1%   3r   0.121s  ok ch=2.6e-13/3e-10 1s=4e-16 7.60x
+   fftw1d_measure                0.3536 us      0.3535 us     2.17      0.0%   3r   0.043s  ok ch=2.6e-13/3e-10 1s=4e-16 7.60x
+   fftw1d_estimate               0.3537 us      0.3533 us     2.17      0.1%   3r   0.001s  ok ch=2.6e-13/3e-10 1s=4e-16 7.60x
+   baseline_dft                  1.7450 us      1.7449 us     0.44      0.0%   3r   0.000s  ok ch=2.1e-12/3e-10 1s=8e-16 37.50x
+
+-- L=32 (non-batched, single call), working set 0.001 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_twiddle                    0.0192 us      0.0169 us    41.60     20.9%   9r   0.000s  ok 1.3e-16       1.00x?
+   d1_pow2                       0.0208 us      0.0183 us    38.54     18.3%   9r   0.000s  ok 1.3e-16       1.08x
+   d1_planner                    0.0209 us      0.0184 us    38.30     18.5%   9r   0.000s  ok 1.3e-16       1.09x
+   d1_race                       0.0210 us      0.0172 us    38.05     34.9%   9r   0.007s  ok 1.3e-16       1.09x
+   d1_batchlane                  0.0215 us      0.0215 us    37.15     31.1%   9r   0.000s  ok 1.3e-16       1.12x
+   mkl1d_dfti                    0.0228 us      0.0223 us    35.10     43.2%   9r   0.001s  ok 8.6e-17       1.19x
+   fftw1d_patient                0.0368 us      0.0318 us    21.73     29.5%   9r   0.014s  ok 1.2e-16       1.91x
+   fftw1d_measure                0.0401 us      0.0328 us    19.93     40.8%   9r   0.007s  ok 1.5e-16       2.09x
+   fftw1d_estimate               0.0432 us      0.0413 us    18.51     16.7%   9r   0.001s  ok 1.5e-16       2.25x
+   fftw1d_custom                 0.0930 us      0.0896 us     8.60     24.3%   9r   0.000s  ok 1.1e-16       4.84x
+   d1_bluestein                  0.0961 us      0.0848 us     8.33     28.9%   9r   0.001s  ok 1.2e-16       5.00x
+   baseline_dft                  2.1285 us      1.7635 us     0.38     20.7%   9r   0.000s  ok 3.8e-16       110.67x
+
+-- L=32 (non-batched, chain m=100000), working set 0.001 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0600 us      0.0596 us    13.34     17.3%   3r   0.006s  ok ch=2.3e-15/1e-10 1s=3e-16 1.00x?
+   d1_planner                    0.0694 us      0.0694 us    11.52      0.0%   3r   0.000s  ok ch=2.6e-15/1e-10 1s=4e-16 1.16x
+   d1_batchlane                  0.0699 us      0.0698 us    11.45      0.1%   3r   0.000s  ok ch=2.3e-15/1e-10 1s=3e-16 1.17x
+   d1_pow2                       0.0706 us      0.0706 us    11.33      0.0%   3r   0.000s  ok ch=2.6e-15/1e-10 1s=4e-16 1.18x
+   d1_twiddle                    0.0706 us      0.0706 us    11.33      0.0%   3r   0.000s  ok ch=1.2e-15/1e-10 1s=4e-16 1.18x
+   fftw1d_custom                 0.1217 us      0.1216 us     6.57      1.0%   3r   0.000s  ok ch=2.5e-15/1e-10 1s=4e-16 2.03x
+   mkl1d_dfti                    0.1310 us      0.1309 us     6.11      0.1%   3r   0.001s  ok ch=2.2e-15/1e-10 1s=3e-16 2.19x
+   fftw1d_patient                0.1360 us      0.1343 us     5.88      1.3%   3r   0.015s  ok ch=3.3e-15/1e-10 1s=3e-16 2.27x
+   fftw1d_measure                0.1548 us      0.1548 us     5.17      0.0%   3r   0.008s  ok ch=3.3e-15/1e-10 1s=3e-16 2.58x
+   fftw1d_estimate               0.1653 us      0.1651 us     4.84      0.2%   3r   0.001s  ok ch=3.3e-15/1e-10 1s=3e-16 2.76x
+   d1_bluestein                  0.1819 us      0.1814 us     4.40      3.9%   3r   0.001s  ok ch=2.4e-15/1e-10 1s=4e-16 3.03x
+   baseline_dft                  1.8469 us      1.8469 us     0.43      0.0%   3r   0.000s  ok ch=1.5e-14/1e-10 1s=8e-16 30.81x
+
+-- L=32 (batched B=512, single call), working set 0.500 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_twiddle                    0.0152 us      0.0152 us    52.63      1.4%   9r   0.000s  ok 1.4e-16       1.00x?
+   mkl1d_dfti                    0.0153 us      0.0153 us    52.31      0.1%   9r   0.001s  ok 1.4e-16       1.01x
+   d1_batchlane                  0.0155 us      0.0155 us    51.70     13.9%   9r   0.000s  ok 1.4e-16       1.02x?
+   d1_planner                    0.0155 us      0.0155 us    51.69     13.9%   9r   0.000s  ok 1.4e-16       1.02x?
+   d1_pow2                       0.0155 us      0.0155 us    51.68     13.8%   9r   0.000s  ok 1.4e-16       1.02x?
+   d1_race                       0.0176 us      0.0154 us    45.54     13.9%   9r   0.006s  ok 1.4e-16       1.16x
+   fftw1d_patient                0.0258 us      0.0248 us    31.00     17.1%   9r   0.056s  ok 1.5e-16       1.70x
+   fftw1d_measure                0.0283 us      0.0251 us    28.23     19.8%   9r   0.009s  ok 1.6e-16       1.86x
+   fftw1d_custom_soa             0.0775 us      0.0756 us    10.33      4.5%   9r   0.000s  ok 1.4e-16       5.10x
+   fftw1d_custom                 0.0882 us      0.0875 us     9.07     23.8%   9r   0.000s  ok 1.4e-16       5.80x
+   fftw1d_estimate               0.0891 us      0.0889 us     8.97     13.4%   9r   0.001s  ok 1.5e-16       5.86x
+   d1_bluestein                  0.0898 us      0.0806 us     8.90     17.6%   9r   0.001s  ok 1.4e-16       5.91x
+   baseline_dft                  1.7600 us      1.7599 us     0.45     20.7%   9r   0.000s  ok 3.4e-16       115.79x
+
+-- L=32 (batched B=512, chain m=1000), working set 0.500 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_batchlane                  0.0340 us      0.0340 us    23.54     13.8%   3r   0.000s  ok ch=6.5e-12/1e-10 1s=3e-16 1.00x?
+   d1_race                       0.0387 us      0.0340 us    20.69     13.8%   3r   0.007s  ok ch=6.5e-12/1e-10 1s=3e-16 1.14x?
+   d1_twiddle                    0.0415 us      0.0369 us    19.26     12.6%   3r   0.000s  ok ch=2.8e-12/1e-10 1s=4e-16 1.22x
+   d1_pow2                       0.0436 us      0.0387 us    18.37     13.6%   3r   0.000s  ok ch=1.2e-11/1e-10 1s=4e-16 1.28x
+   fftw1d_custom_soa             0.0667 us      0.0666 us    12.00      0.2%   3r   0.000s  ok ch=7.2e-12/1e-10 1s=3e-16 1.96x
+   d1_planner                    0.0774 us      0.0773 us    10.34      0.1%   3r   0.000s  ok ch=1.1e-11/1e-10 1s=3e-16 2.28x
+   fftw1d_custom                 0.1039 us      0.1039 us     7.70      0.3%   3r   0.000s  ok ch=7.2e-12/1e-10 1s=3e-16 3.06x
+   mkl1d_dfti                    0.1123 us      0.1122 us     7.13     13.8%   3r   0.002s  ok ch=7.3e-12/1e-10 1s=3e-16 3.30x
+   fftw1d_patient                0.1222 us      0.1220 us     6.55      0.5%   3r   0.057s  ok ch=9.2e-12/1e-10 1s=4e-16 3.60x
+   fftw1d_measure                0.1238 us      0.1228 us     6.46     13.1%   3r   0.010s  ok ch=7.3e-12/1e-10 1s=3e-16 3.64x
+   d1_bluestein                  0.1832 us      0.1787 us     4.37      5.2%   3r   0.001s  ok ch=1.0e-11/1e-10 1s=3e-16 5.39x
+   fftw1d_estimate               0.1858 us      0.1858 us     4.30      0.1%   3r   0.001s  ok ch=7.3e-12/1e-10 1s=3e-16 5.47x
+   baseline_dft                  1.9513 us      1.9509 us     0.41      0.1%   3r   0.000s  ok ch=1.4e-11/1e-10 1s=6e-16 57.42x
+
+-- L=60 (non-batched, single call), working set 0.002 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_composite                  0.0468 us      0.0411 us    37.86     20.4%   9r   0.000s  ok 1.9e-16       1.00x?
+   d1_race                       0.0472 us      0.0417 us    37.57     19.4%   9r   0.010s  ok 1.9e-16       1.01x?
+   mkl1d_dfti                    0.0614 us      0.0565 us    28.84     16.3%   9r   0.002s  ok 2.4e-16       1.31x
+   d1_batchlane                  0.0687 us      0.0672 us    25.79     20.1%   9r   0.000s  ok 2.3e-16       1.47x
+   fftw1d_patient                0.0769 us      0.0691 us    23.05     28.7%   9r   0.129s  ok 1.9e-16       1.64x
+   d1_twiddle                    0.0813 us      0.0703 us    21.79     22.6%   9r   0.000s  ok 1.8e-16       1.74x
+   fftw1d_measure                0.0850 us      0.0723 us    20.84     24.1%   9r   0.047s  ok 2.4e-16       1.82x
+   fftw1d_estimate               0.0951 us      0.0944 us    18.63      4.9%   9r   0.001s  ok 2.0e-16       2.03x
+   d1_planner                    0.1555 us      0.1372 us    11.40     16.8%   9r   0.000s  ok 1.9e-16       3.32x
+   d1_bluestein                  0.2014 us      0.1883 us     8.80     21.6%   9r   0.001s  ok 1.9e-16       4.30x
+   fftw1d_custom                 0.2782 us      0.2749 us     6.37      1.9%   9r   0.000s  ok 2.2e-16       5.94x
+   baseline_dft                  7.4717 us      6.1907 us     0.24     20.7%   9r   0.000s  ok 4.6e-16       159.64x
+
+-- L=60 (non-batched, chain m=60000), working set 0.002 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_composite                  0.1104 us      0.1104 us    16.05      0.1%   3r   0.000s  ok ch=4.0e-15/1e-10 1s=4e-16 1.00x?
+   d1_race                       0.1253 us      0.1101 us    14.15     13.7%   3r   0.006s  ok ch=4.0e-15/1e-10 1s=4e-16 1.13x
+   d1_batchlane                  0.1335 us      0.1334 us    13.28      0.2%   3r   0.000s  ok ch=1.7e-15/1e-10 1s=4e-16 1.21x
+   d1_twiddle                    0.1651 us      0.1648 us    10.73      5.1%   3r   0.000s  ok ch=1.9e-15/1e-10 1s=4e-16 1.50x
+   d1_planner                    0.2149 us      0.2110 us     8.25      5.6%   3r   0.000s  ok ch=1.2e-15/1e-10 1s=3e-16 1.95x
+   mkl1d_dfti                    0.2371 us      0.2370 us     7.47      0.0%   3r   0.002s  ok ch=2.5e-15/1e-10 1s=4e-16 2.15x
+   fftw1d_measure                0.2422 us      0.2417 us     7.32     18.0%   3r   0.046s  ok ch=2.4e-15/1e-10 1s=4e-16 2.19x
+   fftw1d_patient                0.2783 us      0.2751 us     6.37      3.5%   3r   0.129s  ok ch=2.4e-15/1e-10 1s=4e-16 2.52x
+   fftw1d_estimate               0.2929 us      0.2859 us     6.05      4.2%   3r   0.001s  ok ch=2.8e-15/1e-10 1s=4e-16 2.65x
+   fftw1d_custom                 0.3278 us      0.3276 us     5.41      0.1%   3r   0.000s  ok ch=2.8e-15/1e-10 1s=4e-16 2.97x
+   d1_bluestein                  0.3683 us      0.3676 us     4.81      0.2%   3r   0.001s  ok ch=1.7e-15/1e-10 1s=3e-16 3.34x
+   baseline_dft                  6.3498 us      6.3497 us     0.28      0.0%   3r   0.000s  ok ch=2.4e-14/1e-10 1s=1e-15 57.50x
+
+-- L=60 (batched B=512, single call), working set 0.938 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   mkl1d_dfti                    0.0492 us      0.0445 us    36.01     14.0%   9r   0.002s  ok 2.5e-16       1.00x?
+   d1_composite                  0.0530 us      0.0495 us    33.45      7.7%   9r   0.000s  ok 2.1e-16       1.08x
+   d1_race                       0.0588 us      0.0497 us    30.11     37.6%   9r   0.005s  ok 2.1e-16       1.20x
+   d1_batchlane                  0.0658 us      0.0649 us    26.95     19.6%   9r   0.000s  ok 2.2e-16       1.34x
+   fftw1d_patient                0.0667 us      0.0653 us    26.56     15.7%   9r   0.390s  ok 2.0e-16       1.36x
+   fftw1d_estimate               0.0863 us      0.0851 us    20.53     18.4%   9r   0.001s  ok 2.3e-16       1.75x
+   d1_twiddle                    0.0886 us      0.0881 us    20.01     11.8%   9r   0.000s  ok 1.7e-16       1.80x
+   fftw1d_measure                0.1005 us      0.0730 us    17.64     41.5%   9r   0.046s  ok 2.0e-16       2.04x
+   d1_planner                    0.1371 us      0.1321 us    12.93     17.0%   9r   0.000s  ok 1.8e-16       2.78x
+   d1_bluestein                  0.1937 us      0.1884 us     9.15     13.7%   9r   0.001s  ok 1.8e-16       3.94x
+   fftw1d_custom_soa             0.2078 us      0.1906 us     8.53     11.5%   9r   0.000s  ok 2.3e-16       4.22x
+   fftw1d_custom                 0.2822 us      0.2788 us     6.28      1.7%   9r   0.000s  ok 2.3e-16       5.73x
+   baseline_dft                  6.2122 us      6.1787 us     0.29     23.1%   9r   0.000s  ok 4.2e-16       126.22x
+
+-- L=60 (batched B=512, chain m=600), working set 0.938 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0706 us      0.0659 us    25.10      9.8%   3r   0.011s  ok ch=2.2e-13/1e-10 1s=5e-16 1.00x?
+   d1_composite                  0.0740 us      0.0589 us    23.96     29.9%   3r   0.000s  ok ch=2.2e-13/1e-10 1s=5e-16 1.05x?
+   d1_batchlane                  0.0747 us      0.0747 us    23.71      0.1%   3r   0.000s  ok ch=2.5e-13/1e-10 1s=5e-16 1.06x?
+   d1_twiddle                    0.0904 us      0.0902 us    19.61      0.6%   3r   0.000s  ok ch=1.9e-13/1e-10 1s=5e-16 1.28x
+   d1_planner                    0.1298 us      0.1298 us    13.65      1.9%   3r   0.000s  ok ch=2.1e-13/1e-10 1s=4e-16 1.84x
+   fftw1d_custom_soa             0.1367 us      0.1358 us    12.96     29.0%   3r   0.000s  ok ch=2.1e-13/1e-10 1s=5e-16 1.94x
+   mkl1d_dfti                    0.2291 us      0.2288 us     7.74      1.9%   3r   0.001s  ok ch=3.1e-13/1e-10 1s=5e-16 3.24x
+   fftw1d_custom                 0.2317 us      0.2314 us     7.65      0.1%   3r   0.000s  ok ch=2.1e-13/1e-10 1s=5e-16 3.28x
+   fftw1d_patient                0.2507 us      0.2504 us     7.07      2.8%   3r   0.436s  ok ch=2.4e-13/1e-10 1s=5e-16 3.55x
+   fftw1d_measure                0.2532 us      0.2526 us     7.00      8.2%   3r   0.046s  ok ch=2.4e-13/1e-10 1s=5e-16 3.59x
+   fftw1d_estimate               0.2707 us      0.2697 us     6.55      0.7%   3r   0.001s  ok ch=3.0e-13/1e-10 1s=5e-16 3.83x
+   d1_bluestein                  0.3724 us      0.3722 us     4.76      0.2%   3r   0.001s  ok ch=2.1e-13/1e-10 1s=4e-16 5.27x
+   baseline_dft                  6.3700 us      6.3696 us     0.28      1.8%   3r   0.000s  ok ch=7.2e-13/1e-10 1s=8e-16 90.21x
+
+-- L=64 (non-batched, single call), working set 0.002 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0466 us      0.0434 us    41.22     12.6%   9r   0.008s  ok 1.5e-16       1.00x?
+   d1_twiddle                    0.0484 us      0.0451 us    39.70     13.3%   9r   0.000s  ok 1.5e-16       1.04x?
+   mkl1d_dfti                    0.0490 us      0.0489 us    39.17      6.5%   9r   0.002s  ok 1.4e-16       1.05x
+   d1_batchlane                  0.0557 us      0.0489 us    34.47     27.1%   9r   0.000s  ok 1.6e-16       1.20x
+   d1_planner                    0.0599 us      0.0509 us    32.05     30.4%   9r   0.000s  ok 1.4e-16       1.29x
+   d1_pow2                       0.0610 us      0.0572 us    31.49     38.3%   9r   0.000s  ok 1.4e-16       1.31x
+   fftw1d_patient                0.0679 us      0.0645 us    28.30     12.6%   9r   0.055s  ok 1.7e-16       1.46x
+   fftw1d_measure                0.0686 us      0.0662 us    28.00      9.9%   9r   0.023s  ok 1.6e-16       1.47x
+   fftw1d_estimate               0.0948 us      0.0895 us    20.25      9.3%   9r   0.001s  ok 2.2e-16       2.04x
+   d1_bluestein                  0.1325 us      0.1324 us    14.49     17.2%   9r   0.001s  ok 1.5e-16       2.84x
+   fftw1d_custom                 0.2733 us      0.2721 us     7.03      1.5%   9r   0.000s  ok 1.7e-16       5.87x
+   baseline_dft                  8.4984 us      7.0412 us     0.23     20.7%   9r   0.000s  ok 3.8e-16       182.45x
+
+-- L=64 (non-batched, chain m=60000), working set 0.002 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0848 us      0.0848 us    22.65     13.8%   3r   0.007s  ok ch=1.2e-15/1e-10 1s=3e-16 1.00x?
+   d1_batchlane                  0.0965 us      0.0965 us    19.89      0.0%   3r   0.000s  ok ch=1.2e-15/1e-10 1s=3e-16 1.14x
+   d1_twiddle                    0.1195 us      0.1194 us    16.07     13.9%   3r   0.000s  ok ch=2.3e-15/1e-10 1s=4e-16 1.41x
+   d1_pow2                       0.1280 us      0.1280 us    15.00      2.0%   3r   0.000s  ok ch=1.4e-15/1e-10 1s=3e-16 1.51x
+   d1_planner                    0.1334 us      0.1173 us    14.39     13.7%   3r   0.000s  ok ch=1.5e-15/1e-10 1s=3e-16 1.57x
+   mkl1d_dfti                    0.2696 us      0.2696 us     7.12      0.1%   3r   0.002s  ok ch=1.7e-15/1e-10 1s=3e-16 3.18x
+   fftw1d_patient                0.2781 us      0.2772 us     6.91      1.0%   3r   0.056s  ok ch=1.9e-15/1e-10 1s=3e-16 3.28x
+   fftw1d_measure                0.2793 us      0.2779 us     6.87      4.5%   3r   0.023s  ok ch=2.1e-15/1e-10 1s=2e-16 3.29x
+   fftw1d_estimate               0.3049 us      0.3048 us     6.30      0.0%   3r   0.001s  ok ch=2.6e-15/1e-10 1s=3e-16 3.60x
+   d1_bluestein                  0.3425 us      0.3425 us     5.61      3.2%   3r   0.001s  ok ch=1.4e-15/1e-10 1s=3e-16 4.04x
+   fftw1d_custom                 0.3605 us      0.2983 us     5.33     20.9%   3r   0.000s  ok ch=1.6e-15/1e-10 1s=3e-16 4.25x
+   baseline_dft                  7.2118 us      7.2095 us     0.27      0.0%   3r   0.000s  ok ch=2.1e-14/1e-10 1s=5e-16 85.08x
+
+-- L=64 (batched B=512, single call), working set 1.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0374 us      0.0371 us    51.30     26.2%   9r   0.006s  ok 1.8e-16       1.00x?
+   d1_pow2                       0.0379 us      0.0368 us    50.67     21.0%   9r   0.000s  ok 1.8e-16       1.01x?
+   d1_twiddle                    0.0403 us      0.0377 us    47.59     30.3%   9r   0.000s  ok 1.8e-16       1.08x?
+   d1_planner                    0.0430 us      0.0374 us    44.66     20.4%   9r   0.000s  ok 1.8e-16       1.15x
+   mkl1d_dfti                    0.0435 us      0.0370 us    44.10     57.9%   9r   0.002s  ok 1.7e-16       1.16x
+   d1_batchlane                  0.0550 us      0.0538 us    34.91     18.1%   9r   0.000s  ok 1.5e-16       1.47x
+   fftw1d_patient                0.0651 us      0.0629 us    29.51     23.6%   9r   0.217s  ok 1.8e-16       1.74x
+   fftw1d_measure                0.0721 us      0.0641 us    26.61     30.1%   9r   0.029s  ok 1.7e-16       1.93x
+   d1_bluestein                  0.1199 us      0.1188 us    16.01     14.4%   9r   0.000s  ok 1.8e-16       3.20x
+   fftw1d_estimate               0.1943 us      0.1922 us     9.88     20.0%   9r   0.001s  ok 1.8e-16       5.19x
+   fftw1d_custom_soa             0.2111 us      0.2079 us     9.10     14.5%   9r   0.000s  ok 1.8e-16       5.64x
+   fftw1d_custom                 0.3187 us      0.2576 us     6.03     30.1%   9r   0.000s  ok 1.8e-16       8.51x
+   baseline_dft                  8.4849 us      8.4841 us     0.23      0.0%   9r   0.000s  ok 4.0e-16       226.68x
+
+-- L=64 (batched B=512, chain m=500), working set 1.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_batchlane                  0.0677 us      0.0677 us    28.36      0.6%   3r   0.000s  ok ch=4.4e-13/1e-10 1s=4e-16 1.00x?
+   d1_race                       0.0775 us      0.0775 us    24.76      0.1%   3r   0.010s  ok ch=4.4e-13/1e-10 1s=4e-16 1.15x
+   d1_pow2                       0.0797 us      0.0794 us    24.08     14.8%   3r   0.000s  ok ch=1.4e-12/1e-10 1s=4e-16 1.18x
+   d1_twiddle                    0.0936 us      0.0831 us    20.51     13.3%   3r   0.000s  ok ch=1.3e-12/1e-10 1s=5e-16 1.38x
+   d1_planner                    0.1336 us      0.1172 us    14.38     13.9%   3r   0.000s  ok ch=1.3e-12/1e-10 1s=4e-16 1.97x
+   fftw1d_custom_soa             0.1501 us      0.1488 us    12.79      4.1%   3r   0.000s  ok ch=9.0e-13/1e-10 1s=4e-16 2.22x
+   mkl1d_dfti                    0.2385 us      0.2371 us     8.05      1.5%   3r   0.002s  ok ch=5.5e-13/1e-10 1s=4e-16 3.52x
+   fftw1d_patient                0.2672 us      0.2672 us     7.19      1.9%   3r   0.217s  ok ch=8.3e-13/1e-10 1s=4e-16 3.95x
+   fftw1d_measure                0.2701 us      0.2688 us     7.11      0.9%   3r   0.026s  ok ch=8.3e-13/1e-10 1s=4e-16 3.99x
+   fftw1d_custom                 0.2803 us      0.2628 us     6.85     20.3%   3r   0.000s  ok ch=9.0e-13/1e-10 1s=4e-16 4.14x
+   d1_bluestein                  0.3238 us      0.3159 us     5.93      5.5%   3r   0.001s  ok ch=7.9e-13/1e-10 1s=4e-16 4.78x
+   fftw1d_estimate               0.3971 us      0.3950 us     4.83      0.8%   3r   0.001s  ok ch=8.3e-13/1e-10 1s=4e-16 5.87x
+   baseline_dft                  7.2262 us      7.2262 us     0.27      0.0%   3r   0.000s  ok ch=1.2e-12/1e-10 1s=8e-16 106.74x
+
+-- L=128 (non-batched, single call), working set 0.004 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   mkl1d_dfti                    0.0927 us      0.0910 us    48.34     15.3%   9r   0.001s  ok 2.2e-16       1.00x?
+   d1_race                       0.0993 us      0.0991 us    45.10     15.0%   9r   0.007s  ok 2.0e-16       1.07x
+   fftw1d_patient                0.1096 us      0.1056 us    40.88     22.4%   9r   0.134s  ok 2.2e-16       1.18x
+   d1_batchlane                  0.1133 us      0.0990 us    39.56     16.4%   9r   0.000s  ok 2.0e-16       1.22x
+   d1_pow2                       0.1189 us      0.1167 us    37.69     15.6%   9r   0.000s  ok 2.1e-16       1.28x
+   d1_twiddle                    0.1206 us      0.1171 us    37.15     15.3%   9r   0.000s  ok 2.0e-16       1.30x
+   fftw1d_measure                0.1227 us      0.1201 us    36.53      9.5%   9r   0.040s  ok 2.2e-16       1.32x
+   fftw1d_estimate               0.1707 us      0.1489 us    26.24     18.6%   9r   0.001s  ok 2.1e-16       1.84x
+   d1_planner                    0.2123 us      0.2034 us    21.11     15.9%   9r   0.000s  ok 2.0e-16       2.29x
+   d1_bluestein                  0.2252 us      0.1961 us    19.89     28.1%   9r   0.001s  ok 2.0e-16       2.43x
+   fftw1d_custom                 0.6396 us      0.6390 us     7.00      0.1%   9r   0.000s  ok 2.2e-16       6.90x
+   baseline_dft                 33.9338 us     28.1144 us     0.13     20.7%   9r   0.001s  ok 5.1e-16       366.14x
+
+-- L=128 (non-batched, chain m=30000), working set 0.004 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_batchlane                  0.1850 us      0.1631 us    24.22     13.5%   3r   0.000s  ok ch=4.1e-13/1e-10 1s=4e-16 1.00x?
+   d1_race                       0.1886 us      0.1848 us    23.75      2.5%   3r   0.005s  ok ch=4.1e-13/1e-10 1s=4e-16 1.02x?
+   d1_pow2                       0.2412 us      0.2116 us    18.57     14.6%   3r   0.000s  ok ch=2.2e-13/1e-10 1s=5e-16 1.30x
+   d1_twiddle                    0.2831 us      0.2815 us    15.83     12.7%   3r   0.000s  ok ch=1.1e-13/1e-10 1s=4e-16 1.53x
+   d1_planner                    0.3993 us      0.3899 us    11.22      5.7%   3r   0.000s  ok ch=2.1e-13/1e-10 1s=4e-16 2.16x
+   fftw1d_measure                0.4965 us      0.4878 us     9.02     13.8%   3r   0.039s  ok ch=2.1e-13/1e-10 1s=4e-16 2.68x
+   mkl1d_dfti                    0.5414 us      0.5413 us     8.27      0.3%   3r   0.002s  ok ch=4.5e-13/1e-10 1s=5e-16 2.93x
+   fftw1d_patient                0.5549 us      0.4938 us     8.07     12.7%   3r   0.137s  ok ch=1.0e-13/1e-10 1s=4e-16 3.00x
+   fftw1d_estimate               0.6030 us      0.5324 us     7.43     13.9%   3r   0.001s  ok ch=1.6e-13/1e-10 1s=5e-16 3.26x
+   d1_bluestein                  0.6632 us      0.5826 us     6.76     14.2%   3r   0.001s  ok ch=1.5e-13/1e-10 1s=4e-16 3.59x
+   fftw1d_custom                 0.7450 us      0.7450 us     6.01     20.9%   3r   0.000s  ok ch=2.6e-13/1e-10 1s=4e-16 4.03x
+   baseline_dft                 28.4709 us     28.4701 us     0.16      0.0%   3r   0.000s  ok ch=4.7e-13/1e-10 1s=8e-16 153.91x
+
+-- L=128 (batched B=512, single call), working set 2.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   mkl1d_dfti                    0.1425 us      0.1412 us    31.43      6.1%   9r   0.001s  ok 2.1e-16       1.00x?
+   d1_pow2                       0.1813 us      0.1787 us    24.72      8.3%   9r   0.000s  ok 2.2e-16       1.27x
+   d1_race                       0.1831 us      0.1810 us    24.47      5.9%   9r   0.007s  ok 2.2e-16       1.28x
+   fftw1d_patient                0.1910 us      0.1834 us    23.45     32.7%   9r   0.865s  ok 2.2e-16       1.34x
+   d1_batchlane                  0.1958 us      0.1813 us    22.88      8.5%   9r   0.000s  ok 2.0e-16       1.37x
+   d1_twiddle                    0.1979 us      0.1906 us    22.64     19.0%   9r   0.000s  ok 2.1e-16       1.39x
+   fftw1d_measure                0.2061 us      0.1823 us    21.74     18.7%   9r   0.049s  ok 2.2e-16       1.45x
+   d1_bluestein                  0.3514 us      0.2767 us    12.75     48.5%   9r   0.001s  ok 2.2e-16       2.47x
+   d1_planner                    0.4427 us      0.3596 us    10.12     28.4%   9r   0.000s  ok 2.2e-16       3.11x
+   fftw1d_estimate               0.4916 us      0.4502 us     9.11     43.8%   9r   0.001s  ok 2.1e-16       3.45x
+   fftw1d_custom_soa             0.5589 us      0.5408 us     8.02      7.7%   9r   0.000s  ok 2.1e-16       3.92x
+   fftw1d_custom                 0.8897 us      0.8743 us     5.04      6.1%   9r   0.000s  ok 2.1e-16       6.24x
+
+-- L=128 (batched B=512, chain m=250), working set 2.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.1873 us      0.1867 us    23.92     14.6%   3r   0.005s  ok ch=2.1e-14/1e-10 1s=5e-16 1.00x?
+   d1_twiddle                    0.1893 us      0.1888 us    23.66     12.1%   3r   0.000s  ok ch=2.2e-14/1e-10 1s=5e-16 1.01x?
+   d1_pow2                       0.2131 us      0.2122 us    21.02      1.3%   3r   0.000s  ok ch=2.1e-14/1e-10 1s=5e-16 1.14x
+   d1_batchlane                  0.2158 us      0.2154 us    20.76      0.4%   3r   0.000s  ok ch=2.2e-14/1e-10 1s=5e-16 1.15x
+   d1_planner                    0.2818 us      0.2816 us    15.90      0.3%   3r   0.000s  ok ch=2.3e-14/1e-10 1s=5e-16 1.50x
+   fftw1d_custom_soa             0.4476 us      0.4440 us    10.01      2.6%   3r   0.000s  ok ch=2.2e-14/1e-10 1s=5e-16 2.39x
+   mkl1d_dfti                    0.5355 us      0.5353 us     8.37      0.0%   3r   0.002s  ok ch=2.3e-14/1e-10 1s=5e-16 2.86x
+   fftw1d_patient                0.5766 us      0.5743 us     7.77      1.3%   3r   0.698s  ok ch=2.5e-14/1e-10 1s=5e-16 3.08x
+   fftw1d_measure                0.5796 us      0.5759 us     7.73      0.8%   3r   0.046s  ok ch=2.5e-14/1e-10 1s=5e-16 3.10x
+   d1_bluestein                  0.6418 us      0.6378 us     6.98      3.0%   3r   0.001s  ok ch=2.0e-14/1e-10 1s=5e-16 3.43x
+   fftw1d_custom                 0.6676 us      0.6675 us     6.71      0.0%   3r   0.000s  ok ch=2.2e-14/1e-10 1s=5e-16 3.56x
+   fftw1d_estimate               0.8489 us      0.8483 us     5.28      0.5%   3r   0.001s  ok ch=2.0e-14/1e-10 1s=5e-16 4.53x
+
+-- L=1021 (non-batched, single call), working set 0.031 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       7.4748 us      6.5463 us     6.83     16.6%   9r   0.007s  ok 1.0e-15       1.00x?
+   d1_rader                      7.5691 us      6.5963 us     6.74     17.5%   9r   0.000s  ok 1.0e-15       1.01x?
+   mkl1d_dfti                    8.2717 us      8.2668 us     6.17     13.8%   9r   0.030s  ok 5.8e-16       1.11x
+   d1_bluestein                  9.0090 us      8.6396 us     5.66     21.6%   9r   0.003s  ok 5.6e-16       1.21x
+   d1_planner                    9.1462 us      8.0784 us     5.58     19.1%   9r   0.001s  ok 6.2e-16       1.22x
+   fftw1d_patient               11.9654 us     11.9111 us     4.26      3.2%   9r   2.989s  ok 5.6e-16       1.60x
+   fftw1d_measure               11.9999 us     11.7270 us     4.25     13.8%   9r   0.287s  ok 5.8e-16       1.61x
+   fftw1d_estimate              12.7796 us     12.7494 us     3.99     14.4%   9r   0.001s  ok 5.7e-16       1.71x
+   baseline_dft               1810.0264 us   1807.5733 us     0.03     21.5%   9r   0.028s  ok 1.2e-15       242.15x
+
+-- L=1021 (non-batched, chain m=2000), working set 0.031 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_rader                      7.1277 us      7.1225 us     7.16     15.0%   3r   0.000s  ok ch=1.8e-12/3e-10 1s=3e-15 1.00x?
+   d1_race                       7.4001 us      7.0709 us     6.90     15.0%   3r   0.012s  ok ch=1.8e-12/3e-10 1s=3e-15 1.04x?
+   d1_planner                    9.2973 us      9.1929 us     5.49      6.8%   3r   0.001s  ok ch=6.9e-13/3e-10 1s=2e-15 1.30x
+   d1_bluestein                 10.6232 us      9.3458 us     4.80     21.4%   3r   0.002s  ok ch=1.4e-12/3e-10 1s=1e-15 1.49x
+   mkl1d_dfti                   12.9606 us     11.3990 us     3.94     13.8%   3r   0.034s  ok ch=1.4e-12/3e-10 1s=2e-15 1.82x
+   fftw1d_patient               15.1682 us     14.9073 us     3.36      3.8%   3r   2.947s  ok ch=5.2e-13/3e-10 1s=2e-15 2.13x
+   fftw1d_measure               17.4758 us     17.0874 us     2.92      3.5%   3r   0.295s  ok ch=5.2e-13/3e-10 1s=2e-15 2.45x
+   fftw1d_estimate              18.1317 us     18.0440 us     2.81      0.6%   3r   0.001s  ok ch=6.2e-13/3e-10 1s=1e-15 2.54x
+   baseline_dft               1825.2694 us   1823.4922 us     0.03      0.2%   3r   0.028s  ok ch=1.4e-12/3e-10 1s=3e-15 256.08x
+
+-- L=1021 (batched B=256, single call), working set 7.977 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   mkl1d_dfti                    8.7511 us      8.7334 us     5.83     15.0%   9r   0.014s  ok 5.7e-16       1.00x?
+   d1_race                       9.6950 us      7.2459 us     5.26     36.2%   9r   0.006s  ok 9.9e-16       1.11x?
+   d1_rader                      9.7581 us      9.6326 us     5.23      9.0%   9r   0.000s  ok 9.9e-16       1.12x
+   d1_planner                   10.1034 us      8.8821 us     5.05     30.7%   9r   0.000s  ok 6.3e-16       1.15x
+   d1_bluestein                 10.4225 us     10.3097 us     4.90      6.7%   9r   0.002s  ok 5.8e-16       1.19x
+   fftw1d_patient               12.2060 us     12.0844 us     4.18      3.1%   9r   2.988s  ok 5.7e-16       1.39x
+   fftw1d_measure               14.2691 us     11.9852 us     3.58     26.1%   9r   0.295s  ok 5.6e-16       1.63x
+   fftw1d_estimate              15.1832 us     13.0494 us     3.36     20.3%   9r   0.001s  ok 5.8e-16       1.73x
+
+-- L=1021 (batched B=256, chain m=400), working set 7.977 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       7.1998 us      7.0942 us     7.09      2.3%   3r   0.009s  ok ch=2.3e-13/1e-10 1s=3e-15 1.00x?
+   d1_rader                      7.2335 us      7.1683 us     7.05      1.5%   3r   0.000s  ok ch=2.3e-13/1e-10 1s=3e-15 1.00x?
+   d1_planner                    8.0065 us      8.0036 us     6.37      0.9%   3r   0.000s  ok ch=1.1e-13/1e-10 1s=2e-15 1.11x
+   d1_bluestein                  9.6424 us      9.6240 us     5.29      1.4%   3r   0.002s  ok ch=1.1e-13/1e-10 1s=2e-15 1.34x
+   mkl1d_dfti                   12.3972 us     12.3848 us     4.12      0.2%   3r   0.055s  ok ch=1.1e-13/1e-10 1s=2e-15 1.72x
+   fftw1d_measure               15.6004 us     15.5078 us     3.27      0.6%   3r   0.286s  ok ch=1.1e-13/1e-10 1s=2e-15 2.17x
+   fftw1d_patient               15.7182 us     15.7021 us     3.25      0.7%   3r   2.991s  ok ch=1.1e-13/1e-10 1s=2e-15 2.18x
+   fftw1d_estimate              16.5508 us     16.5477 us     3.08      0.2%   3r   0.001s  ok ch=1.1e-13/1e-10 1s=2e-15 2.30x
+
+-- L=1024 (non-batched, single call), working set 0.031 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   fftw1d_measure                1.1797 us      1.1459 us    43.40     18.6%   9r   0.118s  ok 2.7e-16       1.00x?
+   fftw1d_patient                1.1878 us      1.1639 us    43.10     19.3%   9r   0.811s  ok 2.7e-16       1.01x?
+   mkl1d_dfti                    1.2293 us      1.0747 us    41.65     15.5%   9r   0.002s  ok 2.7e-16       1.04x?
+   d1_race                       1.3808 us      1.2266 us    37.08     15.5%   9r   0.330s  ok 2.8e-16       1.17x
+   d1_pow2                       1.4470 us      1.4391 us    35.38      1.1%   9r   0.000s  ok 2.8e-16       1.23x
+   fftw1d_estimate               1.5198 us      1.3371 us    33.69     14.6%   9r   0.001s  ok 2.8e-16       1.29x
+   d1_twiddle                    1.8390 us      1.6145 us    27.84     15.4%   9r   0.000s  ok 2.7e-16       1.56x
+   d1_bluestein                  2.1266 us      2.1051 us    24.08      3.9%   9r   0.001s  ok 2.8e-16       1.80x
+   d1_planner                    2.5296 us      2.4636 us    20.24      6.9%   9r   0.000s  ok 2.8e-16       2.14x
+   baseline_dft               2214.8457 us   1823.3811 us     0.02     22.7%   9r   0.034s  ok 1.1e-15       1877.39x
+
+-- L=1024 (non-batched, chain m=4000), working set 0.031 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_pow2                       2.4313 us      2.1574 us    21.06     13.5%   3r   0.000s  ok ch=4.7e-12/1e-10 1s=9e-16 1.00x?
+   d1_race                       2.4319 us      2.3657 us    21.05      3.3%   3r   0.008s  ok ch=4.7e-12/1e-10 1s=9e-16 1.00x?
+   d1_planner                    2.8927 us      2.8899 us    17.70      3.2%   3r   0.000s  ok ch=5.0e-12/1e-10 1s=9e-16 1.19x
+   d1_twiddle                    3.1378 us      3.1366 us    16.32      0.2%   3r   0.000s  ok ch=5.8e-12/1e-10 1s=9e-16 1.29x
+   mkl1d_dfti                    4.1837 us      4.1816 us    12.24      0.4%   3r   0.003s  ok ch=1.5e-12/1e-10 1s=7e-16 1.72x
+   fftw1d_patient                4.4258 us      4.2491 us    11.57     13.5%   3r   0.810s  ok ch=2.1e-12/1e-10 1s=8e-16 1.82x
+   fftw1d_measure                4.8474 us      4.8263 us    10.56      0.7%   3r   0.117s  ok ch=4.3e-12/1e-10 1s=8e-16 1.99x
+   fftw1d_estimate               5.0723 us      5.0453 us    10.09      0.9%   3r   0.001s  ok ch=2.8e-12/1e-10 1s=9e-16 2.09x
+   d1_bluestein                  5.9828 us      5.9654 us     8.56      2.7%   3r   0.002s  ok ch=4.9e-12/1e-10 1s=8e-16 2.46x
+   baseline_dft               1835.2698 us   1834.7960 us     0.03      0.1%   3r   0.034s  ok ch=7.6e-12/1e-10 1s=2e-15 754.86x
+
+-- L=1024 (batched B=512, single call), working set 16.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   fftw1d_patient                1.8677 us      1.7775 us    27.41     15.5%   9r  12.199s  ok 2.7e-16       1.00x?
+   mkl1d_dfti                    1.9499 us      1.6502 us    26.26     44.2%   9r   0.002s  ok 2.8e-16       1.04x?
+   d1_pow2                       2.2549 us      1.8823 us    22.71     51.6%   9r   0.000s  ok 2.8e-16       1.21x
+   fftw1d_measure                2.3504 us      2.0606 us    21.78     49.1%   9r   0.117s  ok 2.7e-16       1.26x
+   d1_bluestein                  2.4449 us      2.4081 us    20.94     17.3%   9r   0.001s  ok 2.8e-16       1.31x
+   d1_race                       2.5106 us      1.8737 us    20.39     52.7%   9r   0.008s  ok 2.8e-16       1.34x
+   d1_twiddle                    2.9201 us      2.6244 us    17.53     41.8%   9r   0.000s  ok 2.6e-16       1.56x
+   d1_planner                    3.1191 us      2.6448 us    16.42     36.3%   9r   0.000s  ok 2.8e-16       1.67x
+   fftw1d_estimate               3.5188 us      3.0482 us    14.55     37.8%   9r   0.001s  ok 2.8e-16       1.88x
+
+-- L=1024 (batched B=512, chain m=2000), working set 16.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       2.5856 us      2.5771 us    19.80      0.3%   3r   0.008s  ok ch=9.5e-13/1e-10 1s=9e-16 1.00x?
+   d1_pow2                       2.5952 us      2.5926 us    19.73      0.2%   3r   0.000s  ok ch=9.5e-13/1e-10 1s=9e-16 1.00x
+   d1_twiddle                    2.6581 us      2.6465 us    19.26      2.8%   3r   0.000s  ok ch=7.9e-13/1e-10 1s=9e-16 1.03x
+   d1_planner                    2.8929 us      2.8895 us    17.70      1.9%   3r   0.000s  ok ch=8.8e-13/1e-10 1s=9e-16 1.12x
+   mkl1d_dfti                    4.9167 us      4.9044 us    10.41      0.7%   3r   0.003s  ok ch=9.1e-13/1e-10 1s=9e-16 1.90x
+   fftw1d_patient                5.0832 us      5.0589 us    10.07      1.3%   3r  12.002s  ok ch=9.4e-13/1e-10 1s=8e-16 1.97x
+   fftw1d_measure                5.1340 us      5.0857 us     9.97      2.9%   3r   0.115s  ok ch=9.4e-13/1e-10 1s=8e-16 1.99x
+   fftw1d_estimate               5.6784 us      5.6590 us     9.02      1.4%   3r   0.001s  ok ch=8.4e-13/1e-10 1s=9e-16 2.20x
+   d1_bluestein                  5.7123 us      5.7071 us     8.96      1.4%   3r   0.001s  ok ch=7.9e-13/1e-10 1s=9e-16 2.21x
+
+-- L=4096 (non-batched, single call), working set 0.125 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   fftw1d_patient                6.8040 us      6.6964 us    36.12      3.8%   9r   1.951s  ok 3.1e-16       1.00x?
+   mkl1d_dfti                    6.8306 us      6.0707 us    35.98     13.5%   9r   0.002s  ok 3.1e-16       1.00x?
+   fftw1d_measure                8.2965 us      7.3808 us    29.62     16.6%   9r   0.220s  ok 3.0e-16       1.22x
+   d1_race                       8.6454 us      7.3520 us    28.43     21.6%   9r   0.009s  ok 3.1e-16       1.27x
+   d1_pow2                       8.7313 us      7.6463 us    28.15     15.7%   9r   0.001s  ok 3.1e-16       1.28x
+   d1_twiddle                    9.3132 us      8.3339 us    26.39     17.3%   9r   0.000s  ok 3.1e-16       1.37x
+   d1_planner                   11.7223 us     11.6139 us    20.97     19.2%   9r   0.001s  ok 3.1e-16       1.72x
+   d1_bluestein                 13.5203 us     13.2038 us    18.18     14.0%   9r   0.001s  ok 3.1e-16       1.99x
+   fftw1d_estimate              15.8119 us     15.6330 us    15.54     14.9%   9r   0.001s  ok 3.1e-16       2.32x
+
+-- L=4096 (non-batched, chain m=1000), working set 0.125 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                      11.1503 us      9.8404 us    22.04     16.5%   3r   0.009s  ok ch=1.2e-13/1e-10 1s=1e-15 1.00x?
+   d1_pow2                      11.5373 us     11.4720 us    21.30      1.1%   3r   0.001s  ok ch=1.2e-13/1e-10 1s=1e-15 1.03x?
+   d1_twiddle                   15.1612 us     15.1100 us    16.21      0.8%   3r   0.000s  ok ch=8.3e-14/1e-10 1s=1e-15 1.36x
+   d1_planner                   17.9065 us     17.7835 us    13.72      0.7%   3r   0.001s  ok ch=6.8e-14/1e-10 1s=1e-15 1.61x
+   fftw1d_patient               19.2318 us     19.1235 us    12.78      7.3%   3r   2.007s  ok ch=8.3e-14/1e-10 1s=1e-15 1.72x
+   mkl1d_dfti                   20.8940 us     20.8741 us    11.76      0.2%   3r   0.002s  ok ch=1.0e-13/1e-10 1s=1e-15 1.87x
+   fftw1d_measure               22.4996 us     22.3575 us    10.92      0.7%   3r   0.233s  ok ch=8.7e-14/1e-10 1s=1e-15 2.02x
+   d1_bluestein                 25.7175 us     25.6654 us     9.56      0.5%   3r   0.001s  ok ch=8.0e-14/1e-10 1s=1e-15 2.31x
+   fftw1d_estimate              31.8128 us     31.6950 us     7.73      0.7%   3r   0.001s  ok ch=1.2e-13/1e-10 1s=1e-15 2.85x
+
+-- L=4096 (batched B=256, single call), working set 32.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       9.8319 us      9.8098 us    25.00     49.2%   9r   0.007s  ok 3.1e-16       1.00x?
+   fftw1d_patient               11.1017 us     10.9757 us    22.14      3.9%   9r  45.037s  ok 3.1e-16       1.13x?
+   d1_twiddle                   11.4857 us      9.7747 us    21.40     29.5%   9r   0.000s  ok 3.1e-16       1.17x?
+   d1_pow2                      13.1063 us     10.4270 us    18.75     49.0%   9r   0.001s  ok 3.1e-16       1.33x
+   mkl1d_dfti                   14.3026 us     11.5840 us    17.18     43.2%   9r   0.002s  ok 3.1e-16       1.45x
+   fftw1d_measure               15.6450 us     15.1115 us    15.71     64.1%   9r   0.235s  ok 3.0e-16       1.59x
+   d1_planner                   18.9751 us     14.0414 us    12.95     43.7%   9r   0.001s  ok 3.0e-16       1.93x
+   fftw1d_estimate              21.9804 us     21.7650 us    11.18     44.2%   9r   0.001s  ok 3.1e-16       2.24x
+   d1_bluestein                 25.2265 us     25.0669 us     9.74      1.6%   9r   0.002s  ok 3.1e-16       2.57x
+
+-- L=4096 (batched B=256, chain m=400), working set 32.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                      10.1376 us      9.8034 us    24.24      4.2%   3r   0.013s  ok ch=4.0e-14/1e-10 1s=1e-15 1.00x?
+   d1_pow2                      10.3154 us     10.2420 us    23.82      0.9%   3r   0.001s  ok ch=4.0e-14/1e-10 1s=1e-15 1.02x?
+   d1_twiddle                   15.0001 us     14.9900 us    16.38      0.4%   3r   0.000s  ok ch=3.8e-14/1e-10 1s=1e-15 1.48x
+   d1_planner                   15.9275 us     15.7773 us    15.43      2.3%   3r   0.001s  ok ch=3.6e-14/1e-10 1s=1e-15 1.57x
+   mkl1d_dfti                   22.8917 us     22.6854 us    10.74      1.0%   3r   0.002s  ok ch=3.9e-14/1e-10 1s=1e-15 2.26x
+   fftw1d_patient               24.1182 us     23.9519 us    10.19      0.8%   3r  44.967s  ok ch=3.8e-14/1e-10 1s=1e-15 2.38x
+   fftw1d_measure               29.5247 us     28.9221 us     8.32      2.1%   3r   0.233s  ok ch=3.9e-14/1e-10 1s=1e-15 2.91x
+   d1_bluestein                 31.6584 us     31.6122 us     7.76      0.2%   3r   0.002s  ok ch=3.7e-14/1e-10 1s=1e-15 3.12x
+   fftw1d_estimate              35.8532 us     35.7937 us     6.85      0.4%   3r   0.001s  ok ch=4.0e-14/1e-10 1s=1e-15 3.54x
+
+-- L=10007 (non-batched, single call), working set 0.305 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                     124.5034 us    123.6058 us     5.34     12.8%   9r   0.012s  ok 7.2e-16       1.00x?
+   d1_bluestein                127.2006 us    124.1157 us     5.23     13.5%   9r   0.005s  ok 7.2e-16       1.02x?
+   d1_planner                  156.7468 us    155.4023 us     4.24      1.9%   9r   0.005s  ok 7.2e-16       1.26x
+   fftw1d_patient              199.8724 us    195.9339 us     3.33      5.8%   9r  20.333s  ok 8.1e-16       1.61x
+   mkl1d_dfti                  267.0777 us    265.2281 us     2.49      2.2%   9r   0.003s  ok 6.8e-16       2.15x
+   fftw1d_measure              326.3743 us    322.5503 us     2.04      2.3%   9r   1.248s  ok 8.1e-16       2.62x
+   fftw1d_estimate             467.9587 us    463.6025 us     1.42     20.7%   9r   0.002s  ok 8.5e-16       3.76x
+
+-- L=10007 (non-batched, chain m=400), working set 0.305 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_bluestein                168.3614 us    137.7228 us     3.95     50.7%   3r   0.007s  ok ch=8.4e-14/1e-10 1s=3e-15 1.00x?
+   d1_planner                  169.6966 us    169.0736 us     3.92     40.9%   3r   0.005s  ok ch=8.4e-14/1e-10 1s=3e-15 1.01x?
+   d1_race                     182.4116 us    136.6286 us     3.65     55.4%   3r   0.015s  ok ch=8.4e-14/1e-10 1s=3e-15 1.08x?
+   fftw1d_patient              227.0668 us    226.5646 us     2.93      0.3%   3r  19.773s  ok ch=1.1e-13/1e-10 1s=3e-15 1.35x
+   mkl1d_dfti                  297.8632 us    297.6497 us     2.23      0.2%   3r   0.003s  ok ch=8.3e-14/1e-10 1s=3e-15 1.77x
+   fftw1d_measure              356.9432 us    354.9854 us     1.86      4.1%   3r   1.145s  ok ch=1.1e-13/1e-10 1s=3e-15 2.12x
+   fftw1d_estimate             496.4774 us    494.5565 us     1.34      0.7%   3r   0.002s  ok ch=9.3e-14/1e-10 1s=3e-15 2.95x
+
+-- L=10007 (batched B=64, single call), working set 19.545 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                     131.9708 us    129.7706 us     5.04     36.8%   9r   0.014s  ok 7.1e-16       1.00x?
+   d1_bluestein                188.9376 us    131.7170 us     3.52     47.5%   9r   0.009s  ok 7.1e-16       1.43x
+   d1_planner                  193.8096 us    162.6315 us     3.43     40.0%   9r   0.006s  ok 7.1e-16       1.47x
+   fftw1d_patient              207.2606 us    205.3700 us     3.21      5.1%   9r  19.794s  ok 8.0e-16       1.57x
+   fftw1d_measure              217.7019 us    216.5077 us     3.05      1.9%   9r   1.136s  ok 8.0e-16       1.65x
+   mkl1d_dfti                  313.8487 us    276.6110 us     2.12     33.8%   9r   0.033s  ok 6.8e-16       2.38x
+   fftw1d_estimate             363.7728 us    359.7012 us     1.83     26.3%   9r   0.002s  ok 8.5e-16       2.76x
+
+-- L=10007 (batched B=64, chain m=80), working set 19.545 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_bluestein                145.9398 us    145.2877 us     4.56      0.5%   3r   0.007s  ok ch=3.1e-14/1e-10 1s=3e-15 1.00x?
+   d1_race                     146.4071 us    144.9535 us     4.54      1.1%   3r   0.013s  ok ch=3.1e-14/1e-10 1s=3e-15 1.00x?
+   d1_planner                  171.6413 us    170.7133 us     3.87      0.6%   3r   0.007s  ok ch=3.2e-14/1e-10 1s=3e-15 1.18x
+   fftw1d_patient              235.5537 us    234.1336 us     2.82      2.4%   3r  19.848s  ok ch=3.3e-14/1e-10 1s=3e-15 1.61x
+   fftw1d_measure              248.9138 us    248.9023 us     2.67      0.4%   3r   1.140s  ok ch=3.6e-14/1e-10 1s=3e-15 1.71x
+   mkl1d_dfti                  303.8983 us    302.9553 us     2.19      0.5%   3r   0.054s  ok ch=3.0e-14/1e-10 1s=3e-15 2.08x
+   fftw1d_estimate             392.2571 us    391.3150 us     1.70      1.5%   3r   0.002s  ok ch=3.5e-14/1e-10 1s=3e-15 2.69x
+
+-- L=16384 (non-batched, single call), working set 0.500 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   fftw1d_patient               32.6258 us     31.9773 us    35.15      4.2%   9r   6.365s  ok 3.5e-16       1.00x?
+   mkl1d_dfti                   35.2812 us     33.4716 us    32.51     15.7%   9r   0.002s  ok 3.3e-16       1.08x
+   fftw1d_measure               36.0728 us     35.0356 us    31.79     17.1%   9r   0.571s  ok 3.4e-16       1.11x
+   d1_race                      38.4462 us     32.9564 us    29.83     23.6%   9r   1.423s  ok 3.4e-16       1.18x
+   d1_pow2                      39.9664 us     35.1047 us    28.70     16.4%   9r   0.003s  ok 3.4e-16       1.22x
+   d1_twiddle                   52.6222 us     46.2130 us    21.79     15.7%   9r   0.002s  ok 3.3e-16       1.61x
+   d1_planner                   58.6269 us     52.6728 us    19.56     14.4%   9r   0.003s  ok 3.4e-16       1.80x
+   d1_bluestein                 67.4312 us     63.6446 us    17.01      8.0%   9r   0.004s  ok 3.4e-16       2.07x
+   fftw1d_estimate              79.5213 us     69.4030 us    14.42     15.3%   9r   0.001s  ok 3.5e-16       2.44x
+
+-- L=16384 (non-batched, chain m=250), working set 0.500 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                      49.5287 us     49.2647 us    23.16     20.1%   3r   0.012s  ok ch=2.2e-14/1e-10 1s=1e-15 1.00x?
+   d1_pow2                      60.9882 us     51.2528 us    18.80     21.8%   3r   0.003s  ok ch=2.2e-14/1e-10 1s=1e-15 1.23x
+   d1_twiddle                   71.6326 us     71.4842 us    16.01      0.9%   3r   0.001s  ok ch=2.7e-14/1e-10 1s=1e-15 1.45x
+   d1_planner                   76.2783 us     75.4655 us    15.04      2.0%   3r   0.003s  ok ch=2.4e-14/1e-10 1s=1e-15 1.54x
+   fftw1d_patient               82.8395 us     82.4663 us    13.84      0.5%   3r   6.418s  ok ch=2.1e-14/1e-10 1s=1e-15 1.67x
+   fftw1d_measure               85.9995 us     85.7612 us    13.34     15.5%   3r   0.579s  ok ch=2.4e-14/1e-10 1s=1e-15 1.74x
+   mkl1d_dfti                  103.7870 us    101.0503 us    11.05      3.0%   3r   0.002s  ok ch=2.3e-14/1e-10 1s=1e-15 2.10x
+   fftw1d_estimate             119.3983 us    119.2698 us     9.61      0.1%   3r   0.001s  ok ch=2.6e-14/1e-10 1s=1e-15 2.41x
+   d1_bluestein                143.0364 us    140.4880 us     8.02      2.2%   3r   0.004s  ok ch=2.2e-14/1e-10 1s=1e-15 2.89x
+
+-- L=16384 (batched B=64, single call), working set 32.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   fftw1d_patient               46.9427 us     44.6524 us    24.43      8.1%   9r  67.758s  ok 3.4e-16       1.00x?
+   mkl1d_dfti                   50.3799 us     48.1426 us    22.76      9.0%   9r   0.003s  ok 3.4e-16       1.07x
+   d1_race                      55.4673 us     42.3591 us    20.68     66.3%   9r   0.014s  ok 3.4e-16       1.18x
+   d1_twiddle                   59.1606 us     51.9650 us    19.39     30.1%   9r   0.002s  ok 3.4e-16       1.26x
+   d1_planner                   59.4352 us     58.0094 us    19.30     42.6%   9r   0.003s  ok 3.4e-16       1.27x
+   d1_pow2                      67.5765 us     54.3103 us    16.97     37.5%   9r   0.003s  ok 3.4e-16       1.44x
+   d1_bluestein                 79.3523 us     76.9848 us    14.45     42.2%   9r   0.003s  ok 3.4e-16       1.69x
+   fftw1d_measure               96.7644 us     67.3298 us    11.85     47.4%   9r   0.615s  ok 3.4e-16       2.06x
+   fftw1d_estimate             128.3900 us    127.5913 us     8.93      3.6%   9r   0.001s  ok 3.5e-16       2.74x
+
+-- L=16384 (batched B=64, chain m=150), working set 32.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                      50.1242 us     49.4780 us    22.88      2.7%   3r   0.015s  ok ch=2.7e-14/1e-10 1s=1e-15 1.00x?
+   d1_pow2                      51.3710 us     51.3106 us    22.33      0.5%   3r   0.003s  ok ch=2.7e-14/1e-10 1s=1e-15 1.02x
+   d1_planner                   67.3955 us     66.9457 us    17.02      0.8%   3r   0.003s  ok ch=2.5e-14/1e-10 1s=1e-15 1.34x
+   d1_twiddle                   71.8723 us     71.6918 us    15.96      1.1%   3r   0.001s  ok ch=4.7e-14/1e-10 1s=1e-15 1.43x
+   fftw1d_patient               97.5975 us     96.2989 us    11.75      2.6%   3r  67.170s  ok ch=3.7e-14/1e-10 1s=1e-15 1.95x
+   mkl1d_dfti                  100.9178 us    100.6953 us    11.36      2.1%   3r   0.003s  ok ch=3.2e-14/1e-10 1s=1e-15 2.01x
+   fftw1d_measure              120.5864 us    119.6641 us     9.51      0.8%   3r   0.616s  ok ch=4.4e-14/1e-10 1s=1e-15 2.41x
+   d1_bluestein                132.7690 us    132.2973 us     8.64      1.5%   3r   0.004s  ok ch=2.6e-14/1e-10 1s=1e-15 2.65x
+   fftw1d_estimate             146.0941 us    145.7618 us     7.85      0.5%   3r   0.001s  ok ch=2.8e-14/1e-10 1s=1e-15 2.91x
+
+-- L=65537 (non-batched, single call), working set 2.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                     887.1601 us    826.6650 us     5.91     10.2%   9r   0.013s  ok 1.3e-15       1.00x?
+   d1_rader                    925.4757 us    841.9438 us     5.67     10.4%   9r   0.007s  ok 1.3e-15       1.04x?
+   d1_planner                 1194.7845 us   1023.2520 us     4.39     17.0%   9r   0.030s  ok 1.2e-15       1.35x
+   fftw1d_patient             1489.0246 us   1460.4556 us     3.52      2.5%   9r  58.125s  ok 1.2e-15       1.68x
+   fftw1d_measure             1570.9454 us   1561.5825 us     3.34      1.5%   9r   4.374s  ok 1.2e-15       1.77x
+   d1_bluestein               1738.9209 us   1721.0687 us     3.02      3.7%   9r   0.025s  ok 1.1e-15       1.96x
+   fftw1d_estimate            1931.1993 us   1718.9959 us     2.71     12.7%   9r   0.010s  ok 1.2e-15       2.18x
+   mkl1d_dfti                 3259.9017 us   3225.4084 us     1.61     16.3%   9r   0.012s  ok 1.0e-15       3.67x
+
+-- L=65537 (non-batched, chain m=60), working set 2.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                     724.8886 us    722.4323 us     7.23      5.1%   3r   0.018s  ok ch=4.2e-14/1e-10 1s=5e-15 1.00x?
+   d1_rader                    740.7070 us    739.0555 us     7.08      8.2%   3r   0.007s  ok ch=4.2e-14/1e-10 1s=5e-15 1.02x?
+   d1_planner                 1009.8939 us   1006.7589 us     5.19      6.2%   3r   0.027s  ok ch=3.6e-14/1e-10 1s=4e-15 1.39x
+   d1_bluestein               1579.5311 us   1577.2733 us     3.32      0.3%   3r   0.024s  ok ch=3.8e-14/1e-10 1s=5e-15 2.18x
+   fftw1d_patient             1636.5257 us   1633.6514 us     3.20      0.3%   3r  58.226s  ok ch=3.7e-14/1e-10 1s=6e-15 2.26x
+   fftw1d_measure             1745.1080 us   1742.4255 us     3.00      0.4%   3r   4.318s  ok ch=3.7e-14/1e-10 1s=5e-15 2.41x
+   fftw1d_estimate            1893.7741 us   1891.8900 us     2.77      0.1%   3r   0.008s  ok ch=3.8e-14/1e-10 1s=5e-15 2.61x
+   mkl1d_dfti                 3509.0534 us   3471.8088 us     1.49      1.2%   3r   0.009s  ok ch=3.9e-14/1e-10 1s=5e-15 4.84x
+
+-- L=65537 (batched B=16, single call), working set 32.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                    1138.1651 us   1107.9061 us     4.61      3.4%   9r   0.010s  ok 1.3e-15       1.00x?
+   d1_rader                   1219.0686 us   1170.3164 us     4.30      7.5%   9r   0.006s  ok 1.3e-15       1.07x
+   d1_planner                 1326.6329 us   1325.0543 us     3.95      6.4%   9r   0.021s  ok 1.2e-15       1.17x
+   fftw1d_patient             1550.8239 us   1521.4509 us     3.38      3.1%   9r  58.285s  ok 1.2e-15       1.36x
+   fftw1d_measure             1680.1613 us   1658.3936 us     3.12      1.7%   9r   4.369s  ok 1.2e-15       1.48x
+   d1_bluestein               1858.3821 us   1665.3726 us     2.82     14.0%   9r   0.022s  ok 1.1e-15       1.63x
+   fftw1d_estimate            2082.5244 us   1876.1573 us     2.52     11.7%   9r   0.009s  ok 1.2e-15       1.83x
+   mkl1d_dfti                 3416.4769 us   3400.1560 us     1.53     11.8%   9r   0.056s  ok 1.0e-15       3.00x
+
+-- L=65537 (batched B=16, chain m=20), working set 32.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                     774.4032 us    763.6510 us     6.77      1.9%   3r   0.023s  ok ch=2.1e-14/1e-10 1s=5e-15 1.00x?
+   d1_rader                    776.7887 us    761.1282 us     6.75      2.5%   3r   0.006s  ok ch=2.1e-14/1e-10 1s=5e-15 1.00x?
+   d1_planner                 1041.3085 us    999.6264 us     5.03      4.3%   3r   0.022s  ok ch=1.5e-14/1e-10 1s=4e-15 1.34x
+   fftw1d_patient             1741.6995 us   1739.7149 us     3.01      1.4%   3r  58.050s  ok ch=1.7e-14/1e-10 1s=4e-15 2.25x
+   d1_bluestein               1851.4648 us   1836.6037 us     2.83      4.3%   3r   0.021s  ok ch=2.0e-14/1e-10 1s=4e-15 2.39x
+   fftw1d_measure             1890.9889 us   1883.0265 us     2.77      1.4%   3r   4.372s  ok ch=1.7e-14/1e-10 1s=4e-15 2.44x
+   fftw1d_estimate            2099.0759 us   2091.8433 us     2.50      0.5%   3r   0.008s  ok ch=2.1e-14/1e-10 1s=4e-15 2.71x
+   mkl1d_dfti                 3602.3955 us   3601.7441 us     1.46      0.1%   3r   0.064s  ok ch=1.7e-14/1e-10 1s=4e-15 4.65x
+
+-- L=100003 (non-batched, single call), working set 3.052 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                    2303.7573 us   2299.8858 us     3.61     33.9%   9r   0.028s  ok 1.0e-15       1.00x?
+   d1_bluestein               2690.8160 us   2357.1083 us     3.09     32.8%   9r   0.030s  ok 1.0e-15       1.17x
+   fftw1d_patient             2733.7821 us   2691.0377 us     3.04     11.8%   9r  62.820s  ok 9.0e-16       1.19x
+   fftw1d_measure             2777.0599 us   2737.1448 us     2.99     10.4%   9r   4.727s  ok 9.0e-16       1.21x
+   mkl1d_dfti                 3371.2144 us   3362.6120 us     2.46     21.2%   9r   0.014s  ok 8.8e-16       1.46x
+   d1_planner                 3503.7048 us   3417.8565 us     2.37      8.1%   9r   0.060s  ok 1.0e-15       1.52x
+   fftw1d_estimate            5919.4692 us   4851.9258 us     1.40     41.0%   9r   0.015s  ok 9.1e-16       2.57x
+
+-- L=100003 (non-batched, chain m=40), working set 3.052 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                    2422.5338 us   2419.6057 us     3.43      0.8%   3r   0.037s  ok ch=2.3e-14/1e-10 1s=4e-15 1.00x?
+   d1_bluestein               2428.0817 us   2426.8628 us     3.42      0.7%   3r   0.024s  ok ch=2.3e-14/1e-10 1s=4e-15 1.00x?
+   fftw1d_patient             3111.3501 us   3101.2947 us     2.67      0.8%   3r  62.565s  ok ch=2.7e-14/1e-10 1s=4e-15 1.28x
+   fftw1d_measure             3210.9648 us   3210.0477 us     2.59      2.0%   3r   4.738s  ok ch=2.7e-14/1e-10 1s=4e-15 1.33x
+   d1_planner                 3551.7949 us   3539.4072 us     2.34      0.4%   3r   0.047s  ok ch=2.7e-14/1e-10 1s=5e-15 1.47x
+   mkl1d_dfti                 3674.5697 us   3673.9463 us     2.26      1.2%   3r   0.011s  ok ch=2.3e-14/1e-10 1s=4e-15 1.52x
+   fftw1d_estimate            5206.9891 us   5175.6346 us     1.59      1.2%   3r   0.012s  ok ch=3.4e-14/1e-10 1s=5e-15 2.15x
+
+-- L=100003 (batched B=8, single call), working set 24.415 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                    2485.2160 us   2460.5513 us     3.34    477.5%   9r   0.036s  ok 1.1e-15       1.00x?
+   fftw1d_patient             2849.6091 us   2798.2316 us     2.91      9.2%   9r  62.553s  ok 9.0e-16       1.15x?
+   fftw1d_measure             3051.9208 us   2875.4079 us     2.72      8.6%   9r   4.793s  ok 9.1e-16       1.23x?
+   d1_bluestein               3309.2723 us   2458.1871 us     2.51     37.9%   9r   0.030s  ok 1.1e-15       1.33x?
+   mkl1d_dfti                 3555.2110 us   3535.9839 us     2.34     38.8%   9r   0.022s  ok 8.8e-16       1.43x?
+   d1_planner                 3601.5576 us   3327.1547 us     2.31     18.3%   9r   0.059s  ok 1.0e-15       1.45x?
+   fftw1d_estimate            5020.1416 us   4961.6923 us     1.65      8.7%   9r   0.013s  ok 9.1e-16       2.02x?
+
+-- L=100003 (batched B=8, chain m=15), working set 24.415 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_bluestein               2828.7884 us   2823.7602 us     2.94      0.2%   3r   0.028s  ok ch=1.7e-14/1e-10 1s=5e-15 1.00x?
+   d1_race                    2857.1013 us   2853.6736 us     2.91      0.4%   3r   0.040s  ok ch=1.9e-14/1e-10 1s=5e-15 1.01x
+   fftw1d_patient             3229.3872 us   3187.6646 us     2.57      2.6%   3r  62.731s  ok ch=1.6e-14/1e-10 1s=5e-15 1.14x
+   fftw1d_measure             3352.9551 us   3333.5915 us     2.48      1.9%   3r   4.663s  ok ch=1.6e-14/1e-10 1s=5e-15 1.19x
+   d1_planner                 3480.4940 us   3401.5301 us     2.39      2.7%   3r   0.057s  ok ch=1.6e-14/1e-10 1s=4e-15 1.23x
+   mkl1d_dfti                 3870.0006 us   3858.5603 us     2.15      0.8%   3r   0.068s  ok ch=1.5e-14/1e-10 1s=5e-15 1.37x
+   fftw1d_estimate            5426.1856 us   5412.2542 us     1.53      0.7%   3r   0.010s  ok ch=1.5e-14/1e-10 1s=5e-15 1.92x
+
+backends:
+   baseline_dft             dense L x L DFT matrix, O(L^2)/vector
+   d1_batchlane             SoA 8-lane zmm batch-lane engine: interleaved-pair m=1 kernels at 13/31 (d1_prime) and an in-register AoS codelet at 32 (d1_pow2), fused-AoS single-shot kernels looped for m=1 at 60/64/128, register-resident B=1 chains (fold-ready A/B rows at 13/31, natural-row four-step at 32/64/128), L1-blocked fused FFT+Newton-map batched chain
+   d1_bluestein             Bluestein chirp-Z any-L: split-complex mixed-radix(2/3/4/5/8/9) Stockham conv core, minimal smooth pad (10007->20480); large M via Agarwal-Cooley coprime 2D conv (CRT, no inter-axis twiddles; minimal-M split over odd 3^a5^b <= 135: 65537->138240=1024x135, 100003->204800=8192x25) with chirp/CRT-fused entry+exit, NT-streamed exit scatter; fwd-last x kernel-mul x inv-entry fused into ONE pass (modes 2+3); paired-p zmm radix-8 at the narrow s=4 stage; radix-9 tile stages; zero-pruned+chirp-fused entry and pruned chirp-fused exit for small M; direct Stockham for smooth L; dense tiny-L floor; fused map chain with rsqrt/rcp+2NR Newton map; all planes in pre-faulted hugepage mmap blocks with L2-way skew
+   d1_composite             Good-Thomas PFA 60=4x3x5 twiddle-free; broadcast-fed signed-FMA DFT-4 (zero cross-lane shuffles), zmm 2x2 batched kernel with pure-store vextractf64x2 outputs; SoA-resident in-place batched chain and coset-row B=1 chain, both with fused rsqrt/rcp map
+   d1_planner               LIBRARY LAYER (adoption-scored): factorization planner on a split-complex Stockham core (true-zmm noinline kernels; 2/3/4/5/8 + generic prime<=61 stage) -- direct smooth / unpadded Rader (smooth L-1) / smooth-padded Bluestein; adopted codelets: d1_prime pair kernels at 13/31, d1_pow2 register codelets at 32/64; NT fused exits above L3; fused split/lane/register map chains
+   d1_pow2                  Stockham autosort DIF: blocked split-complex radix-8 engine at L>=128 (zero-shuffle middle stages, conversion fused into the stride-1 stage), compact (c,s)-pair twiddle tables at L>=1024 (halved L2 footprint -- the ICX large-L bottleneck was table-bloated L1/L2 fill traffic, not ports), first-stage pair fused through an L1 tile at L>=4096 and the two middle radix-8 stages fused into a radix-64 tile pass at 4096/16384 (three array passes total), in-register AoS codelets at L=32/64, NT final stores above the scoring node's L3; chains: across-batch SoA groups of 8 (L<=2048, from d1_batchlane) or per-transform blocking, with a 2-Newton rsqrt/rcp map fused into the final stage in split form
+   d1_prime                 symmetric-pair dense prime DFT; interleaved-pair zmm kernels at 13/31 (pair-dup tables, 2-transform tiling); register-resident B=1 chains + SoA batched chains, c-field folded into accumulator seeds (rsqrt14+NR map)
+   d1_race                  LIBRARY LAYER (adoption-scored): plan-time race + per-host wisdom (gen_race generalized to 1D); demo entry fork-gates and races the sibling class entries per (L,B) and ships the winner by vtable
+   d1_rader                 Rader prime->cyclic conv sized by N-1: UNPADDED conv 65536=[4,16,16,16,4] at N=65537 (two-layer radix-16 through an L1 tile; FUSED MID PASS runs fwd-last butterfly + kernel multiply + inv-first butterfly in one pass, 9 passes not 10 -- the spectrum is never materialized), unpadded 1020=[4,3,5,17] at 1021 (AVX-512 two-half radix-17, scatter-fused exit, paired-p full-lane radix-5), CRT codelets Z12=Z4xZ3 / Z30=Z2xZ3xZ5 at 13/31 (Agarwal-Cooley) with ACROSS-BATCH SoA: 8 transforms per zmm, transpose only at entry/exit; pad 256 at 127; split-complex Stockham core (from d1_bluestein), X[0] free from conv DC; fused map chain keeps state in conv order (gather o scatter = index reversal), Newton rsqrt/rcp map (no divider) in every vector chain exit
+   d1_twiddle               LIBRARY LAYER (adoption-scored): exact 1D twiddle tables, consumption order (d1tw_cexp quadrant-exact ~1ulp, d1tw_chirp integer-reduced, d1tw_stage v1 + v2 broadcast-pair/lane-major AVX-512 formats; v1 doubles as the SoA-broadcast format); vehicle: mixed-radix 2/3/4/5/8/16 Stockham, zmm 4-complex lanes, in-register 32/64 codelets + register chains (borrowed from d1_pow2, fed by the s1bc/bc tables), SoA across-batch chain at B>=8 L<=2048 (d1_batchlane), NT final stores >=25MB, 2NR fast map, split exec/chain schedules at 16384, smooth L
+   fftw1d_custom            genfft monolithic codelet, split arrays, scalar DAG + autovec
+   fftw1d_custom_soa        genfft monolithic codelet, SoA 8-transform batch-lane split-complex
+   fftw1d_estimate          FFTW 3.3.10 plan_many_dft 1D, fftw1d_estimate
+   fftw1d_measure           FFTW 3.3.10 plan_many_dft 1D, fftw1d_measure
+   fftw1d_patient           FFTW 3.3.10 plan_many_dft 1D, fftw1d_patient
+   mkl1d_dfti               oneMKL DFTI 1D, sequential, batched
+# round d1_r4
+host: a80n0.lqcd.mit   date: 2026-09-04T13:36:06-04:00   slurm_job: 440515
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512bw avx512cd avx512dq avx512f avx512ifma avx512_vbmi avx512vbmi avx512vl avx512_vnni avx512_vpopcntdq fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+== building on a80n0.lqcd.mit ==
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -c -o build/a80n0/driver.o driver.c
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/baseline_dft impl/baseline_dft.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_batchlane impl/d1_batchlane.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_bluestein impl/d1_bluestein.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_composite impl/d1_composite.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_planner impl/d1_planner.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_pow2 impl/d1_pow2.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_prime impl/d1_prime.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_race impl/d1_race.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_rader impl/d1_rader.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_twiddle impl/d1_twiddle.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_ESTIMATE -DPLAN_NAME='"fftw1d_estimate"' -o build/a80n0/bin/fftw1d_estimate sota/fftw1d.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_MEASURE -DPLAN_NAME='"fftw1d_measure"' -o build/a80n0/bin/fftw1d_measure sota/fftw1d.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_PATIENT -DPLAN_NAME='"fftw1d_patient"' -o build/a80n0/bin/fftw1d_patient sota/fftw1d.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/fftw1d_custom sota/fftw1d_custom.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -DCUSTOM_SOA -I. -o build/a80n0/bin/fftw1d_custom_soa sota/fftw1d_custom.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/opt/software/intel/oneapi/mkl/2022.0.2/include -o build/a80n0/bin/mkl1d_dfti sota/mkl1d.c build/a80n0/driver.o -L/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -Wl,-rpath,/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lm
+host:            a80n0  (binaries in build/a80n0/bin)
+implementations: baseline_dft d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+sota:            fftw1d_estimate fftw1d_measure fftw1d_patient fftw1d_custom fftw1d_custom_soa mkl1d_dfti
+== backends: baseline_dft
+d1_batchlane
+d1_bluestein
+d1_composite
+d1_planner
+d1_pow2
+d1_prime
+d1_race
+d1_rader
+d1_twiddle
+fftw1d_custom
+fftw1d_custom_soa
+fftw1d_estimate
+fftw1d_measure
+fftw1d_patient
+mkl1d_dfti ==
+   done L=16384 B=64
+   done L=65537 B=16
+   done L=65537 B=1
+   done L=10007 B=1
+   done L=16384 B=1
+   done L=4096 B=1
+   done L=60 B=512
+   done L=31 B=512
+   done L=32 B=512
+   done L=31 B=1
+   done L=128 B=1
+   done L=32 B=1
+== shard_1 done; leaderboard deferred to submit.sh ==
+== round d1_r4 complete: results/d1_r4 ==
+# round d1_r4
+host: a81n2.lqcd.mit   date: 2026-09-04T13:36:06-04:00   slurm_job: 440513
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512bw avx512cd avx512dq avx512f avx512ifma avx512_vbmi avx512vbmi avx512vl avx512_vnni avx512_vpopcntdq fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+== building on a81n2.lqcd.mit ==
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -c -o build/a81n2/driver.o driver.c
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/baseline_dft impl/baseline_dft.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_batchlane impl/d1_batchlane.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_bluestein impl/d1_bluestein.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_composite impl/d1_composite.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_planner impl/d1_planner.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_pow2 impl/d1_pow2.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_prime impl/d1_prime.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_race impl/d1_race.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_rader impl/d1_rader.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_twiddle impl/d1_twiddle.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_ESTIMATE -DPLAN_NAME='"fftw1d_estimate"' -o build/a81n2/bin/fftw1d_estimate sota/fftw1d.c build/a81n2/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_MEASURE -DPLAN_NAME='"fftw1d_measure"' -o build/a81n2/bin/fftw1d_measure sota/fftw1d.c build/a81n2/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_PATIENT -DPLAN_NAME='"fftw1d_patient"' -o build/a81n2/bin/fftw1d_patient sota/fftw1d.c build/a81n2/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/fftw1d_custom sota/fftw1d_custom.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -DCUSTOM_SOA -I. -o build/a81n2/bin/fftw1d_custom_soa sota/fftw1d_custom.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/opt/software/intel/oneapi/mkl/2022.0.2/include -o build/a81n2/bin/mkl1d_dfti sota/mkl1d.c build/a81n2/driver.o -L/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -Wl,-rpath,/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lm
+host:            a81n2  (binaries in build/a81n2/bin)
+implementations: baseline_dft d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+sota:            fftw1d_estimate fftw1d_measure fftw1d_patient fftw1d_custom fftw1d_custom_soa mkl1d_dfti
+== backends: baseline_dft
+d1_batchlane
+d1_bluestein
+d1_composite
+d1_planner
+d1_pow2
+d1_prime
+d1_race
+d1_rader
+d1_twiddle
+fftw1d_custom
+fftw1d_custom_soa
+fftw1d_estimate
+fftw1d_measure
+fftw1d_patient
+mkl1d_dfti ==
+   done L=100003 B=8
+   done L=100003 B=1
+   done L=4096 B=256
+   done L=10007 B=64
+   done L=1024 B=512
+   done L=1021 B=1
+   done L=1021 B=256
+   done L=128 B=512
+   done L=64 B=512
+   done L=1024 B=1
+   done L=13 B=512
+   done L=60 B=1
+   done L=64 B=1
+   done L=13 B=1
+== shard_2 done; leaderboard deferred to submit.sh ==
+== round d1_r4 complete: results/d1_r4 ==
+
+===== submit.sh attempt 2026-09-04T14:42:31-04:00 round=d1_r4 seed=20264873 extra= --samples 12 --runs 3 --cases cases_r4patch.txt =====
+# estimated shard wall times (s): 1:647  2:637   imbalance 1.01x   [from measured d1_r3]
+=== round d1_r4 ===
+# round d1_r4
+host: a80n0.lqcd.mit   date: 2026-09-03T08:56:37-04:00   slurm_job: 440424
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512_vbmi avx512_vnni avx512_vpopcntdq avx512bw avx512cd avx512dq avx512f avx512ifma avx512vbmi avx512vl fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+
+-- L=13 (non-batched, single call), working set 0.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_batchlane                  0.0161 us      0.0160 us    14.99     22.8%   9r   0.000s  ok 1.4e-16       1.00x?
+   d1_race                       0.0166 us      0.0141 us    14.47     56.4%   9r   0.006s  ok 1.6e-16       1.04x?
+   d1_prime                      0.0182 us      0.0156 us    13.19     63.4%   9r   0.000s  ok 1.6e-16       1.14x?
+   d1_planner                    0.0206 us      0.0169 us    11.69     32.3%   9r   0.000s  ok 1.4e-16       1.28x
+   fftw1d_patient                0.0229 us      0.0218 us    10.50     35.9%   9r   0.001s  ok 2.1e-16       1.43x
+   mkl1d_dfti                    0.0262 us      0.0248 us     9.17      8.4%   9r   0.014s  ok 1.7e-16       1.63x
+   fftw1d_estimate               0.0264 us      0.0219 us     9.12     25.0%   9r   0.001s  ok 2.1e-16       1.64x
+   fftw1d_measure                0.0264 us      0.0219 us     9.11     29.8%   9r   0.001s  ok 2.1e-16       1.64x
+   fftw1d_custom                 0.0568 us      0.0567 us     4.24      5.1%   9r   0.000s  ok 2.3e-16       3.54x
+   d1_rader                      0.0569 us      0.0568 us     4.23      2.6%   9r   0.000s  ok 3.2e-16       3.54x
+   d1_bluestein                  0.1083 us      0.1069 us     2.22      2.1%   9r   0.000s  ok 1.4e-16       6.75x
+   baseline_dft                  0.3533 us      0.3533 us     0.68      0.8%   9r   0.000s  ok 4.0e-16       22.01x
+
+-- L=13 (non-batched, chain m=200000), working set 0.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_planner                    0.0394 us      0.0393 us     6.10     13.9%   3r   0.000s  ok ch=2.3e-15/1e-10 1s=5e-16 1.00x?
+   d1_prime                      0.0422 us      0.0421 us     5.70      0.5%   3r   0.000s  ok ch=1.6e-15/1e-10 1s=5e-16 1.07x?
+   d1_race                       0.0425 us      0.0423 us     5.66      0.4%   3r   0.005s  ok ch=1.6e-15/1e-10 1s=5e-16 1.08x?
+   d1_batchlane                  0.0451 us      0.0451 us     5.33      0.1%   3r   0.000s  ok ch=2.5e-15/1e-10 1s=5e-16 1.14x
+   fftw1d_measure                0.0674 us      0.0674 us     3.57      0.0%   3r   0.001s  ok ch=2.3e-15/1e-10 1s=8e-16 1.71x
+   fftw1d_estimate               0.0674 us      0.0674 us     3.57      0.0%   3r   0.001s  ok ch=2.3e-15/1e-10 1s=8e-16 1.71x
+   fftw1d_custom                 0.0756 us      0.0756 us     3.18      0.8%   3r   0.000s  ok ch=1.7e-15/1e-10 1s=9e-16 1.92x
+   d1_rader                      0.0801 us      0.0801 us     3.00     20.7%   3r   0.000s  ok ch=3.4e-15/1e-10 1s=1e-15 2.03x
+   mkl1d_dfti                    0.0803 us      0.0803 us     2.99      0.1%   3r   0.034s  ok ch=1.8e-15/1e-10 1s=4e-16 2.04x
+   fftw1d_patient                0.0814 us      0.0814 us     2.96      0.0%   3r   0.001s  ok ch=2.3e-15/1e-10 1s=8e-16 2.06x
+   d1_bluestein                  0.1205 us      0.1201 us     2.00     21.9%   3r   0.000s  ok ch=2.1e-15/1e-10 1s=5e-16 3.06x
+   baseline_dft                  0.3930 us      0.3256 us     0.61     20.7%   3r   0.000s  ok ch=8.9e-15/1e-10 1s=1e-15 9.97x
+
+-- L=13 (batched B=512, single call), working set 0.203 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_prime                      0.0106 us      0.0106 us    22.59      1.9%   9r   0.000s  ok 1.7e-16       1.00x?
+   d1_planner                    0.0107 us      0.0107 us    22.53      2.0%   9r   0.000s  ok 1.4e-16       1.00x?
+   d1_race                       0.0107 us      0.0094 us    22.39     14.6%   9r   0.008s  ok 1.4e-16       1.01x?
+   d1_batchlane                  0.0108 us      0.0106 us    22.32      3.1%   9r   0.000s  ok 1.4e-16       1.01x
+   fftw1d_measure                0.0139 us      0.0122 us    17.32     15.1%   9r   0.002s  ok 1.8e-16       1.30x
+   fftw1d_patient                0.0143 us      0.0139 us    16.82      5.9%   9r   0.002s  ok 1.9e-16       1.34x
+   mkl1d_dfti                    0.0160 us      0.0159 us    15.01     22.7%   9r   0.013s  ok 1.7e-16       1.50x
+   d1_rader                      0.0166 us      0.0157 us    14.46     21.0%   9r   0.000s  ok 2.8e-16       1.56x
+   fftw1d_custom_soa             0.0325 us      0.0322 us     7.41     14.0%   9r   0.000s  ok 1.8e-16       3.05x
+   fftw1d_estimate               0.0399 us      0.0350 us     6.03     15.0%   9r   0.001s  ok 1.8e-16       3.74x
+   fftw1d_custom                 0.0487 us      0.0404 us     4.94     21.5%   9r   0.000s  ok 1.8e-16       4.57x
+   d1_bluestein                  0.1039 us      0.1036 us     2.31      4.8%   9r   0.000s  ok 1.8e-16       9.76x
+   baseline_dft                  0.3499 us      0.2899 us     0.69     20.7%   9r   0.000s  ok 4.1e-16       32.85x
+
+-- L=13 (batched B=512, chain m=2000), working set 0.203 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0146 us      0.0146 us    16.46      0.0%   3r   0.006s  ok ch=4.1e-13/1e-10 1s=5e-16 1.00x?
+   d1_rader                      0.0146 us      0.0146 us    16.43      0.1%   3r   0.000s  ok ch=4.1e-13/1e-10 1s=5e-16 1.00x
+   d1_planner                    0.0155 us      0.0155 us    15.56     13.9%   3r   0.000s  ok ch=1.6e-14/1e-10 1s=3e-16 1.06x?
+   d1_prime                      0.0171 us      0.0171 us    14.04      1.5%   3r   0.000s  ok ch=1.5e-13/1e-10 1s=4e-16 1.17x
+   d1_batchlane                  0.0176 us      0.0176 us    13.64      0.2%   3r   0.000s  ok ch=1.3e-14/1e-10 1s=3e-16 1.21x
+   fftw1d_custom_soa             0.0299 us      0.0298 us     8.05      1.2%   3r   0.000s  ok ch=4.2e-14/1e-10 1s=3e-16 2.05x
+   fftw1d_custom                 0.0476 us      0.0474 us     5.05     21.1%   3r   0.000s  ok ch=4.2e-14/1e-10 1s=3e-16 3.26x
+   fftw1d_measure                0.0514 us      0.0511 us     4.68      1.3%   3r   0.002s  ok ch=3.4e-14/1e-10 1s=3e-16 3.51x
+   fftw1d_patient                0.0515 us      0.0513 us     4.67     14.3%   3r   0.003s  ok ch=3.4e-14/1e-10 1s=3e-16 3.52x
+   mkl1d_dfti                    0.0530 us      0.0530 us     4.54      0.1%   3r   0.050s  ok ch=1.4e-13/1e-10 1s=3e-16 3.63x
+   fftw1d_estimate               0.0746 us      0.0745 us     3.22     11.3%   3r   0.001s  ok ch=3.4e-14/1e-10 1s=3e-16 5.11x
+   d1_bluestein                  0.1231 us      0.1229 us     1.95      1.3%   3r   0.000s  ok ch=1.2e-14/1e-10 1s=3e-16 8.42x
+   baseline_dft                  0.3270 us      0.3270 us     0.74      0.0%   3r   0.000s  ok ch=2.6e-13/1e-10 1s=8e-16 22.38x
+
+-- L=31 (non-batched, single call), working set 0.001 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_batchlane                  0.0475 us      0.0463 us    16.17     16.7%   9r   0.000s  ok 2.5e-16       1.00x?
+   d1_prime                      0.0483 us      0.0470 us    15.89     15.9%   9r   0.000s  ok 3.3e-16       1.02x?
+   d1_planner                    0.0503 us      0.0497 us    15.28     18.5%   9r   0.000s  ok 2.5e-16       1.06x?
+   d1_race                       0.0538 us      0.0465 us    14.26     29.2%   9r   0.007s  ok 2.5e-16       1.13x
+   d1_rader                      0.1802 us      0.1750 us     4.26     20.8%   9r   0.000s  ok 3.2e-16       3.79x
+   d1_bluestein                  0.1826 us      0.1815 us     4.21      8.4%   9r   0.001s  ok 3.4e-16       3.84x
+   fftw1d_custom                 0.2155 us      0.1761 us     3.56     25.3%   9r   0.000s  ok 3.2e-16       4.54x
+   fftw1d_patient                0.2617 us      0.2595 us     2.93      2.5%   9r   0.120s  ok 2.0e-16       5.51x
+   fftw1d_measure                0.2670 us      0.2600 us     2.88     27.5%   9r   0.042s  ok 2.0e-16       5.62x
+   mkl1d_dfti                    0.2795 us      0.2315 us     2.75     28.5%   9r   0.028s  ok 2.1e-16       5.88x
+   fftw1d_estimate               0.3177 us      0.2601 us     2.42     27.1%   9r   0.001s  ok 2.0e-16       6.69x
+   baseline_dft                  1.6555 us      1.6553 us     0.46     20.7%   9r   0.000s  ok 3.6e-16       34.86x
+
+-- L=31 (non-batched, chain m=100000), working set 0.001 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_prime                      0.0534 us      0.0533 us    14.39     13.9%   3r   0.000s  ok ch=4.2e-15/1e-10 1s=8e-16 1.00x?
+   d1_batchlane                  0.0549 us      0.0548 us    14.00      0.1%   3r   0.000s  ok ch=2.9e-15/1e-10 1s=5e-16 1.03x?
+   d1_planner                    0.0582 us      0.0582 us    13.19      0.0%   3r   0.000s  ok ch=2.4e-15/1e-10 1s=5e-16 1.09x?
+   d1_race                       0.0604 us      0.0534 us    12.70     13.4%   3r   0.008s  ok ch=4.2e-15/1e-10 1s=8e-16 1.13x?
+   d1_rader                      0.2064 us      0.2063 us     3.72      0.1%   3r   0.000s  ok ch=1.1e-14/1e-10 1s=7e-16 3.87x
+   fftw1d_custom                 0.2095 us      0.2084 us     3.67      0.6%   3r   0.000s  ok ch=3.5e-15/1e-10 1s=5e-16 3.93x
+   d1_bluestein                  0.2149 us      0.2082 us     3.57      4.7%   3r   0.001s  ok ch=2.6e-15/1e-10 1s=8e-16 4.03x
+   fftw1d_patient                0.3489 us      0.3477 us     2.20      0.5%   3r   0.119s  ok ch=8.1e-16/1e-10 1s=4e-16 6.54x
+   fftw1d_estimate               0.3498 us      0.3497 us     2.20      0.1%   3r   0.001s  ok ch=8.1e-16/1e-10 1s=4e-16 6.55x
+   mkl1d_dfti                    0.3855 us      0.3848 us     1.99      0.2%   3r   0.049s  ok ch=1.8e-15/1e-10 1s=5e-16 7.22x
+   fftw1d_measure                0.4132 us      0.3497 us     1.86     20.2%   3r   0.043s  ok ch=8.1e-16/1e-10 1s=4e-16 7.74x
+   baseline_dft                  1.7390 us      1.7390 us     0.44      0.0%   3r   0.000s  ok ch=1.8e-14/1e-10 1s=7e-16 32.59x
+
+-- L=31 (batched B=512, single call), working set 0.484 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_prime                      0.0431 us      0.0425 us    17.81     14.5%   9r   0.000s  ok 2.9e-16       1.00x?
+   d1_planner                    0.0441 us      0.0441 us    17.40     13.9%   9r   0.000s  ok 2.1e-16       1.02x?
+   d1_race                       0.0487 us      0.0431 us    15.78     13.9%   9r   1.033s  ok 2.9e-16       1.13x
+   d1_batchlane                  0.0502 us      0.0441 us    15.29     13.8%   9r   0.000s  ok 2.1e-16       1.16x
+   d1_rader                      0.0633 us      0.0630 us    12.13     14.5%   9r   0.000s  ok 3.6e-16       1.47x
+   fftw1d_custom_soa             0.1047 us      0.1009 us     7.33      5.1%   9r   0.000s  ok 2.6e-16       2.43x
+   fftw1d_custom                 0.1612 us      0.1605 us     4.76     22.4%   9r   0.000s  ok 2.6e-16       3.74x
+   d1_bluestein                  0.1934 us      0.1822 us     3.97     17.7%   9r   0.001s  ok 3.3e-16       4.49x
+   fftw1d_patient                0.2636 us      0.2631 us     2.91     20.8%   9r   0.118s  ok 2.1e-16       6.12x
+   mkl1d_dfti                    0.2726 us      0.2267 us     2.82     21.0%   9r   0.012s  ok 2.3e-16       6.32x
+   fftw1d_measure                0.3180 us      0.3176 us     2.42      0.4%   9r   0.050s  ok 2.1e-16       7.38x
+   fftw1d_estimate               0.3181 us      0.3176 us     2.41      1.2%   9r   0.001s  ok 2.1e-16       7.38x
+   baseline_dft                  1.6522 us      1.6519 us     0.46     20.7%   9r   0.000s  ok 4.2e-16       38.33x
+
+-- L=31 (batched B=512, chain m=1200), working set 0.484 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0465 us      0.0462 us    16.50      4.7%   3r   0.006s  ok ch=5.1e-12/3e-10 1s=7e-16 1.00x?
+   d1_prime                      0.0476 us      0.0467 us    16.15      3.8%   3r   0.000s  ok ch=5.1e-12/3e-10 1s=7e-16 1.02x?
+   d1_planner                    0.0552 us      0.0547 us    13.90      1.2%   3r   0.000s  ok ch=1.7e-12/3e-10 1s=5e-16 1.19x
+   d1_rader                      0.0555 us      0.0553 us    13.83     16.0%   3r   0.000s  ok ch=2.7e-12/3e-10 1s=8e-16 1.19x
+   d1_batchlane                  0.0560 us      0.0553 us    13.72      1.7%   3r   0.000s  ok ch=1.3e-12/3e-10 1s=4e-16 1.20x
+   fftw1d_custom_soa             0.0780 us      0.0772 us     9.85      1.1%   3r   0.000s  ok ch=1.1e-12/3e-10 1s=5e-16 1.68x
+   fftw1d_custom                 0.1770 us      0.1769 us     4.34      0.2%   3r   0.000s  ok ch=1.1e-12/3e-10 1s=5e-16 3.80x
+   d1_bluestein                  0.2266 us      0.2101 us     3.39      8.4%   3r   0.001s  ok ch=4.0e-12/3e-10 1s=7e-16 4.87x
+   mkl1d_dfti                    0.3153 us      0.3153 us     2.44      0.0%   3r   0.049s  ok ch=3.9e-12/3e-10 1s=5e-16 6.78x
+   fftw1d_patient                0.3536 us      0.3534 us     2.17      0.1%   3r   0.121s  ok ch=2.6e-13/3e-10 1s=4e-16 7.60x
+   fftw1d_measure                0.3536 us      0.3535 us     2.17      0.0%   3r   0.043s  ok ch=2.6e-13/3e-10 1s=4e-16 7.60x
+   fftw1d_estimate               0.3537 us      0.3533 us     2.17      0.1%   3r   0.001s  ok ch=2.6e-13/3e-10 1s=4e-16 7.60x
+   baseline_dft                  1.7450 us      1.7449 us     0.44      0.0%   3r   0.000s  ok ch=2.1e-12/3e-10 1s=8e-16 37.50x
+
+-- L=32 (non-batched, single call), working set 0.001 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_twiddle                    0.0192 us      0.0169 us    41.60     20.9%   9r   0.000s  ok 1.3e-16       1.00x?
+   d1_pow2                       0.0208 us      0.0183 us    38.54     18.3%   9r   0.000s  ok 1.3e-16       1.08x
+   d1_planner                    0.0209 us      0.0184 us    38.30     18.5%   9r   0.000s  ok 1.3e-16       1.09x
+   d1_race                       0.0210 us      0.0172 us    38.05     34.9%   9r   0.007s  ok 1.3e-16       1.09x
+   d1_batchlane                  0.0215 us      0.0215 us    37.15     31.1%   9r   0.000s  ok 1.3e-16       1.12x
+   mkl1d_dfti                    0.0228 us      0.0223 us    35.10     43.2%   9r   0.001s  ok 8.6e-17       1.19x
+   fftw1d_patient                0.0368 us      0.0318 us    21.73     29.5%   9r   0.014s  ok 1.2e-16       1.91x
+   fftw1d_measure                0.0401 us      0.0328 us    19.93     40.8%   9r   0.007s  ok 1.5e-16       2.09x
+   fftw1d_estimate               0.0432 us      0.0413 us    18.51     16.7%   9r   0.001s  ok 1.5e-16       2.25x
+   fftw1d_custom                 0.0930 us      0.0896 us     8.60     24.3%   9r   0.000s  ok 1.1e-16       4.84x
+   d1_bluestein                  0.0961 us      0.0848 us     8.33     28.9%   9r   0.001s  ok 1.2e-16       5.00x
+   baseline_dft                  2.1285 us      1.7635 us     0.38     20.7%   9r   0.000s  ok 3.8e-16       110.67x
+
+-- L=32 (non-batched, chain m=100000), working set 0.001 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0600 us      0.0596 us    13.34     17.3%   3r   0.006s  ok ch=2.3e-15/1e-10 1s=3e-16 1.00x?
+   d1_planner                    0.0694 us      0.0694 us    11.52      0.0%   3r   0.000s  ok ch=2.6e-15/1e-10 1s=4e-16 1.16x
+   d1_batchlane                  0.0699 us      0.0698 us    11.45      0.1%   3r   0.000s  ok ch=2.3e-15/1e-10 1s=3e-16 1.17x
+   d1_pow2                       0.0706 us      0.0706 us    11.33      0.0%   3r   0.000s  ok ch=2.6e-15/1e-10 1s=4e-16 1.18x
+   d1_twiddle                    0.0706 us      0.0706 us    11.33      0.0%   3r   0.000s  ok ch=1.2e-15/1e-10 1s=4e-16 1.18x
+   fftw1d_custom                 0.1217 us      0.1216 us     6.57      1.0%   3r   0.000s  ok ch=2.5e-15/1e-10 1s=4e-16 2.03x
+   mkl1d_dfti                    0.1310 us      0.1309 us     6.11      0.1%   3r   0.001s  ok ch=2.2e-15/1e-10 1s=3e-16 2.19x
+   fftw1d_patient                0.1360 us      0.1343 us     5.88      1.3%   3r   0.015s  ok ch=3.3e-15/1e-10 1s=3e-16 2.27x
+   fftw1d_measure                0.1548 us      0.1548 us     5.17      0.0%   3r   0.008s  ok ch=3.3e-15/1e-10 1s=3e-16 2.58x
+   fftw1d_estimate               0.1653 us      0.1651 us     4.84      0.2%   3r   0.001s  ok ch=3.3e-15/1e-10 1s=3e-16 2.76x
+   d1_bluestein                  0.1819 us      0.1814 us     4.40      3.9%   3r   0.001s  ok ch=2.4e-15/1e-10 1s=4e-16 3.03x
+   baseline_dft                  1.8469 us      1.8469 us     0.43      0.0%   3r   0.000s  ok ch=1.5e-14/1e-10 1s=8e-16 30.81x
+
+-- L=32 (batched B=512, single call), working set 0.500 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_twiddle                    0.0152 us      0.0152 us    52.63      1.4%   9r   0.000s  ok 1.4e-16       1.00x?
+   mkl1d_dfti                    0.0153 us      0.0153 us    52.31      0.1%   9r   0.001s  ok 1.4e-16       1.01x
+   d1_batchlane                  0.0155 us      0.0155 us    51.70     13.9%   9r   0.000s  ok 1.4e-16       1.02x?
+   d1_planner                    0.0155 us      0.0155 us    51.69     13.9%   9r   0.000s  ok 1.4e-16       1.02x?
+   d1_pow2                       0.0155 us      0.0155 us    51.68     13.8%   9r   0.000s  ok 1.4e-16       1.02x?
+   d1_race                       0.0176 us      0.0154 us    45.54     13.9%   9r   0.006s  ok 1.4e-16       1.16x
+   fftw1d_patient                0.0258 us      0.0248 us    31.00     17.1%   9r   0.056s  ok 1.5e-16       1.70x
+   fftw1d_measure                0.0283 us      0.0251 us    28.23     19.8%   9r   0.009s  ok 1.6e-16       1.86x
+   fftw1d_custom_soa             0.0775 us      0.0756 us    10.33      4.5%   9r   0.000s  ok 1.4e-16       5.10x
+   fftw1d_custom                 0.0882 us      0.0875 us     9.07     23.8%   9r   0.000s  ok 1.4e-16       5.80x
+   fftw1d_estimate               0.0891 us      0.0889 us     8.97     13.4%   9r   0.001s  ok 1.5e-16       5.86x
+   d1_bluestein                  0.0898 us      0.0806 us     8.90     17.6%   9r   0.001s  ok 1.4e-16       5.91x
+   baseline_dft                  1.7600 us      1.7599 us     0.45     20.7%   9r   0.000s  ok 3.4e-16       115.79x
+
+-- L=32 (batched B=512, chain m=1000), working set 0.500 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_batchlane                  0.0340 us      0.0340 us    23.54     13.8%   3r   0.000s  ok ch=6.5e-12/1e-10 1s=3e-16 1.00x?
+   d1_race                       0.0387 us      0.0340 us    20.69     13.8%   3r   0.007s  ok ch=6.5e-12/1e-10 1s=3e-16 1.14x?
+   d1_twiddle                    0.0415 us      0.0369 us    19.26     12.6%   3r   0.000s  ok ch=2.8e-12/1e-10 1s=4e-16 1.22x
+   d1_pow2                       0.0436 us      0.0387 us    18.37     13.6%   3r   0.000s  ok ch=1.2e-11/1e-10 1s=4e-16 1.28x
+   fftw1d_custom_soa             0.0667 us      0.0666 us    12.00      0.2%   3r   0.000s  ok ch=7.2e-12/1e-10 1s=3e-16 1.96x
+   d1_planner                    0.0774 us      0.0773 us    10.34      0.1%   3r   0.000s  ok ch=1.1e-11/1e-10 1s=3e-16 2.28x
+   fftw1d_custom                 0.1039 us      0.1039 us     7.70      0.3%   3r   0.000s  ok ch=7.2e-12/1e-10 1s=3e-16 3.06x
+   mkl1d_dfti                    0.1123 us      0.1122 us     7.13     13.8%   3r   0.002s  ok ch=7.3e-12/1e-10 1s=3e-16 3.30x
+   fftw1d_patient                0.1222 us      0.1220 us     6.55      0.5%   3r   0.057s  ok ch=9.2e-12/1e-10 1s=4e-16 3.60x
+   fftw1d_measure                0.1238 us      0.1228 us     6.46     13.1%   3r   0.010s  ok ch=7.3e-12/1e-10 1s=3e-16 3.64x
+   d1_bluestein                  0.1832 us      0.1787 us     4.37      5.2%   3r   0.001s  ok ch=1.0e-11/1e-10 1s=3e-16 5.39x
+   fftw1d_estimate               0.1858 us      0.1858 us     4.30      0.1%   3r   0.001s  ok ch=7.3e-12/1e-10 1s=3e-16 5.47x
+   baseline_dft                  1.9513 us      1.9509 us     0.41      0.1%   3r   0.000s  ok ch=1.4e-11/1e-10 1s=6e-16 57.42x
+
+-- L=60 (non-batched, single call), working set 0.002 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_composite                  0.0468 us      0.0411 us    37.86     20.4%   9r   0.000s  ok 1.9e-16       1.00x?
+   d1_race                       0.0472 us      0.0417 us    37.57     19.4%   9r   0.010s  ok 1.9e-16       1.01x?
+   mkl1d_dfti                    0.0614 us      0.0565 us    28.84     16.3%   9r   0.002s  ok 2.4e-16       1.31x
+   d1_batchlane                  0.0687 us      0.0672 us    25.79     20.1%   9r   0.000s  ok 2.3e-16       1.47x
+   fftw1d_patient                0.0769 us      0.0691 us    23.05     28.7%   9r   0.129s  ok 1.9e-16       1.64x
+   d1_twiddle                    0.0813 us      0.0703 us    21.79     22.6%   9r   0.000s  ok 1.8e-16       1.74x
+   fftw1d_measure                0.0850 us      0.0723 us    20.84     24.1%   9r   0.047s  ok 2.4e-16       1.82x
+   fftw1d_estimate               0.0951 us      0.0944 us    18.63      4.9%   9r   0.001s  ok 2.0e-16       2.03x
+   d1_planner                    0.1555 us      0.1372 us    11.40     16.8%   9r   0.000s  ok 1.9e-16       3.32x
+   d1_bluestein                  0.2014 us      0.1883 us     8.80     21.6%   9r   0.001s  ok 1.9e-16       4.30x
+   fftw1d_custom                 0.2782 us      0.2749 us     6.37      1.9%   9r   0.000s  ok 2.2e-16       5.94x
+   baseline_dft                  7.4717 us      6.1907 us     0.24     20.7%   9r   0.000s  ok 4.6e-16       159.64x
+
+-- L=60 (non-batched, chain m=60000), working set 0.002 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_composite                  0.1104 us      0.1104 us    16.05      0.1%   3r   0.000s  ok ch=4.0e-15/1e-10 1s=4e-16 1.00x?
+   d1_race                       0.1253 us      0.1101 us    14.15     13.7%   3r   0.006s  ok ch=4.0e-15/1e-10 1s=4e-16 1.13x
+   d1_batchlane                  0.1335 us      0.1334 us    13.28      0.2%   3r   0.000s  ok ch=1.7e-15/1e-10 1s=4e-16 1.21x
+   d1_twiddle                    0.1651 us      0.1648 us    10.73      5.1%   3r   0.000s  ok ch=1.9e-15/1e-10 1s=4e-16 1.50x
+   d1_planner                    0.2149 us      0.2110 us     8.25      5.6%   3r   0.000s  ok ch=1.2e-15/1e-10 1s=3e-16 1.95x
+   mkl1d_dfti                    0.2371 us      0.2370 us     7.47      0.0%   3r   0.002s  ok ch=2.5e-15/1e-10 1s=4e-16 2.15x
+   fftw1d_measure                0.2422 us      0.2417 us     7.32     18.0%   3r   0.046s  ok ch=2.4e-15/1e-10 1s=4e-16 2.19x
+   fftw1d_patient                0.2783 us      0.2751 us     6.37      3.5%   3r   0.129s  ok ch=2.4e-15/1e-10 1s=4e-16 2.52x
+   fftw1d_estimate               0.2929 us      0.2859 us     6.05      4.2%   3r   0.001s  ok ch=2.8e-15/1e-10 1s=4e-16 2.65x
+   fftw1d_custom                 0.3278 us      0.3276 us     5.41      0.1%   3r   0.000s  ok ch=2.8e-15/1e-10 1s=4e-16 2.97x
+   d1_bluestein                  0.3683 us      0.3676 us     4.81      0.2%   3r   0.001s  ok ch=1.7e-15/1e-10 1s=3e-16 3.34x
+   baseline_dft                  6.3498 us      6.3497 us     0.28      0.0%   3r   0.000s  ok ch=2.4e-14/1e-10 1s=1e-15 57.50x
+
+-- L=60 (batched B=512, single call), working set 0.938 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   mkl1d_dfti                    0.0492 us      0.0445 us    36.01     14.0%   9r   0.002s  ok 2.5e-16       1.00x?
+   d1_composite                  0.0530 us      0.0495 us    33.45      7.7%   9r   0.000s  ok 2.1e-16       1.08x
+   d1_race                       0.0588 us      0.0497 us    30.11     37.6%   9r   0.005s  ok 2.1e-16       1.20x
+   d1_batchlane                  0.0658 us      0.0649 us    26.95     19.6%   9r   0.000s  ok 2.2e-16       1.34x
+   fftw1d_patient                0.0667 us      0.0653 us    26.56     15.7%   9r   0.390s  ok 2.0e-16       1.36x
+   fftw1d_estimate               0.0863 us      0.0851 us    20.53     18.4%   9r   0.001s  ok 2.3e-16       1.75x
+   d1_twiddle                    0.0886 us      0.0881 us    20.01     11.8%   9r   0.000s  ok 1.7e-16       1.80x
+   fftw1d_measure                0.1005 us      0.0730 us    17.64     41.5%   9r   0.046s  ok 2.0e-16       2.04x
+   d1_planner                    0.1371 us      0.1321 us    12.93     17.0%   9r   0.000s  ok 1.8e-16       2.78x
+   d1_bluestein                  0.1937 us      0.1884 us     9.15     13.7%   9r   0.001s  ok 1.8e-16       3.94x
+   fftw1d_custom_soa             0.2078 us      0.1906 us     8.53     11.5%   9r   0.000s  ok 2.3e-16       4.22x
+   fftw1d_custom                 0.2822 us      0.2788 us     6.28      1.7%   9r   0.000s  ok 2.3e-16       5.73x
+   baseline_dft                  6.2122 us      6.1787 us     0.29     23.1%   9r   0.000s  ok 4.2e-16       126.22x
+
+-- L=60 (batched B=512, chain m=600), working set 0.938 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0706 us      0.0659 us    25.10      9.8%   3r   0.011s  ok ch=2.2e-13/1e-10 1s=5e-16 1.00x?
+   d1_composite                  0.0740 us      0.0589 us    23.96     29.9%   3r   0.000s  ok ch=2.2e-13/1e-10 1s=5e-16 1.05x?
+   d1_batchlane                  0.0747 us      0.0747 us    23.71      0.1%   3r   0.000s  ok ch=2.5e-13/1e-10 1s=5e-16 1.06x?
+   d1_twiddle                    0.0904 us      0.0902 us    19.61      0.6%   3r   0.000s  ok ch=1.9e-13/1e-10 1s=5e-16 1.28x
+   d1_planner                    0.1298 us      0.1298 us    13.65      1.9%   3r   0.000s  ok ch=2.1e-13/1e-10 1s=4e-16 1.84x
+   fftw1d_custom_soa             0.1367 us      0.1358 us    12.96     29.0%   3r   0.000s  ok ch=2.1e-13/1e-10 1s=5e-16 1.94x
+   mkl1d_dfti                    0.2291 us      0.2288 us     7.74      1.9%   3r   0.001s  ok ch=3.1e-13/1e-10 1s=5e-16 3.24x
+   fftw1d_custom                 0.2317 us      0.2314 us     7.65      0.1%   3r   0.000s  ok ch=2.1e-13/1e-10 1s=5e-16 3.28x
+   fftw1d_patient                0.2507 us      0.2504 us     7.07      2.8%   3r   0.436s  ok ch=2.4e-13/1e-10 1s=5e-16 3.55x
+   fftw1d_measure                0.2532 us      0.2526 us     7.00      8.2%   3r   0.046s  ok ch=2.4e-13/1e-10 1s=5e-16 3.59x
+   fftw1d_estimate               0.2707 us      0.2697 us     6.55      0.7%   3r   0.001s  ok ch=3.0e-13/1e-10 1s=5e-16 3.83x
+   d1_bluestein                  0.3724 us      0.3722 us     4.76      0.2%   3r   0.001s  ok ch=2.1e-13/1e-10 1s=4e-16 5.27x
+   baseline_dft                  6.3700 us      6.3696 us     0.28      1.8%   3r   0.000s  ok ch=7.2e-13/1e-10 1s=8e-16 90.21x
+
+-- L=64 (non-batched, single call), working set 0.002 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0466 us      0.0434 us    41.22     12.6%   9r   0.008s  ok 1.5e-16       1.00x?
+   d1_twiddle                    0.0484 us      0.0451 us    39.70     13.3%   9r   0.000s  ok 1.5e-16       1.04x?
+   mkl1d_dfti                    0.0490 us      0.0489 us    39.17      6.5%   9r   0.002s  ok 1.4e-16       1.05x
+   d1_batchlane                  0.0557 us      0.0489 us    34.47     27.1%   9r   0.000s  ok 1.6e-16       1.20x
+   d1_planner                    0.0599 us      0.0509 us    32.05     30.4%   9r   0.000s  ok 1.4e-16       1.29x
+   d1_pow2                       0.0610 us      0.0572 us    31.49     38.3%   9r   0.000s  ok 1.4e-16       1.31x
+   fftw1d_patient                0.0679 us      0.0645 us    28.30     12.6%   9r   0.055s  ok 1.7e-16       1.46x
+   fftw1d_measure                0.0686 us      0.0662 us    28.00      9.9%   9r   0.023s  ok 1.6e-16       1.47x
+   fftw1d_estimate               0.0948 us      0.0895 us    20.25      9.3%   9r   0.001s  ok 2.2e-16       2.04x
+   d1_bluestein                  0.1325 us      0.1324 us    14.49     17.2%   9r   0.001s  ok 1.5e-16       2.84x
+   fftw1d_custom                 0.2733 us      0.2721 us     7.03      1.5%   9r   0.000s  ok 1.7e-16       5.87x
+   baseline_dft                  8.4984 us      7.0412 us     0.23     20.7%   9r   0.000s  ok 3.8e-16       182.45x
+
+-- L=64 (non-batched, chain m=60000), working set 0.002 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0848 us      0.0848 us    22.65     13.8%   3r   0.007s  ok ch=1.2e-15/1e-10 1s=3e-16 1.00x?
+   d1_batchlane                  0.0965 us      0.0965 us    19.89      0.0%   3r   0.000s  ok ch=1.2e-15/1e-10 1s=3e-16 1.14x
+   d1_twiddle                    0.1195 us      0.1194 us    16.07     13.9%   3r   0.000s  ok ch=2.3e-15/1e-10 1s=4e-16 1.41x
+   d1_pow2                       0.1280 us      0.1280 us    15.00      2.0%   3r   0.000s  ok ch=1.4e-15/1e-10 1s=3e-16 1.51x
+   d1_planner                    0.1334 us      0.1173 us    14.39     13.7%   3r   0.000s  ok ch=1.5e-15/1e-10 1s=3e-16 1.57x
+   mkl1d_dfti                    0.2696 us      0.2696 us     7.12      0.1%   3r   0.002s  ok ch=1.7e-15/1e-10 1s=3e-16 3.18x
+   fftw1d_patient                0.2781 us      0.2772 us     6.91      1.0%   3r   0.056s  ok ch=1.9e-15/1e-10 1s=3e-16 3.28x
+   fftw1d_measure                0.2793 us      0.2779 us     6.87      4.5%   3r   0.023s  ok ch=2.1e-15/1e-10 1s=2e-16 3.29x
+   fftw1d_estimate               0.3049 us      0.3048 us     6.30      0.0%   3r   0.001s  ok ch=2.6e-15/1e-10 1s=3e-16 3.60x
+   d1_bluestein                  0.3425 us      0.3425 us     5.61      3.2%   3r   0.001s  ok ch=1.4e-15/1e-10 1s=3e-16 4.04x
+   fftw1d_custom                 0.3605 us      0.2983 us     5.33     20.9%   3r   0.000s  ok ch=1.6e-15/1e-10 1s=3e-16 4.25x
+   baseline_dft                  7.2118 us      7.2095 us     0.27      0.0%   3r   0.000s  ok ch=2.1e-14/1e-10 1s=5e-16 85.08x
+
+-- L=64 (batched B=512, single call), working set 1.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.0374 us      0.0371 us    51.30     26.2%   9r   0.006s  ok 1.8e-16       1.00x?
+   d1_pow2                       0.0379 us      0.0368 us    50.67     21.0%   9r   0.000s  ok 1.8e-16       1.01x?
+   d1_twiddle                    0.0403 us      0.0377 us    47.59     30.3%   9r   0.000s  ok 1.8e-16       1.08x?
+   d1_planner                    0.0430 us      0.0374 us    44.66     20.4%   9r   0.000s  ok 1.8e-16       1.15x
+   mkl1d_dfti                    0.0435 us      0.0370 us    44.10     57.9%   9r   0.002s  ok 1.7e-16       1.16x
+   d1_batchlane                  0.0550 us      0.0538 us    34.91     18.1%   9r   0.000s  ok 1.5e-16       1.47x
+   fftw1d_patient                0.0651 us      0.0629 us    29.51     23.6%   9r   0.217s  ok 1.8e-16       1.74x
+   fftw1d_measure                0.0721 us      0.0641 us    26.61     30.1%   9r   0.029s  ok 1.7e-16       1.93x
+   d1_bluestein                  0.1199 us      0.1188 us    16.01     14.4%   9r   0.000s  ok 1.8e-16       3.20x
+   fftw1d_estimate               0.1943 us      0.1922 us     9.88     20.0%   9r   0.001s  ok 1.8e-16       5.19x
+   fftw1d_custom_soa             0.2111 us      0.2079 us     9.10     14.5%   9r   0.000s  ok 1.8e-16       5.64x
+   fftw1d_custom                 0.3187 us      0.2576 us     6.03     30.1%   9r   0.000s  ok 1.8e-16       8.51x
+   baseline_dft                  8.4849 us      8.4841 us     0.23      0.0%   9r   0.000s  ok 4.0e-16       226.68x
+
+-- L=64 (batched B=512, chain m=500), working set 1.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_batchlane                  0.0677 us      0.0677 us    28.36      0.6%   3r   0.000s  ok ch=4.4e-13/1e-10 1s=4e-16 1.00x?
+   d1_race                       0.0775 us      0.0775 us    24.76      0.1%   3r   0.010s  ok ch=4.4e-13/1e-10 1s=4e-16 1.15x
+   d1_pow2                       0.0797 us      0.0794 us    24.08     14.8%   3r   0.000s  ok ch=1.4e-12/1e-10 1s=4e-16 1.18x
+   d1_twiddle                    0.0936 us      0.0831 us    20.51     13.3%   3r   0.000s  ok ch=1.3e-12/1e-10 1s=5e-16 1.38x
+   d1_planner                    0.1336 us      0.1172 us    14.38     13.9%   3r   0.000s  ok ch=1.3e-12/1e-10 1s=4e-16 1.97x
+   fftw1d_custom_soa             0.1501 us      0.1488 us    12.79      4.1%   3r   0.000s  ok ch=9.0e-13/1e-10 1s=4e-16 2.22x
+   mkl1d_dfti                    0.2385 us      0.2371 us     8.05      1.5%   3r   0.002s  ok ch=5.5e-13/1e-10 1s=4e-16 3.52x
+   fftw1d_patient                0.2672 us      0.2672 us     7.19      1.9%   3r   0.217s  ok ch=8.3e-13/1e-10 1s=4e-16 3.95x
+   fftw1d_measure                0.2701 us      0.2688 us     7.11      0.9%   3r   0.026s  ok ch=8.3e-13/1e-10 1s=4e-16 3.99x
+   fftw1d_custom                 0.2803 us      0.2628 us     6.85     20.3%   3r   0.000s  ok ch=9.0e-13/1e-10 1s=4e-16 4.14x
+   d1_bluestein                  0.3238 us      0.3159 us     5.93      5.5%   3r   0.001s  ok ch=7.9e-13/1e-10 1s=4e-16 4.78x
+   fftw1d_estimate               0.3971 us      0.3950 us     4.83      0.8%   3r   0.001s  ok ch=8.3e-13/1e-10 1s=4e-16 5.87x
+   baseline_dft                  7.2262 us      7.2262 us     0.27      0.0%   3r   0.000s  ok ch=1.2e-12/1e-10 1s=8e-16 106.74x
+
+-- L=128 (non-batched, single call), working set 0.004 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   mkl1d_dfti                    0.0927 us      0.0910 us    48.34     15.3%   9r   0.001s  ok 2.2e-16       1.00x?
+   d1_race                       0.0993 us      0.0991 us    45.10     15.0%   9r   0.007s  ok 2.0e-16       1.07x
+   fftw1d_patient                0.1096 us      0.1056 us    40.88     22.4%   9r   0.134s  ok 2.2e-16       1.18x
+   d1_batchlane                  0.1133 us      0.0990 us    39.56     16.4%   9r   0.000s  ok 2.0e-16       1.22x
+   d1_pow2                       0.1189 us      0.1167 us    37.69     15.6%   9r   0.000s  ok 2.1e-16       1.28x
+   d1_twiddle                    0.1206 us      0.1171 us    37.15     15.3%   9r   0.000s  ok 2.0e-16       1.30x
+   fftw1d_measure                0.1227 us      0.1201 us    36.53      9.5%   9r   0.040s  ok 2.2e-16       1.32x
+   fftw1d_estimate               0.1707 us      0.1489 us    26.24     18.6%   9r   0.001s  ok 2.1e-16       1.84x
+   d1_planner                    0.2123 us      0.2034 us    21.11     15.9%   9r   0.000s  ok 2.0e-16       2.29x
+   d1_bluestein                  0.2252 us      0.1961 us    19.89     28.1%   9r   0.001s  ok 2.0e-16       2.43x
+   fftw1d_custom                 0.6396 us      0.6390 us     7.00      0.1%   9r   0.000s  ok 2.2e-16       6.90x
+   baseline_dft                 33.9338 us     28.1144 us     0.13     20.7%   9r   0.001s  ok 5.1e-16       366.14x
+
+-- L=128 (non-batched, chain m=30000), working set 0.004 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_batchlane                  0.1850 us      0.1631 us    24.22     13.5%   3r   0.000s  ok ch=4.1e-13/1e-10 1s=4e-16 1.00x?
+   d1_race                       0.1886 us      0.1848 us    23.75      2.5%   3r   0.005s  ok ch=4.1e-13/1e-10 1s=4e-16 1.02x?
+   d1_pow2                       0.2412 us      0.2116 us    18.57     14.6%   3r   0.000s  ok ch=2.2e-13/1e-10 1s=5e-16 1.30x
+   d1_twiddle                    0.2831 us      0.2815 us    15.83     12.7%   3r   0.000s  ok ch=1.1e-13/1e-10 1s=4e-16 1.53x
+   d1_planner                    0.3993 us      0.3899 us    11.22      5.7%   3r   0.000s  ok ch=2.1e-13/1e-10 1s=4e-16 2.16x
+   fftw1d_measure                0.4965 us      0.4878 us     9.02     13.8%   3r   0.039s  ok ch=2.1e-13/1e-10 1s=4e-16 2.68x
+   mkl1d_dfti                    0.5414 us      0.5413 us     8.27      0.3%   3r   0.002s  ok ch=4.5e-13/1e-10 1s=5e-16 2.93x
+   fftw1d_patient                0.5549 us      0.4938 us     8.07     12.7%   3r   0.137s  ok ch=1.0e-13/1e-10 1s=4e-16 3.00x
+   fftw1d_estimate               0.6030 us      0.5324 us     7.43     13.9%   3r   0.001s  ok ch=1.6e-13/1e-10 1s=5e-16 3.26x
+   d1_bluestein                  0.6632 us      0.5826 us     6.76     14.2%   3r   0.001s  ok ch=1.5e-13/1e-10 1s=4e-16 3.59x
+   fftw1d_custom                 0.7450 us      0.7450 us     6.01     20.9%   3r   0.000s  ok ch=2.6e-13/1e-10 1s=4e-16 4.03x
+   baseline_dft                 28.4709 us     28.4701 us     0.16      0.0%   3r   0.000s  ok ch=4.7e-13/1e-10 1s=8e-16 153.91x
+
+-- L=128 (batched B=512, single call), working set 2.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   mkl1d_dfti                    0.1425 us      0.1412 us    31.43      6.1%   9r   0.001s  ok 2.1e-16       1.00x?
+   d1_pow2                       0.1813 us      0.1787 us    24.72      8.3%   9r   0.000s  ok 2.2e-16       1.27x
+   d1_race                       0.1831 us      0.1810 us    24.47      5.9%   9r   0.007s  ok 2.2e-16       1.28x
+   fftw1d_patient                0.1910 us      0.1834 us    23.45     32.7%   9r   0.865s  ok 2.2e-16       1.34x
+   d1_batchlane                  0.1958 us      0.1813 us    22.88      8.5%   9r   0.000s  ok 2.0e-16       1.37x
+   d1_twiddle                    0.1979 us      0.1906 us    22.64     19.0%   9r   0.000s  ok 2.1e-16       1.39x
+   fftw1d_measure                0.2061 us      0.1823 us    21.74     18.7%   9r   0.049s  ok 2.2e-16       1.45x
+   d1_bluestein                  0.3514 us      0.2767 us    12.75     48.5%   9r   0.001s  ok 2.2e-16       2.47x
+   d1_planner                    0.4427 us      0.3596 us    10.12     28.4%   9r   0.000s  ok 2.2e-16       3.11x
+   fftw1d_estimate               0.4916 us      0.4502 us     9.11     43.8%   9r   0.001s  ok 2.1e-16       3.45x
+   fftw1d_custom_soa             0.5589 us      0.5408 us     8.02      7.7%   9r   0.000s  ok 2.1e-16       3.92x
+   fftw1d_custom                 0.8897 us      0.8743 us     5.04      6.1%   9r   0.000s  ok 2.1e-16       6.24x
+
+-- L=128 (batched B=512, chain m=250), working set 2.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       0.1873 us      0.1867 us    23.92     14.6%   3r   0.005s  ok ch=2.1e-14/1e-10 1s=5e-16 1.00x?
+   d1_twiddle                    0.1893 us      0.1888 us    23.66     12.1%   3r   0.000s  ok ch=2.2e-14/1e-10 1s=5e-16 1.01x?
+   d1_pow2                       0.2131 us      0.2122 us    21.02      1.3%   3r   0.000s  ok ch=2.1e-14/1e-10 1s=5e-16 1.14x
+   d1_batchlane                  0.2158 us      0.2154 us    20.76      0.4%   3r   0.000s  ok ch=2.2e-14/1e-10 1s=5e-16 1.15x
+   d1_planner                    0.2818 us      0.2816 us    15.90      0.3%   3r   0.000s  ok ch=2.3e-14/1e-10 1s=5e-16 1.50x
+   fftw1d_custom_soa             0.4476 us      0.4440 us    10.01      2.6%   3r   0.000s  ok ch=2.2e-14/1e-10 1s=5e-16 2.39x
+   mkl1d_dfti                    0.5355 us      0.5353 us     8.37      0.0%   3r   0.002s  ok ch=2.3e-14/1e-10 1s=5e-16 2.86x
+   fftw1d_patient                0.5766 us      0.5743 us     7.77      1.3%   3r   0.698s  ok ch=2.5e-14/1e-10 1s=5e-16 3.08x
+   fftw1d_measure                0.5796 us      0.5759 us     7.73      0.8%   3r   0.046s  ok ch=2.5e-14/1e-10 1s=5e-16 3.10x
+   d1_bluestein                  0.6418 us      0.6378 us     6.98      3.0%   3r   0.001s  ok ch=2.0e-14/1e-10 1s=5e-16 3.43x
+   fftw1d_custom                 0.6676 us      0.6675 us     6.71      0.0%   3r   0.000s  ok ch=2.2e-14/1e-10 1s=5e-16 3.56x
+   fftw1d_estimate               0.8489 us      0.8483 us     5.28      0.5%   3r   0.001s  ok ch=2.0e-14/1e-10 1s=5e-16 4.53x
+
+-- L=1021 (non-batched, single call), working set 0.031 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       7.4748 us      6.5463 us     6.83     16.6%   9r   0.007s  ok 1.0e-15       1.00x?
+   d1_rader                      7.5691 us      6.5963 us     6.74     17.5%   9r   0.000s  ok 1.0e-15       1.01x?
+   mkl1d_dfti                    8.2717 us      8.2668 us     6.17     13.8%   9r   0.030s  ok 5.8e-16       1.11x
+   d1_bluestein                  9.0090 us      8.6396 us     5.66     21.6%   9r   0.003s  ok 5.6e-16       1.21x
+   d1_planner                    9.1462 us      8.0784 us     5.58     19.1%   9r   0.001s  ok 6.2e-16       1.22x
+   fftw1d_patient               11.9654 us     11.9111 us     4.26      3.2%   9r   2.989s  ok 5.6e-16       1.60x
+   fftw1d_measure               11.9999 us     11.7270 us     4.25     13.8%   9r   0.287s  ok 5.8e-16       1.61x
+   fftw1d_estimate              12.7796 us     12.7494 us     3.99     14.4%   9r   0.001s  ok 5.7e-16       1.71x
+   baseline_dft               1810.0264 us   1807.5733 us     0.03     21.5%   9r   0.028s  ok 1.2e-15       242.15x
+
+-- L=1021 (non-batched, chain m=2000), working set 0.031 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_rader                      7.1277 us      7.1225 us     7.16     15.0%   3r   0.000s  ok ch=1.8e-12/3e-10 1s=3e-15 1.00x?
+   d1_race                       7.4001 us      7.0709 us     6.90     15.0%   3r   0.012s  ok ch=1.8e-12/3e-10 1s=3e-15 1.04x?
+   d1_planner                    9.2973 us      9.1929 us     5.49      6.8%   3r   0.001s  ok ch=6.9e-13/3e-10 1s=2e-15 1.30x
+   d1_bluestein                 10.6232 us      9.3458 us     4.80     21.4%   3r   0.002s  ok ch=1.4e-12/3e-10 1s=1e-15 1.49x
+   mkl1d_dfti                   12.9606 us     11.3990 us     3.94     13.8%   3r   0.034s  ok ch=1.4e-12/3e-10 1s=2e-15 1.82x
+   fftw1d_patient               15.1682 us     14.9073 us     3.36      3.8%   3r   2.947s  ok ch=5.2e-13/3e-10 1s=2e-15 2.13x
+   fftw1d_measure               17.4758 us     17.0874 us     2.92      3.5%   3r   0.295s  ok ch=5.2e-13/3e-10 1s=2e-15 2.45x
+   fftw1d_estimate              18.1317 us     18.0440 us     2.81      0.6%   3r   0.001s  ok ch=6.2e-13/3e-10 1s=1e-15 2.54x
+   baseline_dft               1825.2694 us   1823.4922 us     0.03      0.2%   3r   0.028s  ok ch=1.4e-12/3e-10 1s=3e-15 256.08x
+
+-- L=1021 (batched B=256, single call), working set 7.977 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   mkl1d_dfti                    8.7511 us      8.7334 us     5.83     15.0%   9r   0.014s  ok 5.7e-16       1.00x?
+   d1_race                       9.6950 us      7.2459 us     5.26     36.2%   9r   0.006s  ok 9.9e-16       1.11x?
+   d1_rader                      9.7581 us      9.6326 us     5.23      9.0%   9r   0.000s  ok 9.9e-16       1.12x
+   d1_planner                   10.1034 us      8.8821 us     5.05     30.7%   9r   0.000s  ok 6.3e-16       1.15x
+   d1_bluestein                 10.4225 us     10.3097 us     4.90      6.7%   9r   0.002s  ok 5.8e-16       1.19x
+   fftw1d_patient               12.2060 us     12.0844 us     4.18      3.1%   9r   2.988s  ok 5.7e-16       1.39x
+   fftw1d_measure               14.2691 us     11.9852 us     3.58     26.1%   9r   0.295s  ok 5.6e-16       1.63x
+   fftw1d_estimate              15.1832 us     13.0494 us     3.36     20.3%   9r   0.001s  ok 5.8e-16       1.73x
+
+-- L=1021 (batched B=256, chain m=400), working set 7.977 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       7.1998 us      7.0942 us     7.09      2.3%   3r   0.009s  ok ch=2.3e-13/1e-10 1s=3e-15 1.00x?
+   d1_rader                      7.2335 us      7.1683 us     7.05      1.5%   3r   0.000s  ok ch=2.3e-13/1e-10 1s=3e-15 1.00x?
+   d1_planner                    8.0065 us      8.0036 us     6.37      0.9%   3r   0.000s  ok ch=1.1e-13/1e-10 1s=2e-15 1.11x
+   d1_bluestein                  9.6424 us      9.6240 us     5.29      1.4%   3r   0.002s  ok ch=1.1e-13/1e-10 1s=2e-15 1.34x
+   mkl1d_dfti                   12.3972 us     12.3848 us     4.12      0.2%   3r   0.055s  ok ch=1.1e-13/1e-10 1s=2e-15 1.72x
+   fftw1d_measure               15.6004 us     15.5078 us     3.27      0.6%   3r   0.286s  ok ch=1.1e-13/1e-10 1s=2e-15 2.17x
+   fftw1d_patient               15.7182 us     15.7021 us     3.25      0.7%   3r   2.991s  ok ch=1.1e-13/1e-10 1s=2e-15 2.18x
+   fftw1d_estimate              16.5508 us     16.5477 us     3.08      0.2%   3r   0.001s  ok ch=1.1e-13/1e-10 1s=2e-15 2.30x
+
+-- L=1024 (non-batched, single call), working set 0.031 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   fftw1d_measure                1.1797 us      1.1459 us    43.40     18.6%   9r   0.118s  ok 2.7e-16       1.00x?
+   fftw1d_patient                1.1878 us      1.1639 us    43.10     19.3%   9r   0.811s  ok 2.7e-16       1.01x?
+   mkl1d_dfti                    1.2293 us      1.0747 us    41.65     15.5%   9r   0.002s  ok 2.7e-16       1.04x?
+   d1_race                       1.3808 us      1.2266 us    37.08     15.5%   9r   0.330s  ok 2.8e-16       1.17x
+   d1_pow2                       1.4470 us      1.4391 us    35.38      1.1%   9r   0.000s  ok 2.8e-16       1.23x
+   fftw1d_estimate               1.5198 us      1.3371 us    33.69     14.6%   9r   0.001s  ok 2.8e-16       1.29x
+   d1_twiddle                    1.8390 us      1.6145 us    27.84     15.4%   9r   0.000s  ok 2.7e-16       1.56x
+   d1_bluestein                  2.1266 us      2.1051 us    24.08      3.9%   9r   0.001s  ok 2.8e-16       1.80x
+   d1_planner                    2.5296 us      2.4636 us    20.24      6.9%   9r   0.000s  ok 2.8e-16       2.14x
+   baseline_dft               2214.8457 us   1823.3811 us     0.02     22.7%   9r   0.034s  ok 1.1e-15       1877.39x
+
+-- L=1024 (non-batched, chain m=4000), working set 0.031 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_pow2                       2.4313 us      2.1574 us    21.06     13.5%   3r   0.000s  ok ch=4.7e-12/1e-10 1s=9e-16 1.00x?
+   d1_race                       2.4319 us      2.3657 us    21.05      3.3%   3r   0.008s  ok ch=4.7e-12/1e-10 1s=9e-16 1.00x?
+   d1_planner                    2.8927 us      2.8899 us    17.70      3.2%   3r   0.000s  ok ch=5.0e-12/1e-10 1s=9e-16 1.19x
+   d1_twiddle                    3.1378 us      3.1366 us    16.32      0.2%   3r   0.000s  ok ch=5.8e-12/1e-10 1s=9e-16 1.29x
+   mkl1d_dfti                    4.1837 us      4.1816 us    12.24      0.4%   3r   0.003s  ok ch=1.5e-12/1e-10 1s=7e-16 1.72x
+   fftw1d_patient                4.4258 us      4.2491 us    11.57     13.5%   3r   0.810s  ok ch=2.1e-12/1e-10 1s=8e-16 1.82x
+   fftw1d_measure                4.8474 us      4.8263 us    10.56      0.7%   3r   0.117s  ok ch=4.3e-12/1e-10 1s=8e-16 1.99x
+   fftw1d_estimate               5.0723 us      5.0453 us    10.09      0.9%   3r   0.001s  ok ch=2.8e-12/1e-10 1s=9e-16 2.09x
+   d1_bluestein                  5.9828 us      5.9654 us     8.56      2.7%   3r   0.002s  ok ch=4.9e-12/1e-10 1s=8e-16 2.46x
+   baseline_dft               1835.2698 us   1834.7960 us     0.03      0.1%   3r   0.034s  ok ch=7.6e-12/1e-10 1s=2e-15 754.86x
+
+-- L=1024 (batched B=512, single call), working set 16.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   fftw1d_patient                1.8677 us      1.7775 us    27.41     15.5%   9r  12.199s  ok 2.7e-16       1.00x?
+   mkl1d_dfti                    1.9499 us      1.6502 us    26.26     44.2%   9r   0.002s  ok 2.8e-16       1.04x?
+   d1_pow2                       2.2549 us      1.8823 us    22.71     51.6%   9r   0.000s  ok 2.8e-16       1.21x
+   fftw1d_measure                2.3504 us      2.0606 us    21.78     49.1%   9r   0.117s  ok 2.7e-16       1.26x
+   d1_bluestein                  2.4449 us      2.4081 us    20.94     17.3%   9r   0.001s  ok 2.8e-16       1.31x
+   d1_race                       2.5106 us      1.8737 us    20.39     52.7%   9r   0.008s  ok 2.8e-16       1.34x
+   d1_twiddle                    2.9201 us      2.6244 us    17.53     41.8%   9r   0.000s  ok 2.6e-16       1.56x
+   d1_planner                    3.1191 us      2.6448 us    16.42     36.3%   9r   0.000s  ok 2.8e-16       1.67x
+   fftw1d_estimate               3.5188 us      3.0482 us    14.55     37.8%   9r   0.001s  ok 2.8e-16       1.88x
+
+-- L=1024 (batched B=512, chain m=2000), working set 16.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       2.5856 us      2.5771 us    19.80      0.3%   3r   0.008s  ok ch=9.5e-13/1e-10 1s=9e-16 1.00x?
+   d1_pow2                       2.5952 us      2.5926 us    19.73      0.2%   3r   0.000s  ok ch=9.5e-13/1e-10 1s=9e-16 1.00x
+   d1_twiddle                    2.6581 us      2.6465 us    19.26      2.8%   3r   0.000s  ok ch=7.9e-13/1e-10 1s=9e-16 1.03x
+   d1_planner                    2.8929 us      2.8895 us    17.70      1.9%   3r   0.000s  ok ch=8.8e-13/1e-10 1s=9e-16 1.12x
+   mkl1d_dfti                    4.9167 us      4.9044 us    10.41      0.7%   3r   0.003s  ok ch=9.1e-13/1e-10 1s=9e-16 1.90x
+   fftw1d_patient                5.0832 us      5.0589 us    10.07      1.3%   3r  12.002s  ok ch=9.4e-13/1e-10 1s=8e-16 1.97x
+   fftw1d_measure                5.1340 us      5.0857 us     9.97      2.9%   3r   0.115s  ok ch=9.4e-13/1e-10 1s=8e-16 1.99x
+   fftw1d_estimate               5.6784 us      5.6590 us     9.02      1.4%   3r   0.001s  ok ch=8.4e-13/1e-10 1s=9e-16 2.20x
+   d1_bluestein                  5.7123 us      5.7071 us     8.96      1.4%   3r   0.001s  ok ch=7.9e-13/1e-10 1s=9e-16 2.21x
+
+-- L=4096 (non-batched, single call), working set 0.125 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   fftw1d_patient                6.8040 us      6.6964 us    36.12      3.8%   9r   1.951s  ok 3.1e-16       1.00x?
+   mkl1d_dfti                    6.8306 us      6.0707 us    35.98     13.5%   9r   0.002s  ok 3.1e-16       1.00x?
+   fftw1d_measure                8.2965 us      7.3808 us    29.62     16.6%   9r   0.220s  ok 3.0e-16       1.22x
+   d1_race                       8.6454 us      7.3520 us    28.43     21.6%   9r   0.009s  ok 3.1e-16       1.27x
+   d1_pow2                       8.7313 us      7.6463 us    28.15     15.7%   9r   0.001s  ok 3.1e-16       1.28x
+   d1_twiddle                    9.3132 us      8.3339 us    26.39     17.3%   9r   0.000s  ok 3.1e-16       1.37x
+   d1_planner                   11.7223 us     11.6139 us    20.97     19.2%   9r   0.001s  ok 3.1e-16       1.72x
+   d1_bluestein                 13.5203 us     13.2038 us    18.18     14.0%   9r   0.001s  ok 3.1e-16       1.99x
+   fftw1d_estimate              15.8119 us     15.6330 us    15.54     14.9%   9r   0.001s  ok 3.1e-16       2.32x
+
+-- L=4096 (non-batched, chain m=1000), working set 0.125 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                      11.1503 us      9.8404 us    22.04     16.5%   3r   0.009s  ok ch=1.2e-13/1e-10 1s=1e-15 1.00x?
+   d1_pow2                      11.5373 us     11.4720 us    21.30      1.1%   3r   0.001s  ok ch=1.2e-13/1e-10 1s=1e-15 1.03x?
+   d1_twiddle                   15.1612 us     15.1100 us    16.21      0.8%   3r   0.000s  ok ch=8.3e-14/1e-10 1s=1e-15 1.36x
+   d1_planner                   17.9065 us     17.7835 us    13.72      0.7%   3r   0.001s  ok ch=6.8e-14/1e-10 1s=1e-15 1.61x
+   fftw1d_patient               19.2318 us     19.1235 us    12.78      7.3%   3r   2.007s  ok ch=8.3e-14/1e-10 1s=1e-15 1.72x
+   mkl1d_dfti                   20.8940 us     20.8741 us    11.76      0.2%   3r   0.002s  ok ch=1.0e-13/1e-10 1s=1e-15 1.87x
+   fftw1d_measure               22.4996 us     22.3575 us    10.92      0.7%   3r   0.233s  ok ch=8.7e-14/1e-10 1s=1e-15 2.02x
+   d1_bluestein                 25.7175 us     25.6654 us     9.56      0.5%   3r   0.001s  ok ch=8.0e-14/1e-10 1s=1e-15 2.31x
+   fftw1d_estimate              31.8128 us     31.6950 us     7.73      0.7%   3r   0.001s  ok ch=1.2e-13/1e-10 1s=1e-15 2.85x
+
+-- L=4096 (batched B=256, single call), working set 32.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                       9.8319 us      9.8098 us    25.00     49.2%   9r   0.007s  ok 3.1e-16       1.00x?
+   fftw1d_patient               11.1017 us     10.9757 us    22.14      3.9%   9r  45.037s  ok 3.1e-16       1.13x?
+   d1_twiddle                   11.4857 us      9.7747 us    21.40     29.5%   9r   0.000s  ok 3.1e-16       1.17x?
+   d1_pow2                      13.1063 us     10.4270 us    18.75     49.0%   9r   0.001s  ok 3.1e-16       1.33x
+   mkl1d_dfti                   14.3026 us     11.5840 us    17.18     43.2%   9r   0.002s  ok 3.1e-16       1.45x
+   fftw1d_measure               15.6450 us     15.1115 us    15.71     64.1%   9r   0.235s  ok 3.0e-16       1.59x
+   d1_planner                   18.9751 us     14.0414 us    12.95     43.7%   9r   0.001s  ok 3.0e-16       1.93x
+   fftw1d_estimate              21.9804 us     21.7650 us    11.18     44.2%   9r   0.001s  ok 3.1e-16       2.24x
+   d1_bluestein                 25.2265 us     25.0669 us     9.74      1.6%   9r   0.002s  ok 3.1e-16       2.57x
+
+-- L=4096 (batched B=256, chain m=400), working set 32.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                      10.1376 us      9.8034 us    24.24      4.2%   3r   0.013s  ok ch=4.0e-14/1e-10 1s=1e-15 1.00x?
+   d1_pow2                      10.3154 us     10.2420 us    23.82      0.9%   3r   0.001s  ok ch=4.0e-14/1e-10 1s=1e-15 1.02x?
+   d1_twiddle                   15.0001 us     14.9900 us    16.38      0.4%   3r   0.000s  ok ch=3.8e-14/1e-10 1s=1e-15 1.48x
+   d1_planner                   15.9275 us     15.7773 us    15.43      2.3%   3r   0.001s  ok ch=3.6e-14/1e-10 1s=1e-15 1.57x
+   mkl1d_dfti                   22.8917 us     22.6854 us    10.74      1.0%   3r   0.002s  ok ch=3.9e-14/1e-10 1s=1e-15 2.26x
+   fftw1d_patient               24.1182 us     23.9519 us    10.19      0.8%   3r  44.967s  ok ch=3.8e-14/1e-10 1s=1e-15 2.38x
+   fftw1d_measure               29.5247 us     28.9221 us     8.32      2.1%   3r   0.233s  ok ch=3.9e-14/1e-10 1s=1e-15 2.91x
+   d1_bluestein                 31.6584 us     31.6122 us     7.76      0.2%   3r   0.002s  ok ch=3.7e-14/1e-10 1s=1e-15 3.12x
+   fftw1d_estimate              35.8532 us     35.7937 us     6.85      0.4%   3r   0.001s  ok ch=4.0e-14/1e-10 1s=1e-15 3.54x
+
+-- L=10007 (non-batched, single call), working set 0.305 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                     124.5034 us    123.6058 us     5.34     12.8%   9r   0.012s  ok 7.2e-16       1.00x?
+   d1_bluestein                127.2006 us    124.1157 us     5.23     13.5%   9r   0.005s  ok 7.2e-16       1.02x?
+   d1_planner                  156.7468 us    155.4023 us     4.24      1.9%   9r   0.005s  ok 7.2e-16       1.26x
+   fftw1d_patient              199.8724 us    195.9339 us     3.33      5.8%   9r  20.333s  ok 8.1e-16       1.61x
+   mkl1d_dfti                  267.0777 us    265.2281 us     2.49      2.2%   9r   0.003s  ok 6.8e-16       2.15x
+   fftw1d_measure              326.3743 us    322.5503 us     2.04      2.3%   9r   1.248s  ok 8.1e-16       2.62x
+   fftw1d_estimate             467.9587 us    463.6025 us     1.42     20.7%   9r   0.002s  ok 8.5e-16       3.76x
+
+-- L=10007 (non-batched, chain m=400), working set 0.305 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_bluestein                168.3614 us    137.7228 us     3.95     50.7%   3r   0.007s  ok ch=8.4e-14/1e-10 1s=3e-15 1.00x?
+   d1_planner                  169.6966 us    169.0736 us     3.92     40.9%   3r   0.005s  ok ch=8.4e-14/1e-10 1s=3e-15 1.01x?
+   d1_race                     182.4116 us    136.6286 us     3.65     55.4%   3r   0.015s  ok ch=8.4e-14/1e-10 1s=3e-15 1.08x?
+   fftw1d_patient              227.0668 us    226.5646 us     2.93      0.3%   3r  19.773s  ok ch=1.1e-13/1e-10 1s=3e-15 1.35x
+   mkl1d_dfti                  297.8632 us    297.6497 us     2.23      0.2%   3r   0.003s  ok ch=8.3e-14/1e-10 1s=3e-15 1.77x
+   fftw1d_measure              356.9432 us    354.9854 us     1.86      4.1%   3r   1.145s  ok ch=1.1e-13/1e-10 1s=3e-15 2.12x
+   fftw1d_estimate             496.4774 us    494.5565 us     1.34      0.7%   3r   0.002s  ok ch=9.3e-14/1e-10 1s=3e-15 2.95x
+
+-- L=10007 (batched B=64, single call), working set 19.545 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                     131.9708 us    129.7706 us     5.04     36.8%   9r   0.014s  ok 7.1e-16       1.00x?
+   d1_bluestein                188.9376 us    131.7170 us     3.52     47.5%   9r   0.009s  ok 7.1e-16       1.43x
+   d1_planner                  193.8096 us    162.6315 us     3.43     40.0%   9r   0.006s  ok 7.1e-16       1.47x
+   fftw1d_patient              207.2606 us    205.3700 us     3.21      5.1%   9r  19.794s  ok 8.0e-16       1.57x
+   fftw1d_measure              217.7019 us    216.5077 us     3.05      1.9%   9r   1.136s  ok 8.0e-16       1.65x
+   mkl1d_dfti                  313.8487 us    276.6110 us     2.12     33.8%   9r   0.033s  ok 6.8e-16       2.38x
+   fftw1d_estimate             363.7728 us    359.7012 us     1.83     26.3%   9r   0.002s  ok 8.5e-16       2.76x
+
+-- L=10007 (batched B=64, chain m=80), working set 19.545 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_bluestein                145.9398 us    145.2877 us     4.56      0.5%   3r   0.007s  ok ch=3.1e-14/1e-10 1s=3e-15 1.00x?
+   d1_race                     146.4071 us    144.9535 us     4.54      1.1%   3r   0.013s  ok ch=3.1e-14/1e-10 1s=3e-15 1.00x?
+   d1_planner                  171.6413 us    170.7133 us     3.87      0.6%   3r   0.007s  ok ch=3.2e-14/1e-10 1s=3e-15 1.18x
+   fftw1d_patient              235.5537 us    234.1336 us     2.82      2.4%   3r  19.848s  ok ch=3.3e-14/1e-10 1s=3e-15 1.61x
+   fftw1d_measure              248.9138 us    248.9023 us     2.67      0.4%   3r   1.140s  ok ch=3.6e-14/1e-10 1s=3e-15 1.71x
+   mkl1d_dfti                  303.8983 us    302.9553 us     2.19      0.5%   3r   0.054s  ok ch=3.0e-14/1e-10 1s=3e-15 2.08x
+   fftw1d_estimate             392.2571 us    391.3150 us     1.70      1.5%   3r   0.002s  ok ch=3.5e-14/1e-10 1s=3e-15 2.69x
+
+-- L=16384 (non-batched, single call), working set 0.500 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   fftw1d_patient               32.6258 us     31.9773 us    35.15      4.2%   9r   6.365s  ok 3.5e-16       1.00x?
+   mkl1d_dfti                   35.2812 us     33.4716 us    32.51     15.7%   9r   0.002s  ok 3.3e-16       1.08x
+   fftw1d_measure               36.0728 us     35.0356 us    31.79     17.1%   9r   0.571s  ok 3.4e-16       1.11x
+   d1_race                      38.4462 us     32.9564 us    29.83     23.6%   9r   1.423s  ok 3.4e-16       1.18x
+   d1_pow2                      39.9664 us     35.1047 us    28.70     16.4%   9r   0.003s  ok 3.4e-16       1.22x
+   d1_twiddle                   52.6222 us     46.2130 us    21.79     15.7%   9r   0.002s  ok 3.3e-16       1.61x
+   d1_planner                   58.6269 us     52.6728 us    19.56     14.4%   9r   0.003s  ok 3.4e-16       1.80x
+   d1_bluestein                 67.4312 us     63.6446 us    17.01      8.0%   9r   0.004s  ok 3.4e-16       2.07x
+   fftw1d_estimate              79.5213 us     69.4030 us    14.42     15.3%   9r   0.001s  ok 3.5e-16       2.44x
+
+-- L=16384 (non-batched, chain m=250), working set 0.500 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                      49.5287 us     49.2647 us    23.16     20.1%   3r   0.012s  ok ch=2.2e-14/1e-10 1s=1e-15 1.00x?
+   d1_pow2                      60.9882 us     51.2528 us    18.80     21.8%   3r   0.003s  ok ch=2.2e-14/1e-10 1s=1e-15 1.23x
+   d1_twiddle                   71.6326 us     71.4842 us    16.01      0.9%   3r   0.001s  ok ch=2.7e-14/1e-10 1s=1e-15 1.45x
+   d1_planner                   76.2783 us     75.4655 us    15.04      2.0%   3r   0.003s  ok ch=2.4e-14/1e-10 1s=1e-15 1.54x
+   fftw1d_patient               82.8395 us     82.4663 us    13.84      0.5%   3r   6.418s  ok ch=2.1e-14/1e-10 1s=1e-15 1.67x
+   fftw1d_measure               85.9995 us     85.7612 us    13.34     15.5%   3r   0.579s  ok ch=2.4e-14/1e-10 1s=1e-15 1.74x
+   mkl1d_dfti                  103.7870 us    101.0503 us    11.05      3.0%   3r   0.002s  ok ch=2.3e-14/1e-10 1s=1e-15 2.10x
+   fftw1d_estimate             119.3983 us    119.2698 us     9.61      0.1%   3r   0.001s  ok ch=2.6e-14/1e-10 1s=1e-15 2.41x
+   d1_bluestein                143.0364 us    140.4880 us     8.02      2.2%   3r   0.004s  ok ch=2.2e-14/1e-10 1s=1e-15 2.89x
+
+-- L=16384 (batched B=64, single call), working set 32.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                      38.3022 us     37.9329 us    29.94      6.2%   9r   0.011s  ok 3.4e-16       1.00x?
+   d1_twiddle                   41.0637 us     40.8485 us    27.93     29.7%   9r   0.001s  ok 3.4e-16       1.07x?
+   d1_planner                   44.9197 us     38.1053 us    25.53     35.2%   9r   0.004s  ok 3.4e-16       1.17x
+   fftw1d_patient               48.5579 us     44.5884 us    23.62     11.9%   9r  67.185s  ok 3.5e-16       1.27x
+   d1_pow2                      55.4734 us     43.4000 us    20.67     61.2%   9r   0.003s  ok 3.4e-16       1.45x
+   mkl1d_dfti                   71.9913 us     52.6193 us    15.93     42.7%   9r   0.003s  ok 3.4e-16       1.88x
+   d1_bluestein                 82.9129 us     60.8030 us    13.83     39.0%   9r   0.004s  ok 3.4e-16       2.16x
+   fftw1d_measure               95.8406 us     62.5802 us    11.97     82.2%   9r   0.618s  ok 3.4e-16       2.50x
+   fftw1d_estimate             113.0677 us     91.3947 us    10.14     40.6%   9r   0.001s  ok 3.5e-16       2.95x
+
+-- L=16384 (batched B=64, chain m=150), working set 32.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                      50.1242 us     49.4780 us    22.88      2.7%   3r   0.015s  ok ch=2.7e-14/1e-10 1s=1e-15 1.00x?
+   d1_pow2                      51.3710 us     51.3106 us    22.33      0.5%   3r   0.003s  ok ch=2.7e-14/1e-10 1s=1e-15 1.02x
+   d1_planner                   67.3955 us     66.9457 us    17.02      0.8%   3r   0.003s  ok ch=2.5e-14/1e-10 1s=1e-15 1.34x
+   d1_twiddle                   71.8723 us     71.6918 us    15.96      1.1%   3r   0.001s  ok ch=4.7e-14/1e-10 1s=1e-15 1.43x
+   fftw1d_patient               97.5975 us     96.2989 us    11.75      2.6%   3r  67.170s  ok ch=3.7e-14/1e-10 1s=1e-15 1.95x
+   mkl1d_dfti                  100.9178 us    100.6953 us    11.36      2.1%   3r   0.003s  ok ch=3.2e-14/1e-10 1s=1e-15 2.01x
+   fftw1d_measure              120.5864 us    119.6641 us     9.51      0.8%   3r   0.616s  ok ch=4.4e-14/1e-10 1s=1e-15 2.41x
+   d1_bluestein                132.7690 us    132.2973 us     8.64      1.5%   3r   0.004s  ok ch=2.6e-14/1e-10 1s=1e-15 2.65x
+   fftw1d_estimate             146.0941 us    145.7618 us     7.85      0.5%   3r   0.001s  ok ch=2.8e-14/1e-10 1s=1e-15 2.91x
+
+-- L=65537 (non-batched, single call), working set 2.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                     887.1601 us    826.6650 us     5.91     10.2%   9r   0.013s  ok 1.3e-15       1.00x?
+   d1_rader                    925.4757 us    841.9438 us     5.67     10.4%   9r   0.007s  ok 1.3e-15       1.04x?
+   d1_planner                 1194.7845 us   1023.2520 us     4.39     17.0%   9r   0.030s  ok 1.2e-15       1.35x
+   fftw1d_patient             1489.0246 us   1460.4556 us     3.52      2.5%   9r  58.125s  ok 1.2e-15       1.68x
+   fftw1d_measure             1570.9454 us   1561.5825 us     3.34      1.5%   9r   4.374s  ok 1.2e-15       1.77x
+   d1_bluestein               1738.9209 us   1721.0687 us     3.02      3.7%   9r   0.025s  ok 1.1e-15       1.96x
+   fftw1d_estimate            1931.1993 us   1718.9959 us     2.71     12.7%   9r   0.010s  ok 1.2e-15       2.18x
+   mkl1d_dfti                 3259.9017 us   3225.4084 us     1.61     16.3%   9r   0.012s  ok 1.0e-15       3.67x
+
+-- L=65537 (non-batched, chain m=60), working set 2.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                     724.8886 us    722.4323 us     7.23      5.1%   3r   0.018s  ok ch=4.2e-14/1e-10 1s=5e-15 1.00x?
+   d1_rader                    740.7070 us    739.0555 us     7.08      8.2%   3r   0.007s  ok ch=4.2e-14/1e-10 1s=5e-15 1.02x?
+   d1_planner                 1009.8939 us   1006.7589 us     5.19      6.2%   3r   0.027s  ok ch=3.6e-14/1e-10 1s=4e-15 1.39x
+   d1_bluestein               1579.5311 us   1577.2733 us     3.32      0.3%   3r   0.024s  ok ch=3.8e-14/1e-10 1s=5e-15 2.18x
+   fftw1d_patient             1636.5257 us   1633.6514 us     3.20      0.3%   3r  58.226s  ok ch=3.7e-14/1e-10 1s=6e-15 2.26x
+   fftw1d_measure             1745.1080 us   1742.4255 us     3.00      0.4%   3r   4.318s  ok ch=3.7e-14/1e-10 1s=5e-15 2.41x
+   fftw1d_estimate            1893.7741 us   1891.8900 us     2.77      0.1%   3r   0.008s  ok ch=3.8e-14/1e-10 1s=5e-15 2.61x
+   mkl1d_dfti                 3509.0534 us   3471.8088 us     1.49      1.2%   3r   0.009s  ok ch=3.9e-14/1e-10 1s=5e-15 4.84x
+
+-- L=65537 (batched B=16, single call), working set 32.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                    1138.1651 us   1107.9061 us     4.61      3.4%   9r   0.010s  ok 1.3e-15       1.00x?
+   d1_rader                   1219.0686 us   1170.3164 us     4.30      7.5%   9r   0.006s  ok 1.3e-15       1.07x
+   d1_planner                 1326.6329 us   1325.0543 us     3.95      6.4%   9r   0.021s  ok 1.2e-15       1.17x
+   fftw1d_patient             1550.8239 us   1521.4509 us     3.38      3.1%   9r  58.285s  ok 1.2e-15       1.36x
+   fftw1d_measure             1680.1613 us   1658.3936 us     3.12      1.7%   9r   4.369s  ok 1.2e-15       1.48x
+   d1_bluestein               1858.3821 us   1665.3726 us     2.82     14.0%   9r   0.022s  ok 1.1e-15       1.63x
+   fftw1d_estimate            2082.5244 us   1876.1573 us     2.52     11.7%   9r   0.009s  ok 1.2e-15       1.83x
+   mkl1d_dfti                 3416.4769 us   3400.1560 us     1.53     11.8%   9r   0.056s  ok 1.0e-15       3.00x
+
+-- L=65537 (batched B=16, chain m=20), working set 32.000 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                     774.4032 us    763.6510 us     6.77      1.9%   3r   0.023s  ok ch=2.1e-14/1e-10 1s=5e-15 1.00x?
+   d1_rader                    776.7887 us    761.1282 us     6.75      2.5%   3r   0.006s  ok ch=2.1e-14/1e-10 1s=5e-15 1.00x?
+   d1_planner                 1041.3085 us    999.6264 us     5.03      4.3%   3r   0.022s  ok ch=1.5e-14/1e-10 1s=4e-15 1.34x
+   fftw1d_patient             1741.6995 us   1739.7149 us     3.01      1.4%   3r  58.050s  ok ch=1.7e-14/1e-10 1s=4e-15 2.25x
+   d1_bluestein               1851.4648 us   1836.6037 us     2.83      4.3%   3r   0.021s  ok ch=2.0e-14/1e-10 1s=4e-15 2.39x
+   fftw1d_measure             1890.9889 us   1883.0265 us     2.77      1.4%   3r   4.372s  ok ch=1.7e-14/1e-10 1s=4e-15 2.44x
+   fftw1d_estimate            2099.0759 us   2091.8433 us     2.50      0.5%   3r   0.008s  ok ch=2.1e-14/1e-10 1s=4e-15 2.71x
+   mkl1d_dfti                 3602.3955 us   3601.7441 us     1.46      0.1%   3r   0.064s  ok ch=1.7e-14/1e-10 1s=4e-15 4.65x
+
+-- L=100003 (non-batched, single call), working set 3.052 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                    2303.7573 us   2299.8858 us     3.61     33.9%   9r   0.028s  ok 1.0e-15       1.00x?
+   d1_bluestein               2690.8160 us   2357.1083 us     3.09     32.8%   9r   0.030s  ok 1.0e-15       1.17x
+   fftw1d_patient             2733.7821 us   2691.0377 us     3.04     11.8%   9r  62.820s  ok 9.0e-16       1.19x
+   fftw1d_measure             2777.0599 us   2737.1448 us     2.99     10.4%   9r   4.727s  ok 9.0e-16       1.21x
+   mkl1d_dfti                 3371.2144 us   3362.6120 us     2.46     21.2%   9r   0.014s  ok 8.8e-16       1.46x
+   d1_planner                 3503.7048 us   3417.8565 us     2.37      8.1%   9r   0.060s  ok 1.0e-15       1.52x
+   fftw1d_estimate            5919.4692 us   4851.9258 us     1.40     41.0%   9r   0.015s  ok 9.1e-16       2.57x
+
+-- L=100003 (non-batched, chain m=40), working set 3.052 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                    2422.5338 us   2419.6057 us     3.43      0.8%   3r   0.037s  ok ch=2.3e-14/1e-10 1s=4e-15 1.00x?
+   d1_bluestein               2428.0817 us   2426.8628 us     3.42      0.7%   3r   0.024s  ok ch=2.3e-14/1e-10 1s=4e-15 1.00x?
+   fftw1d_patient             3111.3501 us   3101.2947 us     2.67      0.8%   3r  62.565s  ok ch=2.7e-14/1e-10 1s=4e-15 1.28x
+   fftw1d_measure             3210.9648 us   3210.0477 us     2.59      2.0%   3r   4.738s  ok ch=2.7e-14/1e-10 1s=4e-15 1.33x
+   d1_planner                 3551.7949 us   3539.4072 us     2.34      0.4%   3r   0.047s  ok ch=2.7e-14/1e-10 1s=5e-15 1.47x
+   mkl1d_dfti                 3674.5697 us   3673.9463 us     2.26      1.2%   3r   0.011s  ok ch=2.3e-14/1e-10 1s=4e-15 1.52x
+   fftw1d_estimate            5206.9891 us   5175.6346 us     1.59      1.2%   3r   0.012s  ok ch=3.4e-14/1e-10 1s=5e-15 2.15x
+
+-- L=100003 (batched B=8, single call), working set 24.415 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_race                    2397.8325 us   2377.7886 us     3.46      1.9%   9r   0.074s  ok 1.0e-15       1.00x?
+   fftw1d_patient             2836.4431 us   2785.9071 us     2.93      9.5%   9r  62.651s  ok 9.0e-16       1.18x
+   d1_bluestein               2985.8666 us   2393.7586 us     2.78     38.8%   9r   0.029s  ok 1.0e-15       1.25x
+   fftw1d_measure             3067.6957 us   2906.1495 us     2.71      7.5%   9r   4.777s  ok 9.0e-16       1.28x
+   d1_planner                 3288.7446 us   2467.0383 us     2.53     35.2%   9r   0.029s  ok 1.0e-15       1.37x
+   mkl1d_dfti                 3550.6976 us   3535.1972 us     2.34     32.4%   9r   0.049s  ok 8.8e-16       1.48x
+   fftw1d_estimate            5088.9640 us   4945.4864 us     1.63     22.1%   9r   0.013s  ok 9.1e-16       2.12x
+
+-- L=100003 (batched B=8, chain m=15), working set 24.415 MiB --
+   backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
+   d1_bluestein               2828.7884 us   2823.7602 us     2.94      0.2%   3r   0.028s  ok ch=1.7e-14/1e-10 1s=5e-15 1.00x?
+   d1_race                    2857.1013 us   2853.6736 us     2.91      0.4%   3r   0.040s  ok ch=1.9e-14/1e-10 1s=5e-15 1.01x
+   fftw1d_patient             3229.3872 us   3187.6646 us     2.57      2.6%   3r  62.731s  ok ch=1.6e-14/1e-10 1s=5e-15 1.14x
+   fftw1d_measure             3352.9551 us   3333.5915 us     2.48      1.9%   3r   4.663s  ok ch=1.6e-14/1e-10 1s=5e-15 1.19x
+   d1_planner                 3480.4940 us   3401.5301 us     2.39      2.7%   3r   0.057s  ok ch=1.6e-14/1e-10 1s=4e-15 1.23x
+   mkl1d_dfti                 3870.0006 us   3858.5603 us     2.15      0.8%   3r   0.068s  ok ch=1.5e-14/1e-10 1s=5e-15 1.37x
+   fftw1d_estimate            5426.1856 us   5412.2542 us     1.53      0.7%   3r   0.010s  ok ch=1.5e-14/1e-10 1s=5e-15 1.92x
+
+backends:
+   baseline_dft             dense L x L DFT matrix, O(L^2)/vector
+   d1_batchlane             SoA 8-lane zmm batch-lane engine: interleaved-pair m=1 kernels at 13/31 (d1_prime) and an in-register AoS codelet at 32 (d1_pow2), fused-AoS single-shot kernels looped for m=1 at 60/64/128, register-resident B=1 chains (fold-ready A/B rows at 13/31, natural-row four-step at 32/64/128), L1-blocked fused FFT+Newton-map batched chain
+   d1_bluestein             Bluestein chirp-Z any-L: split-complex mixed-radix(2/3/4/5/8/9) Stockham conv core, minimal smooth pad (10007->20480); large M via Agarwal-Cooley coprime 2D conv (CRT, no inter-axis twiddles; minimal-M split over odd 3^a5^b <= 135: 65537->138240=1024x135, 100003->204800=8192x25) with chirp/CRT-fused entry+exit, NT-streamed exit scatter; fwd-last x kernel-mul x inv-entry fused into ONE pass (modes 2+3); paired-p zmm radix-8 at the narrow s=4 stage; radix-9 tile stages; zero-pruned+chirp-fused entry and pruned chirp-fused exit for small M; direct Stockham for smooth L; dense tiny-L floor; fused map chain with rsqrt/rcp+2NR Newton map; all planes in pre-faulted hugepage mmap blocks with L2-way skew
+   d1_composite             Good-Thomas PFA 60=4x3x5 twiddle-free; broadcast-fed signed-FMA DFT-4 (zero cross-lane shuffles), zmm 2x2 batched kernel with pure-store vextractf64x2 outputs; SoA-resident in-place batched chain and coset-row B=1 chain, both with fused rsqrt/rcp map
+   d1_planner               LIBRARY LAYER (adoption-scored): factorization planner on a split-complex Stockham core (true-zmm noinline kernels; 2/3/4/5/8 + generic prime<=61 stage) -- direct smooth / unpadded Rader (smooth L-1) / smooth-padded Bluestein; adopted codelets: d1_prime pair kernels at 13/31, d1_pow2 register codelets at 32/64; NT fused exits above L3; fused split/lane/register map chains
+   d1_pow2                  Stockham autosort DIF: blocked split-complex radix-8 engine at L>=128 (zero-shuffle middle stages, conversion fused into the stride-1 stage), compact (c,s)-pair twiddle tables at L>=1024 (halved L2 footprint -- the ICX large-L bottleneck was table-bloated L1/L2 fill traffic, not ports), first-stage pair fused through an L1 tile at L>=4096 and the two middle radix-8 stages fused into a radix-64 tile pass at 4096/16384 (three array passes total), in-register AoS codelets at L=32/64, NT final stores above the scoring node's L3; chains: across-batch SoA groups of 8 (L<=2048, from d1_batchlane) or per-transform blocking, with a 2-Newton rsqrt/rcp map fused into the final stage in split form
+   d1_prime                 symmetric-pair dense prime DFT; interleaved-pair zmm kernels at 13/31 (pair-dup tables, 2-transform tiling); register-resident B=1 chains + SoA batched chains, c-field folded into accumulator seeds (rsqrt14+NR map)
+   d1_race                  LIBRARY LAYER (adoption-scored): plan-time race + per-host wisdom (gen_race generalized to 1D); demo entry fork-gates and races the sibling class entries per (L,B) and ships the winner by vtable
+   d1_rader                 Rader prime->cyclic conv sized by N-1: UNPADDED conv 65536=[4,16,16,16,4] at N=65537 (two-layer radix-16 through an L1 tile; FUSED MID PASS runs fwd-last butterfly + kernel multiply + inv-first butterfly in one pass, 9 passes not 10 -- the spectrum is never materialized), unpadded 1020=[4,3,5,17] at 1021 (AVX-512 two-half radix-17, scatter-fused exit, paired-p full-lane radix-5), CRT codelets Z12=Z4xZ3 / Z30=Z2xZ3xZ5 at 13/31 (Agarwal-Cooley) with ACROSS-BATCH SoA: 8 transforms per zmm, transpose only at entry/exit; pad 256 at 127; split-complex Stockham core (from d1_bluestein), X[0] free from conv DC; fused map chain keeps state in conv order (gather o scatter = index reversal), Newton rsqrt/rcp map (no divider) in every vector chain exit
+   d1_twiddle               LIBRARY LAYER (adoption-scored): exact 1D twiddle tables, consumption order (d1tw_cexp quadrant-exact ~1ulp, d1tw_chirp integer-reduced, d1tw_stage v1 + v2 broadcast-pair/lane-major AVX-512 formats; v1 doubles as the SoA-broadcast format); vehicle: mixed-radix 2/3/4/5/8/16 Stockham, zmm 4-complex lanes, in-register 32/64 codelets + register chains (borrowed from d1_pow2, fed by the s1bc/bc tables), SoA across-batch chain at B>=8 L<=2048 (d1_batchlane), NT final stores >=25MB, 2NR fast map, split exec/chain schedules at 16384, smooth L
+   fftw1d_custom            genfft monolithic codelet, split arrays, scalar DAG + autovec
+   fftw1d_custom_soa        genfft monolithic codelet, SoA 8-transform batch-lane split-complex
+   fftw1d_estimate          FFTW 3.3.10 plan_many_dft 1D, fftw1d_estimate
+   fftw1d_measure           FFTW 3.3.10 plan_many_dft 1D, fftw1d_measure
+   fftw1d_patient           FFTW 3.3.10 plan_many_dft 1D, fftw1d_patient
+   mkl1d_dfti               oneMKL DFTI 1D, sequential, batched
+# round d1_r4
+host: a80n0.lqcd.mit   date: 2026-09-04T13:36:06-04:00   slurm_job: 440515
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512bw avx512cd avx512dq avx512f avx512ifma avx512_vbmi avx512vbmi avx512vl avx512_vnni avx512_vpopcntdq fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+== building on a80n0.lqcd.mit ==
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -c -o build/a80n0/driver.o driver.c
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/baseline_dft impl/baseline_dft.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_batchlane impl/d1_batchlane.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_bluestein impl/d1_bluestein.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_composite impl/d1_composite.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_planner impl/d1_planner.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_pow2 impl/d1_pow2.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_prime impl/d1_prime.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_race impl/d1_race.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_rader impl/d1_rader.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_twiddle impl/d1_twiddle.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_ESTIMATE -DPLAN_NAME='"fftw1d_estimate"' -o build/a80n0/bin/fftw1d_estimate sota/fftw1d.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_MEASURE -DPLAN_NAME='"fftw1d_measure"' -o build/a80n0/bin/fftw1d_measure sota/fftw1d.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_PATIENT -DPLAN_NAME='"fftw1d_patient"' -o build/a80n0/bin/fftw1d_patient sota/fftw1d.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/fftw1d_custom sota/fftw1d_custom.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -DCUSTOM_SOA -I. -o build/a80n0/bin/fftw1d_custom_soa sota/fftw1d_custom.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/opt/software/intel/oneapi/mkl/2022.0.2/include -o build/a80n0/bin/mkl1d_dfti sota/mkl1d.c build/a80n0/driver.o -L/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -Wl,-rpath,/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lm
+host:            a80n0  (binaries in build/a80n0/bin)
+implementations: baseline_dft d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+sota:            fftw1d_estimate fftw1d_measure fftw1d_patient fftw1d_custom fftw1d_custom_soa mkl1d_dfti
+== backends: baseline_dft
+d1_batchlane
+d1_bluestein
+d1_composite
+d1_planner
+d1_pow2
+d1_prime
+d1_race
+d1_rader
+d1_twiddle
+fftw1d_custom
+fftw1d_custom_soa
+fftw1d_estimate
+fftw1d_measure
+fftw1d_patient
+mkl1d_dfti ==
+   done L=16384 B=64
+   done L=65537 B=16
+   done L=65537 B=1
+   done L=10007 B=1
+   done L=16384 B=1
+   done L=4096 B=1
+   done L=60 B=512
+   done L=31 B=512
+   done L=32 B=512
+   done L=31 B=1
+   done L=128 B=1
+   done L=32 B=1
+== shard_1 done; leaderboard deferred to submit.sh ==
+== round d1_r4 complete: results/d1_r4 ==
+== NOT resuming d1_r4: manifest differs, so the existing results are from a
+   DIFFERENT measurement and must not be mixed into one leaderboard.
+     was: round=d1_r4 seed=20264873 runs=3/9 samples=12 cases=results/d1_r4/.shard_1.cases src=a08bf2faa99cfc455f31d12a68166e4a
+     now: round=d1_r4 seed=20264873 runs=3/9 samples=12 cases=results/d1_r4/.shard_1.cases src=84c5494a7294417e03d3f72fedb54f3e
+   shard_1: remeasuring this shard's own cells in place (round-wide
+   artifacts left alone -- another shard may be using them)
+# round d1_r4
+host: a80n0.lqcd.mit   date: 2026-09-04T14:42:59-04:00   slurm_job: 440515
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512bw avx512cd avx512dq avx512f avx512ifma avx512_vbmi avx512vbmi avx512vl avx512_vnni avx512_vpopcntdq fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+== building on a80n0.lqcd.mit ==
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -c -o build/a80n0/driver.o driver.c
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/baseline_dft impl/baseline_dft.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_batchlane impl/d1_batchlane.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_bluestein impl/d1_bluestein.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_composite impl/d1_composite.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_planner impl/d1_planner.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_pow2 impl/d1_pow2.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_prime impl/d1_prime.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_race impl/d1_race.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_rader impl/d1_rader.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_twiddle impl/d1_twiddle.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_ESTIMATE -DPLAN_NAME='"fftw1d_estimate"' -o build/a80n0/bin/fftw1d_estimate sota/fftw1d.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_MEASURE -DPLAN_NAME='"fftw1d_measure"' -o build/a80n0/bin/fftw1d_measure sota/fftw1d.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_PATIENT -DPLAN_NAME='"fftw1d_patient"' -o build/a80n0/bin/fftw1d_patient sota/fftw1d.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/fftw1d_custom sota/fftw1d_custom.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -DCUSTOM_SOA -I. -o build/a80n0/bin/fftw1d_custom_soa sota/fftw1d_custom.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/opt/software/intel/oneapi/mkl/2022.0.2/include -o build/a80n0/bin/mkl1d_dfti sota/mkl1d.c build/a80n0/driver.o -L/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -Wl,-rpath,/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lm
+host:            a80n0  (binaries in build/a80n0/bin)
+implementations: baseline_dft d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+sota:            fftw1d_estimate fftw1d_measure fftw1d_patient fftw1d_custom fftw1d_custom_soa mkl1d_dfti
+== backends: baseline_dft
+d1_batchlane
+d1_bluestein
+d1_composite
+d1_planner
+d1_pow2
+d1_prime
+d1_race
+d1_rader
+d1_twiddle
+fftw1d_custom
+fftw1d_custom_soa
+fftw1d_estimate
+fftw1d_measure
+fftw1d_patient
+mkl1d_dfti ==
+   done L=16384 B=64
+== shard_1 done; leaderboard deferred to submit.sh ==
+== round d1_r4 complete: results/d1_r4 ==
+# round d1_r4
+host: a81n2.lqcd.mit   date: 2026-09-04T13:36:06-04:00   slurm_job: 440513
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512bw avx512cd avx512dq avx512f avx512ifma avx512_vbmi avx512vbmi avx512vl avx512_vnni avx512_vpopcntdq fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+== building on a81n2.lqcd.mit ==
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -c -o build/a81n2/driver.o driver.c
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/baseline_dft impl/baseline_dft.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_batchlane impl/d1_batchlane.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_bluestein impl/d1_bluestein.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_composite impl/d1_composite.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_planner impl/d1_planner.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_pow2 impl/d1_pow2.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_prime impl/d1_prime.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_race impl/d1_race.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_rader impl/d1_rader.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_twiddle impl/d1_twiddle.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_ESTIMATE -DPLAN_NAME='"fftw1d_estimate"' -o build/a81n2/bin/fftw1d_estimate sota/fftw1d.c build/a81n2/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_MEASURE -DPLAN_NAME='"fftw1d_measure"' -o build/a81n2/bin/fftw1d_measure sota/fftw1d.c build/a81n2/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_PATIENT -DPLAN_NAME='"fftw1d_patient"' -o build/a81n2/bin/fftw1d_patient sota/fftw1d.c build/a81n2/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/fftw1d_custom sota/fftw1d_custom.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -DCUSTOM_SOA -I. -o build/a81n2/bin/fftw1d_custom_soa sota/fftw1d_custom.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/opt/software/intel/oneapi/mkl/2022.0.2/include -o build/a81n2/bin/mkl1d_dfti sota/mkl1d.c build/a81n2/driver.o -L/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -Wl,-rpath,/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lm
+host:            a81n2  (binaries in build/a81n2/bin)
+implementations: baseline_dft d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+sota:            fftw1d_estimate fftw1d_measure fftw1d_patient fftw1d_custom fftw1d_custom_soa mkl1d_dfti
+== backends: baseline_dft
+d1_batchlane
+d1_bluestein
+d1_composite
+d1_planner
+d1_pow2
+d1_prime
+d1_race
+d1_rader
+d1_twiddle
+fftw1d_custom
+fftw1d_custom_soa
+fftw1d_estimate
+fftw1d_measure
+fftw1d_patient
+mkl1d_dfti ==
+   done L=100003 B=8
+   done L=100003 B=1
+   done L=4096 B=256
+   done L=10007 B=64
+   done L=1024 B=512
+   done L=1021 B=1
+   done L=1021 B=256
+   done L=128 B=512
+   done L=64 B=512
+   done L=1024 B=1
+   done L=13 B=512
+   done L=60 B=1
+   done L=64 B=1
+   done L=13 B=1
+== shard_2 done; leaderboard deferred to submit.sh ==
+== round d1_r4 complete: results/d1_r4 ==
+== NOT resuming d1_r4: manifest differs, so the existing results are from a
+   DIFFERENT measurement and must not be mixed into one leaderboard.
+     was: round=d1_r4 seed=20264873 runs=3/9 samples=12 cases=results/d1_r4/.shard_2.cases src=a08bf2faa99cfc455f31d12a68166e4a
+     now: round=d1_r4 seed=20264873 runs=3/9 samples=12 cases=results/d1_r4/.shard_2.cases src=84c5494a7294417e03d3f72fedb54f3e
+   shard_2: remeasuring this shard's own cells in place (round-wide
+   artifacts left alone -- another shard may be using them)
+# round d1_r4
+host: a81n2.lqcd.mit   date: 2026-09-04T14:42:59-04:00   slurm_job: 440513
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512bw avx512cd avx512dq avx512f avx512ifma avx512_vbmi avx512vbmi avx512vl avx512_vnni avx512_vpopcntdq fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+== building on a81n2.lqcd.mit ==
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -c -o build/a81n2/driver.o driver.c
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/baseline_dft impl/baseline_dft.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_batchlane impl/d1_batchlane.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_bluestein impl/d1_bluestein.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_composite impl/d1_composite.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_planner impl/d1_planner.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_pow2 impl/d1_pow2.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_prime impl/d1_prime.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_race impl/d1_race.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_rader impl/d1_rader.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/d1_twiddle impl/d1_twiddle.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_ESTIMATE -DPLAN_NAME='"fftw1d_estimate"' -o build/a81n2/bin/fftw1d_estimate sota/fftw1d.c build/a81n2/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_MEASURE -DPLAN_NAME='"fftw1d_measure"' -o build/a81n2/bin/fftw1d_measure sota/fftw1d.c build/a81n2/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_PATIENT -DPLAN_NAME='"fftw1d_patient"' -o build/a81n2/bin/fftw1d_patient sota/fftw1d.c build/a81n2/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a81n2/bin/fftw1d_custom sota/fftw1d_custom.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -DCUSTOM_SOA -I. -o build/a81n2/bin/fftw1d_custom_soa sota/fftw1d_custom.c build/a81n2/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/opt/software/intel/oneapi/mkl/2022.0.2/include -o build/a81n2/bin/mkl1d_dfti sota/mkl1d.c build/a81n2/driver.o -L/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -Wl,-rpath,/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lm
+host:            a81n2  (binaries in build/a81n2/bin)
+implementations: baseline_dft d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+sota:            fftw1d_estimate fftw1d_measure fftw1d_patient fftw1d_custom fftw1d_custom_soa mkl1d_dfti
+== backends: baseline_dft
+d1_batchlane
+d1_bluestein
+d1_composite
+d1_planner
+d1_pow2
+d1_prime
+d1_race
+d1_rader
+d1_twiddle
+fftw1d_custom
+fftw1d_custom_soa
+fftw1d_estimate
+fftw1d_measure
+fftw1d_patient
+mkl1d_dfti ==
+   done L=100003 B=8
+== shard_2 done; leaderboard deferred to submit.sh ==
+== round d1_r4 complete: results/d1_r4 ==

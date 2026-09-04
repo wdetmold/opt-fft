@@ -1,0 +1,15 @@
+impl/gen_rader.c: In function ‘map_volume.constprop’:
+impl/gen_rader.c:3218:23: warning: iteration 1152921504606846976 invokes undefined behavior [-Waggressive-loop-optimizations]
+ 3218 |         double re = zp[2 * i] + cp[2 * i];
+      |                       ^
+impl/gen_rader.c:3217:14: note: within this loop
+ 3217 |     for (; i < npts; ++i) {
+      |            ~~^~~~~~
+In file included from impl/L36_mixedradix.c:527:
+./impl/L36_mixedradix.c:1215: warning: "MAPPAIR_D" redefined
+ 1215 | #define MAPPAIR_D(Z0, Z1, C0, C1) do {                                    \
+      | 
+In file included from impl/L36_mixedradix.c:524:
+./impl/L36_mixedradix.c:1243: note: this is the location of the previous definition
+ 1243 | #define MAPPAIR_D MAPPAIR_A
+      | 

@@ -1,0 +1,13 @@
+{"host":"wallaby","format":1,"entries":{
+"gen_race/exe14/L17/B32#f5ce735e":{"winner":"gen_rader.27b548c6","widx":1,"tie":0,"us":768.271,"margin":0.1044},
+"gen_race/exegate14/L17/B32/gen_dense_prime.e6716ea3":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
+"gen_race/exegate14/L17/B32/gen_rader.27b548c6":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
+"gen_race/eng14/L17/B32#f5ce735e":{"winner":"self","widx":0,"tie":0,"us":20037.8,"margin":0.3095},
+"gen_race/enggate14/L17/B32/gen_dense_prime.e6716ea3":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
+"gen_race/enggate14/L17/B32/gen_rader.27b548c6":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
+"gen_race/chaingate14/L17/d17@s3@fm0":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
+"gen_race/chaingate14/L17/d17@t32":{"winner":"ok","widx":-1,"tie":0,"us":0,"margin":0},
+"gen_race/fm14/L17/B32#d5c31220":{"winner":"fm0","widx":1,"tie":0,"us":137.28,"margin":0.0673},
+"gen_race/chain14/L17/B32#2a0806b1":{"winner":"d17@s3","widx":3,"tie":0,"us":147.071,"margin":0.7741},
+"gen_planner/tree/L17/g8":{"winner":"d17@s3","widx":-1,"tie":0,"us":0,"margin":0}
+}}

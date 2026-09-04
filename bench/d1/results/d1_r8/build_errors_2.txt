@@ -1,0 +1,83 @@
+impl/d1_batchlane.c: In function ‘inter8.constprop’:
+impl/d1_batchlane.c:246:31: warning: iteration 2147483648 invokes undefined behavior [-Waggressive-loop-optimizations]
+  246 |     for (; j < L; ++j) { aos[2*j] = re[j]; aos[2*j + 1] = im[j]; }
+      |                              ~^~
+impl/d1_batchlane.c:246:14: note: within this loop
+  246 |     for (; j < L; ++j) { aos[2*j] = re[j]; aos[2*j + 1] = im[j]; }
+      |            ~~^~~
+impl/d1_batchlane.c: In function ‘deint8.constprop’:
+impl/d1_batchlane.c:235:39: warning: iteration 2147483648 invokes undefined behavior [-Waggressive-loop-optimizations]
+  235 |     for (; j < L; ++j) { re[j] = aos[2*j]; im[j] = aos[2*j + 1]; }
+      |                                      ~^~
+impl/d1_batchlane.c:235:14: note: within this loop
+  235 |     for (; j < L; ++j) { re[j] = aos[2*j]; im[j] = aos[2*j + 1]; }
+      |            ~~^~~
+impl/d1_batchlane.c: In function ‘deint8.constprop’:
+impl/d1_batchlane.c:235:39: warning: iteration 2147483648 invokes undefined behavior [-Waggressive-loop-optimizations]
+  235 |     for (; j < L; ++j) { re[j] = aos[2*j]; im[j] = aos[2*j + 1]; }
+      |                                      ~^~
+impl/d1_batchlane.c:235:14: note: within this loop
+  235 |     for (; j < L; ++j) { re[j] = aos[2*j]; im[j] = aos[2*j + 1]; }
+      |            ~~^~~
+impl/d1_batchlane.c: In function ‘deint8.constprop’:
+impl/d1_batchlane.c:235:39: warning: iteration 2147483648 invokes undefined behavior [-Waggressive-loop-optimizations]
+  235 |     for (; j < L; ++j) { re[j] = aos[2*j]; im[j] = aos[2*j + 1]; }
+      |                                      ~^~
+impl/d1_batchlane.c:235:14: note: within this loop
+  235 |     for (; j < L; ++j) { re[j] = aos[2*j]; im[j] = aos[2*j + 1]; }
+      |            ~~^~~
+impl/d1_batchlane.c: In function ‘chain64_reg’:
+impl/d1_batchlane.c:246:31: warning: iteration 2147483648 invokes undefined behavior [-Waggressive-loop-optimizations]
+  246 |     for (; j < L; ++j) { aos[2*j] = re[j]; aos[2*j + 1] = im[j]; }
+      |                              ~^~
+impl/d1_batchlane.c:246:14: note: within this loop
+  246 |     for (; j < L; ++j) { aos[2*j] = re[j]; aos[2*j + 1] = im[j]; }
+      |            ~~^~~
+impl/d1_batchlane.c: In function ‘chain128_reg’:
+impl/d1_batchlane.c:246:31: warning: iteration 2147483648 invokes undefined behavior [-Waggressive-loop-optimizations]
+  246 |     for (; j < L; ++j) { aos[2*j] = re[j]; aos[2*j + 1] = im[j]; }
+      |                              ~^~
+impl/d1_batchlane.c:246:14: note: within this loop
+  246 |     for (; j < L; ++j) { aos[2*j] = re[j]; aos[2*j + 1] = im[j]; }
+      |            ~~^~~
+impl/d1_race.c: In function ‘d1r_arm_ready’:
+impl/d1_race.c:1121:34: warning: ‘.bad’ directive output may be truncated writing 4 bytes into a region of size between 1 and 600 [-Wformat-truncation=]
+ 1121 |     snprintf(bad, sizeof bad, "%s.bad", so);
+      |                                  ^~~~
+In file included from /usr/include/stdio.h:894,
+                 from impl/d1_race.c:142:
+/usr/include/x86_64-linux-gnu/bits/stdio2.h:71:10: note: ‘__builtin___snprintf_chk’ output between 5 and 604 bytes into a destination of size 600
+   71 |   return __builtin___snprintf_chk (__s, __n, __USE_FORTIFY_LEVEL - 1,
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   72 |                                    __glibc_objsize (__s), __fmt,
+      |                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   73 |                                    __va_arg_pack ());
+      |                                    ~~~~~~~~~~~~~~~~~
+impl/d1_race.c:1125:34: warning: ‘.tmp.’ directive output may be truncated writing 5 bytes into a region of size between 1 and 600 [-Wformat-truncation=]
+ 1125 |     snprintf(tmp, sizeof tmp, "%s.tmp.%ld", so, (long)getpid());
+      |                                  ^~~~~
+impl/d1_race.c:1125:31: note: directive argument in the range [-2147483648, 2147483647]
+ 1125 |     snprintf(tmp, sizeof tmp, "%s.tmp.%ld", so, (long)getpid());
+      |                               ^~~~~~~~~~~~
+In file included from /usr/include/stdio.h:894,
+                 from impl/d1_race.c:142:
+/usr/include/x86_64-linux-gnu/bits/stdio2.h:71:10: note: ‘__builtin___snprintf_chk’ output between 7 and 616 bytes into a destination of size 600
+   71 |   return __builtin___snprintf_chk (__s, __n, __USE_FORTIFY_LEVEL - 1,
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   72 |                                    __glibc_objsize (__s), __fmt,
+      |                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   73 |                                    __va_arg_pack ());
+      |                                    ~~~~~~~~~~~~~~~~~
+impl/d1_race.c: In function ‘fft1d_create’:
+impl/d1_race.c:2322:51: warning: ‘%s’ directive output may be truncated writing up to 63 bytes into a region of size 59 [-Wformat-truncation=]
+ 2322 |         snprintf(loopname, sizeof loopname, "loop:%s",
+      |                                                   ^~
+In file included from /usr/include/stdio.h:894,
+                 from impl/d1_race.c:142:
+/usr/include/x86_64-linux-gnu/bits/stdio2.h:71:10: note: ‘__builtin___snprintf_chk’ output between 6 and 69 bytes into a destination of size 64
+   71 |   return __builtin___snprintf_chk (__s, __n, __USE_FORTIFY_LEVEL - 1,
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   72 |                                    __glibc_objsize (__s), __fmt,
+      |                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   73 |                                    __va_arg_pack ());
+      |                                    ~~~~~~~~~~~~~~~~~

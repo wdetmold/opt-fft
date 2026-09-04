@@ -1556,3 +1556,43 @@ mkl1d_dfti               L=32  B=1     m=100000 inner=2      min=     0.131 us/x
 mkl1d_dfti               L=32  B=1     m=100000 inner=2      min=     0.149 us/xform  median=     0.149  sd=  0.07%      5.36 GF/s  setup=0.002 s
 mkl1d_dfti               L=32  B=1     m=100000 inner=2      min=     0.131 us/xform  median=     0.131  sd=  0.08%      6.11 GF/s  setup=0.002 s
 mkl1d_dfti               L=32  B=1     m=2     inner=4164   min=     0.153 us/xform  median=     0.153  sd=  0.00%      5.23 GF/s  setup=0.002 s
+   skipping baseline_dft at L=65537 B=16 (too expensive to be informative)
+   skip d1_batchlane L=65537 B=16 m=20 (already measured)
+d1_bluestein             L=65537 B=16    m=20    inner=1      min=  1804.775 us/xform  median=  1806.038  sd=  0.03%      2.91 GF/s  setup=0.023 s
+d1_bluestein             L=65537 B=16    m=20    inner=1      min=  1833.074 us/xform  median=  1834.375  sd=  0.04%      2.86 GF/s  setup=0.023 s
+d1_bluestein             L=65537 B=16    m=20    inner=1      min=  1837.549 us/xform  median=  1838.324  sd=  0.05%      2.85 GF/s  setup=0.023 s
+d1_bluestein             L=65537 B=16    m=2     inner=1      min=  1986.949 us/xform  median=  1986.949  sd=  0.00%      2.64 GF/s  setup=0.022 s
+   skip d1_composite L=65537 B=16 m=20 (already measured)
+d1_planner               L=65537 B=16    m=20    inner=1      min=   812.754 us/xform  median=   813.055  sd=  0.05%      6.45 GF/s  setup=0.025 s
+d1_planner               L=65537 B=16    m=20    inner=1      min=   735.137 us/xform  median=   735.344  sd=  0.07%      7.13 GF/s  setup=0.025 s
+d1_planner               L=65537 B=16    m=20    inner=1      min=   734.749 us/xform  median=   734.943  sd=  0.07%      7.14 GF/s  setup=0.022 s
+d1_planner               L=65537 B=16    m=2     inner=1      min=  1260.425 us/xform  median=  1260.425  sd=  0.00%      4.16 GF/s  setup=0.025 s
+   skip d1_pow2 L=65537 B=16 m=20 (already measured)
+   skip d1_prime L=65537 B=16 m=20 (already measured)
+d1_race                  L=65537 B=16    m=20    inner=1      min=   703.716 us/xform  median=   703.785  sd=  0.08%      7.45 GF/s  setup=4.604 s
+d1_race                  L=65537 B=16    m=20    inner=1      min=   704.374 us/xform  median=   704.479  sd=  0.09%      7.44 GF/s  setup=0.023 s
+d1_race                  L=65537 B=16    m=20    inner=1      min=   702.312 us/xform  median=   702.448  sd=  0.09%      7.47 GF/s  setup=0.012 s
+d1_race                  L=65537 B=16    m=2     inner=1      min=  1236.757 us/xform  median=  1236.757  sd=  0.00%      4.24 GF/s  setup=0.010 s
+d1_rader                 L=65537 B=16    m=20    inner=1      min=   774.009 us/xform  median=   774.159  sd=  0.09%      6.77 GF/s  setup=0.006 s
+d1_rader                 L=65537 B=16    m=20    inner=1      min=   724.203 us/xform  median=   724.495  sd=  0.13%      7.24 GF/s  setup=0.006 s
+d1_rader                 L=65537 B=16    m=20    inner=1      min=   771.594 us/xform  median=   772.024  sd=  0.09%      6.79 GF/s  setup=0.006 s
+d1_rader                 L=65537 B=16    m=2     inner=1      min=  1300.671 us/xform  median=  1300.671  sd=  0.00%      4.03 GF/s  setup=0.006 s
+   skip d1_twiddle L=65537 B=16 m=20 (already measured)
+   skip fftw1d_custom L=65537 B=16 m=20 (already measured)
+   skip fftw1d_custom_soa L=65537 B=16 m=20 (already measured)
+fftw1d_estimate          L=65537 B=16    m=20    inner=1      min=  2093.163 us/xform  median=  2095.199  sd=  0.05%      2.50 GF/s  setup=0.008 s
+fftw1d_estimate          L=65537 B=16    m=20    inner=1      min=  2105.887 us/xform  median=  2107.070  sd=  0.03%      2.49 GF/s  setup=0.009 s
+fftw1d_estimate          L=65537 B=16    m=20    inner=1      min=  2096.061 us/xform  median=  2097.819  sd=  0.05%      2.50 GF/s  setup=0.009 s
+fftw1d_estimate          L=65537 B=16    m=2     inner=1      min=  2576.455 us/xform  median=  2576.455  sd=  0.00%      2.03 GF/s  setup=0.009 s
+fftw1d_measure           L=65537 B=16    m=20    inner=1      min=  1914.227 us/xform  median=  1915.843  sd=  0.07%      2.74 GF/s  setup=4.297 s
+fftw1d_measure           L=65537 B=16    m=20    inner=1      min=  1896.386 us/xform  median=  1897.895  sd=  0.04%      2.76 GF/s  setup=4.242 s
+fftw1d_measure           L=65537 B=16    m=20    inner=1      min=  1871.324 us/xform  median=  1872.299  sd=  0.03%      2.80 GF/s  setup=4.292 s
+fftw1d_measure           L=65537 B=16    m=2     inner=1      min=  1936.679 us/xform  median=  1936.679  sd=  0.00%      2.71 GF/s  setup=4.257 s
+fftw1d_patient           L=65537 B=16    m=20    inner=1      min=  1735.301 us/xform  median=  1736.612  sd=  0.05%      3.02 GF/s  setup=58.082 s
+fftw1d_patient           L=65537 B=16    m=20    inner=1      min=  1741.778 us/xform  median=  1742.886  sd=  0.04%      3.01 GF/s  setup=58.222 s
+fftw1d_patient           L=65537 B=16    m=20    inner=1      min=  1788.445 us/xform  median=  1789.965  sd=  0.05%      2.93 GF/s  setup=58.388 s
+fftw1d_patient           L=65537 B=16    m=2     inner=1      min=  1834.068 us/xform  median=  1834.068  sd=  0.00%      2.86 GF/s  setup=58.532 s
+mkl1d_dfti               L=65537 B=16    m=20    inner=1      min=  3598.223 us/xform  median=  3599.783  sd=  0.03%      1.46 GF/s  setup=0.063 s
+mkl1d_dfti               L=65537 B=16    m=20    inner=1      min=  3598.056 us/xform  median=  3598.438  sd=  0.02%      1.46 GF/s  setup=0.064 s
+mkl1d_dfti               L=65537 B=16    m=20    inner=1      min=  3600.407 us/xform  median=  3602.580  sd=  0.04%      1.46 GF/s  setup=0.059 s
+mkl1d_dfti               L=65537 B=16    m=2     inner=1      min=  3805.202 us/xform  median=  3805.202  sd=  0.00%      1.38 GF/s  setup=0.063 s

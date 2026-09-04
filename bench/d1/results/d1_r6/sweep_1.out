@@ -68,3 +68,50 @@ mkl1d_dfti ==
    done L=32 B=1
 == shard_1 done; leaderboard deferred to submit.sh ==
 == round d1_r6 complete: results/d1_r6 ==
+== RESUMING d1_r6: 776 complete units on disk will be skipped ==
+# round d1_r6
+host: a80n0.lqcd.mit   date: 2026-09-04T08:46:50-04:00   slurm_job: 440515
+cpu: Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz
+isa: avx2 avx512_bitalg avx512bw avx512cd avx512dq avx512f avx512ifma avx512_vbmi avx512vbmi avx512vl avx512_vnni avx512_vpopcntdq fma 
+cores: 64   governor: schedutil
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+== building on a80n0.lqcd.mit ==
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -c -o build/a80n0/driver.o driver.c
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/baseline_dft impl/baseline_dft.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_batchlane impl/d1_batchlane.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_bluestein impl/d1_bluestein.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_composite impl/d1_composite.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_planner impl/d1_planner.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_pow2 impl/d1_pow2.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_prime impl/d1_prime.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_race impl/d1_race.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_rader impl/d1_rader.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/d1_twiddle impl/d1_twiddle.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_ESTIMATE -DPLAN_NAME='"fftw1d_estimate"' -o build/a80n0/bin/fftw1d_estimate sota/fftw1d.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_MEASURE -DPLAN_NAME='"fftw1d_measure"' -o build/a80n0/bin/fftw1d_measure sota/fftw1d.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/home/lqcd/wdetmold/fft/ext/install/include -DPLAN_FLAG=FFTW_PATIENT -DPLAN_NAME='"fftw1d_patient"' -o build/a80n0/bin/fftw1d_patient sota/fftw1d.c build/a80n0/driver.o -L/home/lqcd/wdetmold/fft/ext/install/lib -Wl,-rpath,/home/lqcd/wdetmold/fft/ext/install/lib -lfftw3 -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -o build/a80n0/bin/fftw1d_custom sota/fftw1d_custom.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -DCUSTOM_SOA -I. -o build/a80n0/bin/fftw1d_custom_soa sota/fftw1d_custom.c build/a80n0/driver.o -lm
+cc -O3 -march=native -mtune=native -std=gnu11 -fno-math-errno -funroll-loops -I. -I/opt/software/intel/oneapi/mkl/2022.0.2/include -o build/a80n0/bin/mkl1d_dfti sota/mkl1d.c build/a80n0/driver.o -L/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -Wl,-rpath,/opt/software/intel/oneapi/mkl/2022.0.2/lib/intel64 -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lm
+host:            a80n0  (binaries in build/a80n0/bin)
+implementations: baseline_dft d1_batchlane d1_bluestein d1_composite d1_planner d1_pow2 d1_prime d1_race d1_rader d1_twiddle
+sota:            fftw1d_estimate fftw1d_measure fftw1d_patient fftw1d_custom fftw1d_custom_soa mkl1d_dfti
+== backends: baseline_dft
+d1_batchlane
+d1_bluestein
+d1_composite
+d1_planner
+d1_pow2
+d1_prime
+d1_race
+d1_rader
+d1_twiddle
+fftw1d_custom
+fftw1d_custom_soa
+fftw1d_estimate
+fftw1d_measure
+fftw1d_patient
+mkl1d_dfti ==
+   done L=65537 B=16
+== shard_1 done; leaderboard deferred to submit.sh ==
+== round d1_r6 complete: results/d1_r6 ==

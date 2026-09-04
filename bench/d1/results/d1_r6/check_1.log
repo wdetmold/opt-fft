@@ -665,3 +665,35 @@ PASS rel_l2=1.600e-16 rel_max=2.004e-16 (tol 1e-12) L=32 B=1
 PASS map-chain m=100000: rel_l2=2.175e-15 (anchor 0.000e+00, tol 1.0e-10)
 PASS rel_l2=1.600e-16 rel_max=2.004e-16 (tol 1e-12) L=32 B=1
 PASS map-2-step: rel_l2=3.270e-16 (tol 3.0e-14)
+PASS rel_l2=1.088e-15 rel_max=1.322e-15 (tol 1e-12) L=65537 B=16
+PASS map-chain m=20: rel_l2=1.692e-14 (anchor 1.346e-14, tol 1.0e-10)
+PASS rel_l2=1.088e-15 rel_max=1.322e-15 (tol 1e-12) L=65537 B=16
+PASS map-2-step: rel_l2=3.988e-15 (tol 3.0e-14)
+PASS rel_l2=1.238e-15 rel_max=1.596e-15 (tol 1e-12) L=65537 B=16
+PASS map-chain m=20: rel_l2=1.670e-14 (anchor 1.346e-14, tol 1.0e-10)
+PASS rel_l2=1.238e-15 rel_max=1.596e-15 (tol 1e-12) L=65537 B=16
+PASS map-2-step: rel_l2=4.022e-15 (tol 3.0e-14)
+PASS rel_l2=1.369e-15 rel_max=1.456e-15 (tol 1e-12) L=65537 B=16
+PASS map-chain m=20: rel_l2=2.107e-14 (anchor 1.346e-14, tol 1.0e-10)
+PASS rel_l2=1.369e-15 rel_max=1.456e-15 (tol 1e-12) L=65537 B=16
+PASS map-2-step: rel_l2=4.713e-15 (tol 3.0e-14)
+PASS rel_l2=1.369e-15 rel_max=1.456e-15 (tol 1e-12) L=65537 B=16
+PASS map-chain m=20: rel_l2=2.107e-14 (anchor 1.346e-14, tol 1.0e-10)
+PASS rel_l2=1.369e-15 rel_max=1.456e-15 (tol 1e-12) L=65537 B=16
+PASS map-2-step: rel_l2=4.713e-15 (tol 3.0e-14)
+PASS rel_l2=1.203e-15 rel_max=1.408e-15 (tol 1e-12) L=65537 B=16
+PASS map-chain m=20: rel_l2=1.809e-14 (anchor 1.346e-14, tol 1.0e-10)
+PASS rel_l2=1.203e-15 rel_max=1.408e-15 (tol 1e-12) L=65537 B=16
+PASS map-2-step: rel_l2=4.021e-15 (tol 3.0e-14)
+PASS rel_l2=1.213e-15 rel_max=1.506e-15 (tol 1e-12) L=65537 B=16
+PASS map-chain m=20: rel_l2=1.898e-14 (anchor 1.346e-14, tol 1.0e-10)
+PASS rel_l2=1.213e-15 rel_max=1.506e-15 (tol 1e-12) L=65537 B=16
+PASS map-2-step: rel_l2=3.947e-15 (tol 3.0e-14)
+PASS rel_l2=1.204e-15 rel_max=1.574e-15 (tol 1e-12) L=65537 B=16
+PASS map-chain m=20: rel_l2=1.784e-14 (anchor 1.346e-14, tol 1.0e-10)
+PASS rel_l2=1.204e-15 rel_max=1.574e-15 (tol 1e-12) L=65537 B=16
+PASS map-2-step: rel_l2=3.967e-15 (tol 3.0e-14)
+PASS rel_l2=1.020e-15 rel_max=1.364e-15 (tol 1e-12) L=65537 B=16
+PASS map-chain m=20: rel_l2=1.503e-14 (anchor 1.346e-14, tol 1.0e-10)
+PASS rel_l2=1.020e-15 rel_max=1.364e-15 (tol 1e-12) L=65537 B=16
+PASS map-2-step: rel_l2=3.751e-15 (tol 3.0e-14)

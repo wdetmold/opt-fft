@@ -8,24 +8,24 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=13 (non-batched, single call), working set 0.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_race                       0.0148 us      0.0145 us    16.26      2.5%   3r  14.337s  ok 1.6e-16       1.00x?
-   d1_planner                    0.0155 us      0.0148 us    15.52    133.7%   3r   0.000s  ok 1.4e-16       1.05x?
-   d1_prime                      0.0181 us      0.0181 us    13.28      0.4%   3r   0.000s  ok 1.6e-16       1.22x
-   d1_batchlane                  0.0192 us      0.0148 us    12.52     38.0%   3r   0.000s  ok 1.4e-16       1.30x
-   mkl1d_dfti                    0.0260 us      0.0259 us     9.27      2.6%   3r   0.032s  ok 1.7e-16       1.75x
-   fftw1d_measure                0.0264 us      0.0221 us     9.12     26.3%   3r   0.001s  ok 2.1e-16       1.78x
-   fftw1d_estimate               0.0266 us      0.0266 us     9.03      1.3%   3r   0.001s  ok 2.1e-16       1.80x
-   fftw1d_patient                0.0266 us      0.0264 us     9.03      5.5%   3r   0.001s  ok 2.1e-16       1.80x
-   fftw1d_custom                 0.0470 us      0.0470 us     5.11      0.2%   3r   0.000s  ok 2.3e-16       3.18x
-   d1_rader                      0.0471 us      0.0471 us     5.11     20.7%   3r   0.000s  ok 3.2e-16       3.18x
-   d1_bluestein                  0.0890 us      0.0888 us     2.70     14.3%   3r   0.000s  ok 1.4e-16       6.02x
-   baseline_dft                  0.3533 us      0.2927 us     0.68     20.7%   3r   0.000s  ok 4.0e-16       23.88x
+   d1_batchlane                  0.0161 us      0.0160 us    14.99     22.8%   9r   0.000s  ok 1.4e-16       1.00x?
+   d1_race                       0.0166 us      0.0141 us    14.47     56.4%   9r   0.006s  ok 1.6e-16       1.04x?
+   d1_prime                      0.0182 us      0.0156 us    13.19     63.4%   9r   0.000s  ok 1.6e-16       1.14x?
+   d1_planner                    0.0206 us      0.0169 us    11.69     32.3%   9r   0.000s  ok 1.4e-16       1.28x
+   fftw1d_patient                0.0229 us      0.0218 us    10.50     35.9%   9r   0.001s  ok 2.1e-16       1.43x
+   mkl1d_dfti                    0.0262 us      0.0248 us     9.17      8.4%   9r   0.014s  ok 1.7e-16       1.63x
+   fftw1d_estimate               0.0264 us      0.0219 us     9.12     25.0%   9r   0.001s  ok 2.1e-16       1.64x
+   fftw1d_measure                0.0264 us      0.0219 us     9.11     29.8%   9r   0.001s  ok 2.1e-16       1.64x
+   fftw1d_custom                 0.0568 us      0.0567 us     4.24      5.1%   9r   0.000s  ok 2.3e-16       3.54x
+   d1_rader                      0.0569 us      0.0568 us     4.23      2.6%   9r   0.000s  ok 3.2e-16       3.54x
+   d1_bluestein                  0.1083 us      0.1069 us     2.22      2.1%   9r   0.000s  ok 1.4e-16       6.75x
+   baseline_dft                  0.3533 us      0.3533 us     0.68      0.8%   9r   0.000s  ok 4.0e-16       22.01x
 
 -- L=13 (non-batched, chain m=200000), working set 0.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
    d1_planner                    0.0394 us      0.0393 us     6.10     13.9%   3r   0.000s  ok ch=2.3e-15/1e-10 1s=5e-16 1.00x?
-   d1_prime                      0.0422 us      0.0421 us     5.70      0.5%   3r   0.000s  ok ch=1.6e-15/1e-10 1s=5e-16 1.07x
-   d1_race                       0.0425 us      0.0423 us     5.66      0.4%   3r   0.005s  ok ch=1.6e-15/1e-10 1s=5e-16 1.08x
+   d1_prime                      0.0422 us      0.0421 us     5.70      0.5%   3r   0.000s  ok ch=1.6e-15/1e-10 1s=5e-16 1.07x?
+   d1_race                       0.0425 us      0.0423 us     5.66      0.4%   3r   0.005s  ok ch=1.6e-15/1e-10 1s=5e-16 1.08x?
    d1_batchlane                  0.0451 us      0.0451 us     5.33      0.1%   3r   0.000s  ok ch=2.5e-15/1e-10 1s=5e-16 1.14x
    fftw1d_measure                0.0674 us      0.0674 us     3.57      0.0%   3r   0.001s  ok ch=2.3e-15/1e-10 1s=8e-16 1.71x
    fftw1d_estimate               0.0674 us      0.0674 us     3.57      0.0%   3r   0.001s  ok ch=2.3e-15/1e-10 1s=8e-16 1.71x
@@ -38,19 +38,19 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=13 (batched B=512, single call), working set 0.203 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_prime                      0.0106 us      0.0095 us    22.62     12.1%   3r   0.000s  ok 1.7e-16       1.00x?
-   d1_planner                    0.0107 us      0.0107 us    22.54      0.1%   3r   0.000s  ok 1.4e-16       1.00x?
-   d1_batchlane                  0.0107 us      0.0107 us    22.38      1.8%   3r   0.000s  ok 1.4e-16       1.01x?
-   d1_race                       0.0108 us      0.0107 us    22.29      0.8%   3r  12.198s  ok 1.4e-16       1.01x?
-   fftw1d_patient                0.0140 us      0.0139 us    17.14      2.2%   3r   0.003s  ok 1.8e-16       1.32x
-   fftw1d_measure                0.0141 us      0.0140 us    17.02      4.0%   3r   0.002s  ok 1.8e-16       1.33x
-   d1_rader                      0.0188 us      0.0179 us    12.82      5.5%   3r   0.000s  ok 2.8e-16       1.76x
-   mkl1d_dfti                    0.0193 us      0.0193 us    12.46      0.2%   3r   0.032s  ok 1.7e-16       1.82x
-   fftw1d_custom_soa             0.0369 us      0.0368 us     6.52      0.4%   3r   0.000s  ok 1.8e-16       3.47x
-   fftw1d_estimate               0.0400 us      0.0398 us     6.02      0.6%   3r   0.001s  ok 1.8e-16       3.76x
-   fftw1d_custom                 0.0489 us      0.0488 us     4.92      0.3%   3r   0.000s  ok 1.8e-16       4.60x
-   d1_bluestein                  0.1038 us      0.0860 us     2.32     38.8%   3r   0.000s  ok 1.8e-16       9.76x
-   baseline_dft                  0.3499 us      0.3499 us     0.69      0.0%   3r   0.000s  ok 4.1e-16       32.90x
+   d1_prime                      0.0106 us      0.0106 us    22.59      1.9%   9r   0.000s  ok 1.7e-16       1.00x?
+   d1_planner                    0.0107 us      0.0107 us    22.53      2.0%   9r   0.000s  ok 1.4e-16       1.00x?
+   d1_race                       0.0107 us      0.0094 us    22.39     14.6%   9r   0.008s  ok 1.4e-16       1.01x?
+   d1_batchlane                  0.0108 us      0.0106 us    22.32      3.1%   9r   0.000s  ok 1.4e-16       1.01x
+   fftw1d_measure                0.0139 us      0.0122 us    17.32     15.1%   9r   0.002s  ok 1.8e-16       1.30x
+   fftw1d_patient                0.0143 us      0.0139 us    16.82      5.9%   9r   0.002s  ok 1.9e-16       1.34x
+   mkl1d_dfti                    0.0160 us      0.0159 us    15.01     22.7%   9r   0.013s  ok 1.7e-16       1.50x
+   d1_rader                      0.0166 us      0.0157 us    14.46     21.0%   9r   0.000s  ok 2.8e-16       1.56x
+   fftw1d_custom_soa             0.0325 us      0.0322 us     7.41     14.0%   9r   0.000s  ok 1.8e-16       3.05x
+   fftw1d_estimate               0.0399 us      0.0350 us     6.03     15.0%   9r   0.001s  ok 1.8e-16       3.74x
+   fftw1d_custom                 0.0487 us      0.0404 us     4.94     21.5%   9r   0.000s  ok 1.8e-16       4.57x
+   d1_bluestein                  0.1039 us      0.1036 us     2.31      4.8%   9r   0.000s  ok 1.8e-16       9.76x
+   baseline_dft                  0.3499 us      0.2899 us     0.69     20.7%   9r   0.000s  ok 4.1e-16       32.85x
 
 -- L=13 (batched B=512, chain m=2000), working set 0.203 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -70,25 +70,25 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=31 (non-batched, single call), working set 0.001 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_prime                      0.0471 us      0.0470 us    16.29     22.3%   3r   0.000s  ok 3.3e-16       1.00x?
-   d1_race                       0.0525 us      0.0473 us    14.62     13.7%   3r   0.065s  ok 2.5e-16       1.11x
-   d1_planner                    0.0528 us      0.0502 us    14.55     13.8%   3r   0.000s  ok 2.5e-16       1.12x
-   d1_batchlane                  0.0530 us      0.0464 us    14.50     16.4%   3r   0.000s  ok 2.5e-16       1.12x
-   d1_bluestein                  0.2067 us      0.1824 us     3.72     14.2%   3r   0.001s  ok 3.4e-16       4.38x
-   d1_rader                      0.2112 us      0.1750 us     3.64     22.7%   3r   0.000s  ok 3.2e-16       4.48x
-   fftw1d_custom                 0.2158 us      0.1803 us     3.56     20.2%   3r   0.000s  ok 3.2e-16       4.58x
-   fftw1d_measure                0.2680 us      0.2649 us     2.87     26.5%   3r   0.042s  ok 2.0e-16       5.69x
-   mkl1d_dfti                    0.2794 us      0.2793 us     2.75      0.1%   3r   0.031s  ok 2.1e-16       5.93x
-   fftw1d_estimate               0.3133 us      0.3131 us     2.45      0.3%   3r   0.001s  ok 2.0e-16       6.65x
-   fftw1d_patient                0.3144 us      0.3144 us     2.44      0.5%   3r   0.120s  ok 2.0e-16       6.67x
-   baseline_dft                  1.9979 us      1.9979 us     0.38      0.0%   3r   0.000s  ok 3.6e-16       42.39x
+   d1_batchlane                  0.0475 us      0.0463 us    16.17     16.7%   9r   0.000s  ok 2.5e-16       1.00x?
+   d1_prime                      0.0483 us      0.0470 us    15.89     15.9%   9r   0.000s  ok 3.3e-16       1.02x?
+   d1_planner                    0.0503 us      0.0497 us    15.28     18.5%   9r   0.000s  ok 2.5e-16       1.06x?
+   d1_race                       0.0538 us      0.0465 us    14.26     29.2%   9r   0.007s  ok 2.5e-16       1.13x
+   d1_rader                      0.1802 us      0.1750 us     4.26     20.8%   9r   0.000s  ok 3.2e-16       3.79x
+   d1_bluestein                  0.1826 us      0.1815 us     4.21      8.4%   9r   0.001s  ok 3.4e-16       3.84x
+   fftw1d_custom                 0.2155 us      0.1761 us     3.56     25.3%   9r   0.000s  ok 3.2e-16       4.54x
+   fftw1d_patient                0.2617 us      0.2595 us     2.93      2.5%   9r   0.120s  ok 2.0e-16       5.51x
+   fftw1d_measure                0.2670 us      0.2600 us     2.88     27.5%   9r   0.042s  ok 2.0e-16       5.62x
+   mkl1d_dfti                    0.2795 us      0.2315 us     2.75     28.5%   9r   0.028s  ok 2.1e-16       5.88x
+   fftw1d_estimate               0.3177 us      0.2601 us     2.42     27.1%   9r   0.001s  ok 2.0e-16       6.69x
+   baseline_dft                  1.6555 us      1.6553 us     0.46     20.7%   9r   0.000s  ok 3.6e-16       34.86x
 
 -- L=31 (non-batched, chain m=100000), working set 0.001 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
    d1_prime                      0.0534 us      0.0533 us    14.39     13.9%   3r   0.000s  ok ch=4.2e-15/1e-10 1s=8e-16 1.00x?
    d1_batchlane                  0.0549 us      0.0548 us    14.00      0.1%   3r   0.000s  ok ch=2.9e-15/1e-10 1s=5e-16 1.03x?
-   d1_planner                    0.0582 us      0.0582 us    13.19      0.0%   3r   0.000s  ok ch=2.4e-15/1e-10 1s=5e-16 1.09x
-   d1_race                       0.0604 us      0.0534 us    12.70     13.4%   3r   0.008s  ok ch=4.2e-15/1e-10 1s=8e-16 1.13x
+   d1_planner                    0.0582 us      0.0582 us    13.19      0.0%   3r   0.000s  ok ch=2.4e-15/1e-10 1s=5e-16 1.09x?
+   d1_race                       0.0604 us      0.0534 us    12.70     13.4%   3r   0.008s  ok ch=4.2e-15/1e-10 1s=8e-16 1.13x?
    d1_rader                      0.2064 us      0.2063 us     3.72      0.1%   3r   0.000s  ok ch=1.1e-14/1e-10 1s=7e-16 3.87x
    fftw1d_custom                 0.2095 us      0.2084 us     3.67      0.6%   3r   0.000s  ok ch=3.5e-15/1e-10 1s=5e-16 3.93x
    d1_bluestein                  0.2149 us      0.2082 us     3.57      4.7%   3r   0.001s  ok ch=2.6e-15/1e-10 1s=8e-16 4.03x
@@ -100,19 +100,19 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=31 (batched B=512, single call), working set 0.484 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_race                       0.0425 us      0.0420 us    18.07      1.7%   3r   1.026s  ok 2.9e-16       1.00x?
-   d1_prime                      0.0484 us      0.0484 us    15.86      0.3%   3r   0.000s  ok 2.9e-16       1.14x
-   d1_planner                    0.0502 us      0.0502 us    15.29      0.0%   3r   0.000s  ok 2.1e-16       1.18x
-   d1_batchlane                  0.0502 us      0.0502 us    15.29      0.0%   3r   0.000s  ok 2.1e-16       1.18x
-   d1_rader                      0.0719 us      0.0717 us    10.68      0.4%   3r   0.000s  ok 3.6e-16       1.69x
-   fftw1d_custom_soa             0.1054 us      0.0915 us     7.29     21.4%   3r   0.000s  ok 2.6e-16       2.48x
-   d1_bluestein                  0.1840 us      0.1826 us     4.17     15.3%   3r   0.001s  ok 3.3e-16       4.33x
-   fftw1d_custom                 0.1989 us      0.1989 us     3.86      0.5%   3r   0.000s  ok 2.6e-16       4.68x
-   fftw1d_measure                0.2633 us      0.2633 us     2.92     20.6%   3r   0.041s  ok 2.1e-16       6.20x
-   fftw1d_estimate               0.2641 us      0.2641 us     2.91     20.7%   3r   0.001s  ok 2.1e-16       6.21x
-   mkl1d_dfti                    0.2735 us      0.2271 us     2.81     20.6%   3r   0.033s  ok 2.3e-16       6.44x
-   fftw1d_patient                0.3178 us      0.2635 us     2.42     21.0%   3r   0.119s  ok 2.1e-16       7.48x
-   baseline_dft                  1.6518 us      1.6518 us     0.46      0.0%   3r   0.000s  ok 4.2e-16       38.87x
+   d1_prime                      0.0431 us      0.0425 us    17.81     14.5%   9r   0.000s  ok 2.9e-16       1.00x?
+   d1_planner                    0.0441 us      0.0441 us    17.40     13.9%   9r   0.000s  ok 2.1e-16       1.02x?
+   d1_race                       0.0487 us      0.0431 us    15.78     13.9%   9r   1.033s  ok 2.9e-16       1.13x
+   d1_batchlane                  0.0502 us      0.0441 us    15.29     13.8%   9r   0.000s  ok 2.1e-16       1.16x
+   d1_rader                      0.0633 us      0.0630 us    12.13     14.5%   9r   0.000s  ok 3.6e-16       1.47x
+   fftw1d_custom_soa             0.1047 us      0.1009 us     7.33      5.1%   9r   0.000s  ok 2.6e-16       2.43x
+   fftw1d_custom                 0.1612 us      0.1605 us     4.76     22.4%   9r   0.000s  ok 2.6e-16       3.74x
+   d1_bluestein                  0.1934 us      0.1822 us     3.97     17.7%   9r   0.001s  ok 3.3e-16       4.49x
+   fftw1d_patient                0.2636 us      0.2631 us     2.91     20.8%   9r   0.118s  ok 2.1e-16       6.12x
+   mkl1d_dfti                    0.2726 us      0.2267 us     2.82     21.0%   9r   0.012s  ok 2.3e-16       6.32x
+   fftw1d_measure                0.3180 us      0.3176 us     2.42      0.4%   9r   0.050s  ok 2.1e-16       7.38x
+   fftw1d_estimate               0.3181 us      0.3176 us     2.41      1.2%   9r   0.001s  ok 2.1e-16       7.38x
+   baseline_dft                  1.6522 us      1.6519 us     0.46     20.7%   9r   0.000s  ok 4.2e-16       38.33x
 
 -- L=31 (batched B=512, chain m=1200), working set 0.484 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -132,18 +132,18 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=32 (non-batched, single call), working set 0.001 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_twiddle                    0.0192 us      0.0192 us    41.64     13.4%   3r   0.000s  ok 1.3e-16       1.00x?
-   d1_race                       0.0207 us      0.0191 us    38.65     16.2%   3r   0.011s  ok 1.3e-16       1.08x?
-   d1_pow2                       0.0208 us      0.0208 us    38.42      0.3%   3r   0.000s  ok 1.3e-16       1.08x
-   d1_batchlane                  0.0218 us      0.0218 us    36.68     28.4%   3r   0.000s  ok 1.3e-16       1.14x?
-   mkl1d_dfti                    0.0257 us      0.0254 us    31.15      7.7%   3r   0.003s  ok 8.6e-17       1.34x
-   d1_planner                    0.0271 us      0.0211 us    29.48     30.2%   3r   0.000s  ok 1.3e-16       1.41x
-   fftw1d_patient                0.0391 us      0.0372 us    20.45      5.7%   3r   0.015s  ok 1.5e-16       2.04x
-   fftw1d_measure                0.0405 us      0.0363 us    19.77     19.9%   3r   0.008s  ok 1.5e-16       2.11x
-   fftw1d_estimate               0.0480 us      0.0471 us    16.67      7.1%   3r   0.001s  ok 1.5e-16       2.50x
-   d1_bluestein                  0.0960 us      0.0959 us     8.33      0.3%   3r   0.001s  ok 1.2e-16       5.00x
-   fftw1d_custom                 0.1096 us      0.1086 us     7.30      3.5%   3r   0.000s  ok 1.1e-16       5.71x
-   baseline_dft                  2.1283 us      2.1283 us     0.38      0.0%   3r   0.000s  ok 3.8e-16       110.78x
+   d1_twiddle                    0.0192 us      0.0169 us    41.60     20.9%   9r   0.000s  ok 1.3e-16       1.00x?
+   d1_pow2                       0.0208 us      0.0183 us    38.54     18.3%   9r   0.000s  ok 1.3e-16       1.08x
+   d1_planner                    0.0209 us      0.0184 us    38.30     18.5%   9r   0.000s  ok 1.3e-16       1.09x
+   d1_race                       0.0210 us      0.0172 us    38.05     34.9%   9r   0.007s  ok 1.3e-16       1.09x
+   d1_batchlane                  0.0215 us      0.0215 us    37.15     31.1%   9r   0.000s  ok 1.3e-16       1.12x
+   mkl1d_dfti                    0.0228 us      0.0223 us    35.10     43.2%   9r   0.001s  ok 8.6e-17       1.19x
+   fftw1d_patient                0.0368 us      0.0318 us    21.73     29.5%   9r   0.014s  ok 1.2e-16       1.91x
+   fftw1d_measure                0.0401 us      0.0328 us    19.93     40.8%   9r   0.007s  ok 1.5e-16       2.09x
+   fftw1d_estimate               0.0432 us      0.0413 us    18.51     16.7%   9r   0.001s  ok 1.5e-16       2.25x
+   fftw1d_custom                 0.0930 us      0.0896 us     8.60     24.3%   9r   0.000s  ok 1.1e-16       4.84x
+   d1_bluestein                  0.0961 us      0.0848 us     8.33     28.9%   9r   0.001s  ok 1.2e-16       5.00x
+   baseline_dft                  2.1285 us      1.7635 us     0.38     20.7%   9r   0.000s  ok 3.8e-16       110.67x
 
 -- L=32 (non-batched, chain m=100000), working set 0.001 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -162,24 +162,24 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=32 (batched B=512, single call), working set 0.500 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   mkl1d_dfti                    0.0153 us      0.0153 us    52.32     13.9%   3r   0.001s  ok 1.4e-16       1.00x?
-   d1_twiddle                    0.0174 us      0.0173 us    46.08      0.4%   3r   0.000s  ok 1.4e-16       1.14x
-   d1_race                       0.0176 us      0.0154 us    45.54     13.8%   3r   0.953s  ok 1.4e-16       1.15x
-   d1_planner                    0.0176 us      0.0176 us    45.46      0.0%   3r   0.000s  ok 1.4e-16       1.15x
-   d1_batchlane                  0.0176 us      0.0176 us    45.43      0.1%   3r   0.000s  ok 1.4e-16       1.15x
-   d1_pow2                       0.0176 us      0.0176 us    45.42      0.0%   3r   0.000s  ok 1.4e-16       1.15x
-   fftw1d_patient                0.0254 us      0.0253 us    31.45     12.3%   3r   0.057s  ok 1.6e-16       1.66x
-   fftw1d_measure                0.0290 us      0.0259 us    27.56     12.4%   3r   0.009s  ok 1.5e-16       1.90x
-   fftw1d_custom                 0.0897 us      0.0892 us     8.91     19.3%   3r   0.000s  ok 1.4e-16       5.87x
-   d1_bluestein                  0.0935 us      0.0920 us     8.56     17.9%   3r   0.001s  ok 1.4e-16       6.12x
-   fftw1d_custom_soa             0.0947 us      0.0884 us     8.44      9.9%   3r   0.000s  ok 1.4e-16       6.20x
-   fftw1d_estimate               0.1010 us      0.1006 us     7.92      1.4%   3r   0.001s  ok 1.5e-16       6.61x
-   baseline_dft                  2.1243 us      2.1240 us     0.38      0.0%   3r   0.000s  ok 3.4e-16       138.94x
+   d1_twiddle                    0.0152 us      0.0152 us    52.63      1.4%   9r   0.000s  ok 1.4e-16       1.00x?
+   mkl1d_dfti                    0.0153 us      0.0153 us    52.31      0.1%   9r   0.001s  ok 1.4e-16       1.01x
+   d1_batchlane                  0.0155 us      0.0155 us    51.70     13.9%   9r   0.000s  ok 1.4e-16       1.02x?
+   d1_planner                    0.0155 us      0.0155 us    51.69     13.9%   9r   0.000s  ok 1.4e-16       1.02x?
+   d1_pow2                       0.0155 us      0.0155 us    51.68     13.8%   9r   0.000s  ok 1.4e-16       1.02x?
+   d1_race                       0.0176 us      0.0154 us    45.54     13.9%   9r   0.006s  ok 1.4e-16       1.16x
+   fftw1d_patient                0.0258 us      0.0248 us    31.00     17.1%   9r   0.056s  ok 1.5e-16       1.70x
+   fftw1d_measure                0.0283 us      0.0251 us    28.23     19.8%   9r   0.009s  ok 1.6e-16       1.86x
+   fftw1d_custom_soa             0.0775 us      0.0756 us    10.33      4.5%   9r   0.000s  ok 1.4e-16       5.10x
+   fftw1d_custom                 0.0882 us      0.0875 us     9.07     23.8%   9r   0.000s  ok 1.4e-16       5.80x
+   fftw1d_estimate               0.0891 us      0.0889 us     8.97     13.4%   9r   0.001s  ok 1.5e-16       5.86x
+   d1_bluestein                  0.0898 us      0.0806 us     8.90     17.6%   9r   0.001s  ok 1.4e-16       5.91x
+   baseline_dft                  1.7600 us      1.7599 us     0.45     20.7%   9r   0.000s  ok 3.4e-16       115.79x
 
 -- L=32 (batched B=512, chain m=1000), working set 0.500 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
    d1_batchlane                  0.0340 us      0.0340 us    23.54     13.8%   3r   0.000s  ok ch=6.5e-12/1e-10 1s=3e-16 1.00x?
-   d1_race                       0.0387 us      0.0340 us    20.69     13.8%   3r   0.007s  ok ch=6.5e-12/1e-10 1s=3e-16 1.14x
+   d1_race                       0.0387 us      0.0340 us    20.69     13.8%   3r   0.007s  ok ch=6.5e-12/1e-10 1s=3e-16 1.14x?
    d1_twiddle                    0.0415 us      0.0369 us    19.26     12.6%   3r   0.000s  ok ch=2.8e-12/1e-10 1s=4e-16 1.22x
    d1_pow2                       0.0436 us      0.0387 us    18.37     13.6%   3r   0.000s  ok ch=1.2e-11/1e-10 1s=4e-16 1.28x
    fftw1d_custom_soa             0.0667 us      0.0666 us    12.00      0.2%   3r   0.000s  ok ch=7.2e-12/1e-10 1s=3e-16 1.96x
@@ -194,18 +194,18 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=60 (non-batched, single call), working set 0.002 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_composite                  0.0451 us      0.0430 us    39.25     15.1%   3r   0.000s  ok 1.9e-16       1.00x?
-   d1_race                       0.0490 us      0.0415 us    36.20     19.3%   3r   0.007s  ok 1.9e-16       1.08x?
-   mkl1d_dfti                    0.0616 us      0.0612 us    28.78      3.5%   3r   0.002s  ok 2.4e-16       1.36x
-   d1_batchlane                  0.0687 us      0.0676 us    25.79     19.6%   3r   0.000s  ok 2.3e-16       1.52x
-   fftw1d_measure                0.0782 us      0.0698 us    22.67     25.4%   3r   0.046s  ok 2.1e-16       1.73x
-   fftw1d_patient                0.0794 us      0.0768 us    22.33     11.3%   3r   0.130s  ok 1.9e-16       1.76x
-   d1_twiddle                    0.0857 us      0.0802 us    20.67      7.5%   3r   0.000s  ok 1.8e-16       1.90x
-   fftw1d_estimate               0.0952 us      0.0831 us    18.62     33.1%   3r   0.001s  ok 2.0e-16       2.11x
-   d1_planner                    0.1577 us      0.1356 us    11.24     17.6%   3r   0.000s  ok 1.9e-16       3.49x
-   d1_bluestein                  0.2147 us      0.1883 us     8.25     14.3%   3r   0.001s  ok 1.9e-16       4.76x
-   fftw1d_custom                 0.2305 us      0.2302 us     7.69     20.5%   3r   0.000s  ok 2.2e-16       5.11x
-   baseline_dft                  7.4718 us      6.1905 us     0.24     20.7%   3r   0.000s  ok 4.6e-16       165.50x
+   d1_composite                  0.0468 us      0.0411 us    37.86     20.4%   9r   0.000s  ok 1.9e-16       1.00x?
+   d1_race                       0.0472 us      0.0417 us    37.57     19.4%   9r   0.010s  ok 1.9e-16       1.01x?
+   mkl1d_dfti                    0.0614 us      0.0565 us    28.84     16.3%   9r   0.002s  ok 2.4e-16       1.31x
+   d1_batchlane                  0.0687 us      0.0672 us    25.79     20.1%   9r   0.000s  ok 2.3e-16       1.47x
+   fftw1d_patient                0.0769 us      0.0691 us    23.05     28.7%   9r   0.129s  ok 1.9e-16       1.64x
+   d1_twiddle                    0.0813 us      0.0703 us    21.79     22.6%   9r   0.000s  ok 1.8e-16       1.74x
+   fftw1d_measure                0.0850 us      0.0723 us    20.84     24.1%   9r   0.047s  ok 2.4e-16       1.82x
+   fftw1d_estimate               0.0951 us      0.0944 us    18.63      4.9%   9r   0.001s  ok 2.0e-16       2.03x
+   d1_planner                    0.1555 us      0.1372 us    11.40     16.8%   9r   0.000s  ok 1.9e-16       3.32x
+   d1_bluestein                  0.2014 us      0.1883 us     8.80     21.6%   9r   0.001s  ok 1.9e-16       4.30x
+   fftw1d_custom                 0.2782 us      0.2749 us     6.37      1.9%   9r   0.000s  ok 2.2e-16       5.94x
+   baseline_dft                  7.4717 us      6.1907 us     0.24     20.7%   9r   0.000s  ok 4.6e-16       159.64x
 
 -- L=60 (non-batched, chain m=60000), working set 0.002 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -224,25 +224,25 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=60 (batched B=512, single call), working set 0.938 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   mkl1d_dfti                    0.0514 us      0.0513 us    34.48      3.5%   3r   0.002s  ok 2.5e-16       1.00x?
-   d1_race                       0.0565 us      0.0494 us    31.38     36.5%   3r   1.061s  ok 2.1e-16       1.10x?
-   d1_composite                  0.0578 us      0.0531 us    30.66     18.1%   3r   0.000s  ok 2.1e-16       1.12x
-   d1_batchlane                  0.0699 us      0.0695 us    25.36     12.8%   3r   0.000s  ok 2.2e-16       1.36x
-   fftw1d_patient                0.0733 us      0.0658 us    24.18     15.8%   3r   0.435s  ok 2.0e-16       1.43x
-   d1_twiddle                    0.0902 us      0.0779 us    19.64     16.6%   3r   0.000s  ok 1.7e-16       1.76x
-   fftw1d_estimate               0.1002 us      0.0984 us    17.68      4.8%   3r   0.001s  ok 2.3e-16       1.95x
-   fftw1d_measure                0.1055 us      0.0779 us    16.80     42.3%   3r   0.047s  ok 2.3e-16       2.05x
-   d1_planner                    0.1552 us      0.1341 us    11.42     16.9%   3r   0.000s  ok 1.8e-16       3.02x
-   fftw1d_custom_soa             0.2137 us      0.2131 us     8.29      8.4%   3r   0.000s  ok 2.3e-16       4.16x
-   d1_bluestein                  0.2155 us      0.1892 us     8.22     22.4%   3r   0.001s  ok 1.8e-16       4.19x
-   fftw1d_custom                 0.2419 us      0.2376 us     7.33     26.2%   3r   0.000s  ok 2.3e-16       4.71x
-   baseline_dft                  6.1802 us      6.1785 us     0.29     20.7%   3r   0.000s  ok 4.2e-16       120.26x
+   mkl1d_dfti                    0.0492 us      0.0445 us    36.01     14.0%   9r   0.002s  ok 2.5e-16       1.00x?
+   d1_composite                  0.0530 us      0.0495 us    33.45      7.7%   9r   0.000s  ok 2.1e-16       1.08x
+   d1_race                       0.0588 us      0.0497 us    30.11     37.6%   9r   0.005s  ok 2.1e-16       1.20x
+   d1_batchlane                  0.0658 us      0.0649 us    26.95     19.6%   9r   0.000s  ok 2.2e-16       1.34x
+   fftw1d_patient                0.0667 us      0.0653 us    26.56     15.7%   9r   0.390s  ok 2.0e-16       1.36x
+   fftw1d_estimate               0.0863 us      0.0851 us    20.53     18.4%   9r   0.001s  ok 2.3e-16       1.75x
+   d1_twiddle                    0.0886 us      0.0881 us    20.01     11.8%   9r   0.000s  ok 1.7e-16       1.80x
+   fftw1d_measure                0.1005 us      0.0730 us    17.64     41.5%   9r   0.046s  ok 2.0e-16       2.04x
+   d1_planner                    0.1371 us      0.1321 us    12.93     17.0%   9r   0.000s  ok 1.8e-16       2.78x
+   d1_bluestein                  0.1937 us      0.1884 us     9.15     13.7%   9r   0.001s  ok 1.8e-16       3.94x
+   fftw1d_custom_soa             0.2078 us      0.1906 us     8.53     11.5%   9r   0.000s  ok 2.3e-16       4.22x
+   fftw1d_custom                 0.2822 us      0.2788 us     6.28      1.7%   9r   0.000s  ok 2.3e-16       5.73x
+   baseline_dft                  6.2122 us      6.1787 us     0.29     23.1%   9r   0.000s  ok 4.2e-16       126.22x
 
 -- L=60 (batched B=512, chain m=600), working set 0.938 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
    d1_race                       0.0706 us      0.0659 us    25.10      9.8%   3r   0.011s  ok ch=2.2e-13/1e-10 1s=5e-16 1.00x?
    d1_composite                  0.0740 us      0.0589 us    23.96     29.9%   3r   0.000s  ok ch=2.2e-13/1e-10 1s=5e-16 1.05x?
-   d1_batchlane                  0.0747 us      0.0747 us    23.71      0.1%   3r   0.000s  ok ch=2.5e-13/1e-10 1s=5e-16 1.06x
+   d1_batchlane                  0.0747 us      0.0747 us    23.71      0.1%   3r   0.000s  ok ch=2.5e-13/1e-10 1s=5e-16 1.06x?
    d1_twiddle                    0.0904 us      0.0902 us    19.61      0.6%   3r   0.000s  ok ch=1.9e-13/1e-10 1s=5e-16 1.28x
    d1_planner                    0.1298 us      0.1298 us    13.65      1.9%   3r   0.000s  ok ch=2.1e-13/1e-10 1s=4e-16 1.84x
    fftw1d_custom_soa             0.1367 us      0.1358 us    12.96     29.0%   3r   0.000s  ok ch=2.1e-13/1e-10 1s=5e-16 1.94x
@@ -256,18 +256,18 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=64 (non-batched, single call), working set 0.002 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_race                       0.0427 us      0.0385 us    45.00     15.6%   3r   0.070s  ok 1.5e-16       1.00x?
-   d1_twiddle                    0.0463 us      0.0452 us    41.48     16.4%   3r   0.000s  ok 1.5e-16       1.08x
-   mkl1d_dfti                    0.0503 us      0.0490 us    38.14      5.2%   3r   0.002s  ok 1.4e-16       1.18x
-   d1_batchlane                  0.0556 us      0.0489 us    34.56     26.5%   3r   0.000s  ok 1.6e-16       1.30x
-   d1_planner                    0.0587 us      0.0529 us    32.70     13.2%   3r   0.000s  ok 1.4e-16       1.38x
-   d1_pow2                       0.0644 us      0.0578 us    29.82     12.2%   3r   0.000s  ok 1.4e-16       1.51x
-   fftw1d_patient                0.0645 us      0.0617 us    29.76      8.8%   3r   0.055s  ok 1.6e-16       1.51x
-   fftw1d_measure                0.0700 us      0.0682 us    27.42      4.2%   3r   0.023s  ok 1.7e-16       1.64x
-   fftw1d_estimate               0.0932 us      0.0913 us    20.60      3.9%   3r   0.001s  ok 2.2e-16       2.18x
-   d1_bluestein                  0.1324 us      0.1324 us    14.50      0.1%   3r   0.001s  ok 1.5e-16       3.10x
-   fftw1d_custom                 0.2746 us      0.2733 us     6.99      1.7%   3r   0.000s  ok 1.7e-16       6.44x
-   baseline_dft                  7.0412 us      7.0410 us     0.27     20.7%   3r   0.000s  ok 3.8e-16       165.02x
+   d1_race                       0.0466 us      0.0434 us    41.22     12.6%   9r   0.008s  ok 1.5e-16       1.00x?
+   d1_twiddle                    0.0484 us      0.0451 us    39.70     13.3%   9r   0.000s  ok 1.5e-16       1.04x?
+   mkl1d_dfti                    0.0490 us      0.0489 us    39.17      6.5%   9r   0.002s  ok 1.4e-16       1.05x
+   d1_batchlane                  0.0557 us      0.0489 us    34.47     27.1%   9r   0.000s  ok 1.6e-16       1.20x
+   d1_planner                    0.0599 us      0.0509 us    32.05     30.4%   9r   0.000s  ok 1.4e-16       1.29x
+   d1_pow2                       0.0610 us      0.0572 us    31.49     38.3%   9r   0.000s  ok 1.4e-16       1.31x
+   fftw1d_patient                0.0679 us      0.0645 us    28.30     12.6%   9r   0.055s  ok 1.7e-16       1.46x
+   fftw1d_measure                0.0686 us      0.0662 us    28.00      9.9%   9r   0.023s  ok 1.6e-16       1.47x
+   fftw1d_estimate               0.0948 us      0.0895 us    20.25      9.3%   9r   0.001s  ok 2.2e-16       2.04x
+   d1_bluestein                  0.1325 us      0.1324 us    14.49     17.2%   9r   0.001s  ok 1.5e-16       2.84x
+   fftw1d_custom                 0.2733 us      0.2721 us     7.03      1.5%   9r   0.000s  ok 1.7e-16       5.87x
+   baseline_dft                  8.4984 us      7.0412 us     0.23     20.7%   9r   0.000s  ok 3.8e-16       182.45x
 
 -- L=64 (non-batched, chain m=60000), working set 0.002 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -286,19 +286,19 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=64 (batched B=512, single call), working set 1.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_planner                    0.0421 us      0.0376 us    45.56     18.9%   3r   0.000s  ok 1.8e-16       1.00x?
-   d1_pow2                       0.0448 us      0.0424 us    42.90     22.1%   3r   0.000s  ok 1.8e-16       1.06x?
-   d1_race                       0.0465 us      0.0435 us    41.30     12.2%   3r   0.008s  ok 1.8e-16       1.10x
-   d1_twiddle                    0.0479 us      0.0453 us    40.09      8.4%   3r   0.000s  ok 1.8e-16       1.14x
-   mkl1d_dfti                    0.0483 us      0.0463 us    39.72     29.1%   3r   0.002s  ok 1.7e-16       1.15x
-   d1_batchlane                  0.0657 us      0.0594 us    29.21     15.5%   3r   0.000s  ok 1.5e-16       1.56x
-   fftw1d_patient                0.0838 us      0.0825 us    22.92      4.3%   3r   0.249s  ok 1.9e-16       1.99x
-   fftw1d_measure                0.0882 us      0.0802 us    21.77     11.2%   3r   0.029s  ok 1.7e-16       2.09x
-   d1_bluestein                  0.1390 us      0.1200 us    13.81     33.1%   3r   0.001s  ok 1.8e-16       3.30x
-   fftw1d_estimate               0.2323 us      0.2250 us     8.27      4.4%   3r   0.001s  ok 1.8e-16       5.51x
-   fftw1d_custom_soa             0.2365 us      0.2349 us     8.12      2.8%   3r   0.000s  ok 1.8e-16       5.61x
-   fftw1d_custom                 0.3264 us      0.3263 us     5.88      0.8%   3r   0.000s  ok 1.8e-16       7.75x
-   baseline_dft                  8.4854 us      8.4853 us     0.23      0.0%   3r   0.000s  ok 4.0e-16       201.37x
+   d1_race                       0.0374 us      0.0371 us    51.30     26.2%   9r   0.006s  ok 1.8e-16       1.00x?
+   d1_pow2                       0.0379 us      0.0368 us    50.67     21.0%   9r   0.000s  ok 1.8e-16       1.01x?
+   d1_twiddle                    0.0403 us      0.0377 us    47.59     30.3%   9r   0.000s  ok 1.8e-16       1.08x?
+   d1_planner                    0.0430 us      0.0374 us    44.66     20.4%   9r   0.000s  ok 1.8e-16       1.15x
+   mkl1d_dfti                    0.0435 us      0.0370 us    44.10     57.9%   9r   0.002s  ok 1.7e-16       1.16x
+   d1_batchlane                  0.0550 us      0.0538 us    34.91     18.1%   9r   0.000s  ok 1.5e-16       1.47x
+   fftw1d_patient                0.0651 us      0.0629 us    29.51     23.6%   9r   0.217s  ok 1.8e-16       1.74x
+   fftw1d_measure                0.0721 us      0.0641 us    26.61     30.1%   9r   0.029s  ok 1.7e-16       1.93x
+   d1_bluestein                  0.1199 us      0.1188 us    16.01     14.4%   9r   0.000s  ok 1.8e-16       3.20x
+   fftw1d_estimate               0.1943 us      0.1922 us     9.88     20.0%   9r   0.001s  ok 1.8e-16       5.19x
+   fftw1d_custom_soa             0.2111 us      0.2079 us     9.10     14.5%   9r   0.000s  ok 1.8e-16       5.64x
+   fftw1d_custom                 0.3187 us      0.2576 us     6.03     30.1%   9r   0.000s  ok 1.8e-16       8.51x
+   baseline_dft                  8.4849 us      8.4841 us     0.23      0.0%   9r   0.000s  ok 4.0e-16       226.68x
 
 -- L=64 (batched B=512, chain m=500), working set 1.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -318,18 +318,18 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=128 (non-batched, single call), working set 0.004 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   mkl1d_dfti                    0.1041 us      0.1036 us    43.05      3.7%   3r   0.002s  ok 2.2e-16       1.00x?
-   d1_race                       0.1126 us      0.0991 us    39.80     14.4%   3r   0.010s  ok 2.0e-16       1.08x
-   d1_batchlane                  0.1134 us      0.1133 us    39.51      3.1%   3r   0.000s  ok 2.0e-16       1.09x
-   d1_pow2                       0.1184 us      0.1181 us    37.85     12.6%   3r   0.000s  ok 2.1e-16       1.14x
-   fftw1d_patient                0.1212 us      0.1203 us    36.95      1.6%   3r   0.137s  ok 2.2e-16       1.16x
-   fftw1d_measure                0.1215 us      0.1168 us    36.88      6.0%   3r   0.040s  ok 2.2e-16       1.17x
-   d1_twiddle                    0.1337 us      0.1331 us    33.51      1.1%   3r   0.000s  ok 2.0e-16       1.28x
-   fftw1d_estimate               0.1722 us      0.1712 us    26.01      0.7%   3r   0.001s  ok 2.1e-16       1.66x
-   d1_bluestein                  0.2291 us      0.2232 us    19.55     12.5%   3r   0.001s  ok 2.0e-16       2.20x
-   d1_planner                    0.2416 us      0.2388 us    18.54     12.5%   3r   0.000s  ok 2.0e-16       2.32x
-   fftw1d_custom                 0.7721 us      0.7714 us     5.80      0.1%   3r   0.000s  ok 2.2e-16       7.42x
-   baseline_dft                 33.9344 us     28.1155 us     0.13     20.7%   3r   0.001s  ok 5.1e-16       326.08x
+   mkl1d_dfti                    0.0927 us      0.0910 us    48.34     15.3%   9r   0.001s  ok 2.2e-16       1.00x?
+   d1_race                       0.0993 us      0.0991 us    45.10     15.0%   9r   0.007s  ok 2.0e-16       1.07x
+   fftw1d_patient                0.1096 us      0.1056 us    40.88     22.4%   9r   0.134s  ok 2.2e-16       1.18x
+   d1_batchlane                  0.1133 us      0.0990 us    39.56     16.4%   9r   0.000s  ok 2.0e-16       1.22x
+   d1_pow2                       0.1189 us      0.1167 us    37.69     15.6%   9r   0.000s  ok 2.1e-16       1.28x
+   d1_twiddle                    0.1206 us      0.1171 us    37.15     15.3%   9r   0.000s  ok 2.0e-16       1.30x
+   fftw1d_measure                0.1227 us      0.1201 us    36.53      9.5%   9r   0.040s  ok 2.2e-16       1.32x
+   fftw1d_estimate               0.1707 us      0.1489 us    26.24     18.6%   9r   0.001s  ok 2.1e-16       1.84x
+   d1_planner                    0.2123 us      0.2034 us    21.11     15.9%   9r   0.000s  ok 2.0e-16       2.29x
+   d1_bluestein                  0.2252 us      0.1961 us    19.89     28.1%   9r   0.001s  ok 2.0e-16       2.43x
+   fftw1d_custom                 0.6396 us      0.6390 us     7.00      0.1%   9r   0.000s  ok 2.2e-16       6.90x
+   baseline_dft                 33.9338 us     28.1144 us     0.13     20.7%   9r   0.001s  ok 5.1e-16       366.14x
 
 -- L=128 (non-batched, chain m=30000), working set 0.004 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -348,18 +348,18 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=128 (batched B=512, single call), working set 2.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   mkl1d_dfti                    0.1584 us      0.1569 us    28.28      3.0%   3r   0.002s  ok 2.1e-16       1.00x?
-   d1_pow2                       0.1789 us      0.1773 us    25.04      1.0%   3r   0.000s  ok 2.2e-16       1.13x
-   d1_race                       0.1795 us      0.1675 us    24.96     10.0%   3r   1.134s  ok 2.2e-16       1.13x
-   d1_batchlane                  0.1947 us      0.1837 us    23.00     11.7%   3r   0.000s  ok 2.0e-16       1.23x
-   d1_twiddle                    0.1954 us      0.1950 us    22.93      0.2%   3r   0.000s  ok 2.1e-16       1.23x
-   fftw1d_measure                0.2113 us      0.2087 us    21.20     11.2%   3r   0.050s  ok 2.2e-16       1.33x
-   fftw1d_patient                0.2613 us      0.1879 us    17.15     48.0%   3r   0.799s  ok 2.2e-16       1.65x
-   d1_bluestein                  0.4500 us      0.2860 us     9.96     57.5%   3r   0.001s  ok 2.2e-16       2.84x
-   d1_planner                    0.4666 us      0.4009 us     9.60     18.0%   3r   0.000s  ok 2.2e-16       2.95x
-   fftw1d_custom_soa             0.5713 us      0.5180 us     7.84     10.5%   3r   0.000s  ok 2.1e-16       3.61x
-   fftw1d_estimate               0.6615 us      0.5381 us     6.77     23.8%   3r   0.001s  ok 2.1e-16       4.18x
-   fftw1d_custom                 0.9124 us      0.8685 us     4.91      8.9%   3r   0.000s  ok 2.1e-16       5.76x
+   mkl1d_dfti                    0.1425 us      0.1412 us    31.43      6.1%   9r   0.001s  ok 2.1e-16       1.00x?
+   d1_pow2                       0.1813 us      0.1787 us    24.72      8.3%   9r   0.000s  ok 2.2e-16       1.27x
+   d1_race                       0.1831 us      0.1810 us    24.47      5.9%   9r   0.007s  ok 2.2e-16       1.28x
+   fftw1d_patient                0.1910 us      0.1834 us    23.45     32.7%   9r   0.865s  ok 2.2e-16       1.34x
+   d1_batchlane                  0.1958 us      0.1813 us    22.88      8.5%   9r   0.000s  ok 2.0e-16       1.37x
+   d1_twiddle                    0.1979 us      0.1906 us    22.64     19.0%   9r   0.000s  ok 2.1e-16       1.39x
+   fftw1d_measure                0.2061 us      0.1823 us    21.74     18.7%   9r   0.049s  ok 2.2e-16       1.45x
+   d1_bluestein                  0.3514 us      0.2767 us    12.75     48.5%   9r   0.001s  ok 2.2e-16       2.47x
+   d1_planner                    0.4427 us      0.3596 us    10.12     28.4%   9r   0.000s  ok 2.2e-16       3.11x
+   fftw1d_estimate               0.4916 us      0.4502 us     9.11     43.8%   9r   0.001s  ok 2.1e-16       3.45x
+   fftw1d_custom_soa             0.5589 us      0.5408 us     8.02      7.7%   9r   0.000s  ok 2.1e-16       3.92x
+   fftw1d_custom                 0.8897 us      0.8743 us     5.04      6.1%   9r   0.000s  ok 2.1e-16       6.24x
 
 -- L=128 (batched B=512, chain m=250), working set 2.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -378,15 +378,15 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=1021 (non-batched, single call), working set 0.031 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_race                       7.3968 us      6.5836 us     6.90     15.8%   3r   0.492s  ok 1.0e-15       1.00x?
-   d1_rader                      7.4836 us      6.6595 us     6.82     12.7%   3r   0.000s  ok 1.0e-15       1.01x?
-   mkl1d_dfti                    8.2955 us      8.2680 us     6.15     13.7%   3r   0.030s  ok 5.8e-16       1.12x
-   d1_planner                    9.2223 us      9.1014 us     5.53      1.8%   3r   0.000s  ok 6.2e-16       1.25x
-   d1_bluestein                  9.8832 us      9.7984 us     5.16      7.1%   3r   0.002s  ok 5.6e-16       1.34x
-   fftw1d_patient               11.9839 us     11.9150 us     4.26      1.1%   3r   2.952s  ok 5.6e-16       1.62x
-   fftw1d_estimate              12.7997 us     12.7795 us     3.99     13.9%   3r   0.001s  ok 5.7e-16       1.73x
-   fftw1d_measure               13.8371 us     11.9074 us     3.69     17.6%   3r   0.286s  ok 5.5e-16       1.87x
-   baseline_dft               2191.4773 us   2189.5024 us     0.02      0.7%   3r   0.038s  ok 1.2e-15       296.27x
+   d1_race                       7.4748 us      6.5463 us     6.83     16.6%   9r   0.007s  ok 1.0e-15       1.00x?
+   d1_rader                      7.5691 us      6.5963 us     6.74     17.5%   9r   0.000s  ok 1.0e-15       1.01x?
+   mkl1d_dfti                    8.2717 us      8.2668 us     6.17     13.8%   9r   0.030s  ok 5.8e-16       1.11x
+   d1_bluestein                  9.0090 us      8.6396 us     5.66     21.6%   9r   0.003s  ok 5.6e-16       1.21x
+   d1_planner                    9.1462 us      8.0784 us     5.58     19.1%   9r   0.001s  ok 6.2e-16       1.22x
+   fftw1d_patient               11.9654 us     11.9111 us     4.26      3.2%   9r   2.989s  ok 5.6e-16       1.60x
+   fftw1d_measure               11.9999 us     11.7270 us     4.25     13.8%   9r   0.287s  ok 5.8e-16       1.61x
+   fftw1d_estimate              12.7796 us     12.7494 us     3.99     14.4%   9r   0.001s  ok 5.7e-16       1.71x
+   baseline_dft               1810.0264 us   1807.5733 us     0.03     21.5%   9r   0.028s  ok 1.2e-15       242.15x
 
 -- L=1021 (non-batched, chain m=2000), working set 0.031 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -402,14 +402,14 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=1021 (batched B=256, single call), working set 7.977 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_race                       7.3156 us      7.2597 us     6.98     31.3%   3r   1.765s  ok 9.9e-16       1.00x?
-   d1_rader                      8.6351 us      7.4409 us     5.91     33.0%   3r   0.000s  ok 9.9e-16       1.18x
-   mkl1d_dfti                    8.8778 us      8.7502 us     5.75     15.1%   3r   0.037s  ok 5.7e-16       1.21x
-   d1_bluestein                  9.4178 us      9.1984 us     5.42     17.3%   3r   0.003s  ok 5.8e-16       1.29x
-   d1_planner                   11.3749 us     10.3255 us     4.49     17.5%   3r   0.001s  ok 6.3e-16       1.55x
-   fftw1d_patient               12.3037 us     12.2750 us     4.15      0.6%   3r   2.950s  ok 5.7e-16       1.68x
-   fftw1d_estimate              13.0225 us     13.0177 us     3.92      0.2%   3r   0.001s  ok 5.8e-16       1.78x
-   fftw1d_measure               14.3475 us     14.3324 us     3.56      3.1%   3r   0.295s  ok 5.6e-16       1.96x
+   mkl1d_dfti                    8.7511 us      8.7334 us     5.83     15.0%   9r   0.014s  ok 5.7e-16       1.00x?
+   d1_race                       9.6950 us      7.2459 us     5.26     36.2%   9r   0.006s  ok 9.9e-16       1.11x?
+   d1_rader                      9.7581 us      9.6326 us     5.23      9.0%   9r   0.000s  ok 9.9e-16       1.12x
+   d1_planner                   10.1034 us      8.8821 us     5.05     30.7%   9r   0.000s  ok 6.3e-16       1.15x
+   d1_bluestein                 10.4225 us     10.3097 us     4.90      6.7%   9r   0.002s  ok 5.8e-16       1.19x
+   fftw1d_patient               12.2060 us     12.0844 us     4.18      3.1%   9r   2.988s  ok 5.7e-16       1.39x
+   fftw1d_measure               14.2691 us     11.9852 us     3.58     26.1%   9r   0.295s  ok 5.6e-16       1.63x
+   fftw1d_estimate              15.1832 us     13.0494 us     3.36     20.3%   9r   0.001s  ok 5.8e-16       1.73x
 
 -- L=1021 (batched B=256, chain m=400), working set 7.977 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -424,16 +424,16 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=1024 (non-batched, single call), working set 0.031 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   fftw1d_measure                1.1596 us      1.1560 us    44.15     14.5%   3r   0.115s  ok 2.7e-16       1.00x?
-   fftw1d_patient                1.2036 us      1.1844 us    42.54     15.9%   3r   0.792s  ok 2.7e-16       1.04x?
-   mkl1d_dfti                    1.2305 us      1.0813 us    41.61     14.6%   3r   0.002s  ok 2.7e-16       1.06x?
-   d1_race                       1.2598 us      1.2403 us    40.64     16.2%   3r   0.302s  ok 2.8e-16       1.09x
-   d1_pow2                       1.2637 us      1.2621 us    40.51      0.8%   3r   0.000s  ok 2.8e-16       1.09x
-   fftw1d_estimate               1.3905 us      1.3550 us    36.82     12.3%   3r   0.001s  ok 2.8e-16       1.20x
-   d1_twiddle                    1.6493 us      1.6288 us    31.04     12.8%   3r   0.000s  ok 2.7e-16       1.42x
-   d1_bluestein                  2.1117 us      1.8793 us    24.25     13.9%   3r   0.001s  ok 2.8e-16       1.82x
-   d1_planner                    2.2192 us      2.2023 us    23.07      1.7%   3r   0.000s  ok 2.8e-16       1.91x
-   baseline_dft               2228.3058 us   2205.4959 us     0.02      1.8%   3r   0.038s  ok 1.1e-15       1921.54x
+   fftw1d_measure                1.1797 us      1.1459 us    43.40     18.6%   9r   0.118s  ok 2.7e-16       1.00x?
+   fftw1d_patient                1.1878 us      1.1639 us    43.10     19.3%   9r   0.811s  ok 2.7e-16       1.01x?
+   mkl1d_dfti                    1.2293 us      1.0747 us    41.65     15.5%   9r   0.002s  ok 2.7e-16       1.04x?
+   d1_race                       1.3808 us      1.2266 us    37.08     15.5%   9r   0.330s  ok 2.8e-16       1.17x
+   d1_pow2                       1.4470 us      1.4391 us    35.38      1.1%   9r   0.000s  ok 2.8e-16       1.23x
+   fftw1d_estimate               1.5198 us      1.3371 us    33.69     14.6%   9r   0.001s  ok 2.8e-16       1.29x
+   d1_twiddle                    1.8390 us      1.6145 us    27.84     15.4%   9r   0.000s  ok 2.7e-16       1.56x
+   d1_bluestein                  2.1266 us      2.1051 us    24.08      3.9%   9r   0.001s  ok 2.8e-16       1.80x
+   d1_planner                    2.5296 us      2.4636 us    20.24      6.9%   9r   0.000s  ok 2.8e-16       2.14x
+   baseline_dft               2214.8457 us   1823.3811 us     0.02     22.7%   9r   0.034s  ok 1.1e-15       1877.39x
 
 -- L=1024 (non-batched, chain m=4000), working set 0.031 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -450,15 +450,15 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=1024 (batched B=512, single call), working set 16.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   mkl1d_dfti                    1.8566 us      1.8421 us    27.58      5.4%   3r   0.002s  ok 2.8e-16       1.00x?
-   fftw1d_patient                1.9365 us      1.8625 us    26.44      5.0%   3r  11.766s  ok 2.7e-16       1.04x
-   d1_race                       1.9513 us      1.8965 us    26.24     18.9%   3r   1.611s  ok 2.8e-16       1.05x?
-   fftw1d_measure                1.9535 us      1.8533 us    26.21     23.2%   3r   0.117s  ok 2.7e-16       1.05x?
-   d1_pow2                       2.3509 us      2.2475 us    21.78     16.6%   3r   0.000s  ok 2.8e-16       1.27x
-   fftw1d_estimate               2.4523 us      2.4288 us    20.88      1.3%   3r   0.001s  ok 2.8e-16       1.32x
-   d1_twiddle                    2.6652 us      2.2751 us    19.21     67.4%   3r   0.000s  ok 2.6e-16       1.44x
-   d1_planner                    2.7340 us      2.7336 us    18.73     14.2%   3r   0.000s  ok 2.8e-16       1.47x
-   d1_bluestein                  3.1713 us      2.9586 us    16.15      7.6%   3r   0.002s  ok 2.8e-16       1.71x
+   fftw1d_patient                1.8677 us      1.7775 us    27.41     15.5%   9r  12.199s  ok 2.7e-16       1.00x?
+   mkl1d_dfti                    1.9499 us      1.6502 us    26.26     44.2%   9r   0.002s  ok 2.8e-16       1.04x?
+   d1_pow2                       2.2549 us      1.8823 us    22.71     51.6%   9r   0.000s  ok 2.8e-16       1.21x
+   fftw1d_measure                2.3504 us      2.0606 us    21.78     49.1%   9r   0.117s  ok 2.7e-16       1.26x
+   d1_bluestein                  2.4449 us      2.4081 us    20.94     17.3%   9r   0.001s  ok 2.8e-16       1.31x
+   d1_race                       2.5106 us      1.8737 us    20.39     52.7%   9r   0.008s  ok 2.8e-16       1.34x
+   d1_twiddle                    2.9201 us      2.6244 us    17.53     41.8%   9r   0.000s  ok 2.6e-16       1.56x
+   d1_planner                    3.1191 us      2.6448 us    16.42     36.3%   9r   0.000s  ok 2.8e-16       1.67x
+   fftw1d_estimate               3.5188 us      3.0482 us    14.55     37.8%   9r   0.001s  ok 2.8e-16       1.88x
 
 -- L=1024 (batched B=512, chain m=2000), working set 16.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -474,15 +474,15 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=4096 (non-batched, single call), working set 0.125 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   mkl1d_dfti                    6.8279 us      6.8260 us    35.99      0.3%   3r   0.001s  ok 3.1e-16       1.00x?
-   fftw1d_patient                6.8564 us      6.7676 us    35.84      1.9%   3r   1.995s  ok 3.0e-16       1.00x?
-   fftw1d_measure                8.5062 us      8.4805 us    28.89      0.8%   3r   0.234s  ok 3.0e-16       1.25x
-   d1_pow2                       8.8882 us      8.7451 us    27.65      3.1%   3r   0.001s  ok 3.1e-16       1.30x
-   d1_race                       9.3423 us      9.2800 us    26.31      2.0%   3r   1.242s  ok 3.1e-16       1.37x
-   d1_twiddle                    9.4372 us      8.5385 us    26.04     14.2%   3r   0.000s  ok 3.1e-16       1.38x
-   d1_planner                   13.3265 us     13.2148 us    18.44      5.5%   3r   0.001s  ok 3.1e-16       1.95x
-   d1_bluestein                 15.0951 us     15.0546 us    16.28      0.6%   3r   0.002s  ok 3.1e-16       2.21x
-   fftw1d_estimate              17.9082 us     17.8695 us    13.72      0.4%   3r   0.001s  ok 3.1e-16       2.62x
+   fftw1d_patient                6.8040 us      6.6964 us    36.12      3.8%   9r   1.951s  ok 3.1e-16       1.00x?
+   mkl1d_dfti                    6.8306 us      6.0707 us    35.98     13.5%   9r   0.002s  ok 3.1e-16       1.00x?
+   fftw1d_measure                8.2965 us      7.3808 us    29.62     16.6%   9r   0.220s  ok 3.0e-16       1.22x
+   d1_race                       8.6454 us      7.3520 us    28.43     21.6%   9r   0.009s  ok 3.1e-16       1.27x
+   d1_pow2                       8.7313 us      7.6463 us    28.15     15.7%   9r   0.001s  ok 3.1e-16       1.28x
+   d1_twiddle                    9.3132 us      8.3339 us    26.39     17.3%   9r   0.000s  ok 3.1e-16       1.37x
+   d1_planner                   11.7223 us     11.6139 us    20.97     19.2%   9r   0.001s  ok 3.1e-16       1.72x
+   d1_bluestein                 13.5203 us     13.2038 us    18.18     14.0%   9r   0.001s  ok 3.1e-16       1.99x
+   fftw1d_estimate              15.8119 us     15.6330 us    15.54     14.9%   9r   0.001s  ok 3.1e-16       2.32x
 
 -- L=4096 (non-batched, chain m=1000), working set 0.125 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -498,15 +498,15 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=4096 (batched B=256, single call), working set 32.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_pow2                      10.3932 us     10.3374 us    23.65      1.2%   3r   0.001s  ok 3.1e-16       1.00x?
-   fftw1d_patient               11.0852 us     10.9622 us    22.17      3.0%   3r  45.431s  ok 3.1e-16       1.07x
-   d1_twiddle                   12.9438 us     12.3065 us    18.99     21.3%   3r   0.000s  ok 3.1e-16       1.25x
-   d1_race                      13.0430 us      9.2988 us    18.84     57.9%   3r   2.466s  ok 3.1e-16       1.25x?
-   mkl1d_dfti                   16.5585 us     12.4699 us    14.84     33.7%   3r   0.003s  ok 3.1e-16       1.59x
-   d1_planner                   19.6337 us     19.0830 us    12.52      5.6%   3r   0.001s  ok 3.0e-16       1.89x
-   d1_bluestein                 21.2843 us     18.0705 us    11.55     20.5%   3r   0.002s  ok 3.1e-16       2.05x
-   fftw1d_measure               25.3763 us     24.0229 us     9.68      8.1%   3r   0.234s  ok 3.1e-16       2.44x
-   fftw1d_estimate              32.2007 us     31.6478 us     7.63      4.2%   3r   0.001s  ok 3.1e-16       3.10x
+   d1_race                       9.8319 us      9.8098 us    25.00     49.2%   9r   0.007s  ok 3.1e-16       1.00x?
+   fftw1d_patient               11.1017 us     10.9757 us    22.14      3.9%   9r  45.037s  ok 3.1e-16       1.13x?
+   d1_twiddle                   11.4857 us      9.7747 us    21.40     29.5%   9r   0.000s  ok 3.1e-16       1.17x?
+   d1_pow2                      13.1063 us     10.4270 us    18.75     49.0%   9r   0.001s  ok 3.1e-16       1.33x
+   mkl1d_dfti                   14.3026 us     11.5840 us    17.18     43.2%   9r   0.002s  ok 3.1e-16       1.45x
+   fftw1d_measure               15.6450 us     15.1115 us    15.71     64.1%   9r   0.235s  ok 3.0e-16       1.59x
+   d1_planner                   18.9751 us     14.0414 us    12.95     43.7%   9r   0.001s  ok 3.0e-16       1.93x
+   fftw1d_estimate              21.9804 us     21.7650 us    11.18     44.2%   9r   0.001s  ok 3.1e-16       2.24x
+   d1_bluestein                 25.2265 us     25.0669 us     9.74      1.6%   9r   0.002s  ok 3.1e-16       2.57x
 
 -- L=4096 (batched B=256, chain m=400), working set 32.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -522,13 +522,13 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=10007 (non-batched, single call), working set 0.305 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_race                     124.6902 us    124.1477 us     5.33     19.7%   3r   2.153s  ok 7.2e-16       1.00x?
-   d1_bluestein                145.6568 us    125.5285 us     4.56     41.3%   3r   0.009s  ok 7.2e-16       1.17x?
-   d1_planner                  156.3527 us    155.5973 us     4.25     13.5%   3r   0.005s  ok 7.2e-16       1.25x
-   fftw1d_patient              204.0489 us    199.7343 us     3.26      4.6%   3r  19.750s  ok 8.1e-16       1.64x
-   mkl1d_dfti                  266.6455 us    266.1370 us     2.49     16.0%   3r   0.005s  ok 6.8e-16       2.14x
-   fftw1d_measure              326.9537 us    323.3579 us     2.03      2.8%   3r   1.262s  ok 8.1e-16       2.62x
-   fftw1d_estimate             582.7892 us    578.9976 us     1.14      1.2%   3r   0.002s  ok 8.5e-16       4.67x
+   d1_race                     124.5034 us    123.6058 us     5.34     12.8%   9r   0.012s  ok 7.2e-16       1.00x?
+   d1_bluestein                127.2006 us    124.1157 us     5.23     13.5%   9r   0.005s  ok 7.2e-16       1.02x?
+   d1_planner                  156.7468 us    155.4023 us     4.24      1.9%   9r   0.005s  ok 7.2e-16       1.26x
+   fftw1d_patient              199.8724 us    195.9339 us     3.33      5.8%   9r  20.333s  ok 8.1e-16       1.61x
+   mkl1d_dfti                  267.0777 us    265.2281 us     2.49      2.2%   9r   0.003s  ok 6.8e-16       2.15x
+   fftw1d_measure              326.3743 us    322.5503 us     2.04      2.3%   9r   1.248s  ok 8.1e-16       2.62x
+   fftw1d_estimate             467.9587 us    463.6025 us     1.42     20.7%   9r   0.002s  ok 8.5e-16       3.76x
 
 -- L=10007 (non-batched, chain m=400), working set 0.305 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -542,13 +542,13 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=10007 (batched B=64, single call), working set 19.545 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_race                     183.4311 us    132.2413 us     3.62     39.2%   3r   0.019s  ok 7.1e-16       1.00x?
-   d1_bluestein                190.0695 us    186.9397 us     3.50      4.3%   3r   0.007s  ok 7.1e-16       1.04x?
-   fftw1d_patient              204.7769 us    203.9797 us     3.25      3.9%   3r  19.852s  ok 8.0e-16       1.12x?
-   fftw1d_measure              220.8490 us    218.0762 us     3.01      2.2%   3r   1.272s  ok 8.1e-16       1.20x
-   d1_planner                  222.1416 us    204.5401 us     2.99      8.6%   3r   0.006s  ok 7.1e-16       1.21x
-   mkl1d_dfti                  369.9915 us    360.1780 us     1.80      4.5%   3r   0.052s  ok 6.8e-16       2.02x
-   fftw1d_estimate             450.4603 us    449.7079 us     1.48      1.2%   3r   0.003s  ok 8.5e-16       2.46x
+   d1_race                     131.9708 us    129.7706 us     5.04     36.8%   9r   0.014s  ok 7.1e-16       1.00x?
+   d1_bluestein                188.9376 us    131.7170 us     3.52     47.5%   9r   0.009s  ok 7.1e-16       1.43x
+   d1_planner                  193.8096 us    162.6315 us     3.43     40.0%   9r   0.006s  ok 7.1e-16       1.47x
+   fftw1d_patient              207.2606 us    205.3700 us     3.21      5.1%   9r  19.794s  ok 8.0e-16       1.57x
+   fftw1d_measure              217.7019 us    216.5077 us     3.05      1.9%   9r   1.136s  ok 8.0e-16       1.65x
+   mkl1d_dfti                  313.8487 us    276.6110 us     2.12     33.8%   9r   0.033s  ok 6.8e-16       2.38x
+   fftw1d_estimate             363.7728 us    359.7012 us     1.83     26.3%   9r   0.002s  ok 8.5e-16       2.76x
 
 -- L=10007 (batched B=64, chain m=80), working set 19.545 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -562,15 +562,15 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=16384 (non-batched, single call), working set 0.500 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   fftw1d_patient               32.8474 us     32.3658 us    34.92      3.4%   3r   6.260s  ok 3.4e-16       1.00x?
-   d1_pow2                      35.2888 us     32.8397 us    32.50      8.1%   3r   0.002s  ok 3.4e-16       1.07x
-   fftw1d_measure               35.9452 us     35.3720 us    31.91     14.1%   3r   0.562s  ok 3.5e-16       1.09x
-   d1_race                      39.1744 us     35.3725 us    29.28     28.2%   3r   1.275s  ok 3.4e-16       1.19x
-   mkl1d_dfti                   42.4002 us     41.8959 us    27.05      4.3%   3r   0.003s  ok 3.3e-16       1.29x
-   d1_twiddle                   49.2604 us     47.0977 us    23.28     18.8%   3r   0.001s  ok 3.3e-16       1.50x
-   d1_planner                   51.8806 us     51.1023 us    22.11     20.0%   3r   0.003s  ok 3.4e-16       1.58x
-   d1_bluestein                 60.3168 us     60.3086 us    19.01     11.3%   3r   0.003s  ok 3.4e-16       1.84x
-   fftw1d_estimate              70.5421 us     69.8281 us    16.26     16.0%   3r   0.001s  ok 3.5e-16       2.15x
+   fftw1d_patient               32.6258 us     31.9773 us    35.15      4.2%   9r   6.365s  ok 3.5e-16       1.00x?
+   mkl1d_dfti                   35.2812 us     33.4716 us    32.51     15.7%   9r   0.002s  ok 3.3e-16       1.08x
+   fftw1d_measure               36.0728 us     35.0356 us    31.79     17.1%   9r   0.571s  ok 3.4e-16       1.11x
+   d1_race                      38.4462 us     32.9564 us    29.83     23.6%   9r   1.423s  ok 3.4e-16       1.18x
+   d1_pow2                      39.9664 us     35.1047 us    28.70     16.4%   9r   0.003s  ok 3.4e-16       1.22x
+   d1_twiddle                   52.6222 us     46.2130 us    21.79     15.7%   9r   0.002s  ok 3.3e-16       1.61x
+   d1_planner                   58.6269 us     52.6728 us    19.56     14.4%   9r   0.003s  ok 3.4e-16       1.80x
+   d1_bluestein                 67.4312 us     63.6446 us    17.01      8.0%   9r   0.004s  ok 3.4e-16       2.07x
+   fftw1d_estimate              79.5213 us     69.4030 us    14.42     15.3%   9r   0.001s  ok 3.5e-16       2.44x
 
 -- L=16384 (non-batched, chain m=250), working set 0.500 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -586,15 +586,15 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=16384 (batched B=64, single call), working set 32.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   fftw1d_patient               48.8442 us     48.4132 us    23.48      1.4%   3r  67.731s  ok 3.5e-16       1.00x?
-   mkl1d_dfti                   56.4657 us     47.0392 us    20.31     33.1%   3r   0.004s  ok 3.4e-16       1.16x?
-   d1_twiddle                   57.6302 us     55.5787 us    19.90     13.2%   3r   0.002s  ok 3.4e-16       1.18x
-   d1_race                      59.0912 us     55.0271 us    19.41     26.2%   3r   0.021s  ok 3.4e-16       1.21x
-   d1_pow2                      63.6760 us     57.8733 us    18.01     20.8%   3r   0.003s  ok 3.4e-16       1.30x
-   d1_planner                   79.6084 us     67.8502 us    14.41     21.6%   3r   0.003s  ok 3.4e-16       1.63x
-   fftw1d_measure               97.9705 us     93.6807 us    11.71      9.0%   3r   0.620s  ok 3.4e-16       2.01x
-   d1_bluestein                106.9136 us    106.5664 us    10.73      1.6%   3r   0.004s  ok 3.4e-16       2.19x
-   fftw1d_estimate             132.6121 us    127.8840 us     8.65      3.8%   3r   0.001s  ok 3.5e-16       2.72x
+   d1_race                      38.3022 us     37.9329 us    29.94      6.2%   9r   0.011s  ok 3.4e-16       1.00x?
+   d1_twiddle                   41.0637 us     40.8485 us    27.93     29.7%   9r   0.001s  ok 3.4e-16       1.07x?
+   d1_planner                   44.9197 us     38.1053 us    25.53     35.2%   9r   0.004s  ok 3.4e-16       1.17x
+   fftw1d_patient               48.5579 us     44.5884 us    23.62     11.9%   9r  67.185s  ok 3.5e-16       1.27x
+   d1_pow2                      55.4734 us     43.4000 us    20.67     61.2%   9r   0.003s  ok 3.4e-16       1.45x
+   mkl1d_dfti                   71.9913 us     52.6193 us    15.93     42.7%   9r   0.003s  ok 3.4e-16       1.88x
+   d1_bluestein                 82.9129 us     60.8030 us    13.83     39.0%   9r   0.004s  ok 3.4e-16       2.16x
+   fftw1d_measure               95.8406 us     62.5802 us    11.97     82.2%   9r   0.618s  ok 3.4e-16       2.50x
+   fftw1d_estimate             113.0677 us     91.3947 us    10.14     40.6%   9r   0.001s  ok 3.5e-16       2.95x
 
 -- L=16384 (batched B=64, chain m=150), working set 32.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -610,14 +610,14 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=65537 (non-batched, single call), working set 2.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_race                     852.6158 us    847.3308 us     6.15      1.1%   3r   3.553s  ok 1.3e-15       1.00x?
-   d1_rader                    869.4113 us    868.0236 us     6.03      0.3%   3r   0.005s  ok 1.3e-15       1.02x
-   d1_planner                 1153.3452 us   1135.3468 us     4.55      2.0%   3r   0.025s  ok 1.2e-15       1.35x
-   fftw1d_patient             1466.7320 us   1465.7955 us     3.57      0.2%   3r  58.055s  ok 1.2e-15       1.72x
-   d1_bluestein               1523.5752 us   1522.7779 us     3.44      0.6%   3r   0.017s  ok 1.1e-15       1.79x
-   fftw1d_measure             1578.5690 us   1577.5811 us     3.32      1.0%   3r   4.409s  ok 1.2e-15       1.85x
-   fftw1d_estimate            2193.1168 us   1970.9687 us     2.39     13.4%   3r   0.008s  ok 1.2e-15       2.57x
-   mkl1d_dfti                 3877.5775 us   3697.0337 us     1.35     11.7%   3r   0.012s  ok 1.0e-15       4.55x
+   d1_race                     887.1601 us    826.6650 us     5.91     10.2%   9r   0.013s  ok 1.3e-15       1.00x?
+   d1_rader                    925.4757 us    841.9438 us     5.67     10.4%   9r   0.007s  ok 1.3e-15       1.04x?
+   d1_planner                 1194.7845 us   1023.2520 us     4.39     17.0%   9r   0.030s  ok 1.2e-15       1.35x
+   fftw1d_patient             1489.0246 us   1460.4556 us     3.52      2.5%   9r  58.125s  ok 1.2e-15       1.68x
+   fftw1d_measure             1570.9454 us   1561.5825 us     3.34      1.5%   9r   4.374s  ok 1.2e-15       1.77x
+   d1_bluestein               1738.9209 us   1721.0687 us     3.02      3.7%   9r   0.025s  ok 1.1e-15       1.96x
+   fftw1d_estimate            1931.1993 us   1718.9959 us     2.71     12.7%   9r   0.010s  ok 1.2e-15       2.18x
+   mkl1d_dfti                 3259.9017 us   3225.4084 us     1.61     16.3%   9r   0.012s  ok 1.0e-15       3.67x
 
 -- L=65537 (non-batched, chain m=60), working set 2.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -632,14 +632,14 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=65537 (batched B=16, single call), working set 32.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_race                    1328.4378 us   1119.1600 us     3.95     40.9%   3r   0.016s  ok 1.3e-15       1.00x?
-   d1_planner                 1502.6012 us   1489.2999 us     3.49      7.7%   3r   0.025s  ok 1.2e-15       1.13x?
-   fftw1d_patient             1547.7187 us   1539.2953 us     3.39      1.2%   3r  58.095s  ok 1.2e-15       1.17x?
-   fftw1d_measure             1669.6681 us   1658.5439 us     3.14      0.7%   3r   4.414s  ok 1.2e-15       1.26x
-   d1_bluestein               1680.6341 us   1669.1833 us     3.12     29.2%   3r   0.023s  ok 1.1e-15       1.27x
-   d1_rader                   1757.4992 us   1370.6238 us     2.98     32.9%   3r   0.006s  ok 1.3e-15       1.32x
-   fftw1d_estimate            2461.2168 us   2399.3710 us     2.13      4.1%   3r   0.009s  ok 1.2e-15       1.85x
-   mkl1d_dfti                 4132.0678 us   3876.3286 us     1.27     15.8%   3r   0.064s  ok 1.0e-15       3.11x
+   d1_race                    1138.1651 us   1107.9061 us     4.61      3.4%   9r   0.010s  ok 1.3e-15       1.00x?
+   d1_rader                   1219.0686 us   1170.3164 us     4.30      7.5%   9r   0.006s  ok 1.3e-15       1.07x
+   d1_planner                 1326.6329 us   1325.0543 us     3.95      6.4%   9r   0.021s  ok 1.2e-15       1.17x
+   fftw1d_patient             1550.8239 us   1521.4509 us     3.38      3.1%   9r  58.285s  ok 1.2e-15       1.36x
+   fftw1d_measure             1680.1613 us   1658.3936 us     3.12      1.7%   9r   4.369s  ok 1.2e-15       1.48x
+   d1_bluestein               1858.3821 us   1665.3726 us     2.82     14.0%   9r   0.022s  ok 1.1e-15       1.63x
+   fftw1d_estimate            2082.5244 us   1876.1573 us     2.52     11.7%   9r   0.009s  ok 1.2e-15       1.83x
+   mkl1d_dfti                 3416.4769 us   3400.1560 us     1.53     11.8%   9r   0.056s  ok 1.0e-15       3.00x
 
 -- L=65537 (batched B=16, chain m=20), working set 32.000 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -654,13 +654,13 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=100003 (non-batched, single call), working set 3.052 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_race                    2323.6810 us   2319.5460 us     3.57     31.5%   3r   0.038s  ok 1.0e-15       1.00x?
-   d1_bluestein               2335.2937 us   2321.3758 us     3.56     17.9%   3r   0.030s  ok 1.0e-15       1.00x?
-   fftw1d_measure             2851.5192 us   2816.1766 us     2.91      7.9%   3r   4.672s  ok 9.1e-16       1.23x
-   fftw1d_patient             2920.1142 us   2726.0661 us     2.84      7.5%   3r  62.834s  ok 9.0e-16       1.26x
-   d1_planner                 3615.0296 us   3537.6568 us     2.30      2.2%   3r   0.057s  ok 1.0e-15       1.56x
-   mkl1d_dfti                 4199.9206 us   3988.8351 us     1.98     12.8%   3r   0.014s  ok 8.8e-16       1.81x
-   fftw1d_estimate            6245.7729 us   4909.0800 us     1.33     39.5%   3r   0.015s  ok 9.1e-16       2.69x
+   d1_race                    2303.7573 us   2299.8858 us     3.61     33.9%   9r   0.028s  ok 1.0e-15       1.00x?
+   d1_bluestein               2690.8160 us   2357.1083 us     3.09     32.8%   9r   0.030s  ok 1.0e-15       1.17x
+   fftw1d_patient             2733.7821 us   2691.0377 us     3.04     11.8%   9r  62.820s  ok 9.0e-16       1.19x
+   fftw1d_measure             2777.0599 us   2737.1448 us     2.99     10.4%   9r   4.727s  ok 9.0e-16       1.21x
+   mkl1d_dfti                 3371.2144 us   3362.6120 us     2.46     21.2%   9r   0.014s  ok 8.8e-16       1.46x
+   d1_planner                 3503.7048 us   3417.8565 us     2.37      8.1%   9r   0.060s  ok 1.0e-15       1.52x
+   fftw1d_estimate            5919.4692 us   4851.9258 us     1.40     41.0%   9r   0.015s  ok 9.1e-16       2.57x
 
 -- L=100003 (non-batched, chain m=40), working set 3.052 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
@@ -674,13 +674,13 @@ gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
 
 -- L=100003 (batched B=8, single call), working set 24.415 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)
-   d1_bluestein               2472.4822 us   2471.0521 us     3.36     39.4%   3r   0.028s  ok 1.1e-15       1.00x?
-   fftw1d_patient             2845.6775 us   2798.0999 us     2.92      2.8%   3r  62.559s  ok 9.0e-16       1.15x?
-   fftw1d_measure             3044.4344 us   2994.1052 us     2.73      2.6%   3r   4.771s  ok 9.0e-16       1.23x
-   d1_race                    3398.5372 us   2473.6573 us     2.44     39.6%   3r   0.043s  ok 1.1e-15       1.37x
-   d1_planner                 3699.4141 us   3457.4269 us     2.24      7.2%   3r   0.049s  ok 1.0e-15       1.50x
-   mkl1d_dfti                 4445.5702 us   4101.9736 us     1.87     13.9%   3r   0.072s  ok 8.8e-16       1.80x
-   fftw1d_estimate            5012.7351 us   4992.7699 us     1.66      1.2%   3r   0.013s  ok 9.1e-16       2.03x
+   d1_race                    2397.8325 us   2377.7886 us     3.46      1.9%   9r   0.074s  ok 1.0e-15       1.00x?
+   fftw1d_patient             2836.4431 us   2785.9071 us     2.93      9.5%   9r  62.651s  ok 9.0e-16       1.18x
+   d1_bluestein               2985.8666 us   2393.7586 us     2.78     38.8%   9r   0.029s  ok 1.0e-15       1.25x
+   fftw1d_measure             3067.6957 us   2906.1495 us     2.71      7.5%   9r   4.777s  ok 9.0e-16       1.28x
+   d1_planner                 3288.7446 us   2467.0383 us     2.53     35.2%   9r   0.029s  ok 1.0e-15       1.37x
+   mkl1d_dfti                 3550.6976 us   3535.1972 us     2.34     32.4%   9r   0.049s  ok 8.8e-16       1.48x
+   fftw1d_estimate            5088.9640 us   4945.4864 us     1.63     22.1%   9r   0.013s  ok 9.1e-16       2.12x
 
 -- L=100003 (batched B=8, chain m=15), working set 24.415 MiB --
    backend                    median us/xf   best us/xf     GF/s    spread runs    setup  correctness   (? = gap inside the noise)

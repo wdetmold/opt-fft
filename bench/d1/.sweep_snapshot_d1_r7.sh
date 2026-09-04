@@ -209,8 +209,14 @@ for case in $CASES; do
       continue
     fi
   fi
-  IN=$OUT/in_L${L}_B${B}.bin
-  CIN=$OUT/c_L${L}_B${B}.bin
+  # PER-SHARD input filenames.  These were keyed on (L,B) only, but cases differing solely
+  # in chain length are distinct cells that the cost-balanced split routinely puts on
+  # DIFFERENT shards -- 17 of 26 (L,B) pairs in d1_r8.  Both shards then used one file in the
+  # shared round directory and whichever finished its cell first deleted the input out from
+  # under the other, which cost d1_r6 two whole cells ("in_L1024_B1.bin: No such file").
+  # The content is a pure function of (L,B,seed), so a copy per shard is identical data.
+  IN=$OUT/in_L${L}_B${B}${SHARD}.bin
+  CIN=$OUT/c_L${L}_B${B}${SHARD}.bin
   python3 gen_input.py --L "$L" --batch "$B" --seed $((SEED + L * 1000 + B)) --out "$IN" >/dev/null
   python3 gen_input.py --L "$L" --batch "$B" --seed $((SEED + 900000 + L * 1000 + B)) --scale 0.1 --out "$CIN" >/dev/null
   for backend in $BACKENDS; do

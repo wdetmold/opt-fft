@@ -1844,3 +1844,49 @@ mkl1d_dfti               L=13  B=1     m=200000 inner=2      min=     0.080 us/x
 mkl1d_dfti               L=13  B=1     m=200000 inner=2      min=     0.080 us/xform  median=     0.080  sd=  0.13%      3.00 GF/s  setup=0.037 s
 mkl1d_dfti               L=13  B=1     m=200000 inner=2      min=     0.080 us/xform  median=     0.081  sd=  0.10%      2.99 GF/s  setup=0.034 s
 mkl1d_dfti               L=13  B=1     m=2     inner=3810   min=     0.148 us/xform  median=     0.148  sd=  0.00%      1.62 GF/s  setup=0.049 s
+baseline_dft             L=1024 B=1     m=4000  inner=1      min=  1835.732 us/xform  median=  1837.421  sd=  0.06%      0.03 GF/s  setup=0.038 s
+baseline_dft             L=1024 B=1     m=4000  inner=1      min=  1825.174 us/xform  median=  1832.611  sd=  0.18%      0.03 GF/s  setup=0.027 s
+baseline_dft             L=1024 B=1     m=4000  inner=1      min=  1840.990 us/xform  median=  1842.370  sd=  0.03%      0.03 GF/s  setup=0.038 s
+baseline_dft             L=1024 B=1     m=2     inner=1      min=  2413.580 us/xform  median=  2413.580  sd=  0.00%      0.02 GF/s  setup=0.034 s
+   skip d1_batchlane L=1024 B=1 m=4000 (already measured)
+d1_bluestein             L=1024 B=1     m=4000  inner=1      min=     5.269 us/xform  median=     5.270  sd=  0.03%      9.72 GF/s  setup=0.001 s
+d1_bluestein             L=1024 B=1     m=4000  inner=1      min=     5.259 us/xform  median=     5.259  sd=  0.01%      9.74 GF/s  setup=0.001 s
+d1_bluestein             L=1024 B=1     m=4000  inner=1      min=     5.307 us/xform  median=     5.309  sd=  0.04%      9.65 GF/s  setup=0.001 s
+d1_bluestein             L=1024 B=1     m=2     inner=138    min=     6.083 us/xform  median=     6.083  sd=  0.00%      8.42 GF/s  setup=0.001 s
+   skip d1_composite L=1024 B=1 m=4000 (already measured)
+d1_planner               L=1024 B=1     m=4000  inner=2      min=     2.692 us/xform  median=     2.694  sd=  0.04%     19.02 GF/s  setup=0.000 s
+d1_planner               L=1024 B=1     m=4000  inner=2      min=     2.700 us/xform  median=     2.701  sd=  0.02%     18.96 GF/s  setup=0.000 s
+d1_planner               L=1024 B=1     m=4000  inner=2      min=     3.029 us/xform  median=     3.031  sd=  0.06%     16.90 GF/s  setup=0.000 s
+d1_planner               L=1024 B=1     m=2     inner=242    min=     3.612 us/xform  median=     3.612  sd=  0.00%     14.17 GF/s  setup=0.000 s
+d1_pow2                  L=1024 B=1     m=4000  inner=4      min=     2.303 us/xform  median=     2.304  sd=  0.07%     22.24 GF/s  setup=0.001 s
+d1_pow2                  L=1024 B=1     m=4000  inner=4      min=     2.014 us/xform  median=     2.019  sd=  0.12%     25.42 GF/s  setup=0.001 s
+d1_pow2                  L=1024 B=1     m=4000  inner=4      min=     2.280 us/xform  median=     2.281  sd=  0.07%     22.46 GF/s  setup=0.001 s
+d1_pow2                  L=1024 B=1     m=2     inner=392    min=     2.457 us/xform  median=     2.457  sd=  0.00%     20.84 GF/s  setup=0.001 s
+   skip d1_prime L=1024 B=1 m=4000 (already measured)
+d1_race                  L=1024 B=1     m=4000  inner=4      min=     2.275 us/xform  median=     2.276  sd=  0.08%     22.51 GF/s  setup=0.252 s
+d1_race                  L=1024 B=1     m=4000  inner=4      min=     2.302 us/xform  median=     2.304  sd=  0.04%     22.24 GF/s  setup=0.013 s
+d1_race                  L=1024 B=1     m=4000  inner=4      min=     2.319 us/xform  median=     2.319  sd=  0.06%     22.08 GF/s  setup=0.012 s
+d1_race                  L=1024 B=1     m=2     inner=384    min=     2.484 us/xform  median=     2.484  sd=  0.00%     20.61 GF/s  setup=0.007 s
+   skip d1_rader L=1024 B=1 m=4000 (already measured)
+d1_twiddle               L=1024 B=1     m=4000  inner=2      min=     2.587 us/xform  median=     2.588  sd=  0.03%     19.79 GF/s  setup=0.000 s
+d1_twiddle               L=1024 B=1     m=4000  inner=2      min=     2.596 us/xform  median=     2.599  sd=  0.06%     19.73 GF/s  setup=0.000 s
+d1_twiddle               L=1024 B=1     m=4000  inner=2      min=     2.599 us/xform  median=     2.601  sd=  0.05%     19.70 GF/s  setup=0.000 s
+d1_twiddle               L=1024 B=1     m=2     inner=276    min=     2.873 us/xform  median=     2.873  sd=  0.00%     17.82 GF/s  setup=0.000 s
+   skip fftw1d_custom L=1024 B=1 m=4000 (already measured)
+   skip fftw1d_custom_soa L=1024 B=1 m=4000 (already measured)
+fftw1d_estimate          L=1024 B=1     m=4000  inner=1      min=     5.045 us/xform  median=     5.048  sd=  0.04%     10.15 GF/s  setup=0.001 s
+fftw1d_estimate          L=1024 B=1     m=4000  inner=1      min=     5.044 us/xform  median=     5.048  sd=  0.04%     10.15 GF/s  setup=0.001 s
+fftw1d_estimate          L=1024 B=1     m=4000  inner=2      min=     4.449 us/xform  median=     4.452  sd=  0.03%     11.51 GF/s  setup=0.001 s
+fftw1d_estimate          L=1024 B=1     m=2     inner=126    min=     4.908 us/xform  median=     4.908  sd=  0.00%     10.43 GF/s  setup=0.001 s
+fftw1d_measure           L=1024 B=1     m=4000  inner=2      min=     4.826 us/xform  median=     4.829  sd=  0.02%     10.61 GF/s  setup=0.117 s
+fftw1d_measure           L=1024 B=1     m=4000  inner=2      min=     4.834 us/xform  median=     4.835  sd=  0.02%     10.59 GF/s  setup=0.118 s
+fftw1d_measure           L=1024 B=1     m=4000  inner=2      min=     4.826 us/xform  median=     4.828  sd=  0.02%     10.61 GF/s  setup=0.117 s
+fftw1d_measure           L=1024 B=1     m=2     inner=190    min=     5.000 us/xform  median=     5.000  sd=  0.00%     10.24 GF/s  setup=0.117 s
+fftw1d_patient           L=1024 B=1     m=4000  inner=2      min=     4.888 us/xform  median=     4.889  sd=  0.02%     10.47 GF/s  setup=0.812 s
+fftw1d_patient           L=1024 B=1     m=4000  inner=2      min=     4.286 us/xform  median=     4.287  sd=  0.01%     11.95 GF/s  setup=0.798 s
+fftw1d_patient           L=1024 B=1     m=4000  inner=2      min=     4.828 us/xform  median=     4.830  sd=  0.03%     10.61 GF/s  setup=0.811 s
+fftw1d_patient           L=1024 B=1     m=2     inner=190    min=     5.039 us/xform  median=     5.039  sd=  0.00%     10.16 GF/s  setup=0.812 s
+mkl1d_dfti               L=1024 B=1     m=4000  inner=2      min=     4.772 us/xform  median=     4.773  sd=  0.04%     10.73 GF/s  setup=0.002 s
+mkl1d_dfti               L=1024 B=1     m=4000  inner=2      min=     4.741 us/xform  median=     4.742  sd=  0.01%     10.80 GF/s  setup=0.002 s
+mkl1d_dfti               L=1024 B=1     m=4000  inner=2      min=     4.166 us/xform  median=     4.741  sd=  3.53%     12.29 GF/s  setup=0.002 s
+mkl1d_dfti               L=1024 B=1     m=2     inner=202    min=     4.536 us/xform  median=     4.536  sd=  0.00%     11.29 GF/s  setup=0.001 s
